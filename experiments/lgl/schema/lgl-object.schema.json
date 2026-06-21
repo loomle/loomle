@@ -106,8 +106,14 @@
       "required": ["target", "value"],
       "properties": {
         "target": { "$ref": "#/$defs/BindingTarget" },
-        "value": { "$ref": "#/$defs/Expr" }
+        "value": { "$ref": "#/$defs/BindingValue" }
       }
+    },
+    "BindingValue": {
+      "oneOf": [
+        { "$ref": "#/$defs/Expr" },
+        { "$ref": "#/$defs/NodeCreation" }
+      ]
     },
     "Expr": {
       "oneOf": [
@@ -154,6 +160,34 @@
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/Expr" }
         }
+      }
+    },
+    "NodeCreation": {
+      "oneOf": [
+        { "$ref": "#/$defs/PaletteNodeCreation" },
+        { "$ref": "#/$defs/ShortcutNodeCreation" }
+      ]
+    },
+    "PaletteNodeCreation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "palette"],
+      "properties": {
+        "kind": { "const": "palette_node" },
+        "palette": { "type": "string", "minLength": 1 },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Expr" }
+        }
+      }
+    },
+    "ShortcutNodeCreation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "constructor"],
+      "properties": {
+        "kind": { "const": "shortcut_node" },
+        "constructor": { "$ref": "#/$defs/Call" }
       }
     },
     "Point": {

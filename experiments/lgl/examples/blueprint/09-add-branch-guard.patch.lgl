@@ -3,11 +3,8 @@ bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
 g = graph(domain: blueprint, asset: bp, graph: EventGraph)
 patch g
 
-Branch = palette(id: "palette:blueprint:schema:/Script/BlueprintGraph.K2Node_IfThenElse")
-GetVariable = palette(id: "palette:blueprint:variable:/Game/BP_LGLExample.DoorIsUsable")
-
-branch = node(graph: g, type: Branch)
-isUsable = node(graph: g, type: GetVariable)
+branch = branch()
+isUsable = get(variable: DoorIsUsable)
 add isUsable
 insert input.Pressed -> branch.Exec/True -> openDoor.Exec
 connect isUsable.Value -> branch.Condition

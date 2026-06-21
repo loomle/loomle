@@ -50,6 +50,8 @@ export type Condition =
   | OrCondition;
 export type Detail = "pins" | "defaults";
 export type BindingTarget = LocalRef | MemberRef;
+export type BindingValue = Expr | NodeCreation;
+export type NodeCreation = PaletteNodeCreation | ShortcutNodeCreation;
 export type GraphPatchOp =
   | Set
   | Add
@@ -222,7 +224,18 @@ export interface Patch {
 }
 export interface Binding {
   target: BindingTarget;
-  value: Expr;
+  value: BindingValue;
+}
+export interface PaletteNodeCreation {
+  kind: "palette_node";
+  palette: string;
+  defaults?: {
+    [k: string]: Expr;
+  };
+}
+export interface ShortcutNodeCreation {
+  kind: "shortcut_node";
+  constructor: Call;
 }
 export interface Set {
   kind: "set";

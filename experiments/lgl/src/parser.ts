@@ -1,5 +1,6 @@
 import type {
   Binding,
+  BindingValue,
   Call,
   Condition,
   CreationEntry,
@@ -10,6 +11,7 @@ import type {
   Graph,
   LglObject,
   Node,
+  NodeCreation,
   ObjectResult,
   Op,
   Patch,
@@ -266,14 +268,14 @@ function parsePatch(lines: ParsedLine[], patchIndex: number, context: ParseConte
   for (const line of lines.slice(patchIndex + 1)) {
     const addBinding = tryParseAddBinding(line);
     if (addBinding) {
-      patch.bindings.push(addBinding.binding);
+      patch.bindings.push(normalizePatchBinding(addBinding.binding, line));
       patch.ops.push({ kind: "add", binding: addBinding.name });
       continue;
     }
 
     const binding = tryParseBinding(line);
     if (binding) {
-      patch.bindings.push(binding);
+      patch.bindings.push(normalizePatchBinding(binding, line));
       continue;
     }
 
@@ -292,18 +294,18 @@ function tryParseCreationResult(lines: ParsedLine[], context: ParseContext): Lgl
     if (!binding || binding.target.kind !== "local" || !isCall(binding.value)) {
       continue;
     }
-    if (binding.value.callee === "palette") {
-      const id = binding.value.args.id;
-      if (typeof id !== "string") {
-        throw new ParseError("invalid_palette_binding", "palette(...) requires id: string.", spanForLine(line));
-      }
-      const label = binding.value.args.label;
-      const category = binding.value.args.category;
+    if (binding.value.callee === "node" && typeof binding.value.args.palette === "string") {
+      const palette = binding.value.args.palette;
       entries.push({
         name: binding.target.name,
-        palette: { kind: "palette", id },
-        ...(typeof label === "string" ? { label } : {}),
-        ...(typeof category === "string" ? { category } : {}),
+        palette: { kind: "palette", id: palette },
+      });
+      continue;
+    }
+    if (isShortcutCall(binding.value)) {
+      entries.push({
+        name: binding.target.name,
+        constructor: binding.value,
       });
     }
   }
@@ -316,6 +318,48 @@ function tryParseCreationResult(lines: ParsedLine[], context: ParseContext): Lgl
     throw new ParseError("missing_graph_binding", "Creation result text requires a graph binding.", spanForLine(lines[0]));
   }
   return { kind: "creation_result", target, entries };
+}
+
+function normalizePatchBinding(binding: Binding, line: ParsedLine): Binding {
+  if (binding.target.kind !== "local" || !isCall(binding.value)) {
+    return binding;
+  }
+
+  return {
+    ...binding,
+    value: normalizeCreationCall(binding.value, line) ?? binding.value,
+  };
+}
+
+function normalizeCreationCall(call: Call, line: ParsedLine): NodeCreation | undefined {
+  if (call.callee === "node") {
+    const { palette, ...defaults } = call.args;
+    if (typeof palette !== "string") {
+      return undefined;
+    }
+    return {
+      kind: "palette_node",
+      palette,
+      ...(Object.keys(defaults).length > 0 ? { defaults } : {}),
+    };
+  }
+
+  if (isShortcutCall(call)) {
+    return {
+      kind: "shortcut_node",
+      constructor: call,
+    };
+  }
+
+  if (call.callee === "palette") {
+    throw new ParseError("unsupported_palette_binding", "Use node(palette: \"...\") for palette-id node creation.", spanForLine(line));
+  }
+
+  return undefined;
+}
+
+function isShortcutCall(call: Call): boolean {
+  return !["asset", "graph", "node", "pin", "palette"].includes(call.callee);
 }
 
 function nodeFromBinding(binding: Binding, line: ParsedLine): Node {
@@ -854,7 +898,7 @@ function findTopLevel(text: string, token: string): number {
   return -1;
 }
 
-function isCall(value: Expr | undefined): value is Call {
+function isCall(value: BindingValue | Expr | undefined): value is Call {
   return typeof value === "object" && value !== null && !Array.isArray(value) && value.kind === "call";
 }
 

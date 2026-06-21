@@ -46,7 +46,7 @@ find palette entry "Print String"
     name: "palette print string",
     text: `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
 g = graph(domain: blueprint, asset: bp, graph: EventGraph)
-PrintString = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString", label: "Print String", category: "Utilities/String")
+PrintString = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString")
 `,
   },
   {
@@ -55,9 +55,7 @@ PrintString = palette(id: "palette:blueprint:function:/Script/Engine.KismetSyste
 g = graph(domain: blueprint, asset: bp, graph: EventGraph)
 patch g dry run
 
-Delay = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
-
-delay = node(graph: g, type: Delay, Duration: 1.0)
+delay = delay(duration: 1.0)
 insert begin.Then -> delay.Exec/Completed -> print.Exec
 move delay to (320, 0)
 `,
@@ -68,7 +66,7 @@ move delay to (320, 0)
 g = graph(domain: blueprint, asset: bp, graph: EventGraph)
 patch g
 
-print = node(graph: g, type: PrintString, InString: "Ready")
+print = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString", InString: "Ready")
 add print begin.Then -> print.Exec
 `,
   },

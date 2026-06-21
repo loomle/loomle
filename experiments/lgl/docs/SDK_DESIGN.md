@@ -277,8 +277,8 @@ The shared `Diagnostic` model is defined in
 
 Examples:
 
-- `unbound_palette_binding`: add a `Name = palette(id: "entry-id")`
-  binding from a palette query result.
+- `unknown_palette_id`: use a `Name = node(palette: "entry-id")`
+  creation template from a palette query result.
 - `ambiguous_palette_query`: refine the `find palette entry` query before patching.
 - `unknown_pin`: query the graph node or creation entry with pins:
 

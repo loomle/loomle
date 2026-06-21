@@ -13,34 +13,16 @@
     {
       "target": {
         "kind": "local",
-        "name": "Delay"
-      },
-      "value": {
-        "kind": "call",
-        "callee": "palette",
-        "args": {
-          "id": "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay"
-        }
-      }
-    },
-    {
-      "target": {
-        "kind": "local",
         "name": "delay"
       },
       "value": {
-        "kind": "call",
-        "callee": "node",
-        "args": {
-          "graph": {
-            "kind": "local",
-            "name": "g"
-          },
-          "type": {
-            "kind": "name",
-            "name": "Delay"
-          },
-          "Duration": 1
+        "kind": "shortcut_node",
+        "constructor": {
+          "kind": "call",
+          "callee": "delay",
+          "args": {
+            "duration": 1
+          }
         }
       }
     }

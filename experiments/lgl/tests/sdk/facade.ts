@@ -13,9 +13,7 @@ const patchText = `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
 g = graph(domain: blueprint, asset: bp, graph: EventGraph)
 patch g dry run
 
-Delay = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
-
-delay = node(graph: g, type: Delay, Duration: 1.0)
+delay = delay(duration: 1.0)
 insert begin.Then -> delay.Exec/Completed -> print.Exec
 `;
 

@@ -1,5 +1,6 @@
 import type {
   Binding,
+  BindingValue,
   Call,
   Condition,
   CreationEntry,
@@ -9,6 +10,7 @@ import type {
   Graph,
   LglObject,
   Node,
+  NodeCreation,
   Op,
   Patch,
   Pin,
@@ -89,13 +91,7 @@ function formatCreationResult(target: Target, entries: CreationEntry[]): string 
   const lines = [...formatTargetBindings(target), ""];
   for (const entry of entries) {
     if ("palette" in entry) {
-      lines.push(
-        `${entry.name} = palette(${formatArgList({
-          id: entry.palette.id,
-          ...(entry.label ? { label: entry.label } : {}),
-          ...(entry.category ? { category: entry.category } : {}),
-        })})`,
-      );
+      lines.push(`${entry.name} = node(palette: ${JSON.stringify(entry.palette.id)})`);
     } else {
       lines.push(`${entry.name} = ${formatCall(entry.constructor)}`);
     }
@@ -205,7 +201,7 @@ function formatFieldPath(path: string[]): string {
 }
 
 function formatBinding(binding: Binding): string {
-  return `${formatBindingTarget(binding.target)} = ${formatExpr(binding.value)}`;
+  return `${formatBindingTarget(binding.target)} = ${formatBindingValue(binding.value)}`;
 }
 
 function formatBindingTarget(target: Binding["target"]): string {
@@ -245,6 +241,27 @@ function formatOp(op: Op): string {
       return `reconstruct ${op.node}${op.preserveLinks ? " preserve links" : ""}`;
     default:
       return assertNever(op);
+  }
+}
+
+function formatBindingValue(value: BindingValue): string {
+  if (isNodeCreation(value)) {
+    return formatNodeCreation(value);
+  }
+  return formatExpr(value);
+}
+
+function formatNodeCreation(creation: NodeCreation): string {
+  switch (creation.kind) {
+    case "palette_node":
+      return `node(${formatArgList({
+        palette: creation.palette,
+        ...(creation.defaults ?? {}),
+      })})`;
+    case "shortcut_node":
+      return formatCall(creation.constructor);
+    default:
+      return assertNever(creation);
   }
 }
 
@@ -319,6 +336,15 @@ function trimTrailingBlankLines(lines: string[]): string[] {
 
 function isCall(value: Expr): value is Call {
   return typeof value === "object" && value !== null && !Array.isArray(value) && value.kind === "call";
+}
+
+function isNodeCreation(value: BindingValue): value is NodeCreation {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value.kind === "palette_node" || value.kind === "shortcut_node")
+  );
 }
 
 function isRef(value: Expr): value is Ref {

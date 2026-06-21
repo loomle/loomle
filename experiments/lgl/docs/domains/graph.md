@@ -304,8 +304,7 @@ Graph patch is a statement list:
 ```lgl
 patch g dry run
 
-DelaySource = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
-delay = node(graph: g, source: DelaySource, Duration: 1.0)
+delay = delay(duration: 1.0)
 health = get(variable: Health)
 overlap = event(component: Trigger, event: OnComponentBeginOverlap)
 
@@ -609,8 +608,8 @@ Use a shortcut constructor when all of these are true:
 4. The agent does not need to choose among multiple Action Menu entries.
 
 When a shortcut constructor exists, `find palette entry` should return that
-constructor binding instead of forcing an agent-visible `palette(id: ...)`
-entry. Palette ids remain the fallback form for unmodeled UE Action Menu items.
+constructor binding instead of forcing palette-id creation. Palette ids remain
+the fallback form for unmodeled UE Action Menu items.
 
 Use palette fallback when any of these are true:
 
@@ -742,7 +741,29 @@ type CreationRef =
   | { kind: "path"; path: string };
 ```
 
-Creation bindings should normalize by creation kind:
+Creation bindings should normalize by creation kind. There are exactly two
+agent-facing creation forms:
+
+```lgl
+# Palette-id fallback.
+print = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString", InString: "Ready")
+
+# Semantic shortcut.
+delay = delay(duration: 1.0)
+```
+
+Existing node readback is separate and uses `type` plus graph identity:
+
+```lgl
+print = node(graph: g, type: PrintString, id: "A003", InString: "Ready")
+```
+
+`type` and `palette` are mutually exclusive. `type` describes an existing node.
+`palette` requests creation through a stable UE palette/action id. Shortcut
+constructors request modeled semantic creation. Creation bindings do not need a
+`graph` argument because `patch g` and `add` define the graph context.
+
+Normalized JSON preserves creation kind:
 
 ```ts
 type NodeCreation =
@@ -759,7 +780,7 @@ type NodeCreation =
   | { kind: "reroute" }
   | { kind: "comment"; text: string; size?: Point }
   | { kind: "self" }
-  | { kind: "palette_node"; source: string; defaults?: Record<string, Value> };
+  | { kind: "palette_node"; palette: string; defaults?: Record<string, Expr> };
 ```
 
 Examples:
@@ -812,11 +833,10 @@ print = call(function: "/Script/Engine.KismetSystemLibrary.PrintString", InStrin
 ]
 ```
 
-Palette fallback remains explicit:
+Palette fallback remains explicit and uses the palette id directly:
 
 ```lgl
-DelaySource = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
-delay = node(graph: g, source: DelaySource, Duration: 1.0)
+delay = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay", Duration: 1.0)
 ```
 
 ```json
@@ -824,7 +844,7 @@ delay = node(graph: g, source: DelaySource, Duration: 1.0)
   "alias": "delay",
   "creation": {
     "kind": "palette_node",
-    "source": "DelaySource",
+    "palette": "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay",
     "defaults": {
       "Duration": 1.0
     }
@@ -836,25 +856,6 @@ This separation keeps schema validation and error feedback specific. For
 example, `variable_get` can return `VARIABLE_NOT_FOUND`, while `palette_node`
 can return `PALETTE_ENTRY_NOT_FOUND` or `PALETTE_ENTRY_NOT_EXECUTABLE`.
 
-### Palette Sources
-
-Palette is the shared LGL mechanism for discovery and exact fallback creation.
-It is not graph-only, but graph patches may consume palette bindings when a
-node does not have a stable shortcut constructor or when the agent intentionally
-wants the exact UE Action Menu choice.
-
-```lgl
-PrintStringSource = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString")
-DelaySource = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
-```
-
-Palette creation must resolve through palette ids, not display names or
-inferred types. Shortcut constructors do not require palette ids.
-
-Palette results are also useful as discovery data. An agent may query palette
-to learn what UE can create in the current graph context. If the desired action
-maps to a shortcut constructor, the result should be that constructor binding.
-
 ### Palette Entry Details
 
 `find palette entry` is the single creation-entry query. It searches both
@@ -863,7 +864,8 @@ must be a binding that can be copied into a patch:
 
 - modeled shortcut entries return their constructor binding, such as
   `Delay = delay(duration: value)`
-- fallback entries return a `palette(id: "...")` binding
+- fallback entries return a palette-id node creation binding, such as
+  `PrintString = node(palette: "...")`
 
 Default palette results should stay lightweight, but `with pins` and
 `with defaults` may request details for the node that a returned entry would
@@ -942,11 +944,7 @@ Recommended fallback sequence when an entry is not found:
 Possible fallback text result:
 
 ```lgl
-PrintString = palette(
-  id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString",
-  label: "Print String",
-  nodeType: K2Node_CallFunction
-)
+PrintString = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString")
 
 PrintString.Exec = pin(type: exec, direction: in)
 PrintString.InString = pin(type: string, direction: in, value: "Ready")
@@ -982,29 +980,29 @@ type CreationEntry =
   | PaletteCreationEntry;
 
 interface ShortcutCreationEntry {
-  kind: "shortcut";
   name: string;
-  creation: NodeCreation;
+  constructor: Call;
   label?: string;
   pins?: Pin[];
-  defaults?: Record<string, Value>;
+  defaults?: Record<string, Expr>;
 }
 
 interface PaletteCreationEntry {
-  kind: "palette";
   name: string;
-  id: string;
+  palette: {
+    kind: "palette";
+    id: string;
+  };
   label?: string;
   category?: string;
-  nodeType?: string;
   pins?: Pin[];
-  defaults?: Record<string, Value>;
+  defaults?: Record<string, Expr>;
 }
 ```
 
 Palette entry query results format these entries as copyable object text. A
 modeled shortcut entry formats as its constructor binding. A fallback entry
-formats as `Name = palette(id: "...")`. Pin details format as `Name.Pin =
+formats as `Name = node(palette: "...")`. Pin details format as `Name.Pin =
 pin(...)` lines when `with pins` is requested.
 
 Palette entry details let fallback creation remain one-shot:
@@ -1027,7 +1025,7 @@ Node object text and node creation use different fields:
 | --- | --- | --- |
 | Object Text | `type` | `node(graph: g, type: Delay, id: "A002")` |
 | Shortcut creation | constructor | `get(variable: Health)` |
-| Palette fallback creation | `source` | `node(graph: g, source: DelaySource, Duration: 1.0)` |
+| Palette fallback creation | `palette` | `node(palette: "palette-id", Duration: 1.0)` |
 
 Shortcut creation text:
 
@@ -1040,8 +1038,7 @@ add overlap = event(component: Trigger, event: OnComponentBeginOverlap)
 Palette fallback creation text:
 
 ```lgl
-DelaySource = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
-delay = node(graph: g, source: DelaySource, Duration: 1.0)
+delay = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay", Duration: 1.0)
 add delay
 ```
 
@@ -1051,27 +1048,16 @@ Do not create from ambiguous positional forms:
 delay = node(g, Delay, Duration: 1.0)
 ```
 
-The adapter must resolve `source: DelaySource` to a `palette(id: "...")`
-binding before creating the node.
+The adapter must resolve `palette: "..."` as a stable UE palette/action id.
 
 The adapter must resolve shortcut constructors through the relevant UE owner:
 variables and dispatchers through Blueprint member/property metadata,
 component-bound events through component properties and multicast delegate
 properties, and function calls through UE function metadata.
 
-Normalized JSON for fallback source refs:
-
-```ts
-interface PaletteSourceRef {
-  kind: "palette_source";
-  binding: string;
-}
-```
-
-`node(graph: g, source: DelaySource, Duration: 1.0)` lowers to a
-`palette_node` creation with `source: "DelaySource"` and `defaults` containing
-the remaining named arguments. The adapter resolves the binding to a
-`PaletteCreationEntry`.
+`node(palette: "...", Duration: 1.0)` lowers to a `palette_node` creation with
+`palette: "..."` and `defaults` containing the remaining named arguments. The
+adapter executes the palette id in the patch graph context.
 
 ## Normalized JSON
 

@@ -10,4 +10,4 @@ find palette entry "Print String"
 bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
 g = graph(domain: blueprint, asset: bp, graph: EventGraph)
 
-PrintString = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString", label: "Print String", category: "Utilities/String")
+PrintString = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString")

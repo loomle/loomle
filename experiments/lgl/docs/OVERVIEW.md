@@ -76,7 +76,7 @@ execution resolves and validates the whole patch before applying mutations.
 ## Palette
 
 Palette is not a top-level text kind. It is the shared mechanism for discovering
-stable creation entries and binding them for later patch use.
+stable creation entries that can be copied into patch text.
 
 Agents should not create new UE content by guessing display names, node classes,
 or editor menu text. A domain can expose a palette query that returns copyable
@@ -87,22 +87,22 @@ query g
 find palette entry "Print String"
 with pins
 
-PrintString = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString")
+PrintString = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString")
 PrintString.Exec = pin(type: exec, direction: in)
 PrintString.InString = pin(type: string, direction: in)
 PrintString.Then = pin(type: exec, direction: out)
 ```
 
-Patch text can then consume the stable binding:
+Patch text can then use the stable palette id directly:
 
 ```lgl
 patch g
-print = node(graph: g, source: PrintString, InString: "Ready")
+print = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString", InString: "Ready")
 add print
 ```
 
 Domains may also define shortcut constructors for stable common creation intents.
-Shortcut constructors and palette bindings are both creation-entry mechanisms:
+Shortcut constructors and palette ids are both creation-entry mechanisms:
 constructors are compact modeled forms, while palette ids are the explicit
 fallback for unmodeled, plugin-defined, or otherwise editor-discovered entries.
 

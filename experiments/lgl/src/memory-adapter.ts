@@ -7,6 +7,7 @@ import type {
   Expr,
   Graph,
   Node,
+  NodeCreation,
   ObjectResult,
   Op,
   Patch,
@@ -333,7 +334,15 @@ function walkPathAliasesTo(graph: Graph, to: PinRef): string[] {
 
 function nodeFromBinding(alias: string, bindings: Map<string, Binding>): Node | undefined {
   const binding = bindings.get(alias);
-  if (!binding || !isCall(binding.value)) {
+  if (!binding) {
+    return undefined;
+  }
+
+  if (isNodeCreation(binding.value)) {
+    return nodeFromCreation(alias, binding.value);
+  }
+
+  if (!isCall(binding.value)) {
     return undefined;
   }
 
@@ -358,6 +367,30 @@ function nodeFromBinding(alias: string, bindings: Map<string, Binding>): Node | 
     type: binding.value.callee,
     fields: structuredClone(binding.value.args),
   };
+}
+
+function nodeFromCreation(alias: string, creation: NodeCreation): Node {
+  switch (creation.kind) {
+    case "palette_node":
+      return {
+        alias,
+        type: typeFromPaletteId(creation.palette),
+        fields: structuredClone(creation.defaults ?? {}),
+      };
+    case "shortcut_node":
+      return {
+        alias,
+        type: creation.constructor.callee,
+        fields: structuredClone(creation.constructor.args),
+      };
+    default:
+      return assertNever(creation);
+  }
+}
+
+function typeFromPaletteId(palette: string): string {
+  const tail = palette.split(/[.:/]/).filter(Boolean).at(-1);
+  return tail ?? "PaletteNode";
 }
 
 function pointFromValue(value: Value[]): [number, number] | undefined {
@@ -400,6 +433,15 @@ function diagnostic(code: string, message: string): ObjectResult["diagnostics"][
 
 function isCall(value: Binding["value"]): value is Call {
   return typeof value === "object" && value !== null && !Array.isArray(value) && value.kind === "call";
+}
+
+function isNodeCreation(value: Binding["value"]): value is NodeCreation {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value.kind === "palette_node" || value.kind === "shortcut_node")
+  );
 }
 
 function isName(value: Expr | undefined): value is { kind: "name"; name: string } {

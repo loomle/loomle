@@ -72,14 +72,12 @@ console.log("[PASS] memory adapter filters nodes and pins");
 const dryRunPatch = await lgl.patch(`${graphHeader}
 patch g dry run
 
-Delay = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
-
-delay = node(graph: g, type: Delay, Duration: 1.0)
+delay = delay(duration: 1.0)
 insert begin.Then -> delay.Exec/Completed -> print.Exec
 move delay to (320, 0)
 `);
 assert.equal(dryRunPatch.diagnostics.length, 0);
-assert.match(dryRunPatch.text ?? "", /delay = node\(graph: g, type: Delay/);
+assert.match(dryRunPatch.text ?? "", /delay = node\(graph: g, type: delay/);
 assert.match(dryRunPatch.text ?? "", /begin.Then -> delay.Exec/);
 assert.match(dryRunPatch.text ?? "", /delay.Completed -> print.Exec/);
 
@@ -91,9 +89,7 @@ console.log("[PASS] memory adapter dry run computes without mutating");
 const applyPatch = await lgl.patch(`${graphHeader}
 patch g
 
-Delay = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
-
-delay = node(graph: g, type: Delay, Duration: 1.0)
+delay = delay(duration: 1.0)
 insert begin.Then -> delay.Exec/Completed -> print.Exec
 move delay to (320, 0)
 `);
@@ -135,7 +131,7 @@ console.log("[PASS] memory adapter query observes applied patch");
 const addConnectPatch = await lgl.patch(`${graphHeader}
 patch g
 
-print2 = node(graph: g, type: PrintString, InString: "Added")
+print2 = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString", InString: "Added")
 add print2 delay.Completed -> print2.Exec
 `);
 assert.equal(addConnectPatch.diagnostics.length, 0);
