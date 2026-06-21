@@ -62,6 +62,16 @@ insert begin.Then -> delay.Exec/Completed -> print.Exec
 move delay to (320, 0)
 `,
   },
+  {
+    name: "patch add and connect",
+    text: `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+patch g
+
+print = node(graph: g, type: PrintString, InString: "Ready")
+add print begin.Then -> print.Exec
+`,
+  },
 ];
 
 let failed = false;

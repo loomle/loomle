@@ -469,9 +469,16 @@ function parseOps(line: ParsedLine): Op[] {
     return [{ kind: "remove", node: match[1] }];
   }
 
-  match = /^add\s+([A-Za-z_][A-Za-z0-9_]*)$/.exec(line.text);
+  match = /^add\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+(.+->.+))?$/.exec(line.text);
   if (match) {
-    return [{ kind: "add", binding: match[1] }];
+    if (!match[2]) {
+      return [{ kind: "add", binding: match[1] }];
+    }
+    const edges = edgesFromChain(parsePinChain(match[2], line));
+    if (edges.length !== 1) {
+      throw new ParseError("invalid_add_connect", "Add connect form must describe exactly one edge.", spanForLine(line));
+    }
+    return [{ kind: "add", binding: match[1], connect: edges[0] }];
   }
 
   match = /^set\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/.exec(line.text);

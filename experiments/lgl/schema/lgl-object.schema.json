@@ -472,7 +472,8 @@
       "required": ["kind", "binding"],
       "properties": {
         "kind": { "const": "add" },
-        "binding": { "type": "string", "minLength": 1 }
+        "binding": { "type": "string", "minLength": 1 },
+        "connect": { "$ref": "#/$defs/Edge" }
       }
     },
     "Insert": {

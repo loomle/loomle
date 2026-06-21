@@ -70,7 +70,7 @@ Graph refs may be names or stable ids:
 
 ```lgl
 g = graph(domain: blueprint, asset: bp, graph: EventGraph)
-gById = graph(domain: blueprint, asset: bp, graph: id("graph-id"))
+gById = graph(domain: blueprint, asset: bp, graph: id(id: "graph-id"))
 ```
 
 `query g` and `patch g` normalize by resolving the local graph binding into
@@ -94,7 +94,7 @@ interface Node {
   alias: string;
   id?: string;
   type: string;
-  fields: Record<string, Value>;
+  fields: Record<string, Expr>;
   at?: Point;
   size?: Point;
 }
@@ -121,7 +121,7 @@ interface Pin {
   name: string;
   type: string;
   direction: "in" | "out";
-  value?: Value;
+  value?: Expr;
   anchor?: Point;
 }
 ```
@@ -286,8 +286,10 @@ interface FindPath {
 interface FindPaletteEntry {
   kind: "palette_entry";
   text?: string;
-  direction?: "from" | "to";
-  pin?: PinRef;
+  pinContext?: {
+    direction: "from" | "to";
+    pin: PinRef;
+  };
 }
 ```
 
@@ -310,7 +312,7 @@ overlap = event(component: Trigger, event: OnComponentBeginOverlap)
 add delay
 add health
 add overlap
-add delay: begin.Then -> delay.Exec
+add delay begin.Then -> delay.Exec
 insert begin.Then -> delay.Exec/Completed -> print.Exec
 set print.InString = "Game Started"
 move print to (640, 0)
@@ -323,7 +325,7 @@ Patch operations:
 | Set field | `set target = value` | same |
 | Add binding | `add name` | same |
 | Add binding inline | `add name = node(...)` | `name = node(...)` then `add name` |
-| Add and connect | `add name: pin -> pin` | `add(name, connect: edge)` |
+| Add and connect | `add name pin -> pin` | `add(name, connect: edge)` |
 | Connect pins | `connect pin -> pin` | `connect(pin, pin)` |
 | Disconnect edge | `disconnect pin -> pin` | `disconnect(pin, pin)` |
 | Disconnect pin | `disconnect pin` | same |
@@ -380,11 +382,11 @@ interface Connect {
 
 ### Add And Connect
 
-`add name: pin -> pin` creates one binding and one immediate edge. It is sugar
+`add name pin -> pin` creates one binding and one immediate edge. It is sugar
 for `add name` plus one `connect` edge:
 
 ```lgl
-add delay: begin.Then -> delay.Exec
+add delay begin.Then -> delay.Exec
 ```
 
 Canonical:
@@ -398,7 +400,7 @@ Normalized JSON:
 ```ts
 interface Add {
   kind: "add";
-  node: string;
+  binding: string;
   connect?: Edge;
 }
 ```

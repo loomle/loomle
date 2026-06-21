@@ -131,3 +131,25 @@ assert.equal(pathQuery.diagnostics.length, 0);
 assert.match(pathQuery.text ?? "", /begin = node/);
 assert.match(pathQuery.text ?? "", /delay = node/);
 console.log("[PASS] memory adapter query observes applied patch");
+
+const addConnectPatch = await lgl.patch(`${graphHeader}
+patch g
+
+print2 = node(graph: g, type: PrintString, InString: "Added")
+add print2 delay.Completed -> print2.Exec
+`);
+assert.equal(addConnectPatch.diagnostics.length, 0);
+
+const afterAddConnect = adapter.getGraph(graph.target);
+assert.equal(afterAddConnect?.nodes.some((node) => node.alias === "print2"), true);
+assert.equal(
+  afterAddConnect?.edges.some(
+    (edge) =>
+      edge.from.node === "delay" &&
+      edge.from.pin === "Completed" &&
+      edge.to.node === "print2" &&
+      edge.to.pin === "Exec",
+  ),
+  true,
+);
+console.log("[PASS] memory adapter adds and connects in one op");

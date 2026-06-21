@@ -190,6 +190,9 @@ function applyOp(
         return diagnostic("unknown_node_binding", `No node binding exists for ${op.binding}.`);
       }
       graph.nodes.push(node);
+      if (op.connect && !hasEdge(graph, op.connect)) {
+        graph.edges.push(op.connect);
+      }
       return undefined;
     }
     case "reconstruct":
