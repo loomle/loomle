@@ -152,6 +152,5 @@ language categories.
 - [`notes/graph-migration.md`](notes/graph-migration.md): migration notes for
   remaining graph-domain implementation differences.
 
-Some implementation documents still describe the graph-first experiment. Treat
-them as factual implementation context until the schema and runtime are migrated
-to the current language design.
+Some bridge implementation documents still describe earlier spike plans. Treat
+them as factual UE implementation context, not as the language source of truth.

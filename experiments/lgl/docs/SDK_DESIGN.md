@@ -214,13 +214,13 @@ The machine contract is:
 schema/lgl-object.schema.json
 ```
 
-The current schema covers the graph-first implementation contract. The target
-schema should cover normalized domain JSON, result envelopes, and diagnostics
-for graph, asset, blueprint, widget, and future domains. Accepted fixtures
-should validate representative object, query, patch, palette/creation-entry,
-edge, and diagnostic objects. Rejected fixtures should cover contract
-boundaries such as required fields, closed object shapes, enum values, mutually
-exclusive fields, and reserved discriminators.
+The current schema covers the implemented graph-domain contract plus shared
+result envelopes and diagnostics. As new domains become executable, the schema
+should extend to their normalized JSON objects. Accepted fixtures should
+validate representative object, query, patch, creation-entry, edge, and
+diagnostic objects. Rejected fixtures should cover contract boundaries such as
+required fields, closed object shapes, enum values, mutually exclusive fields,
+and reserved discriminators.
 
 TypeScript object-model types are generated from this schema into
 `src/generated/lgl-object-schema.ts`. Public SDK facade types such as `Lgl`,

@@ -4,10 +4,10 @@ This directory is an experimental TypeScript package for a Loomle Graph Lang
 (LGL) SDK. It is not part of Loomle's public protocol, release package, MCP
 manifest, or Unreal Engine bridge.
 
-The experiment started as a compact graph text format. The next design direction
-is broader: LGL should become a line-oriented, agent-facing object language for
-UE work. Graph remains the first proven module, but asset and widget modules
-should use the same language core instead of inventing separate text formats.
+The experiment started as a compact graph text format. The current design is
+broader: LGL is a line-oriented, agent-facing object language for UE work.
+Graph is the first proven domain; asset, Blueprint, and widget domains should
+use the same language core instead of inventing separate text formats.
 
 The design separates three layers:
 
