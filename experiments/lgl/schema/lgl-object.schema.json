@@ -20,12 +20,27 @@
     "LglObject": {
       "oneOf": [
         { "$ref": "#/$defs/Graph" },
+        { "$ref": "#/$defs/AssetResult" },
         { "$ref": "#/$defs/Query" },
         { "$ref": "#/$defs/Patch" },
         { "$ref": "#/$defs/CreationResult" }
       ]
     },
     "Target": {
+      "oneOf": [
+        { "$ref": "#/$defs/AssetTarget" },
+        { "$ref": "#/$defs/GraphTarget" }
+      ]
+    },
+    "AssetTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain"],
+      "properties": {
+        "domain": { "const": "asset" }
+      }
+    },
+    "GraphTarget": {
       "type": "object",
       "additionalProperties": false,
       "required": ["domain", "asset", "graph"],
@@ -220,7 +235,7 @@
       "required": ["kind", "target", "nodes", "edges"],
       "properties": {
         "kind": { "const": "graph" },
-        "target": { "$ref": "#/$defs/Target" },
+        "target": { "$ref": "#/$defs/GraphTarget" },
         "nodes": {
           "type": "array",
           "items": { "$ref": "#/$defs/Node" }
@@ -264,6 +279,40 @@
         "anchor": { "$ref": "#/$defs/Point" }
       }
     },
+    "AssetResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "assets"],
+      "properties": {
+        "kind": { "const": "asset_result" },
+        "assets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Asset" }
+        }
+      }
+    },
+    "Asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "path"],
+      "properties": {
+        "alias": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "class": { "type": "string", "minLength": 1 },
+        "domains": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "loaded": { "type": "boolean" },
+        "registryTags": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Value" }
+        },
+        "score": { "type": "number" }
+      }
+    },
     "Query": {
       "type": "object",
       "additionalProperties": false,
@@ -271,7 +320,7 @@
       "properties": {
         "kind": { "const": "query" },
         "target": { "$ref": "#/$defs/Target" },
-        "find": { "$ref": "#/$defs/GraphFind" },
+        "find": { "$ref": "#/$defs/Find" },
         "where": { "$ref": "#/$defs/Condition" },
         "with": {
           "type": "array",
@@ -283,6 +332,21 @@
           "items": { "$ref": "#/$defs/OrderBy" }
         },
         "page": { "$ref": "#/$defs/Page" }
+      }
+    },
+    "Find": {
+      "oneOf": [
+        { "$ref": "#/$defs/FindAssets" },
+        { "$ref": "#/$defs/GraphFind" }
+      ]
+    },
+    "FindAssets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "assets" },
+        "text": { "type": "string", "minLength": 1 }
       }
     },
     "GraphFind": {
@@ -331,7 +395,7 @@
       }
     },
     "Detail": {
-      "enum": ["pins", "defaults"]
+      "enum": ["pins", "defaults", "registryTags"]
     },
     "Condition": {
       "oneOf": [
@@ -455,7 +519,7 @@
       "required": ["kind", "target", "dryRun", "bindings", "ops"],
       "properties": {
         "kind": { "const": "patch" },
-        "target": { "$ref": "#/$defs/Target" },
+        "target": { "$ref": "#/$defs/GraphTarget" },
         "dryRun": { "type": "boolean" },
         "bindings": {
           "type": "array",
@@ -597,7 +661,7 @@
       "required": ["kind", "target", "entries"],
       "properties": {
         "kind": { "const": "creation_result" },
-        "target": { "$ref": "#/$defs/Target" },
+        "target": { "$ref": "#/$defs/GraphTarget" },
         "entries": {
           "type": "array",
           "items": { "$ref": "#/$defs/CreationEntry" }

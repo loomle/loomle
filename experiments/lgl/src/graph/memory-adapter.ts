@@ -8,6 +8,7 @@ import type {
   Expr,
   FindPaletteEntry,
   Graph,
+  GraphTarget,
   Node,
   NodeCreation,
   ObjectResult,
@@ -17,9 +18,9 @@ import type {
   PinRef,
   Query,
   Ref,
-  Target,
   Value,
 } from "../index.js";
+import { isGraphTarget } from "../core/target.js";
 
 export interface CreateMemoryGraphAdapterOptions {
   domain: string;
@@ -27,7 +28,7 @@ export interface CreateMemoryGraphAdapterOptions {
 }
 
 export interface MemoryGraphAdapter extends Adapter {
-  getGraph(target: Target): Graph | undefined;
+  getGraph(target: GraphTarget): Graph | undefined;
 }
 
 interface PatchPlanResult extends ObjectResult {
@@ -42,7 +43,7 @@ export function createMemoryGraphAdapter(
     graphs.set(targetKey(graph.target), cloneGraph(graph));
   }
 
-  function resolveGraph(target: Target): Graph | undefined {
+  function resolveGraph(target: GraphTarget): Graph | undefined {
     return graphs.get(targetKey(target));
   }
 
@@ -53,6 +54,9 @@ export function createMemoryGraphAdapter(
       return graph ? cloneGraph(graph) : undefined;
     },
     async query(query) {
+      if (!isGraphTarget(query.target)) {
+        return { diagnostics: [diagnostic("invalid_graph_target", "Graph adapter requires a graph target.")] };
+      }
       const graph = resolveGraph(query.target);
       if (!graph) {
         return graphNotFound(query.target);
@@ -113,6 +117,8 @@ function executeQuery(graph: Graph, query: Query): ObjectResult {
     }
     case "palette_entry":
       return findPaletteEntries(graph, find, query);
+    case "assets":
+      return { diagnostics: [diagnostic("invalid_graph_find", "Graph adapter cannot execute asset queries.")] };
     default:
       return assertNever(find);
   }
@@ -740,12 +746,12 @@ function samePin(left: PinRef, right: PinRef): boolean {
   return left.node === right.node && left.pin === right.pin;
 }
 
-function targetKey(target: Target): string {
+function targetKey(target: GraphTarget): string {
   const graph = target.graph.kind === "id" ? `id:${target.graph.id}` : `name:${target.graph.name}`;
   return `${target.domain}:${target.asset}:${graph}`;
 }
 
-function graphNotFound(target: Target): ObjectResult {
+function graphNotFound(target: GraphTarget): ObjectResult {
   return {
     diagnostics: [
       diagnostic(

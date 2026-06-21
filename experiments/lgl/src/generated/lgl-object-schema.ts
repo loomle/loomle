@@ -20,7 +20,7 @@ export type LGLNormalizedObjectSchema =
   | Name
   | PinRef
   | Edge;
-export type LglObject = Graph | Query | Patch | CreationResult;
+export type LglObject = Graph | AssetResult | Query | Patch | CreationResult;
 export type GraphRef = GraphNameRef | GraphIdRef;
 export type Expr = Value | Ref | Call;
 export type Value =
@@ -39,6 +39,8 @@ export type Ref = LocalRef | MemberRef | IdRef;
  * @maxItems 2
  */
 export type Point = [any, any];
+export type Target = AssetTarget | GraphTarget;
+export type Find = FindAssets | GraphFind;
 export type GraphFind = FindNodes | FindPath | FindPaletteEntry;
 export type Condition =
   | EqCondition
@@ -48,7 +50,7 @@ export type Condition =
   | NotCondition
   | AndCondition
   | OrCondition;
-export type Detail = "pins" | "defaults";
+export type Detail = "pins" | "defaults" | "registryTags";
 export type BindingTarget = LocalRef | MemberRef;
 export type BindingValue = Expr | NodeCreation;
 export type NodeCreation = PaletteNodeCreation | ShortcutNodeCreation;
@@ -67,12 +69,12 @@ export type CreationEntry = ShortcutCreationEntry | PaletteCreationEntry;
 
 export interface Graph {
   kind: "graph";
-  target: Target;
+  target: GraphTarget;
   nodes: Node[];
   edges: Edge[];
   pins?: Pin[];
 }
-export interface Target {
+export interface GraphTarget {
   domain: string;
   asset: string;
   graph: GraphRef;
@@ -135,14 +137,37 @@ export interface Pin {
   value?: Expr;
   anchor?: Point;
 }
+export interface AssetResult {
+  kind: "asset_result";
+  assets: Asset[];
+}
+export interface Asset {
+  alias: string;
+  path: string;
+  type?: string;
+  class?: string;
+  domains?: string[];
+  loaded?: boolean;
+  registryTags?: {
+    [k: string]: Value;
+  };
+  score?: number;
+}
 export interface Query {
   kind: "query";
   target: Target;
-  find?: GraphFind;
+  find?: Find;
   where?: Condition;
   with?: Detail[];
   orderBy?: OrderBy[];
   page?: Page;
+}
+export interface AssetTarget {
+  domain: "asset";
+}
+export interface FindAssets {
+  kind: "assets";
+  text?: string;
 }
 export interface FindNodes {
   kind: "nodes";
@@ -217,7 +242,7 @@ export interface Page {
 }
 export interface Patch {
   kind: "patch";
-  target: Target;
+  target: GraphTarget;
   dryRun: boolean;
   bindings: Binding[];
   ops: GraphPatchOp[];
@@ -294,7 +319,7 @@ export interface Reconstruct {
 }
 export interface CreationResult {
   kind: "creation_result";
-  target: Target;
+  target: GraphTarget;
   entries: CreationEntry[];
 }
 export interface ShortcutCreationEntry {

@@ -6,6 +6,7 @@ import type {
   Expr,
   Find,
   Graph,
+  GraphTarget,
   LglObject,
   Node,
   NodeCreation,
@@ -15,8 +16,8 @@ import type {
   Pin,
   PinRef,
   Query,
-  Target,
 } from "../index.js";
+import { parseAssetQuery, tryParseAssetResult } from "../asset/parser.js";
 import { tryParseBinding } from "../core/binding.js";
 import { parseCondition, parseDetails, parseOrderBy, parsePage } from "../core/condition.js";
 import { isCall, isLocalRef, parseExpr, parsePoint, symbolName } from "../core/expr.js";
@@ -30,7 +31,7 @@ import {
 interface ParseContext {
   bindings: Binding[];
   assets: Map<string, { path: string; type?: string }>;
-  graphs: Map<string, Target>;
+  graphs: Map<string, GraphTarget>;
 }
 
 export function parseLglObject(text: string): ObjectResult {
@@ -48,12 +49,21 @@ export function parseLglObject(text: string): ObjectResult {
       throw new ParseError("mixed_document_kinds", "A document cannot contain both query and patch statements.", spanForLine(lines[Math.min(queryIndex, patchIndex)]));
     }
 
+    if (queryIndex >= 0 && lines[queryIndex].text === "query asset") {
+      return { object: parseAssetQuery(lines, queryIndex), diagnostics: [] };
+    }
+
     if (queryIndex >= 0) {
       return { object: parseQuery(lines, queryIndex, context), diagnostics: [] };
     }
 
     if (patchIndex >= 0) {
       return { object: parsePatch(lines, patchIndex, context), diagnostics: [] };
+    }
+
+    const assetResult = tryParseAssetResult(lines);
+    if (assetResult) {
+      return { object: assetResult, diagnostics: [] };
     }
 
     const creationResult = tryParseCreationResult(lines, context);
@@ -143,7 +153,7 @@ function registerBinding(context: ParseContext, binding: Binding, line: ParsedLi
   }
 }
 
-function graphToRef(expr: Expr | undefined, line: ParsedLine): Target["graph"] {
+function graphToRef(expr: Expr | undefined, line: ParsedLine): GraphTarget["graph"] {
   const name = symbolName(expr);
   if (name) {
     return { kind: "name", name };
@@ -158,7 +168,7 @@ function parseGraph(lines: ParsedLine[], context: ParseContext): Graph {
   const nodes: Node[] = [];
   const pins: Pin[] = [];
   const edges: Edge[] = [];
-  let target: Target | undefined;
+  let target: GraphTarget | undefined;
 
   for (const line of lines) {
     const binding = tryParseBinding(line);
@@ -268,7 +278,7 @@ function parsePatch(lines: ParsedLine[], patchIndex: number, context: ParseConte
 function tryParseCreationResult(lines: ParsedLine[], context: ParseContext): LglObject | undefined {
   const entries: CreationEntry[] = [];
   const pins: Pin[] = [];
-  let target: Target | undefined = firstGraphTarget(context);
+  let target: GraphTarget | undefined = firstGraphTarget(context);
 
   for (const line of lines) {
     const binding = tryParseBinding(line);
@@ -378,7 +388,7 @@ function nodeFromBinding(binding: Binding, line: ParsedLine): Node {
   };
 }
 
-function graphTargetFromNodeCall(call: Call, context: ParseContext, line: ParsedLine): Target {
+function graphTargetFromNodeCall(call: Call, context: ParseContext, line: ParsedLine): GraphTarget {
   const graph = call.args.graph;
   if (!isLocalRef(graph)) {
     throw new ParseError("invalid_node", "node(...) requires graph: graphBinding.", spanForLine(line));
@@ -573,7 +583,7 @@ function parsePinRef(text: string, line: ParsedLine): PinRef {
   return { node: match[1], pin: match[2] };
 }
 
-function resolveGraphTarget(name: string, context: ParseContext, line: ParsedLine): Target {
+function resolveGraphTarget(name: string, context: ParseContext, line: ParsedLine): GraphTarget {
   const target = context.graphs.get(name);
   if (!target) {
     throw new ParseError("unknown_graph_binding", `Unknown graph binding ${name}.`, spanForLine(line));
@@ -581,8 +591,8 @@ function resolveGraphTarget(name: string, context: ParseContext, line: ParsedLin
   return target;
 }
 
-function firstGraphTarget(context: ParseContext): Target | undefined {
-  return context.graphs.values().next().value as Target | undefined;
+function firstGraphTarget(context: ParseContext): GraphTarget | undefined {
+  return context.graphs.values().next().value as GraphTarget | undefined;
 }
 
 function errorResult(code: string, message: string): ObjectResult {

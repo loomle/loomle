@@ -10,7 +10,10 @@ initialized UE process. It should not load assets by default. Search should
 return canonical asset identities and lightweight registry metadata that agents
 can feed into later LGL queries or patches.
 
-This domain is not implemented yet. It records the target domain shape.
+The TypeScript experiment implements the first asset query/readback loop:
+`query asset`, `find assets`, canonical asset result bindings, schema
+validation, formatter roundtrip, and an in-memory asset adapter. UE Asset
+Registry integration remains adapter work.
 
 ## Basic Form
 

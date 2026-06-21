@@ -2,11 +2,12 @@ import type {
   Binding,
   BindingValue,
   CreationEntry,
+  CreationResult,
   Edge,
   Expr,
-  Find,
+  GraphFind,
   Graph,
-  LglObject,
+  GraphTarget,
   Node,
   NodeCreation,
   Op,
@@ -14,7 +15,6 @@ import type {
   Pin,
   PinRef,
   Query,
-  Target,
 } from "../index.js";
 import { formatBindingTarget } from "../core/binding.js";
 import { formatCondition } from "../core/condition.js";
@@ -23,7 +23,9 @@ import { formatArgList, formatCall, formatExpr, localRef, nameValue } from "../c
 const DEFAULT_ASSET_ALIAS = "asset";
 const DEFAULT_GRAPH_ALIAS = "g";
 
-export function formatGraphLglObject(object: LglObject): string {
+type GraphLglObject = Graph | Query | Patch | CreationResult;
+
+export function formatGraphLglObject(object: GraphLglObject): string {
   switch (object.kind) {
     case "graph":
       return formatGraph(object);
@@ -34,7 +36,7 @@ export function formatGraphLglObject(object: LglObject): string {
     case "creation_result":
       return formatCreationResult(object.target, object.entries);
     default:
-      return assertNever(object);
+      throw new Error("Graph formatter received a non-graph object.");
   }
 }
 
@@ -51,9 +53,12 @@ function formatGraph(graph: Graph): string {
 }
 
 function formatQuery(query: Query): string {
+  if (!("graph" in query.target)) {
+    throw new Error("Graph formatter received a non-graph query.");
+  }
   const lines = [...formatTargetBindings(query.target), "", `query ${DEFAULT_GRAPH_ALIAS}`];
   if (query.find) {
-    lines.push(formatFind(query.find));
+    lines.push(formatFind(asGraphFind(query.find)));
   }
   if (query.where) {
     lines.push(`where ${formatCondition(query.where)}`);
@@ -86,7 +91,7 @@ function formatPatch(patch: Patch): string {
   return `${trimTrailingBlankLines(lines).join("\n")}\n`;
 }
 
-function formatCreationResult(target: Target, entries: CreationEntry[]): string {
+function formatCreationResult(target: GraphTarget, entries: CreationEntry[]): string {
   const lines = [...formatTargetBindings(target), ""];
   for (const entry of entries) {
     if ("palette" in entry) {
@@ -101,14 +106,14 @@ function formatCreationResult(target: Target, entries: CreationEntry[]): string 
   return `${lines.join("\n")}\n`;
 }
 
-function formatTargetBindings(target: Target): string[] {
+function formatTargetBindings(target: GraphTarget): string[] {
   return [
     `${DEFAULT_ASSET_ALIAS} = asset(path: ${JSON.stringify(target.asset)}, type: ${target.domain})`,
     `${DEFAULT_GRAPH_ALIAS} = graph(domain: ${target.domain}, asset: ${DEFAULT_ASSET_ALIAS}, graph: ${formatGraphRef(target)})`,
   ];
 }
 
-function formatGraphRef(target: Target): string {
+function formatGraphRef(target: GraphTarget): string {
   return target.graph.kind === "id"
     ? `id(id: ${JSON.stringify(target.graph.id)})`
     : target.graph.name;
@@ -140,7 +145,7 @@ function formatEdgeChainLines(edges: Edge[]): string[] {
   return edges.map((edge) => `${formatPinRef(edge.from)} -> ${formatPinRef(edge.to)}`);
 }
 
-function formatFind(find: Find): string {
+function formatFind(find: GraphFind): string {
   switch (find.kind) {
     case "nodes":
       return `find nodes${find.text ? ` ${JSON.stringify(find.text)}` : ""}`;
@@ -151,6 +156,13 @@ function formatFind(find: Find): string {
     default:
       return assertNever(find);
   }
+}
+
+function asGraphFind(find: Query["find"]): GraphFind {
+  if (!find || find.kind === "assets") {
+    throw new Error("Graph formatter received a non-graph find clause.");
+  }
+  return find;
 }
 
 function formatBinding(binding: Binding): string {

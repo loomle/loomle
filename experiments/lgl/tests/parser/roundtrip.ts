@@ -35,6 +35,21 @@ with pins, defaults
 `,
   },
   {
+    name: "query assets",
+    text: `query asset
+find assets "door"
+where root = "/Game" and type = blueprint
+with registryTags
+order by score desc, path asc
+page limit 10
+`,
+  },
+  {
+    name: "asset result",
+    text: `door = asset(path: "/Game/Blueprints/BP_Door.BP_Door", type: blueprint, class: "/Script/Engine.Blueprint", domains: [asset, blueprint], loaded: false, registryTags: {ParentClass: "/Script/Engine.Actor"}, score: 98)
+`,
+  },
+  {
     name: "query palette entry",
     text: `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
 g = graph(domain: blueprint, asset: bp, graph: EventGraph)

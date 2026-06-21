@@ -64,10 +64,23 @@ async function run(
     };
   }
 
-  const result =
-    expectedKind === "query"
-      ? await adapter.query(parsed.object as Query)
-      : await adapter.patch(parsed.object as Patch);
+  const patchAdapter = adapter.patch;
+  if (expectedKind === "patch" && !patchAdapter) {
+    return {
+      diagnostics: [
+        {
+          severity: "error",
+          code: "missing_patch_adapter",
+          message: `No LGL patch adapter is registered for domain ${parsed.object.target.domain}.`,
+          suggestion: `Register a patch-capable adapter with domain ${parsed.object.target.domain}.`,
+        },
+      ],
+    };
+  }
+
+  const result = expectedKind === "query"
+    ? await adapter.query(parsed.object as Query)
+    : await patchAdapter!(parsed.object as Patch);
 
   return objectResultToTextResult(result);
 }

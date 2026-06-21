@@ -1,0 +1,17 @@
+{
+  "kind": "asset_result",
+  "assets": [
+    {
+      "alias": "door",
+      "path": "/Game/Blueprints/BP_Door.BP_Door",
+      "type": "blueprint",
+      "class": "/Script/Engine.Blueprint",
+      "domains": ["asset", "blueprint"],
+      "loaded": false,
+      "registryTags": {
+        "ParentClass": "/Script/Engine.Actor"
+      },
+      "score": 98
+    }
+  ]
+}

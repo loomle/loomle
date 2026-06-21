@@ -28,7 +28,8 @@ schema contract use normalized JSON.
 - Format normalized objects back to LGL text.
 - Validate normalized objects against `schema/lgl-object.schema.json`.
 - Generate TypeScript object-model types from the schema.
-- Exercise the adapter contract with `createMemoryGraphAdapter`.
+- Exercise the adapter contract with `createMemoryGraphAdapter` and
+  `createMemoryAssetAdapter`.
 - Keep Blueprint examples under parser/formatter conformance tests.
 - Keep Unreal-specific behavior behind a Blueprint adapter; the SDK surface
   should not expose UE bridge internals directly.
@@ -38,16 +39,19 @@ schema contract use normalized JSON.
 - `src/parser.ts`, `src/formatter.ts`, and `src/memory-adapter.ts` are stable
   public entry shims.
 - `src/core/` contains shared text parsing helpers that are not domain-specific.
-- `src/graph/` contains the current implemented domain: graph text parsing,
-  graph formatting, and the in-memory graph adapter.
-- Future `src/asset/`, `src/blueprint/`, and `src/widget/` directories should
-  plug into the same root entry points instead of extending graph internals.
+- `src/graph/` contains graph text parsing, graph formatting, and the
+  in-memory graph adapter.
+- `src/asset/` contains asset query parsing, asset result formatting, and the
+  in-memory asset adapter.
+- Future `src/blueprint/` and `src/widget/` directories should plug into the
+  same root entry points instead of extending graph internals.
 
 ## Documents
 
 The docs are organized around the shared language core plus UE domains. The
-graph domain is implemented by the TypeScript experiment; asset, Blueprint, and
-widget domains record target shapes for later adapters.
+graph domain and first asset query loop are implemented by the TypeScript
+experiment; Blueprint and widget domains record target shapes for later
+adapters.
 
 - `docs/OVERVIEW.md`: Next LGL direction, representation layers, and core
   design rules.

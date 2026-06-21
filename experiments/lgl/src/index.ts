@@ -7,6 +7,9 @@ import type {
 export type {
   Add,
   AndCondition,
+  Asset,
+  AssetResult,
+  AssetTarget,
   Binding,
   BindingValue,
   Call,
@@ -23,11 +26,13 @@ export type {
   EqCondition,
   Expr,
   FieldPath,
+  FindAssets,
   FindNodes,
   FindPaletteEntry,
   FindPath,
   Graph,
   GraphFind,
+  GraphTarget,
   GraphIdRef,
   GraphNameRef,
   GraphPatchOp,
@@ -69,7 +74,7 @@ export type {
 
 export type LglText = string;
 export type ObjectResult = Result;
-export type Find = import("./generated/lgl-object-schema.js").GraphFind;
+export type Find = import("./generated/lgl-object-schema.js").Find;
 export type Op = import("./generated/lgl-object-schema.js").GraphPatchOp;
 
 export interface TextResult {
@@ -90,7 +95,7 @@ export interface CreateLglOptions {
 export interface Adapter {
   domain: string;
   query(object: Query): Promise<ObjectResult>;
-  patch(object: Patch): Promise<ObjectResult>;
+  patch?(object: Patch): Promise<ObjectResult>;
 }
 
 export { formatLglObject } from "./formatter.js";
@@ -101,3 +106,8 @@ export type {
   CreateMemoryGraphAdapterOptions,
   MemoryGraphAdapter,
 } from "./memory-adapter.js";
+export { createMemoryAssetAdapter } from "./asset/memory-adapter.js";
+export type {
+  CreateMemoryAssetAdapterOptions,
+  MemoryAssetAdapter,
+} from "./asset/memory-adapter.js";
