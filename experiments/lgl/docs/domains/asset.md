@@ -1,28 +1,28 @@
-# Asset Module
+# Asset Domain
 
 ## Scope
 
-The asset module is the entry point for finding and resolving UE assets before
-entering graph, widget, material, PCG, or other domain modules.
+The asset domain is the entry point for finding and resolving UE assets before
+entering graph, widget, material, PCG, or other domains.
 
-The module should be backed by UE Asset Registry when running inside an
+The domain should be backed by UE Asset Registry when running inside an
 initialized UE process. It should not load assets by default. Search should
 return canonical asset identities and lightweight registry metadata that agents
 can feed into later LGL queries or patches.
 
-This module is not implemented yet. It records the target module shape.
+This domain is not implemented yet. It records the target domain shape.
 
 ## Basic Form
 
-Asset search is a statement list:
+Asset query text is a statement list:
 
 ```lgl
 query asset
-find assets
-where root = "/Game" and type = blueprint and text ~= "door"
+find assets "door"
+where root = "/Game" and type = blueprint
 with registryTags
 order by score desc, path asc
-limit 10
+page limit 10
 ```
 
 Asset results are LGL object statements:
@@ -32,7 +32,7 @@ door = asset(path: "/Game/Blueprints/BP_Door.BP_Door", type: blueprint, class: "
 doorFrame = asset(path: "/Game/Blueprints/BP_DoorFrame.BP_DoorFrame", type: blueprint, class: "/Script/Engine.Blueprint", domains: [asset, blueprint], loaded: false)
 ```
 
-The returned bindings should be directly usable by other modules:
+The returned bindings should be directly usable by other domains:
 
 ```lgl
 g = graph(domain: blueprint, asset: door, graph: EventGraph)
@@ -62,28 +62,50 @@ Use named arguments:
 door = asset(path: "/Game/BP_Door.BP_Door", type: blueprint, loaded: false)
 ```
 
-## Search
+Normalized JSON:
 
-Asset query clauses:
+```ts
+interface Asset {
+  kind: "asset";
+  alias: string;
+  path: string;
+  type?: string;
+  class?: string;
+  domains?: string[];
+  loaded?: boolean;
+  registryTags?: Record<string, Value>;
+  score?: number;
+}
+```
 
-| Clause | Syntax | Example |
-| --- | --- | --- |
-| Target | `query asset` | `query asset` |
-| Find assets | `find assets` | `find assets` |
-| Condition | `where condition` | `where root = "/Game" and type = blueprint` |
-| Expansion | `with item, item` | `with registryTags` |
-| Ordering | `order by key asc/desc` | `order by score desc, path asc` |
-| Result limit | `limit number` | `limit 10` |
+## Query
 
-`~=` means deterministic contains-style text search over asset name, object
-path, class, type, and selected registry tags. Exact matching uses `=`.
+Asset query syntax:
+
+```lgl
+query asset
+find assets ["text"]
+where <condition>
+with <item>, <item>
+order by <key> asc|desc, <key> asc|desc
+page limit <number>
+page after "cursor"
+```
+
+The quoted text after `find assets` is the primary asset search text. It should
+perform deterministic contains-style search over asset name, object path, class,
+type, and selected registry tags. Exact structured filtering belongs in `where`.
+
+Field-level `~=` may still be used for advanced structured filters, but it is
+not the normal way to express the main asset search text.
 
 Supported first-pass `where` fields:
 
 - `root`: package path root such as `/Game`
 - `type`: LGL asset type such as `blueprint`, `material`, `widget`, or `pcg`
 - `class`: UE class path when the caller needs exact UE class filtering
-- `text`: deterministic text search over name, path, class, and selected tags
+- `name`: asset name
+- `path`: object path
 - `registryTag.<key>`: Asset Registry tag filtering
 - `loaded`: whether the asset is currently loaded
 
@@ -98,6 +120,21 @@ Supported first-pass `order by` keys:
 Asset query has no `select` clause. The default result includes identity,
 path, type, domains, and loaded state. `with registryTags` expands Asset
 Registry tags.
+
+Normalized JSON:
+
+```ts
+type AssetQuery = Query<FindAssets>;
+
+interface FindAssets {
+  kind: "assets";
+  text?: string;
+}
+```
+
+`where`, `with`, `orderBy`, and `page` use the shared query model from the
+language core. The asset domain validates allowed fields, expansions, sort
+keys, and pagination defaults.
 
 ## Results
 
@@ -117,8 +154,16 @@ Results should be deterministic. A first ranking policy can prefer:
 5. path segment contains
 6. class, type, or registry tag match
 
-Results should not load assets by default. Loading belongs to explicit resolve
-or inspect behavior.
+Results should not load assets by default. Loading belongs to explicit adapter
+behavior outside default search.
+
+Normalized JSON:
+
+```ts
+type AssetResult = Result<Asset[]>;
+```
+
+The formatter turns asset result objects into canonical asset bindings.
 
 ## Registry Tags
 
@@ -150,7 +195,7 @@ Registry data. LGL should use Asset Registry as the primary structured search
 source and expose agent-friendly text filtering and deterministic ranking
 without copying Content Browser's UI search language as the main interface.
 
-## Relationship To Other Modules
+## Relationship To Other Domains
 
 Asset bindings are reusable references:
 
@@ -159,38 +204,27 @@ door = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
 g = graph(domain: blueprint, asset: door, graph: EventGraph)
 ```
 
-Graph, widget, material, and PCG modules should not reimplement asset path
+Graph, widget, material, and PCG domains should not reimplement asset path
 normalization, loading, or Asset Registry lookup. They should consume
-canonical asset references resolved by the asset module or by shared bridge
+canonical asset references resolved by the asset domain or by shared bridge
 asset resolution utilities.
+
+## Patch
+
+The asset domain currently has no patch text. Asset mutation, such as create,
+rename, move, duplicate, delete, save, metadata edits, redirector cleanup, and
+source-control-aware package operations, belongs to a later asset-tools design.
+
+There is no `AssetPatch` in the current asset domain target model.
 
 ## Normalized JSON
 
-The exact schema should be added when the asset module is implemented. The
-target shape should still follow the same separation used by other modules:
+Asset normalized JSON is defined beside each feature above. The summary below
+shows the top-level asset-domain payloads:
 
 ```ts
-interface AssetQuery {
-  kind: "query";
-  target: "asset";
-  find: "assets";
-  where?: Condition;
-  with?: string[];
-  orderBy?: OrderBy[];
-  limit?: number;
-}
-
-interface Asset {
-  kind: "asset";
-  alias: string;
-  path: string;
-  type?: string;
-  class?: string;
-  domains?: string[];
-  loaded?: boolean;
-  registryTags?: Record<string, Value>;
-  score?: number;
-}
+type AssetQuery = Query<FindAssets>;
+type AssetResult = Result<Asset[]>;
 ```
 
 Text is for agents. Normalized JSON is for schema validation, RPC, generated
@@ -202,7 +236,7 @@ Pure LGL normalization may:
 
 - normalize asset query clauses into a structured query object
 - preserve asset bindings as references for graph, widget, material, and PCG
-  modules
+  domains
 - normalize `registryTag.<key>` conditions into structured field references
 
 Pure LGL normalization must not:

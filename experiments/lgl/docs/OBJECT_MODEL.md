@@ -1,9 +1,11 @@
 # LGL Object Model
 
-> Status: current implementation reference. The next module-oriented graph
-> design is being consolidated in [`modules/graph.md`](modules/graph.md), but
-> this document remains the human-readable guide to the current
-> `schema/lgl-object.schema.json` contract until that schema migrates.
+> Status: current graph-first schema reference. This document describes the
+> current `schema/lgl-object.schema.json` contract, not the target
+> agent-facing language design. The target domain-oriented design is documented
+> in [`OVERVIEW.md`](OVERVIEW.md), [`LANGUAGE_CORE.md`](LANGUAGE_CORE.md), and
+> [`domains/graph.md`](domains/graph.md). After schema migration, this document
+> should be deleted or renamed as a legacy schema reference.
 
 ## Intent
 

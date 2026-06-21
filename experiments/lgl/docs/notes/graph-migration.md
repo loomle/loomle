@@ -3,9 +3,9 @@
 ## Intent
 
 This note tracks differences between the current graph-first implementation and
-the target graph module design in `docs/modules/graph.md`.
+the target graph domain design in `docs/domains/graph.md`.
 
-The module document should stay focused on the final shape. This note exists so
+The domain document should stay focused on the final shape. This note exists so
 implementation work can still audit the migration from parser, formatter,
 schema, fixtures, and examples.
 
@@ -99,15 +99,16 @@ find nodes
 where type = PrintString and name ~= "Print"
 with pins, defaults
 order by name asc
-limit 10
+page limit 10
 ```
 
-Old single-line query sugar should migrate from repeated or implicit clauses
-to the shared query form:
+Old single-line query text should migrate to clause-per-line query text:
 
 ```lgl
 query g find nodes where type = PrintString and name ~= "Print" with pins, defaults
 ```
+
+The line above is an old form to migrate away from, not target syntax.
 
 ## Current Patch Chains
 
@@ -127,6 +128,24 @@ insert(delay, from: begin.Then, to: print.Exec, input: delay.Exec, output: delay
 
 The `->` forms remain accepted sugar.
 
+## Current Patch Binding Adds
+
+Current graph patches usually split node binding and add operations:
+
+```lgl
+delay = node(graph: g, source: DelaySource, Duration: 1.0)
+add delay
+```
+
+Target patch sugar also accepts inline add bindings:
+
+```lgl
+add delay = node(graph: g, source: DelaySource, Duration: 1.0)
+```
+
+Canonical text still splits this into one binding and one `add delay`
+operation before normalized JSON.
+
 ## Schema Migrations
 
 Planned graph schema changes:
@@ -138,6 +157,7 @@ Pin.layout.anchor     -> Pin.anchor
 Connect.chain         -> Connect.edge
 Insert.chain          -> Insert.from / Insert.to / Insert.input / Insert.output
 node creation binding -> node(..., source: PaletteBindingName, ...)
+shortcut creation     -> get(...), set(...), event(...), call(...), etc.
 ```
 
 ## Implementation Checklist
@@ -146,7 +166,9 @@ node creation binding -> node(..., source: PaletteBindingName, ...)
 - Update parser to parse statement-list graph bindings.
 - Add normalizer pass for graph sugar to canonical text.
 - Update formatter to emit canonical graph text.
-- Update patch binding parsing to support `node(..., source: ...)`.
+- Update query parsing to use clause-per-line text and `page limit`.
+- Update patch binding parsing to support `add <binding>`,
+  `node(..., source: ...)`, and shortcut constructors.
 - Update `connect` JSON from chain to edge.
 - Update `insert` JSON from chain to explicit `from`, `to`, `input`, and
   `output`.

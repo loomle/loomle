@@ -36,26 +36,44 @@ await lgl.query(text);
 await lgl.patch(text);
 ```
 
-## Object Model
+## Text And Object Model
 
-The parsed object model is documented separately in
-[`OBJECT_MODEL.md`](OBJECT_MODEL.md). The top-level type is:
+The SDK public contract is LGL text. Agent-facing text has three top-level
+kinds:
 
-```ts
-type LglObject = Graph | Query | Patch | Palette;
-```
+- object text
+- query text
+- patch text
 
-The confirmed model currently covers `Target`, `Graph`, `Node`, `Edge`, `Pin`,
-layout readback, query, patch, palette, and values.
+`Palette` is not a top-level text kind. It is discovery data or a patch binding
+source inside domains that expose creation entries.
+
+The normalized JSON model is internal to the SDK, adapters, schemas, and RPC
+boundary. Graph, asset, blueprint, widget, and future domains define their own
+normalized object shapes in domain documents. Those domain sections are the
+target design source. The current [`OBJECT_MODEL.md`](OBJECT_MODEL.md) remains
+a graph-first implementation reference until the schema migrates to the current
+domain design.
 
 ## LGL Scope
 
-The target text forms are documented by the language core and module docs:
+The target text forms are documented by the overview, language core, and domain
+docs:
 
+- [`OVERVIEW.md`](OVERVIEW.md): top-level mental model, text kinds, domains,
+  and palette positioning.
 - [`LANGUAGE_CORE.md`](LANGUAGE_CORE.md): shared statement, constructor, value,
-  and reference syntax.
-- [`modules/graph.md`](modules/graph.md): graph text, pins, edges, queries,
-  patches, palette sources, and normalized JSON.
+  reference, query, patch, and normalization syntax.
+- [`DOMAINS.md`](DOMAINS.md): domain document contract and normalization
+  boundary.
+- [`domains/graph.md`](domains/graph.md): graph text, pins, edges, queries,
+  patches, palette creation entries, and normalized JSON.
+- [`domains/asset.md`](domains/asset.md): asset discovery and reusable asset
+  references.
+- [`domains/blueprint.md`](domains/blueprint.md): Blueprint class, member, and
+  component structure.
+- [`domains/widget.md`](domains/widget.md): widget tree constructors, slots,
+  queries, and patches.
 - [`notes/graph-migration.md`](notes/graph-migration.md): migration notes from
   the current graph-first implementation.
 
@@ -66,61 +84,63 @@ The SDK pipeline is:
 ```txt
 LGL text
   -> parser
-  -> parsed LglObject
-  -> normalizer
-  -> normalized LglObject
-  -> adapter/resolver
-  -> ObjectResult
+  -> parsed text document
+  -> pure normalizer
+  -> normalized domain JSON
+  -> adapter or RPC
+  -> normalized result JSON
   -> formatter
-  -> TextResult
+  -> LGL object text plus diagnostics
 ```
 
 Parser responsibilities:
 
-- parse text into the JSON-safe `LglObject` model
-- parse target headers, bindings, graph lines, pin declarations, edges, query
-  statements, patch operations, values, and calls
+- parse LGL text into a structured text document
+- parse bindings, constructor calls, references, values, domain statements,
+  query clauses, patch operations, and sugar statements
 - attach source spans for diagnostics when possible
 - report syntax errors
 
-Parser must not inspect target domains, palette entries, graph schemas, pins, or
-native graph state.
+Parser must not inspect target domains, palette entries, graph schemas, widget
+classes, Blueprint members, pins, or native UE state.
 
 Normalizer responsibilities:
 
 - convert syntax sugar that does not require target-domain knowledge
 - reject structurally invalid LGL that parsed but violates stable language rules
-- normalize bare patch edge lines into `Connect`
-- validate pin-chain shape, such as requiring middle segments to be
-  `node.input/output`
-- validate first-version patch structure, such as `add` connecting at most one
-  side and `insert` using a two-sided chain
+- lower canonical text into normalized domain JSON
+- preserve source mapping for diagnostics where practical
 
 Normalizer must not consult palette databases, graph schemas, default exec pin
-rules, or native graph state. Future compact forms such as omitted fields may
-be normalized here only when the rewrite is pure LGL syntax. Any rewrite that
-needs schema knowledge belongs in an adapter or should remain unsupported in
-the stable form.
+rules, UMG class metadata, Blueprint member tables, or native UE state. Compact
+forms may be normalized here only when the rewrite is pure LGL syntax. Any
+rewrite that needs UE or domain-state knowledge belongs in an adapter or should
+remain unsupported in the stable form.
 
 Adapter/resolver responsibilities:
 
-- route by `Target.domain`
-- resolve palette bindings and graph-domain names
-- validate node types, fields, pins, and pin directions
-- validate graph-state-dependent operations such as `insert`
+- route by normalized domain target
+- resolve domain references, asset references, palette bindings, and creation
+  entries
+- validate domain objects and operations against real domain state
+- validate graph-state-dependent operations such as graph `insert`
 - compute dry-run changes through the same path used by real mutation
 - apply mutations when dry run is not requested
 
 The first implementation checkpoint is a minimal TypeScript-only loop:
-parse representative LGL documents into normalized `LglObject` values, validate
-them against `schema/lgl-object.schema.json`, format them back to LGL text, and
-parse the formatted text again. This checkpoint intentionally does not invoke
-UE adapters.
+parse representative LGL documents into normalized graph-domain JSON values,
+validate them against `schema/lgl-object.schema.json`, format them back to LGL
+text, and parse the formatted text again. This checkpoint intentionally does
+not invoke UE adapters.
 
 The in-memory graph adapter is a test fixture for this checkpoint. It exercises
 the adapter contract and basic query/patch result flow using `Graph` objects,
 but it must not become a replacement model for Blueprint, Material, PCG, or UE
 graph semantics.
+
+Graph adapter examples include resolving palette bindings, validating node
+types, validating pins and pin directions, checking existing edges for
+`insert`, and applying graph schema connect/disconnect legality.
 
 ## RPC Boundary
 
@@ -128,13 +148,13 @@ For Unreal Engine, the SDK and UE editor communicate through an RPC boundary:
 
 ```txt
 Agent / TypeScript SDK
-  -> normalized LglObject JSON over RPC
+  -> normalized domain JSON over RPC
   -> UE Bridge C++
   -> UE Editor APIs
 ```
 
-The RPC boundary carries normalized `LglObject` JSON values in both directions,
-not raw LGL text. C++ bridge code should not implement the LGL parser or
+The RPC boundary carries normalized domain JSON values in both directions, not
+raw LGL text. C++ bridge code should not implement the LGL parser or
 formatter. Parsing, source mapping, pure LGL normalization, and LGL text
 formatting stay in TypeScript.
 
@@ -143,20 +163,21 @@ The TypeScript side owns:
 - LGL text parsing
 - pure LGL normalization
 - structural validation that does not require target state
-- adapter routing by `Target.domain`
+- adapter routing by normalized domain target
 - converting bridge responses into agent-facing LGL results and diagnostics
 
 The UE Bridge side owns everything that depends on real UE editor state or UE
 APIs:
 
-- asset and graph resolution
-- palette query and palette entry resolution
-- node spawner execution
-- node type, field, pin, and direction validation
+- asset, Blueprint, graph, widget, and other domain resolution
+- palette query and creation-entry resolution
+- graph node spawner execution
+- graph node type, field, pin, and direction validation
 - current graph edge lookup
-- `insert` old-edge validation
-- connect and disconnect legality through UE graph schema
-- transactions, undo, asset dirtying, reconstruction, and layout mutation
+- graph `insert` old-edge validation
+- graph connect and disconnect legality through UE graph schema
+- transactions, undo, asset dirtying, reconstruction, and editor position
+  mutation
 - dry-run planning through the same path used by real mutation
 - applying graph edits
 
@@ -168,18 +189,18 @@ The proposed bridge architecture is documented in
 
 ## JSON Schema Contract
 
-The normalized `LglObject` model is maintained as JSON Schema. The schema is the
-cross-language contract between TypeScript and C++:
+The normalized domain JSON model is maintained as JSON Schema. The schema is
+the cross-language contract between TypeScript and C++:
 
 ```txt
 LGL text
   -> TypeScript parser/normalizer
-  -> LglObject JSON
+  -> normalized domain JSON
   -> JSON Schema validation
   -> RPC
   -> C++ JSON Schema validation/deserialization
   -> UE adapter work
-  -> LglObject JSON response
+  -> normalized domain JSON response
   -> JSON Schema validation
   -> TypeScript formatter
   -> LGL text
@@ -195,11 +216,13 @@ The machine contract is:
 schema/lgl-object.schema.json
 ```
 
-It covers `LglObject`, `ObjectResult`, and `Diagnostic`, with accepted fixtures
-validating representative graph, query, patch, palette, edge, and diagnostic
-objects. Rejected fixtures cover contract boundaries such as required fields,
-closed object shapes, enum values, mutually exclusive fields, and reserved
-discriminators.
+The current schema covers the graph-first implementation contract. The target
+schema should cover normalized domain JSON, result envelopes, and diagnostics
+for graph, asset, blueprint, widget, and future domains. Accepted fixtures
+should validate representative object, query, patch, palette/creation-entry,
+edge, and diagnostic objects. Rejected fixtures should cover contract
+boundaries such as required fields, closed object shapes, enum values, mutually
+exclusive fields, and reserved discriminators.
 
 TypeScript object-model types are generated from this schema into
 `src/generated/lgl-object-schema.ts`. Public SDK facade types such as `Lgl`,
@@ -232,31 +255,44 @@ SDK fields.
 ```ts
 type LglText = string;
 interface TextResult { text?: LglText; diagnostics: Diagnostic[]; }
-interface ObjectResult { object?: LglObject; diagnostics: Diagnostic[]; }
+interface ObjectResult { object?: unknown; diagnostics: Diagnostic[]; }
 ```
 
 `ObjectResult` is the adapter/RPC result shape. `TextResult` is the public SDK
-result after formatting `ObjectResult.object` back to LGL text. These result
-types and diagnostics are defined in [`OBJECT_MODEL.md`](OBJECT_MODEL.md).
+result after formatting `ObjectResult.object` back to LGL text. The concrete
+normalized object type is domain-owned and schema-validated.
 
 A patch response can return an updated compact `graph` snippet around the
-changed nodes. Created aliases, resolved ids, changed links, and layout moves
-should be visible in that LGL text when they matter to the next agent action.
-The public SDK result shape remains the same.
+changed nodes. Created aliases, resolved ids, changed links, and editor
+position changes should be visible in that LGL text when they matter to the
+next agent action. The public SDK result shape remains the same.
 
 ## Diagnostics
 
 Diagnostics must be teachable. They should point at LGL source spans and tell
 the caller what to do next:
 
-The `Diagnostic` type is defined in [`OBJECT_MODEL.md`](OBJECT_MODEL.md).
+The shared `Diagnostic` model is defined in
+[`LANGUAGE_CORE.md`](LANGUAGE_CORE.md).
 
 Examples:
 
 - `unbound_palette_binding`: add a `Name = palette(id: "entry-id")`
   binding from a palette query result.
 - `ambiguous_palette_query`: refine the `find palette entry` query before patching.
-- `unknown_pin`: run `find node <name> with pins`.
+- `unknown_pin`: query the graph node or creation entry with pins:
+
+```lgl
+query g
+find nodes
+where name = print
+with pins
+
+query g
+find palette entry "Print String"
+with pins
+```
+
 - `unsafe_chain`: write explicit pin edges.
 
 ## Adapter Contract
@@ -264,18 +300,18 @@ Examples:
 ```ts
 interface Adapter {
   domain: string;
-  query(object: Query): Promise<ObjectResult>;
-  patch(object: Patch): Promise<ObjectResult>;
+  query(object: unknown): Promise<ObjectResult>;
+  patch(object: unknown): Promise<ObjectResult>;
 }
 ```
 
 Adapters own domain semantics:
 
 - palette binding resolution
-- palette/action lookup
-- node creation path
-- pin name normalization
-- default exec pin rules
+- palette/action lookup where the domain exposes creation entries
+- creation paths
+- reference and field-name normalization
+- domain defaults that require real domain metadata
 - query execution
 - mutation validation, change computation, dry-run, and apply
 - mapping native errors into LGL diagnostics

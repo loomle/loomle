@@ -1,12 +1,12 @@
-# Widget Module
+# Widget Domain
 
 ## Scope
 
-The widget module describes UMG WidgetBlueprint trees in LGL. It is the module
+The widget domain describes UMG WidgetBlueprint trees in LGL. It is the domain
 closest to OpenUI-style component construction because widget trees are
 naturally hierarchical and component-like.
 
-This module is not implemented yet. It records the target module shape. Exact
+This domain is not implemented yet. It records the target domain shape. Exact
 constructor names, slot properties, event bindings, and normalized JSON must be
 designed against UE UMG semantics and the existing widget tools before
 implementation.
@@ -50,7 +50,7 @@ Structural `{}` blocks are not used.
 | Child widget | `parent.child = WidgetType(props...)` | `stack.start = Button(text: "Start")` |
 | Slot metadata | `slot: value` | `stack.start = Button(text: "Start", slot: fill)` |
 
-Widget asset identity uses the asset module and named arguments. Avoid
+Widget asset identity uses the asset domain and named arguments. Avoid
 positional asset constructors:
 
 ```lgl
@@ -63,6 +63,30 @@ Prefer:
 menuAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: widget)
 menu = widget(asset: menuAsset, root: mainCanvas)
 ```
+
+Normalized JSON:
+
+```ts
+interface Document {
+  kind: "widget";
+  alias: string;
+  asset: Ref;
+  root: string;
+  widgets: Node[];
+}
+
+interface Node {
+  alias: string;
+  class: Ref | Name;
+  parent?: string | null;
+  properties: Record<string, Value>;
+  slot?: Slot;
+}
+```
+
+Sibling order is derived from statement order for each parent. A future schema
+may store explicit order for bridge convenience, but LGL text should not require
+agents to write it.
 
 ## Constructors
 
@@ -99,14 +123,14 @@ stack.start = Button(text: "Start")
 stack.quit = Button(text: "Quit")
 ```
 
-This normalizes to canonical widget node text with explicit `parent` and
-`order` fields:
+This normalizes to canonical widget node text with explicit `parent`. Sibling
+order remains the order of widget statements in text:
 
 ```lgl
-stack = VerticalBox(parent: mainCanvas, order: 0)
-title = TextBlock(parent: stack, order: 0, text: "Main Menu", fontSize: 32)
-start = Button(parent: stack, order: 1, text: "Start")
-quit = Button(parent: stack, order: 2, text: "Quit")
+stack = VerticalBox(parent: mainCanvas)
+title = TextBlock(parent: stack, text: "Main Menu", fontSize: 32)
+start = Button(parent: stack, text: "Start")
+quit = Button(parent: stack, text: "Quit")
 ```
 
 Rules:
@@ -118,10 +142,11 @@ Rules:
 5. The root widget is declared by `widget(..., root: alias)` and may use any
    alias name.
 
-Canonical text uses `parent` and `order`. Normalized JSON should not need a
-separate `children` array; child lists can be derived from `parent + order`.
+Canonical text uses `parent` and preserves statement order. Normalized JSON
+should not need a separate `children` array; child lists can be derived from
+parent plus order.
 
-## Tree Readback
+## Tree Object Text
 
 Widget tree query results should prefer editor-order tree sugar:
 
@@ -160,30 +185,86 @@ mainCanvas.stack = VerticalBox(slot: {anchors: fill, padding: [16, 12, 16, 12]})
 Slot sugar must normalize to explicit slot data attached to the child node
 before normalized JSON.
 
+Normalized JSON:
+
+```ts
+interface Slot {
+  parent: string;
+  child: string;
+  properties: Record<string, Value>;
+}
+```
+
+Slot data is relationship metadata. It is stored on the child node for compact
+transport, but the adapter must apply it through the UMG slot object owned by
+the parent-child relationship.
+
 ## Query
 
 Widget queries use the shared query shape:
 
 ```lgl
 query menu
-find widgets
-where type = Button and text ~= "Start"
+find widgets "Start"
+where type = Button
 with slots, events
 order by name asc
-limit 10
+page limit 10
 ```
 
-Supported first-pass `find` forms should include:
+Widget query syntax:
 
-- `find tree`
-- `find widgets`
-- `find widget name`
-- `find children of name`
-- `find ancestors of name`
+```lgl
+query <widget>
+find tree
+find widgets ["text"]
+where <condition>
+with <item>, <item>
+order by <key> asc|desc, <key> asc|desc
+page limit <number>
+page after "cursor"
+```
+
+For `find widgets`, the quoted text is the primary search text over widget name,
+class/type, and relevant display text. Use `where` for structured filters such
+as `type = Button`.
+
+Exact widget lookup and parent-child queries use structured filters:
+
+```lgl
+find widgets
+where name = start
+
+find widgets
+where parent = stack
+```
 
 The default widget query result should include widget identity, class/type,
 name, parent, and order. `find tree` should return the tree in editor order.
 `with slots` expands slot metadata. `with events` expands event bindings.
+
+Normalized JSON:
+
+```ts
+type WidgetQuery = Query<Find>;
+
+type Find =
+  | FindTree
+  | FindWidgets;
+
+interface FindTree {
+  kind: "tree";
+}
+
+interface FindWidgets {
+  kind: "widgets";
+  text?: string;
+}
+```
+
+`where`, `with`, `orderBy`, and `page` use the shared query model from the
+language core. The widget domain validates allowed fields, expansions, sort
+keys, and pagination defaults.
 
 ## Patch
 
@@ -192,8 +273,7 @@ Widget patch text is a statement list:
 ```lgl
 patch menu dry run
 
-stack.help = Button(text: "Help")
-add help
+add stack.help = Button(text: "Help")
 set title.text = "Main Menu"
 move help after start
 remove quit
@@ -203,49 +283,79 @@ Patch operation names should stay close to UE widget tree operations:
 
 | Operation | Syntax | Example |
 | --- | --- | --- |
-| Add widget | `parent.child = WidgetType(...); add child` | `stack.help = Button(text: "Help")` |
+| Add widget | `add parent.child = WidgetType(...)` | `add stack.help = Button(text: "Help")` |
 | Set property | `set target = value` | `set title.text = "Main Menu"` |
 | Move widget | `move child before/after sibling` | `move help after start` |
 | Remove widget | `remove name` | `remove quit` |
 
+`add parent.child = WidgetType(...)` uses the shared patch sugar from the
+language core. Its canonical form is a child widget binding followed by
+`add child`.
+
 The exact operation set must be designed against the existing widget tool
 schema and UMG WidgetTree APIs.
 
-## Normalized JSON
-
-The exact schema should be added when the widget module is implemented. The
-target shape should normalize tree sugar to explicit parent and order fields:
+Normalized JSON:
 
 ```ts
-interface WidgetDocument {
-  kind: "widget";
-  target: {
-    asset: string;
-  };
-  root: string;
-  widgets: WidgetNode[];
+type WidgetPatch = Patch<PatchOp>;
+
+type PatchOp =
+  | Add
+  | Set
+  | Move
+  | Remove;
+
+interface Add {
+  kind: "add";
+  target: Ref;
 }
 
-interface WidgetNode {
-  alias: string;
-  class: string;
-  parent?: string | null;
-  order?: number;
-  properties: Record<string, Value>;
-  slot?: WidgetSlot;
+interface Set {
+  kind: "set";
+  target: Ref;
+  value: Expr;
+}
+
+interface Move {
+  kind: "move";
+  target: Ref;
+  relativeTo: Ref;
+  position: "before" | "after";
+}
+
+interface Remove {
+  kind: "remove";
+  target: Ref;
 }
 ```
 
-This is illustrative only. The real schema should be based on UMG widget tree
-tools and UE widget semantics.
+The adapter resolves targets to WidgetTree instances and applies operations
+through UMG WidgetTree APIs.
+
+## Normalized JSON
+
+Widget normalized JSON is defined beside each feature above. The summary below
+shows the top-level widget-domain payloads:
+
+```ts
+// Widget object text
+Document
+
+// Widget query and patch text
+type WidgetQuery = Query<Find>;
+type WidgetPatch = Patch<PatchOp>;
+```
+
+The real schema should be based on UMG WidgetTree tools and UE widget
+semantics.
 
 ## Adapter Boundary
 
 Pure LGL normalization may:
 
-- convert `parent.child = WidgetType(...)` sugar into explicit `parent` and
-  `order` fields
-- derive sibling order from source order within the same parent
+- convert `parent.child = WidgetType(...)` sugar into explicit `parent` while
+  preserving widget statement order
 - convert slot sugar into explicit slot data
 - normalize widget query clauses into a structured query object
 

@@ -2,139 +2,156 @@
 
 ## Intent
 
-LGL is an agent-facing, line-oriented object language for Unreal Engine work.
-It should let agents describe, query, and patch UE objects with compact text
-while keeping the bridge implementation on a strict normalized JSON contract.
+LGL is an agent-facing, line-oriented text language for Unreal Engine work. It
+lets agents describe, query, and patch UE objects with compact text while the
+bridge keeps a strict normalized JSON contract for validation, RPC, generated
+types, and C++ codecs.
 
-LGL text is for agents. Normalized JSON is for the bridge, schema validation,
-RPC, generated types, and C++ codecs. The two forms should stay mechanically
-convertible, but agents should not have to write JSON by hand.
+Agents should read and write LGL text. The bridge should execute normalized
+JSON. Parsers, validators, and adapters own the conversion between them.
 
-The implemented experiment is graph-first. Its parser, formatter, schema,
-examples, and in-memory adapter use these top-level object forms:
+## Mental Model
 
-```ts
-type LglObject = Graph | Query | Patch | Palette;
-```
+LGL separates three concerns:
 
-The next LGL design keeps that implementation as the factual baseline and
-organizes future work by domain modules. Graph, asset, widget, and future
-modules each own their object forms, sugar, canonical text, normalized object
-model, queries, patches, diagnostics, and examples.
+- text kinds: what the agent is trying to do
+- text and JSON forms: how text becomes the bridge contract
+- domains: which UE semantic area owns the meaning
 
-## Why Text
+The top-level language model should not be a union such as `Graph | Query |
+Patch | Palette`. `Graph`, `Asset`, `Blueprint`, and `Widget` are domains.
+`Palette` is discovery data or a patch binding source inside relevant domains,
+not a top-level LGL text kind.
 
-JSON is precise, but it is not the best primary interface for an agent that is
-reading, composing, and patching UE objects. LGL keeps the agent-facing surface
-closer to normal code and command output:
+## Text Kinds
+
+LGL has three agent-facing text kinds.
+
+### Object Text
+
+Object text describes UE objects, object fragments, or query results:
 
 ```lgl
 bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
 g = graph(domain: blueprint, asset: bp, graph: EventGraph)
-begin.Then -> delay.Exec/Completed -> print.Exec
+
+begin = node(graph: g, type: EventBeginPlay, id: "A001")
+print = node(graph: g, type: PrintString, id: "A002", InString: "Ready")
+
+begin.Then -> print.Exec
 ```
 
-The bridge still receives normalized JSON after parsing and validation. This
-keeps the runtime contract strict without making agent output verbose.
+Object text is used for snapshots, snippets, search results, palette bindings,
+and patch results.
 
-## Representation Layers
+### Query Text
 
-LGL has three representation layers:
-
-```txt
-sugar text
-  -> canonical text
-  -> normalized JSON
-```
-
-Sugar text is optional agent convenience. It must normalize without target
-state or UE schema knowledge. Existing examples already use graph edge sugar
-such as `begin.Then -> delay.Exec/Completed -> print.Exec`.
-
-Canonical text is the explicit text form that can be translated mechanically
-into normalized JSON. A module may still choose to display sugar in query
-results when sugar is the clearest agent-facing form.
-
-Normalized JSON is the bridge and schema contract. It is used for validation,
-RPC, generated types, and C++ codecs. Agents should not have to write it.
-
-Example:
+Query text asks a domain to find or expand information. Query results should be
+returned as object text:
 
 ```lgl
-begin.Then -> delay.Exec/Completed -> print.Exec
+query g
+find palette entry "Print String"
+with pins
+page limit 50
 ```
 
-normalizes to canonical graph readback text:
+Each domain defines its default result shape, supported `find` forms, `where`
+fields, `with` expansions, ordering, and pagination behavior.
+
+### Patch Text
+
+Patch text asks a domain to mutate an object:
 
 ```lgl
-edge(begin.Then, delay.Exec)
-edge(delay.Completed, print.Exec)
-```
-
-and then to normalized JSON:
-
-```json
-[
-  {
-    "kind": "edge",
-    "from": { "node": "begin", "pin": "Then" },
-    "to": { "node": "delay", "pin": "Exec" }
-  },
-  {
-    "kind": "edge",
-    "from": { "node": "delay", "pin": "Completed" },
-    "to": { "node": "print", "pin": "Exec" }
-  }
-]
-```
-
-In patch context, the same chain-shaped sugar normalizes to operation calls:
-
-```lgl
+patch g
+print = node(graph: g, type: PrintString, InString: "Ready")
+add print
 connect begin.Then -> print.Exec
 ```
 
-normalizes to:
+Patch text may contain bindings, domain operations, and sugar statements. Patch
+execution resolves and validates the whole patch before applying mutations.
+
+## Palette
+
+Palette is not a top-level text kind. It is the shared mechanism for discovering
+stable creation entries and binding them for later patch use.
+
+Agents should not create new UE content by guessing display names, node classes,
+or editor menu text. A domain can expose a palette query that returns copyable
+object text:
 
 ```lgl
-connect(begin.Then, print.Exec)
+query g
+find palette entry "Print String"
+with pins
+
+PrintString = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString")
+PrintString.Exec = pin(type: exec, direction: in)
+PrintString.InString = pin(type: string, direction: in)
+PrintString.Then = pin(type: exec, direction: out)
 ```
 
-The sugar layer may stay highly readable; the canonical layer must be explicit
-enough to translate mechanically into normalized JSON.
+Patch text can then consume the stable binding:
 
-## Document Organization
+```lgl
+patch g
+print = node(graph: g, source: PrintString, InString: "Ready")
+add print
+```
 
-The docs are split by the same boundaries the implementation should use:
+Domains may also define shortcut constructors for stable common creation intents.
+Shortcut constructors and palette bindings are both creation-entry mechanisms:
+constructors are compact modeled forms, while palette ids are the explicit
+fallback for unmodeled, plugin-defined, or otherwise editor-discovered entries.
 
-- [`LANGUAGE_CORE.md`](LANGUAGE_CORE.md): shared statement, expression, value,
-  binding, constructor, reference, and sugar rules.
-- [`MODULES.md`](MODULES.md): how domain modules define syntax and object
-  contracts.
-- [`modules/graph.md`](modules/graph.md): graph syntax from sugar to canonical
-  text to normalized JSON.
-- [`modules/asset.md`](modules/asset.md): asset discovery, identity, registry
-  metadata, and asset query results.
-- [`modules/blueprint.md`](modules/blueprint.md): Blueprint class contract,
-  member declarations, custom events, and component tree structure.
-- [`modules/widget.md`](modules/widget.md): widget tree object text, widget
-  hierarchy, slots, and widget patching.
-- [`notes/graph-migration.md`](notes/graph-migration.md): implementation
-  migration notes for the current graph-first parser, formatter, schema, and
-  examples.
+## Text And JSON Forms
 
-Some remaining documents still describe the current graph-first experiment.
-They should be treated as implementation context until the next language pass
-updates code and examples.
+LGL text has three forms:
 
-## Replacement Map
+```text
+sugar text -> canonical text -> normalized JSON
+```
 
-The new module-oriented docs should replace older graph-first docs in stages:
+Sugar text is optional and agent-facing. Canonical text removes shorthand while
+staying readable. Normalized JSON is the schema and bridge contract.
 
-| Current document | Replacement target | Status |
-| --- | --- | --- |
-| `OBJECT_MODEL.md` graph sections | `modules/graph.md` normalized JSON section | current schema reference |
-| `SDK_DESIGN.md` | future runtime docs | current SDK reference |
+The language core defines shared statement, expression, value, binding,
+constructor, reference, array, inline object, query, patch, and normalization
+rules. Domain documents define what those constructs mean for UE concepts.
 
-The replacement target must preserve implemented names and semantics unless a
-future schema migration explicitly changes them.
+## Domains
+
+Domains own UE-specific meaning. A domain defines its object text, query text,
+patch text, normalized JSON, diagnostics, and examples.
+
+- Graph: graph identity, node text, pin text, edge/path text, graph queries,
+  graph patches, shortcut node creation, and palette fallback creation.
+- Asset: asset discovery, asset identity, Asset Registry metadata, and asset
+  query/reference results. Asset mutation is a later asset-tools concern.
+- Blueprint: Blueprint class contract, variables, functions, dispatchers,
+  custom events, components, class/member/component patches, and
+  component-bound event references used by graph creation.
+- Widget: widget tree structure, modeled widget constructors, slots, widget
+  properties, widget queries, and widget tree patches.
+
+Additional domains should follow the same shape instead of adding new global
+language categories.
+
+## Documentation Map
+
+- [`LANGUAGE_CORE.md`](LANGUAGE_CORE.md): shared LGL syntax and text-to-JSON
+  principles.
+- [`DOMAINS.md`](DOMAINS.md): domain document contract and normalization
+  boundary.
+- [`domains/graph.md`](domains/graph.md): graph domain design.
+- [`domains/asset.md`](domains/asset.md): asset domain design.
+- [`domains/blueprint.md`](domains/blueprint.md): Blueprint domain design.
+- [`domains/widget.md`](domains/widget.md): widget domain design.
+- [`notes/graph-migration.md`](notes/graph-migration.md): migration notes for
+  the current graph-first implementation.
+
+Some implementation documents still describe the graph-first experiment. Treat
+them as factual implementation context until the schema and runtime are migrated
+to the current language design.
