@@ -20,7 +20,7 @@ export type LGLNormalizedObjectSchema =
   | Name
   | PinRef
   | Edge;
-export type LglObject = Graph | AssetResult | Query | Patch | CreationResult;
+export type LglObject = Graph | AssetResult | BlueprintResult | Query | Patch | CreationResult;
 export type GraphRef = GraphNameRef | GraphIdRef;
 export type Expr = Value | Ref | Call;
 export type Value =
@@ -39,8 +39,8 @@ export type Ref = LocalRef | MemberRef | IdRef;
  * @maxItems 2
  */
 export type Point = [any, any];
-export type Target = AssetTarget | GraphTarget;
-export type Find = FindAssets | GraphFind;
+export type Target = AssetTarget | BlueprintTarget | GraphTarget;
+export type Find = FindAssets | FindBlueprintMembers | FindBlueprintComponents | GraphFind;
 export type GraphFind = FindNodes | FindPath | FindPaletteEntry;
 export type Condition =
   | EqCondition
@@ -153,6 +153,55 @@ export interface Asset {
   };
   score?: number;
 }
+export interface BlueprintResult {
+  kind: "blueprint_result";
+  blueprints: Blueprint[];
+}
+export interface Blueprint {
+  alias: string;
+  asset: string;
+  parent?: string;
+  namespace?: string;
+  category?: string;
+  abstract?: boolean;
+  deprecated?: boolean;
+  interfaces?: string[];
+  defaults?: {
+    [k: string]: Value;
+  };
+  members?: BlueprintMember[];
+  components?: BlueprintComponent[];
+}
+export interface BlueprintMember {
+  kind: "variable" | "function" | "macro" | "dispatcher" | "event";
+  name: string;
+  type?: string;
+  default?: Value;
+  category?: string;
+  inputs?: {
+    [k: string]: string;
+  };
+  outputs?: {
+    [k: string]: string;
+  };
+  pure?: boolean;
+  const?: boolean;
+  replication?: string;
+  reliable?: boolean;
+  metadata?: {
+    [k: string]: Value;
+  };
+  guid?: string;
+  graph?: GraphRef;
+}
+export interface BlueprintComponent {
+  name: string;
+  class: string;
+  parent?: string | null;
+  properties?: {
+    [k: string]: Value;
+  };
+}
 export interface Query {
   kind: "query";
   target: Target;
@@ -165,8 +214,20 @@ export interface Query {
 export interface AssetTarget {
   domain: "asset";
 }
+export interface BlueprintTarget {
+  domain: "blueprint";
+  asset: string;
+}
 export interface FindAssets {
   kind: "assets";
+  text?: string;
+}
+export interface FindBlueprintMembers {
+  kind: "members";
+  text?: string;
+}
+export interface FindBlueprintComponents {
+  kind: "components";
   text?: string;
 }
 export interface FindNodes {

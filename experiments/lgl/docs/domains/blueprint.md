@@ -17,8 +17,11 @@ their targets are declared by this domain. The graph domain owns the node
 creation syntax; the blueprint domain owns the member and component identities
 those nodes reference.
 
-This domain is not implemented yet. It records the target domain shape based on
-the current Blueprint tools and UE source model.
+The TypeScript experiment implements the first Blueprint query/readback loop:
+`blueprint(...)` bindings, `query bp`, `find members`, `find components`,
+canonical Blueprint result text, schema validation, formatter roundtrip, and an
+in-memory Blueprint adapter. UE-backed class/member/component integration
+remains adapter work.
 
 ## UE Boundary
 

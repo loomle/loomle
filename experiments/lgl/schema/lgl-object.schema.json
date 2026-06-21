@@ -21,6 +21,7 @@
       "oneOf": [
         { "$ref": "#/$defs/Graph" },
         { "$ref": "#/$defs/AssetResult" },
+        { "$ref": "#/$defs/BlueprintResult" },
         { "$ref": "#/$defs/Query" },
         { "$ref": "#/$defs/Patch" },
         { "$ref": "#/$defs/CreationResult" }
@@ -29,6 +30,7 @@
     "Target": {
       "oneOf": [
         { "$ref": "#/$defs/AssetTarget" },
+        { "$ref": "#/$defs/BlueprintTarget" },
         { "$ref": "#/$defs/GraphTarget" }
       ]
     },
@@ -48,6 +50,15 @@
         "domain": { "type": "string", "minLength": 1 },
         "asset": { "type": "string", "minLength": 1 },
         "graph": { "$ref": "#/$defs/GraphRef" }
+      }
+    },
+    "BlueprintTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain", "asset"],
+      "properties": {
+        "domain": { "const": "blueprint" },
+        "asset": { "type": "string", "minLength": 1 }
       }
     },
     "GraphRef": {
@@ -313,6 +324,93 @@
         "score": { "type": "number" }
       }
     },
+    "BlueprintResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "blueprints"],
+      "properties": {
+        "kind": { "const": "blueprint_result" },
+        "blueprints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Blueprint" }
+        }
+      }
+    },
+    "Blueprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "asset"],
+      "properties": {
+        "alias": { "type": "string", "minLength": 1 },
+        "asset": { "type": "string", "minLength": 1 },
+        "parent": { "type": "string", "minLength": 1 },
+        "namespace": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
+        "abstract": { "type": "boolean" },
+        "deprecated": { "type": "boolean" },
+        "interfaces": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Value" }
+        },
+        "members": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/BlueprintMember" }
+        },
+        "components": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/BlueprintComponent" }
+        }
+      }
+    },
+    "BlueprintMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "enum": ["variable", "function", "macro", "dispatcher", "event"] },
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "default": { "$ref": "#/$defs/Value" },
+        "category": { "type": "string", "minLength": 1 },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "outputs": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "pure": { "type": "boolean" },
+        "const": { "type": "boolean" },
+        "replication": { "type": "string", "minLength": 1 },
+        "reliable": { "type": "boolean" },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Value" }
+        },
+        "guid": { "type": "string", "minLength": 1 },
+        "graph": { "$ref": "#/$defs/GraphRef" }
+      }
+    },
+    "BlueprintComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "class"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "class": { "type": "string", "minLength": 1 },
+        "parent": { "type": ["string", "null"], "minLength": 1 },
+        "properties": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Value" }
+        }
+      }
+    },
     "Query": {
       "type": "object",
       "additionalProperties": false,
@@ -337,6 +435,8 @@
     "Find": {
       "oneOf": [
         { "$ref": "#/$defs/FindAssets" },
+        { "$ref": "#/$defs/FindBlueprintMembers" },
+        { "$ref": "#/$defs/FindBlueprintComponents" },
         { "$ref": "#/$defs/GraphFind" }
       ]
     },
@@ -346,6 +446,24 @@
       "required": ["kind"],
       "properties": {
         "kind": { "const": "assets" },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "FindBlueprintMembers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "members" },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "FindBlueprintComponents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "components" },
         "text": { "type": "string", "minLength": 1 }
       }
     },

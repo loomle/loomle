@@ -43,15 +43,17 @@ schema contract use normalized JSON.
   in-memory graph adapter.
 - `src/asset/` contains asset query parsing, asset result formatting, and the
   in-memory asset adapter.
-- Future `src/blueprint/` and `src/widget/` directories should plug into the
-  same root entry points instead of extending graph internals.
+- `src/blueprint/` contains Blueprint query parsing, Blueprint result
+  formatting, and the in-memory Blueprint adapter.
+- Future `src/widget/` code should plug into the same root entry points instead
+  of extending graph internals.
 
 ## Documents
 
 The docs are organized around the shared language core plus UE domains. The
-graph domain and first asset query loop are implemented by the TypeScript
-experiment; Blueprint and widget domains record target shapes for later
-adapters.
+graph domain, first asset query loop, and first Blueprint query loop are
+implemented by the TypeScript experiment; widget records a target shape for a
+later adapter.
 
 - `docs/OVERVIEW.md`: Next LGL direction, representation layers, and core
   design rules.

@@ -10,6 +10,11 @@ export type {
   Asset,
   AssetResult,
   AssetTarget,
+  Blueprint,
+  BlueprintComponent,
+  BlueprintMember,
+  BlueprintResult,
+  BlueprintTarget,
   Binding,
   BindingValue,
   Call,
@@ -27,6 +32,8 @@ export type {
   Expr,
   FieldPath,
   FindAssets,
+  FindBlueprintComponents,
+  FindBlueprintMembers,
   FindNodes,
   FindPaletteEntry,
   FindPath,
@@ -111,3 +118,8 @@ export type {
   CreateMemoryAssetAdapterOptions,
   MemoryAssetAdapter,
 } from "./asset/memory-adapter.js";
+export { createMemoryBlueprintAdapter } from "./blueprint/memory-adapter.js";
+export type {
+  CreateMemoryBlueprintAdapterOptions,
+  MemoryBlueprintAdapter,
+} from "./blueprint/memory-adapter.js";

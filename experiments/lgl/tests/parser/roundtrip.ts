@@ -50,6 +50,24 @@ page limit 10
 `,
   },
   {
+    name: "query blueprint members",
+    text: `bpAsset = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
+bp = blueprint(asset: bpAsset)
+query bp
+find members "Health"
+where kind = variable
+page limit 10
+`,
+  },
+  {
+    name: "blueprint result",
+    text: `door = blueprint(asset: "/Game/BP_Door.BP_Door", parent: "/Script/Engine.Actor")
+door.Health = variable(type: float, default: 100.0, category: "Stats")
+door.OpenDoor = function(inputs: {speed: float}, outputs: {success: bool}, pure: false)
+door.Trigger = component(class: "/Script/Engine.BoxComponent", boxExtent: [100, 100, 200])
+`,
+  },
+  {
     name: "query palette entry",
     text: `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
 g = graph(domain: blueprint, asset: bp, graph: EventGraph)

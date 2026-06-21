@@ -18,6 +18,7 @@ import type {
   Query,
 } from "../index.js";
 import { parseAssetQuery, tryParseAssetResult } from "../asset/parser.js";
+import { parseBlueprintBindings, parseBlueprintQuery, tryParseBlueprintResult } from "../blueprint/parser.js";
 import { tryParseBinding } from "../core/binding.js";
 import { parseCondition, parseDetails, parseOrderBy, parsePage } from "../core/condition.js";
 import { isCall, isLocalRef, parseExpr, parsePoint, symbolName } from "../core/expr.js";
@@ -42,6 +43,7 @@ export function parseLglObject(text: string): ObjectResult {
     }
 
     const context = parseLeadingBindings(lines);
+    const blueprintBindings = parseBlueprintBindings(lines);
     const queryIndex = lines.findIndex((line) => line.text.startsWith("query "));
     const patchIndex = lines.findIndex((line) => line.text.startsWith("patch "));
 
@@ -51,6 +53,10 @@ export function parseLglObject(text: string): ObjectResult {
 
     if (queryIndex >= 0 && lines[queryIndex].text === "query asset") {
       return { object: parseAssetQuery(lines, queryIndex), diagnostics: [] };
+    }
+
+    if (queryIndex >= 0 && isBlueprintQuery(lines[queryIndex], blueprintBindings)) {
+      return { object: parseBlueprintQuery(lines, queryIndex, blueprintBindings), diagnostics: [] };
     }
 
     if (queryIndex >= 0) {
@@ -64,6 +70,11 @@ export function parseLglObject(text: string): ObjectResult {
     const assetResult = tryParseAssetResult(lines);
     if (assetResult) {
       return { object: assetResult, diagnostics: [] };
+    }
+
+    const blueprintResult = tryParseBlueprintResult(lines);
+    if (blueprintResult) {
+      return { object: blueprintResult, diagnostics: [] };
     }
 
     const creationResult = tryParseCreationResult(lines, context);
@@ -88,6 +99,11 @@ export function parseLglObject(text: string): ObjectResult {
 
     throw error;
   }
+}
+
+function isBlueprintQuery(line: ParsedLine, bindings: Map<string, unknown>): boolean {
+  const match = /^query\s+([A-Za-z_][A-Za-z0-9_]*)$/.exec(line.text);
+  return !!match && bindings.has(match[1]);
 }
 
 function parseLeadingBindings(lines: ParsedLine[]): ParseContext {

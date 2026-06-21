@@ -1,0 +1,40 @@
+{
+  "kind": "blueprint_result",
+  "blueprints": [
+    {
+      "alias": "door",
+      "asset": "/Game/BP_Door.BP_Door",
+      "parent": "/Script/Engine.Actor",
+      "members": [
+        {
+          "kind": "variable",
+          "name": "Health",
+          "type": "float",
+          "default": 100,
+          "category": "Stats"
+        },
+        {
+          "kind": "function",
+          "name": "OpenDoor",
+          "inputs": {
+            "speed": "float"
+          },
+          "outputs": {
+            "success": "bool"
+          },
+          "pure": false
+        }
+      ],
+      "components": [
+        {
+          "name": "Trigger",
+          "class": "/Script/Engine.BoxComponent",
+          "parent": null,
+          "properties": {
+            "boxExtent": [100, 100, 200]
+          }
+        }
+      ]
+    }
+  ]
+}

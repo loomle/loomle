@@ -1,0 +1,24 @@
+{
+  "kind": "query",
+  "target": {
+    "domain": "blueprint",
+    "asset": "/Game/BP_Door.BP_Door"
+  },
+  "find": {
+    "kind": "members",
+    "text": "Health"
+  },
+  "where": {
+    "kind": "eq",
+    "field": {
+      "path": ["kind"]
+    },
+    "value": {
+      "kind": "name",
+      "name": "variable"
+    }
+  },
+  "page": {
+    "limit": 10
+  }
+}

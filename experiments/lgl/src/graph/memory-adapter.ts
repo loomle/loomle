@@ -119,6 +119,9 @@ function executeQuery(graph: Graph, query: Query): ObjectResult {
       return findPaletteEntries(graph, find, query);
     case "assets":
       return { diagnostics: [diagnostic("invalid_graph_find", "Graph adapter cannot execute asset queries.")] };
+    case "members":
+    case "components":
+      return { diagnostics: [diagnostic("invalid_graph_find", "Graph adapter cannot execute blueprint queries.")] };
     default:
       return assertNever(find);
   }
