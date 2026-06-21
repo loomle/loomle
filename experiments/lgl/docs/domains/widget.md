@@ -289,8 +289,9 @@ Patch operation names should stay close to UE widget tree operations:
 language core. Its canonical form is a child widget binding followed by
 `add child`.
 
-The exact operation set must be designed against the existing widget tool
-schema and UMG WidgetTree APIs.
+The TypeScript LGL experiment implements `add`, `set`, and `remove` in the
+in-memory widget adapter. The UE-backed adapter must route the same operations
+through UMG WidgetTree APIs and slot/property edit paths.
 
 Normalized JSON:
 
@@ -305,12 +306,12 @@ type PatchOp =
 
 interface Add {
   kind: "add";
-  target: Ref;
+  target: FieldPath;
 }
 
 interface Set {
   kind: "set";
-  target: Ref;
+  target: FieldPath;
   value: Expr;
 }
 
@@ -323,7 +324,7 @@ interface Move {
 
 interface Remove {
   kind: "remove";
-  target: Ref;
+  target: FieldPath;
 }
 ```
 

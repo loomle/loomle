@@ -60,7 +60,7 @@ export type Detail = "pins" | "defaults" | "registryTags";
 export type BindingTarget = LocalRef | MemberRef;
 export type BindingValue = Expr | NodeCreation;
 export type NodeCreation = PaletteNodeCreation | ShortcutNodeCreation;
-export type PatchOp = GraphPatchOp | BlueprintPatchOp;
+export type PatchOp = GraphPatchOp | BlueprintPatchOp | WidgetPatchOp;
 export type GraphPatchOp =
   | Set
   | Add
@@ -73,6 +73,7 @@ export type GraphPatchOp =
   | MoveBy
   | Reconstruct;
 export type BlueprintPatchOp = BlueprintSet | BlueprintAdd | BlueprintRemove | BlueprintRename | BlueprintMove;
+export type WidgetPatchOp = WidgetAdd | WidgetSet | WidgetRemove;
 export type CreationEntry = ShortcutCreationEntry | PaletteCreationEntry;
 
 export interface Graph {
@@ -438,6 +439,19 @@ export interface BlueprintMove {
   target: FieldPath;
   relativeTo: FieldPath;
   position: "before" | "after";
+}
+export interface WidgetAdd {
+  kind: "add";
+  target: FieldPath;
+}
+export interface WidgetSet {
+  kind: "set";
+  target: FieldPath;
+  value: Expr;
+}
+export interface WidgetRemove {
+  kind: "remove";
+  target: FieldPath;
 }
 export interface CreationResult {
   kind: "creation_result";

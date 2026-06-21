@@ -1,0 +1,45 @@
+{
+  "kind": "patch",
+  "target": {
+    "domain": "widget",
+    "asset": "/Game/UI/WBP_Menu.WBP_Menu"
+  },
+  "dryRun": true,
+  "bindings": [
+    {
+      "target": {
+        "kind": "member",
+        "object": "stack",
+        "member": "help"
+      },
+      "value": {
+        "kind": "call",
+        "callee": "Button",
+        "args": {
+          "text": "Help"
+        }
+      }
+    }
+  ],
+  "ops": [
+    {
+      "kind": "add",
+      "target": {
+        "path": ["stack", "help"]
+      }
+    },
+    {
+      "kind": "set",
+      "target": {
+        "path": ["title", "text"]
+      },
+      "value": "Main Menu"
+    },
+    {
+      "kind": "remove",
+      "target": {
+        "path": ["quit"]
+      }
+    }
+  ]
+}

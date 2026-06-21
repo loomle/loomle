@@ -109,6 +109,18 @@ stack.start = Button(text: "Start")
 `,
   },
   {
+    name: "patch widget tree",
+    text: `widgetAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: widget)
+w = widget(asset: widgetAsset, root: mainCanvas)
+patch w dry run
+
+stack.help = Button(text: "Help")
+add stack.help
+set title.text = "Main Menu"
+remove quit
+`,
+  },
+  {
     name: "query palette entry",
     text: `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
 g = graph(domain: blueprint, asset: bp, graph: EventGraph)

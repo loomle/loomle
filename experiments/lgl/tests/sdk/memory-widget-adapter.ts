@@ -74,3 +74,47 @@ find tree
 assert.equal(missingWidget.text, undefined);
 assert.equal(missingWidget.diagnostics[0]?.code, "widget_not_found");
 console.log("[PASS] memory widget adapter reports missing widget document");
+
+const dryRunPatch = await lgl.patch(`${header}
+patch w dry run
+
+stack.help = Button(text: "Help")
+add stack.help
+set title.text = "Main Menu"
+remove quit
+`);
+assert.equal(dryRunPatch.diagnostics.length, 0);
+assert.match(dryRunPatch.text ?? "", /stack.help = Button\(text: "Help"\)/);
+assert.match(dryRunPatch.text ?? "", /stack.title = TextBlock\(text: "Main Menu", fontSize: 32\)/);
+
+const dryRunAdapter = createMemoryWidgetAdapter({ documents });
+assert.equal(dryRunAdapter.getDocuments()[0].widgets.some((widget) => widget.alias === "help"), false);
+console.log("[PASS] memory widget adapter dry run computes without mutating");
+
+const patchAdapter = createMemoryWidgetAdapter({ documents });
+const patchLgl = createLgl({ adapters: [patchAdapter] });
+const applyPatch = await patchLgl.patch(`${header}
+patch w
+
+stack.help = Button(text: "Help")
+add stack.help
+set title.text = "Main Menu"
+remove quit
+`);
+assert.equal(applyPatch.diagnostics.length, 0);
+const afterApply = patchAdapter.getDocuments()[0];
+assert.equal(afterApply.widgets.some((widget) => widget.alias === "help"), true);
+assert.equal(afterApply.widgets.some((widget) => widget.alias === "quit"), false);
+assert.equal(afterApply.widgets.find((widget) => widget.alias === "title")?.properties?.text, "Main Menu");
+console.log("[PASS] memory widget adapter applies tree patch");
+
+const atomicFailure = await patchLgl.patch(`${header}
+patch w
+
+set title.text = "ShouldNotApply"
+remove missing
+`);
+assert.equal(atomicFailure.text, undefined);
+assert.equal(atomicFailure.diagnostics[0]?.code, "unknown_widget");
+assert.equal(patchAdapter.getDocuments()[0].widgets.find((widget) => widget.alias === "title")?.properties?.text, "Main Menu");
+console.log("[PASS] memory widget adapter reports patch validation diagnostics");

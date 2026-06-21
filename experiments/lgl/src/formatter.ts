@@ -27,5 +27,8 @@ export function formatLglObject(object: LglObject): string {
   if (object.kind === "patch" && object.target.domain === "blueprint" && !isGraphTarget(object.target)) {
     return formatBlueprintLglObject(object);
   }
+  if (object.kind === "patch" && object.target.domain === "widget") {
+    return formatWidgetLglObject(object);
+  }
   return formatGraphLglObject(object);
 }

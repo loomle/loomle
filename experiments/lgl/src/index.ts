@@ -83,6 +83,7 @@ export type {
   Value,
   WidgetDocument,
   WidgetNode,
+  WidgetPatchOp,
   WidgetResult,
   WidgetTarget,
 } from "./generated/lgl-object-schema.js";

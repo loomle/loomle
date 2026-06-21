@@ -18,6 +18,7 @@ import { parseAssetQuery, tryParseAssetResult } from "../asset/parser.js";
 import { parseBlueprintBindings, parseBlueprintQuery, tryParseBlueprintResult } from "../blueprint/parser.js";
 import { parseBlueprintPatch } from "../blueprint/patch-parser.js";
 import { parseWidgetBindings, parseWidgetQuery, tryParseWidgetResult } from "../widget/parser.js";
+import { parseWidgetPatch } from "../widget/patch-parser.js";
 import { tryParseBinding } from "../core/binding.js";
 import { parseCondition, parseDetails, parseOrderBy, parsePage } from "../core/condition.js";
 import { isCall, isLocalRef, parsePoint, symbolName } from "../core/expr.js";
@@ -72,6 +73,9 @@ export function parseLglObject(text: string): ObjectResult {
     if (patchIndex >= 0) {
       if (isBlueprintPatch(lines[patchIndex], blueprintBindings)) {
         return { object: parseBlueprintPatch(lines, patchIndex, blueprintBindings), diagnostics: [] };
+      }
+      if (isWidgetPatch(lines[patchIndex], widgetBindings)) {
+        return { object: parseWidgetPatch(lines, patchIndex, widgetBindings), diagnostics: [] };
       }
       return {
         object: parseGraphPatch(lines, patchIndex, (name, line) => resolveGraphTarget(name, context, line)),
@@ -130,6 +134,11 @@ function isBlueprintPatch(line: ParsedLine, bindings: Map<string, unknown>): boo
 
 function isWidgetQuery(line: ParsedLine, bindings: Map<string, unknown>): boolean {
   const match = /^query\s+([A-Za-z_][A-Za-z0-9_]*)$/.exec(line.text);
+  return !!match && bindings.has(match[1]);
+}
+
+function isWidgetPatch(line: ParsedLine, bindings: Map<string, unknown>): boolean {
+  const match = /^patch\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+dry\s+run)?$/.exec(line.text);
   return !!match && bindings.has(match[1]);
 }
 

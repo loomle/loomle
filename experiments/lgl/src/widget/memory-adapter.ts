@@ -1,13 +1,17 @@
 import type {
   Adapter,
+  Binding,
+  Call,
   Condition,
   Expr,
   ObjectResult,
+  Patch,
   Query,
+  Value,
   WidgetDocument,
   WidgetNode,
 } from "../index.js";
-import { isRef } from "../core/expr.js";
+import { isCall, isRef } from "../core/expr.js";
 
 export interface CreateMemoryWidgetAdapterOptions {
   documents: WidgetDocument[];
@@ -38,7 +42,116 @@ export function createMemoryWidgetAdapter(
       }
       return executeWidgetQuery(document, query);
     },
+    async patch(patch) {
+      const target = patch.target;
+      if (target.domain !== "widget" || !("asset" in target)) {
+        return { diagnostics: [diagnostic("invalid_widget_target", "Widget adapter requires a widget target.")] };
+      }
+      const index = documents.findIndex((candidate) => candidate.asset === target.asset);
+      if (index < 0) {
+        return { diagnostics: [diagnostic("widget_not_found", `No in-memory widget document is registered for ${target.asset}.`)] };
+      }
+      const result = planWidgetPatch(documents[index], patch);
+      if (result.diagnostics.length > 0 || !result.object || patch.dryRun) {
+        return result;
+      }
+      if (result.object.kind !== "widget_result" || result.object.documents.length !== 1) {
+        return { diagnostics: [diagnostic("patch_plan_failed", "Patch planning did not produce a widget document.")] };
+      }
+      documents[index] = cloneDocument(result.object.documents[0]);
+      return result;
+    },
   };
+}
+
+function planWidgetPatch(document: WidgetDocument, patch: Patch): ObjectResult {
+  const next = cloneDocument(document);
+  const bindings = new Map(patch.bindings.map((binding) => [bindingPath(binding), binding]));
+
+  for (const op of patch.ops) {
+    if (op.kind === "add" && "target" in op && "path" in op.target) {
+      const key = op.target.path.join(".");
+      const binding = bindings.get(key);
+      if (!binding) {
+        return { diagnostics: [diagnostic("unknown_widget_binding", `No binding is available for ${key}.`)] };
+      }
+      const addResult = applyAdd(next, op.target.path, binding);
+      if (addResult) {
+        return { diagnostics: [addResult] };
+      }
+      continue;
+    }
+
+    if (op.kind === "set" && "target" in op && "path" in op.target) {
+      const setResult = applySet(next, op.target.path, op.value);
+      if (setResult) {
+        return { diagnostics: [setResult] };
+      }
+      continue;
+    }
+
+    if (op.kind === "remove" && "target" in op && "path" in op.target) {
+      const removeResult = applyRemove(next, op.target.path);
+      if (removeResult) {
+        return { diagnostics: [removeResult] };
+      }
+      continue;
+    }
+
+    return { diagnostics: [diagnostic("invalid_widget_patch_op", "Widget adapter can only execute widget add, set, and remove operations.")] };
+  }
+
+  return { object: { kind: "widget_result", documents: [next] }, diagnostics: [] };
+}
+
+function applyAdd(document: WidgetDocument, path: string[], binding: Binding): ObjectResult["diagnostics"][number] | undefined {
+  if (path.length !== 2) {
+    return diagnostic("invalid_widget_add_target", "Widget add target must be parent.child.");
+  }
+  if (!isCall(binding.value)) {
+    return diagnostic("invalid_widget_binding", "Widget add requires a constructor binding.");
+  }
+  if (!document.widgets.some((widget) => widget.alias === path[0])) {
+    return diagnostic("unknown_widget_parent", `Widget parent ${path[0]} does not exist.`);
+  }
+  if (document.widgets.some((widget) => widget.alias === path[1])) {
+    return diagnostic("duplicate_widget", `Widget ${path[1]} already exists.`);
+  }
+  const node = nodeFromCall(path[1], binding.value, path[0]);
+  if (!node) {
+    return diagnostic("invalid_widget_binding", "Widget constructor properties must be literal values.");
+  }
+  document.widgets.push(node);
+  return undefined;
+}
+
+function applySet(document: WidgetDocument, path: string[], value: Expr): ObjectResult["diagnostics"][number] | undefined {
+  if (path.length !== 2) {
+    return diagnostic("invalid_widget_set_target", "Widget set target must be widget.property.");
+  }
+  const widget = document.widgets.find((candidate) => candidate.alias === path[0]);
+  if (!widget) {
+    return diagnostic("unknown_widget", `Widget ${path[0]} does not exist.`);
+  }
+  if (!isValue(value)) {
+    return diagnostic("invalid_widget_value", "Widget property values must be literal values.");
+  }
+  widget.properties = { ...(widget.properties ?? {}), [path[1]]: value };
+  return undefined;
+}
+
+function applyRemove(document: WidgetDocument, path: string[]): ObjectResult["diagnostics"][number] | undefined {
+  if (path.length !== 1) {
+    return diagnostic("invalid_widget_remove_target", "Widget remove target must be a widget name.");
+  }
+  if (path[0] === document.root) {
+    return diagnostic("invalid_widget_remove_target", "Widget root cannot be removed.");
+  }
+  const before = document.widgets.length;
+  document.widgets = removeWidgetTree(document.widgets, path[0]);
+  return document.widgets.length === before
+    ? diagnostic("unknown_widget", `Widget ${path[0]} does not exist.`)
+    : undefined;
 }
 
 function executeWidgetQuery(document: WidgetDocument, query: Query): ObjectResult {
@@ -61,6 +174,45 @@ function executeWidgetQuery(document: WidgetDocument, query: Query): ObjectResul
     };
   }
   return { diagnostics: [diagnostic("invalid_widget_find", "Widget adapter can only execute find tree and find widgets queries.")] };
+}
+
+function bindingPath(binding: Binding): string {
+  switch (binding.target.kind) {
+    case "local":
+      return binding.target.name;
+    case "member":
+      return `${binding.target.object}.${binding.target.member}`;
+    default:
+      return assertNever(binding.target);
+  }
+}
+
+function nodeFromCall(alias: string, call: Call, parent: string): WidgetNode | undefined {
+  const { parent: _parent, ...properties } = call.args;
+  if (!isValueRecord(properties)) {
+    return undefined;
+  }
+  return {
+    alias,
+    class: call.callee,
+    parent,
+    ...(Object.keys(properties).length > 0 ? { properties } : {}),
+  };
+}
+
+function removeWidgetTree(widgets: WidgetNode[], alias: string): WidgetNode[] {
+  const toRemove = new Set([alias]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const widget of widgets) {
+      if (widget.parent && toRemove.has(widget.parent) && !toRemove.has(widget.alias)) {
+        toRemove.add(widget.alias);
+        changed = true;
+      }
+    }
+  }
+  return widgets.filter((widget) => !toRemove.has(widget.alias));
 }
 
 function baseDocument(document: WidgetDocument): WidgetDocument {
@@ -189,6 +341,21 @@ function exprToConditionString(value: Expr): string {
 
 function isName(value: Expr): value is { kind: "name"; name: string } {
   return typeof value === "object" && value !== null && !Array.isArray(value) && value.kind === "name";
+}
+
+function isValue(value: Expr): value is Value {
+  return !isCall(value) && !isRef(value);
+}
+
+function isValueRecord(value: unknown): value is Record<string, Value> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    !isCall(value) &&
+    !isRef(value) &&
+    Object.values(value).every(isValue)
+  );
 }
 
 function cloneDocument(document: WidgetDocument): WidgetDocument {

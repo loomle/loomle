@@ -720,9 +720,10 @@
       }
     },
     "PatchOp": {
-      "oneOf": [
+      "anyOf": [
         { "$ref": "#/$defs/GraphPatchOp" },
-        { "$ref": "#/$defs/BlueprintPatchOp" }
+        { "$ref": "#/$defs/BlueprintPatchOp" },
+        { "$ref": "#/$defs/WidgetPatchOp" }
       ]
     },
     "GraphPatchOp": {
@@ -795,6 +796,41 @@
         "target": { "$ref": "#/$defs/FieldPath" },
         "relativeTo": { "$ref": "#/$defs/FieldPath" },
         "position": { "enum": ["before", "after"] }
+      }
+    },
+    "WidgetPatchOp": {
+      "oneOf": [
+        { "$ref": "#/$defs/WidgetAdd" },
+        { "$ref": "#/$defs/WidgetSet" },
+        { "$ref": "#/$defs/WidgetRemove" }
+      ]
+    },
+    "WidgetAdd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": { "const": "add" },
+        "target": { "$ref": "#/$defs/FieldPath" }
+      }
+    },
+    "WidgetSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "value"],
+      "properties": {
+        "kind": { "const": "set" },
+        "target": { "$ref": "#/$defs/FieldPath" },
+        "value": { "$ref": "#/$defs/Expr" }
+      }
+    },
+    "WidgetRemove": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": { "const": "remove" },
+        "target": { "$ref": "#/$defs/FieldPath" }
       }
     },
     "Set": {

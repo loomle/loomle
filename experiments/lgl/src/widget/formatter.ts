@@ -1,13 +1,16 @@
-import type { Expr, Query, WidgetDocument, WidgetNode, WidgetResult } from "../index.js";
+import type { Binding, Expr, Patch, Query, WidgetDocument, WidgetNode, WidgetPatchOp, WidgetResult } from "../index.js";
+import { formatBindingTarget } from "../core/binding.js";
 import { formatCondition } from "../core/condition.js";
-import { formatArgList } from "../core/expr.js";
+import { formatArgList, formatExpr } from "../core/expr.js";
 
-export function formatWidgetLglObject(object: WidgetResult | Query): string {
+export function formatWidgetLglObject(object: WidgetResult | Query | Patch): string {
   switch (object.kind) {
     case "widget_result":
       return formatWidgetResult(object);
     case "query":
       return formatWidgetQuery(object);
+    case "patch":
+      return formatWidgetPatch(object);
     default:
       return assertNever(object);
   }
@@ -70,6 +73,61 @@ function formatWidgetQuery(query: Query): string {
     lines.push(`page after ${JSON.stringify(query.page.after)}`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+function formatWidgetPatch(patch: Patch): string {
+  if (patch.target.domain !== "widget" || !("asset" in patch.target)) {
+    throw new Error("Widget formatter received a non-widget patch.");
+  }
+  const lines = [
+    `widgetAsset = asset(path: ${JSON.stringify(patch.target.asset)}, type: widget)`,
+    "w = widget(asset: widgetAsset, root: root)",
+    "",
+    `patch w${patch.dryRun ? " dry run" : ""}`,
+  ];
+  if (patch.bindings.length > 0) {
+    lines.push("", ...patch.bindings.map(formatBinding));
+  }
+  if (patch.ops.length > 0) {
+    lines.push(...patch.ops.map((op) => formatWidgetOp(asWidgetOp(op))));
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function formatBinding(binding: Binding): string {
+  if (isNodeCreation(binding.value)) {
+    throw new Error("Widget formatter received a graph node creation binding.");
+  }
+  return `${formatBindingTarget(binding.target)} = ${formatExpr(binding.value)}`;
+}
+
+function isNodeCreation(value: Binding["value"]): value is Exclude<Binding["value"], Expr> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "kind" in value &&
+    (value.kind === "palette_node" || value.kind === "shortcut_node")
+  );
+}
+
+function formatWidgetOp(op: WidgetPatchOp): string {
+  switch (op.kind) {
+    case "add":
+      return `add ${op.target.path.join(".")}`;
+    case "set":
+      return `set ${op.target.path.join(".")} = ${formatExpr(op.value)}`;
+    case "remove":
+      return `remove ${op.target.path.join(".")}`;
+    default:
+      return assertNever(op);
+  }
+}
+
+function asWidgetOp(op: Patch["ops"][number]): WidgetPatchOp {
+  if (!("target" in op) || !("path" in op.target)) {
+    throw new Error("Widget formatter received a non-widget patch operation.");
+  }
+  return op as WidgetPatchOp;
 }
 
 function assertNever(value: never): never {
