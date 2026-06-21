@@ -216,11 +216,12 @@ function executeWidgetQuery(document: WidgetDocument, query: Query, paletteEntri
       .filter((entry) => matchesCreationText(entry, find.text))
       .filter((entry) => matchesCreationCondition(entry, query.where));
     const page = paginateItems(sortItems(entries, query, (entry, key) => readCreationField(entry, key.split("."))), query);
+    const includeDefaults = query.with?.includes("defaults") ?? false;
     return {
       object: {
         kind: "creation_result",
         target: { domain: "widget", asset: document.asset },
-        entries: page.items.map(cloneCreationEntry),
+        entries: page.items.map((entry) => cloneCreationEntry(includeDefaults ? entry : withoutCreationDefaults(entry))),
       },
       diagnostics: [],
       ...(page.next ? { page: { next: page.next } } : {}),
@@ -494,14 +495,14 @@ function cloneCreationEntry(entry: CreationEntry): CreationEntry {
 
 function defaultWidgetPaletteEntries(): CreationEntry[] {
   return [
-    shortcutEntry("Button"),
-    shortcutEntry("TextBlock"),
+    shortcutEntry("Button", { text: "" }),
+    shortcutEntry("TextBlock", { text: "", fontSize: 24 }),
     shortcutEntry("CanvasPanel"),
     shortcutEntry("VerticalBox"),
   ];
 }
 
-function shortcutEntry(name: string): CreationEntry {
+function shortcutEntry(name: string, defaults?: Record<string, Value>): CreationEntry {
   return {
     name,
     constructor: {
@@ -509,7 +510,14 @@ function shortcutEntry(name: string): CreationEntry {
       callee: name,
       args: {},
     },
+    ...(defaults ? { defaults } : {}),
   };
+}
+
+function withoutCreationDefaults(entry: CreationEntry): CreationEntry {
+  const copy = cloneCreationEntry(entry);
+  delete copy.defaults;
+  return copy;
 }
 
 function diagnostic(code: string, message: string): ObjectResult["diagnostics"][number] {

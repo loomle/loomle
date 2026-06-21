@@ -47,6 +47,7 @@ const paletteEntries: CreationEntry[] = [
   {
     name: "Button",
     constructor: { kind: "call", callee: "Button", args: {} },
+    defaults: { text: "" },
   },
   {
     name: "InventorySlot",
@@ -87,13 +88,21 @@ assert.doesNotMatch(widgetResult.text ?? "", /stack.quit/);
 assert.doesNotMatch(widgetResult.text ?? "", /title/);
 console.log("[PASS] memory widget adapter filters widgets");
 
+const compactButtonPalette = await lgl.query(`${header}
+query w
+find palette entry "Button"
+`);
+assert.equal(compactButtonPalette.diagnostics.length, 0);
+assert.match(compactButtonPalette.text ?? "", /Button = Button\(\)/);
+assert.doesNotMatch(compactButtonPalette.text ?? "", /Button = Button\(text: ""\)/);
+
 const buttonPalette = await lgl.query(`${header}
 query w
 find palette entry "Button"
 with defaults
 `);
 assert.equal(buttonPalette.diagnostics.length, 0);
-assert.match(buttonPalette.text ?? "", /Button = Button\(\)/);
+assert.match(buttonPalette.text ?? "", /Button = Button\(text: ""\)/);
 assert.doesNotMatch(buttonPalette.text ?? "", /InventorySlot/);
 
 const classPalette = await lgl.query(`${header}

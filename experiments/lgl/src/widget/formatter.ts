@@ -105,7 +105,13 @@ function formatCreationEntry(entry: CreationEntry): string {
       ...(entry.defaults ?? {}),
     })})`;
   }
-  return `${entry.name} = ${formatExpr(entry.constructor)}`;
+  return `${entry.name} = ${formatExpr({
+    ...entry.constructor,
+    args: {
+      ...entry.constructor.args,
+      ...(entry.defaults ?? {}),
+    },
+  })}`;
 }
 
 function formatWidgetPatch(patch: Patch): string {

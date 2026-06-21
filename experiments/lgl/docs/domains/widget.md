@@ -287,6 +287,30 @@ InventorySlot = widget(class: "/Game/UI/WBP_InventorySlot.WBP_InventorySlot_C")
 PluginFancy = widget(palette: "widget.palette:...")
 ```
 
+`with defaults` asks the adapter to include common writable creation arguments
+that are useful immediately in patch text:
+
+```lgl
+query menu
+find palette entry "Button"
+with defaults
+```
+
+Example result:
+
+```lgl
+Button = Button(text: "")
+TextBlock = TextBlock(text: "", fontSize: 24)
+```
+
+Without `with defaults`, palette results should stay compact and omit optional
+arguments:
+
+```lgl
+Button = Button()
+TextBlock = TextBlock()
+```
+
 Use a stable widget constructor when the entry maps to a common native UMG
 widget with clear semantics:
 
