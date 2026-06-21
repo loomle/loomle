@@ -33,6 +33,16 @@ schema contract use normalized JSON.
 - Keep Unreal-specific behavior behind a Blueprint adapter; the SDK surface
   should not expose UE bridge internals directly.
 
+## Implementation Layout
+
+- `src/parser.ts`, `src/formatter.ts`, and `src/memory-adapter.ts` are stable
+  public entry shims.
+- `src/core/` contains shared text parsing helpers that are not domain-specific.
+- `src/graph/` contains the current implemented domain: graph text parsing,
+  graph formatting, and the in-memory graph adapter.
+- Future `src/asset/`, `src/blueprint/`, and `src/widget/` directories should
+  plug into the same root entry points instead of extending graph internals.
+
 ## Documents
 
 The docs are organized around the shared language core plus UE domains. The
