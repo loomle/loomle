@@ -19,6 +19,7 @@ minimal implementation:
 - `18-find-print-palette.query.lgl`
 - `19-full-graph.query.lgl`
 - `20-disconnect-branch-condition.patch.lgl`
+- `21-find-branch-palette-from-pin.query.lgl`
 - `22-set-print-and-insert-delay.patch.lgl`
 - `24-remove-print.patch.lgl`
 - `25-maintenance-ops.patch.lgl`
@@ -40,8 +41,8 @@ with `npm run test:examples:extended` from `experiments/lgl`:
 ## Reference
 
 Reference examples are richer design samples. They are audited by
-`npm run test:examples:reference`, but they are kept outside the default
-conformance gate so the minimal parser can stay focused:
+`npm run test:examples:reference`, and the same check is included in the
+default `npm test` gate:
 
 - `03-enable-input-near-actor.lgl`
 - `05-line-trace-print-hit.lgl`

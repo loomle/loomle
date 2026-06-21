@@ -91,13 +91,12 @@ so schema changes fail unless the generated types are updated.
 its own; the same check is included in the default `npm test` gate.
 
 `npm run test:examples:reference` audits the larger Blueprint reference examples
-without making them part of the default conformance gate.
+on its own; the same check is included in the default `npm test` gate.
 
 The current parser/formatter is a minimal closed-loop implementation for the
 core examples. It covers document headers, graph node and edge lines, simple
 query forms, palette bindings, and a small patch set including `insert` and
-`move`. It covers the current Core and Extended Blueprint examples, with larger
-Reference examples available through `npm run test:examples:reference`.
+`move`. It covers the current Core, Extended, and Reference Blueprint examples.
 
 The current facade is `createLgl({ adapters })`, returning an object used as
 `lgl.query(text)` and `lgl.patch(text)`. It parses LGL text, dispatches by

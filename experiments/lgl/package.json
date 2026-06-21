@@ -16,7 +16,7 @@
     "test:examples:reference": "npm run build && node dist/tests/parser/reference-examples.js",
     "test:facade": "npm run build && node dist/tests/sdk/facade.js",
     "test:memory": "npm run build && node dist/tests/sdk/memory-adapter.js",
-    "test": "npm run check:generated && npm run test:schema && npm run test:invalid && npm run test:roundtrip && npm run test:examples && npm run test:examples:extended && npm run test:facade && npm run test:memory"
+    "test": "npm run check:generated && npm run test:schema && npm run test:invalid && npm run test:roundtrip && npm run test:examples && npm run test:examples:extended && npm run test:examples:reference && npm run test:facade && npm run test:memory"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
