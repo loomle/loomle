@@ -195,3 +195,29 @@ assert.equal(
   true,
 );
 console.log("[PASS] memory adapter adds and connects in one op");
+
+const maintenancePatch = await lgl.patch(`${graphHeader}
+patch g
+
+set print.InString = "Updated"
+disconnect delay.Completed
+move print by (10, 5)
+reconstruct print preserve links
+remove print2
+`);
+assert.equal(maintenancePatch.diagnostics.length, 0);
+
+const afterMaintenance = adapter.getGraph(graph.target);
+const updatedPrint = afterMaintenance?.nodes.find((node) => node.alias === "print");
+assert.equal(updatedPrint?.fields.InString, "Updated");
+assert.deepEqual(updatedPrint?.at, [10, 5]);
+assert.equal(afterMaintenance?.nodes.some((node) => node.alias === "print2"), false);
+assert.equal(
+  afterMaintenance?.edges.some(
+    (edge) =>
+      (edge.from.node === "delay" && edge.from.pin === "Completed") ||
+      (edge.to.node === "delay" && edge.to.pin === "Completed"),
+  ),
+  false,
+);
+console.log("[PASS] memory adapter applies maintenance patch ops");

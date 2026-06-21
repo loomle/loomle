@@ -21,6 +21,7 @@ minimal implementation:
 - `20-disconnect-branch-condition.patch.lgl`
 - `22-set-print-and-insert-delay.patch.lgl`
 - `24-remove-print.patch.lgl`
+- `25-maintenance-ops.patch.lgl`
 
 ## Extended
 

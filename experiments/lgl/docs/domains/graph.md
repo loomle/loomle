@@ -442,7 +442,7 @@ interface Insert {
 ```lgl
 set print.InString = "Ready"
 add delay
-disconnect(branch.Condition)
+disconnect branch.Condition
 remove print
 move delay to (320, 0)
 move print by (240, 0)

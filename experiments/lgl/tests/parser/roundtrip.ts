@@ -95,6 +95,21 @@ print = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLib
 add print begin.Then -> print.Exec
 `,
   },
+  {
+    name: "patch maintenance ops",
+    text: `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+patch g
+
+add print = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString", InString: "Ready")
+begin.Then -> print.Exec
+set print.InString = "Updated"
+disconnect print.InString
+remove print
+move delay by (120, -40)
+reconstruct delay preserve links
+`,
+  },
 ];
 
 let failed = false;
