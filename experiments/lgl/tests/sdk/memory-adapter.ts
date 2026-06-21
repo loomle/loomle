@@ -34,11 +34,29 @@ const graph: Graph = {
   ],
   pins: [
     {
+      node: "begin",
+      name: "Then",
+      type: "exec",
+      direction: "out",
+    },
+    {
+      node: "print",
+      name: "Exec",
+      type: "exec",
+      direction: "in",
+    },
+    {
       node: "print",
       name: "InString",
       type: "string",
       direction: "in",
       value: "Ready",
+    },
+    {
+      node: "print",
+      name: "Then",
+      type: "exec",
+      direction: "out",
     },
   ],
 };
@@ -92,6 +110,33 @@ assert.equal(delayPalette.diagnostics.length, 0);
 assert.match(delayPalette.text ?? "", /Delay = delay\(duration: 1\)/);
 assert.match(delayPalette.text ?? "", /Delay.Completed = pin\(type: exec, direction: out\)/);
 console.log("[PASS] memory adapter returns copyable palette entries");
+
+const branchFromExec = await lgl.query(`${graphHeader}
+query g
+find palette entry "Branch" from begin.Then
+with pins
+`);
+assert.equal(branchFromExec.diagnostics.length, 0);
+assert.match(branchFromExec.text ?? "", /Branch = branch\(\)/);
+assert.match(branchFromExec.text ?? "", /Branch.Exec = pin\(type: exec, direction: in\)/);
+assert.doesNotMatch(branchFromExec.text ?? "", /PrintString = node/);
+
+const branchToExec = await lgl.query(`${graphHeader}
+query g
+find palette entry "Branch" to print.Exec
+with pins
+`);
+assert.equal(branchToExec.diagnostics.length, 0);
+assert.match(branchToExec.text ?? "", /Branch = branch\(\)/);
+assert.match(branchToExec.text ?? "", /Branch.Then = pin\(type: exec, direction: out\)/);
+
+const missingPinContext = await lgl.query(`${graphHeader}
+query g
+find palette entry "Branch" from begin.Missing
+`);
+assert.equal(missingPinContext.text, undefined);
+assert.equal(missingPinContext.diagnostics[0]?.code, "unknown_pin_context");
+console.log("[PASS] memory adapter filters palette entries by pin context");
 
 const orderedNodes = await lgl.query(`${graphHeader}
 query g

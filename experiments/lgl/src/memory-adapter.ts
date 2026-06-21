@@ -112,18 +112,26 @@ function executeQuery(graph: Graph, query: Query): ObjectResult {
       return { object: graphSnippet(graph, aliases, query.with?.includes("pins") ?? false), diagnostics: [] };
     }
     case "palette_entry":
-      return findPaletteEntries(graph.target, find, query);
+      return findPaletteEntries(graph, find, query);
     default:
       return assertNever(find);
   }
 }
 
-function findPaletteEntries(target: Target, find: FindPaletteEntry, query: Query): ObjectResult {
+function findPaletteEntries(graph: Graph, find: FindPaletteEntry, query: Query): ObjectResult {
   const includePins = query.with?.includes("pins") ?? false;
   const includeDefaults = query.with?.includes("defaults") ?? false;
-  const entries = memoryPaletteEntries(includePins, includeDefaults)
+  const entriesWithPins = memoryPaletteEntries(true, includeDefaults);
+  const pinContext = resolvePalettePinContext(graph, find);
+  if (pinContext instanceof Error) {
+    return { diagnostics: [diagnostic("unknown_pin_context", pinContext.message)] };
+  }
+
+  const entries = entriesWithPins
     .filter((entry) => matchesPaletteText(entry, find.text))
-    .filter((entry) => matchesPaletteCondition(entry, query.where));
+    .filter((entry) => matchesPaletteCondition(entry, query.where))
+    .filter((entry) => matchesPalettePinContext(entry, pinContext))
+    .map((entry) => includePins ? entry : withoutEntryPins(entry));
   const page = paginateItems(
     sortItems(entries, query, (entry, key) => readPaletteField(entry, key.split("."))),
     query,
@@ -131,12 +139,54 @@ function findPaletteEntries(target: Target, find: FindPaletteEntry, query: Query
   return {
     object: {
       kind: "creation_result",
-      target,
+      target: graph.target,
       entries: page.items,
     },
     diagnostics: [],
     ...(page.next ? { page: { next: page.next } } : {}),
   };
+}
+
+function resolvePalettePinContext(
+  graph: Graph,
+  find: FindPaletteEntry,
+): { direction: "from" | "to"; pin: Pin } | undefined | Error {
+  if (!find.pinContext) {
+    return undefined;
+  }
+  const pin = graph.pins?.find((candidate) => candidate.node === find.pinContext?.pin.node && candidate.name === find.pinContext.pin.pin);
+  if (!pin) {
+    return new Error(`Pin ${find.pinContext.pin.node}.${find.pinContext.pin.pin} is not available in the graph readback.`);
+  }
+  return { direction: find.pinContext.direction, pin };
+}
+
+function matchesPalettePinContext(
+  entry: CreationEntry,
+  context: { direction: "from" | "to"; pin: Pin } | undefined,
+): boolean {
+  if (!context) {
+    return true;
+  }
+  const requiredDirection = context.direction === "from" ? "in" : "out";
+  return entry.pins?.some(
+    (pin) =>
+      pin.direction === requiredDirection &&
+      pinTypesCompatible(pin.type, context.pin.type),
+  ) ?? false;
+}
+
+function pinTypesCompatible(left: string, right: string): boolean {
+  return normalizePinType(left) === normalizePinType(right);
+}
+
+function normalizePinType(type: string): string {
+  return type.toLowerCase() === "bool" ? "boolean" : type.toLowerCase();
+}
+
+function withoutEntryPins(entry: CreationEntry): CreationEntry {
+  const { pins: _pins, ...rest } = entry;
+  return rest;
 }
 
 function sortItems<T>(items: T[], query: Query, readField: (item: T, key: string) => unknown): T[] {
