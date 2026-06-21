@@ -33,6 +33,11 @@ const blueprints: Blueprint[] = [
         parent: null,
       },
       {
+        name: "Mesh",
+        class: "/Script/Engine.StaticMeshComponent",
+        parent: "Root",
+      },
+      {
         name: "Trigger",
         class: "/Script/Engine.BoxComponent",
         parent: "Root",
@@ -101,13 +106,18 @@ patch bp
 bp.MaxHealth = variable(type: float, default: 250, category: "Stats")
 add bp.MaxHealth
 set bp.parent = "/Script/Engine.Character"
-remove bp.Health
+rename bp.Health to OldHealth
+move Root.Trigger before Root.Mesh
+remove bp.OldHealth
 `);
 assert.equal(applyPatch.diagnostics.length, 0);
 const afterApply = patchAdapter.getBlueprints()[0];
 assert.equal(afterApply.parent, "/Script/Engine.Character");
 assert.equal(afterApply.members?.some((member) => member.name === "Health"), false);
 assert.equal(afterApply.members?.some((member) => member.name === "MaxHealth"), true);
+const meshIndex = afterApply.components?.findIndex((component) => component.name === "Mesh") ?? -1;
+const triggerIndex = afterApply.components?.findIndex((component) => component.name === "Trigger") ?? -1;
+assert.equal(triggerIndex >= 0 && meshIndex >= 0 && triggerIndex < meshIndex, true);
 console.log("[PASS] memory blueprint adapter applies member patch");
 
 const atomicFailure = await patchLgl.patch(`${header}

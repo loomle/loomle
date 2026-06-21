@@ -743,7 +743,9 @@
       "oneOf": [
         { "$ref": "#/$defs/BlueprintSet" },
         { "$ref": "#/$defs/BlueprintAdd" },
-        { "$ref": "#/$defs/BlueprintRemove" }
+        { "$ref": "#/$defs/BlueprintRemove" },
+        { "$ref": "#/$defs/BlueprintRename" },
+        { "$ref": "#/$defs/BlueprintMove" }
       ]
     },
     "BlueprintSet": {
@@ -772,6 +774,27 @@
       "properties": {
         "kind": { "const": "remove" },
         "target": { "$ref": "#/$defs/FieldPath" }
+      }
+    },
+    "BlueprintRename": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "name"],
+      "properties": {
+        "kind": { "const": "rename" },
+        "target": { "$ref": "#/$defs/FieldPath" },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "BlueprintMove": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "relativeTo", "position"],
+      "properties": {
+        "kind": { "const": "move" },
+        "target": { "$ref": "#/$defs/FieldPath" },
+        "relativeTo": { "$ref": "#/$defs/FieldPath" },
+        "position": { "enum": ["before", "after"] }
       }
     },
     "Set": {

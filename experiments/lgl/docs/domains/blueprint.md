@@ -546,9 +546,9 @@ interface Remove {
 }
 ```
 
-The TypeScript LGL experiment currently implements `add`, `set`, and `remove`.
-`rename` and component `move` remain designed text forms for the future UE
-adapter and should be added to the normalized schema when implemented.
+The TypeScript LGL experiment implements `add`, `set`, `remove`, `rename`, and
+component `move` in the in-memory adapter. The UE-backed adapter must route the
+same operations through UE-owned Blueprint, member, and component edit paths.
 
 The adapter determines whether an operation target is a class field, member, or
 component, then routes through the corresponding UE-owned path.

@@ -99,7 +99,23 @@ function planBlueprintPatch(blueprint: Blueprint, patch: Patch): ObjectResult {
       continue;
     }
 
-    return { diagnostics: [diagnostic("invalid_blueprint_patch_op", "Blueprint adapter can only execute blueprint add, set, and remove operations.")] };
+    if (op.kind === "rename" && "target" in op) {
+      const renameResult = applyRename(next, op.target.path, op.name);
+      if (renameResult) {
+        return { diagnostics: [renameResult] };
+      }
+      continue;
+    }
+
+    if (op.kind === "move" && "target" in op && "relativeTo" in op) {
+      const moveResult = applyMove(next, op.target.path, op.relativeTo.path, op.position);
+      if (moveResult) {
+        return { diagnostics: [moveResult] };
+      }
+      continue;
+    }
+
+    return { diagnostics: [diagnostic("invalid_blueprint_patch_op", "Blueprint adapter can only execute blueprint add, set, remove, rename, and move operations.")] };
   }
 
   return { object: { kind: "blueprint_result", blueprints: [next] }, diagnostics: [] };
@@ -188,6 +204,67 @@ function applyRemove(blueprint: Blueprint, path: string[]): ObjectResult["diagno
   }
 
   return diagnostic("unknown_blueprint_remove_target", `Unknown Blueprint remove target ${path.join(".")}.`);
+}
+
+function applyRename(blueprint: Blueprint, path: string[], name: string): ObjectResult["diagnostics"][number] | undefined {
+  if (path.length !== 2) {
+    return diagnostic("invalid_blueprint_rename_target", "Blueprint rename target must be owner.name.");
+  }
+
+  if (!isComponentName(blueprint, path[0])) {
+    const member = (blueprint.members ?? []).find((candidate) => candidate.name === path[1]);
+    if (member) {
+      if ((blueprint.members ?? []).some((candidate) => candidate.name === name)) {
+        return diagnostic("duplicate_blueprint_member", `Blueprint member ${name} already exists.`);
+      }
+      member.name = name;
+      return undefined;
+    }
+  }
+
+  const component = (blueprint.components ?? []).find((candidate) => candidate.name === path[1]);
+  if (component) {
+    if ((blueprint.components ?? []).some((candidate) => candidate.name === name)) {
+      return diagnostic("duplicate_blueprint_component", `Blueprint component ${name} already exists.`);
+    }
+    for (const child of blueprint.components ?? []) {
+      if (child.parent === component.name) {
+        child.parent = name;
+      }
+    }
+    component.name = name;
+    return undefined;
+  }
+
+  return diagnostic("unknown_blueprint_rename_target", `Unknown Blueprint rename target ${path.join(".")}.`);
+}
+
+function applyMove(
+  blueprint: Blueprint,
+  targetPath: string[],
+  relativeToPath: string[],
+  position: "before" | "after",
+): ObjectResult["diagnostics"][number] | undefined {
+  const targetName = targetPath[targetPath.length - 1];
+  const relativeName = relativeToPath[relativeToPath.length - 1];
+  const components = blueprint.components ?? [];
+  const targetIndex = components.findIndex((component) => component.name === targetName);
+  const relativeIndex = components.findIndex((component) => component.name === relativeName);
+  if (targetIndex < 0) {
+    return diagnostic("unknown_component", `Component ${targetName} does not exist.`);
+  }
+  if (relativeIndex < 0) {
+    return diagnostic("unknown_component", `Component ${relativeName} does not exist.`);
+  }
+  if (components[targetIndex].parent !== components[relativeIndex].parent) {
+    return diagnostic("invalid_component_move", "Component move requires both components to share the same parent.");
+  }
+
+  const [component] = components.splice(targetIndex, 1);
+  const adjustedRelativeIndex = components.findIndex((candidate) => candidate.name === relativeName);
+  components.splice(position === "before" ? adjustedRelativeIndex : adjustedRelativeIndex + 1, 0, component);
+  blueprint.components = components;
+  return undefined;
 }
 
 function isComponentName(blueprint: Blueprint, name: string): boolean {

@@ -72,7 +72,7 @@ export type GraphPatchOp =
   | MoveTo
   | MoveBy
   | Reconstruct;
-export type BlueprintPatchOp = BlueprintSet | BlueprintAdd | BlueprintRemove;
+export type BlueprintPatchOp = BlueprintSet | BlueprintAdd | BlueprintRemove | BlueprintRename | BlueprintMove;
 export type CreationEntry = ShortcutCreationEntry | PaletteCreationEntry;
 
 export interface Graph {
@@ -427,6 +427,17 @@ export interface BlueprintAdd {
 export interface BlueprintRemove {
   kind: "remove";
   target: FieldPath;
+}
+export interface BlueprintRename {
+  kind: "rename";
+  target: FieldPath;
+  name: string;
+}
+export interface BlueprintMove {
+  kind: "move";
+  target: FieldPath;
+  relativeTo: FieldPath;
+  position: "before" | "after";
 }
 export interface CreationResult {
   kind: "creation_result";

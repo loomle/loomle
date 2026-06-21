@@ -45,6 +45,23 @@
       "target": {
         "path": ["door", "OldHealth"]
       }
+    },
+    {
+      "kind": "rename",
+      "target": {
+        "path": ["door", "Health"]
+      },
+      "name": "MaxHealth"
+    },
+    {
+      "kind": "move",
+      "target": {
+        "path": ["Root", "Trigger"]
+      },
+      "position": "after",
+      "relativeTo": {
+        "path": ["Root", "Mesh"]
+      }
     }
   ]
 }

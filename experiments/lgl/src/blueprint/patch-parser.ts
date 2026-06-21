@@ -86,7 +86,26 @@ function parseBlueprintOp(line: ParsedLine): BlueprintPatchOp {
     };
   }
 
-  throw new ParseError("unsupported_blueprint_patch_op", "Expected add binding, set target = value, or remove target.", spanForLine(line));
+  match = /^rename\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s+to\s+([A-Za-z_][A-Za-z0-9_]*)$/.exec(line.text);
+  if (match) {
+    return {
+      kind: "rename",
+      target: parseFieldPath(match[1], line),
+      name: match[2],
+    };
+  }
+
+  match = /^move\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s+(before|after)\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)$/.exec(line.text);
+  if (match) {
+    return {
+      kind: "move",
+      target: parseFieldPath(match[1], line),
+      position: match[2] as "before" | "after",
+      relativeTo: parseFieldPath(match[3], line),
+    };
+  }
+
+  throw new ParseError("unsupported_blueprint_patch_op", "Expected add binding, set target = value, remove target, rename target to name, or move target before/after other.", spanForLine(line));
 }
 
 function fieldPathFromBinding(binding: Binding): FieldPath {

@@ -145,6 +145,10 @@ function formatBlueprintOp(op: BlueprintPatchOp): string {
       return `set ${op.target.path.join(".")} = ${formatExpr(op.value)}`;
     case "remove":
       return `remove ${op.target.path.join(".")}`;
+    case "rename":
+      return `rename ${op.target.path.join(".")} to ${op.name}`;
+    case "move":
+      return `move ${op.target.path.join(".")} ${op.position} ${op.relativeTo.path.join(".")}`;
     default:
       return assertNever(op);
   }

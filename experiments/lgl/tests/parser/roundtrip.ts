@@ -77,6 +77,8 @@ door.Health = variable(type: float, default: 100.0, category: "Stats")
 add door.Health
 set door.parent = "/Script/Engine.Character"
 remove door.OldHealth
+rename door.Health to MaxHealth
+move Root.Trigger after Root.Mesh
 `,
   },
   {
