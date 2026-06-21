@@ -1,6 +1,7 @@
 import type {
   Binding,
   BindingValue,
+  Call,
   CreationEntry,
   CreationResult,
   Edge,
@@ -35,6 +36,9 @@ export function formatGraphLglObject(object: GraphLglObject): string {
     case "patch":
       return formatPatch(object);
     case "creation_result":
+      if (!isGraphTarget(object.target)) {
+        throw new Error("Graph formatter received a non-graph creation result.");
+      }
       return formatCreationResult(object.target, object.entries);
     default:
       throw new Error("Graph formatter received a non-graph object.");
@@ -100,14 +104,20 @@ function formatCreationResult(target: GraphTarget, entries: CreationEntry[]): st
   for (const entry of entries) {
     if ("palette" in entry) {
       lines.push(`${entry.name} = node(${formatArgList({ palette: entry.palette.id, ...(entry.defaults ?? {}) })})`);
-    } else {
+    } else if (hasOwnConstructor(entry)) {
       lines.push(`${entry.name} = ${formatCall(entry.constructor)}`);
+    } else {
+      throw new Error("Graph formatter received a widget class creation entry.");
     }
-    if (entry.pins) {
+    if ("pins" in entry && entry.pins) {
       lines.push(...entry.pins.map((pin) => formatPin({ ...pin, node: entry.name })));
     }
   }
   return `${lines.join("\n")}\n`;
+}
+
+function hasOwnConstructor(entry: CreationEntry): entry is CreationEntry & { constructor: Call } {
+  return Object.prototype.hasOwnProperty.call(entry, "constructor");
 }
 
 function formatTargetBindings(target: GraphTarget): string[] {

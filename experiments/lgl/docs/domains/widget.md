@@ -7,9 +7,9 @@ closest to OpenUI-style component construction because widget trees are
 naturally hierarchical and component-like.
 
 The TypeScript LGL experiment implements widget object readback, widget query
-normalization, formatting, schema validation, and an in-memory query adapter.
-Widget patching and the UE-backed adapter still need to be designed against UMG
-WidgetTree APIs before bridge implementation.
+normalization, patch normalization, formatting, schema validation, and an
+in-memory widget adapter. The UE-backed adapter still needs to route the same
+object model through UMG WidgetTree APIs.
 
 ## Basic Form
 
@@ -263,6 +263,105 @@ interface FindWidgets {
 language core. The widget domain validates allowed fields, expansions, sort
 keys, and pagination defaults.
 
+## Palette
+
+Widget palette queries discover creation forms for widget patching. They use
+the same `find palette entry` shape as other domains, but widget results should
+prefer the most direct creation text rather than forcing every entry through a
+palette id.
+
+```lgl
+query menu
+find palette entry "Button"
+with defaults
+page limit 10
+```
+
+Widget palette result text is ordered by how directly the agent can use it in a
+patch:
+
+```lgl
+Button = Button()
+TextBlock = TextBlock()
+InventorySlot = widget(class: "/Game/UI/WBP_InventorySlot.WBP_InventorySlot_C")
+PluginFancy = widget(palette: "widget.palette:...")
+```
+
+Use a stable widget constructor when the entry maps to a common native UMG
+widget with clear semantics:
+
+```lgl
+Button = Button()
+CanvasPanel = CanvasPanel()
+VerticalBox = VerticalBox()
+```
+
+Use `widget(class: "...")` for project widgets, user widgets, and other entries
+where a UE widget class path is the complete creation identity:
+
+```lgl
+InventorySlot = widget(class: "/Game/UI/WBP_InventorySlot.WBP_InventorySlot_C")
+```
+
+Use `widget(palette: "...")` only as a fallback for plugin or template entries
+that cannot be represented safely as a constructor or class path:
+
+```lgl
+PluginFancy = widget(palette: "widget.palette:...")
+```
+
+Patch text consumes the returned creation form directly:
+
+```lgl
+patch menu
+
+add mainCanvas.stack = VerticalBox()
+add stack.title = TextBlock(text: "Main Menu")
+add stack.start = Button(text: "Start")
+add stack.slot = widget(class: "/Game/UI/WBP_InventorySlot.WBP_InventorySlot_C")
+add stack.fancy = widget(palette: "widget.palette:...")
+```
+
+Widget palette differs from Blueprint graph palette. UMG widget creation is
+class-driven: the adapter can create most widgets by resolving a `UWidget`
+class and calling the WidgetTree creation path. Blueprint graph node creation
+often needs Action Menu spawner state beyond the node class, so graph keeps
+palette ids as a more important fallback.
+
+Widget palette queries are contextual. The UE-backed adapter should evaluate
+entries against the target WidgetBlueprint and UE palette filtering rules:
+hidden and deprecated classes, editor-only widgets, project palette settings,
+the active WidgetBlueprint class, and unloaded WidgetBlueprint assets.
+
+Normalized JSON:
+
+```ts
+type WidgetPaletteResult = Result<CreationBinding>;
+
+type CreationBinding =
+  | WidgetConstructor
+  | WidgetClassCreation
+  | WidgetPaletteCreation;
+
+interface WidgetConstructor {
+  kind: "constructor";
+  name: string;
+  defaults?: Record<string, Value>;
+}
+
+interface WidgetClassCreation {
+  kind: "class";
+  class: string;
+  defaults?: Record<string, Value>;
+}
+
+interface WidgetPaletteCreation {
+  kind: "palette";
+  id: string;
+  defaults?: Record<string, Value>;
+}
+```
+
 ## Patch
 
 Widget patch text is a statement list:
@@ -348,11 +447,11 @@ WidgetDocument
 // Widget query and patch text
 type WidgetQuery = Query<Find>;
 type WidgetPatch = Patch<PatchOp>;
+type WidgetPaletteResult = Result<CreationBinding>;
 ```
 
-The current schema covers readback and query. Patch JSON must be added only
-after the widget mutation design is fixed against UMG WidgetTree tools and UE
-widget semantics.
+The current schema covers readback, query, and patch. Widget palette JSON is
+design-level until the widget palette parser and UE-backed adapter are added.
 
 ## Adapter Boundary
 
@@ -362,6 +461,8 @@ Pure LGL normalization may:
   preserving widget statement order
 - convert slot sugar into explicit slot data
 - normalize widget query clauses into a structured query object
+- normalize widget palette creation bindings into constructor, class, or
+  palette creation records
 
 Pure LGL normalization must not:
 

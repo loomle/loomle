@@ -82,6 +82,7 @@ export type {
   Target,
   Value,
   WidgetDocument,
+  WidgetClassCreationEntry,
   WidgetNode,
   WidgetPatchOp,
   WidgetResult,

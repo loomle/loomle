@@ -1,9 +1,9 @@
-import type { Binding, Expr, Patch, Query, WidgetDocument, WidgetNode, WidgetPatchOp, WidgetResult } from "../index.js";
+import type { Binding, CreationEntry, CreationResult, Expr, Patch, Query, WidgetDocument, WidgetNode, WidgetPatchOp, WidgetResult } from "../index.js";
 import { formatBindingTarget } from "../core/binding.js";
 import { formatCondition } from "../core/condition.js";
 import { formatArgList, formatExpr } from "../core/expr.js";
 
-export function formatWidgetLglObject(object: WidgetResult | Query | Patch): string {
+export function formatWidgetLglObject(object: WidgetResult | Query | Patch | CreationResult): string {
   switch (object.kind) {
     case "widget_result":
       return formatWidgetResult(object);
@@ -11,6 +11,8 @@ export function formatWidgetLglObject(object: WidgetResult | Query | Patch): str
       return formatWidgetQuery(object);
     case "patch":
       return formatWidgetPatch(object);
+    case "creation_result":
+      return formatWidgetCreationResult(object);
     default:
       return assertNever(object);
   }
@@ -56,6 +58,8 @@ function formatWidgetQuery(query: Query): string {
     lines.push("find tree");
   } else if (query.find?.kind === "widgets") {
     lines.push(`find widgets${query.find.text ? ` ${JSON.stringify(query.find.text)}` : ""}`);
+  } else if (query.find?.kind === "palette_entry") {
+    lines.push(`find palette entry${query.find.text ? ` ${JSON.stringify(query.find.text)}` : ""}`);
   }
   if (query.where) {
     lines.push(`where ${formatCondition(query.where)}`);
@@ -73,6 +77,35 @@ function formatWidgetQuery(query: Query): string {
     lines.push(`page after ${JSON.stringify(query.page.after)}`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+function formatWidgetCreationResult(result: CreationResult): string {
+  if (result.target.domain !== "widget" || !("asset" in result.target)) {
+    throw new Error("Widget formatter received a non-widget creation result.");
+  }
+  const lines = [
+    `widgetAsset = asset(path: ${JSON.stringify(result.target.asset)}, type: widget)`,
+    "w = widget(asset: widgetAsset, root: root)",
+    "",
+    ...result.entries.map(formatCreationEntry),
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function formatCreationEntry(entry: CreationEntry): string {
+  if ("class" in entry) {
+    return `${entry.name} = widget(${formatArgList({
+      class: entry.class,
+      ...(entry.defaults ?? {}),
+    })})`;
+  }
+  if ("palette" in entry) {
+    return `${entry.name} = widget(${formatArgList({
+      palette: entry.palette.id,
+      ...(entry.defaults ?? {}),
+    })})`;
+  }
+  return `${entry.name} = ${formatExpr(entry.constructor)}`;
 }
 
 function formatWidgetPatch(patch: Patch): string {

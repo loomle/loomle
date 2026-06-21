@@ -17,7 +17,7 @@ import type {
 import { parseAssetQuery, tryParseAssetResult } from "../asset/parser.js";
 import { parseBlueprintBindings, parseBlueprintQuery, tryParseBlueprintResult } from "../blueprint/parser.js";
 import { parseBlueprintPatch } from "../blueprint/patch-parser.js";
-import { parseWidgetBindings, parseWidgetQuery, tryParseWidgetResult } from "../widget/parser.js";
+import { parseWidgetBindings, parseWidgetQuery, tryParseWidgetCreationResult, tryParseWidgetResult } from "../widget/parser.js";
 import { parseWidgetPatch } from "../widget/patch-parser.js";
 import { tryParseBinding } from "../core/binding.js";
 import { parseCondition, parseDetails, parseOrderBy, parsePage } from "../core/condition.js";
@@ -96,6 +96,11 @@ export function parseLglObject(text: string): ObjectResult {
     const widgetResult = tryParseWidgetResult(lines);
     if (widgetResult) {
       return { object: widgetResult, diagnostics: [] };
+    }
+
+    const widgetCreationResult = tryParseWidgetCreationResult(lines, widgetBindings);
+    if (widgetCreationResult) {
+      return { object: widgetCreationResult, diagnostics: [] };
     }
 
     const creationResult = tryParseCreationResult(lines, context);
@@ -335,7 +340,7 @@ function tryParseCreationResult(lines: ParsedLine[], context: ParseContext): Lgl
   }
   for (const pin of pins) {
     const entry = entries.find((candidate) => candidate.name === pin.node);
-    if (entry) {
+    if (entry && !("class" in entry)) {
       entry.pins = [...(entry.pins ?? []), pin];
     }
   }

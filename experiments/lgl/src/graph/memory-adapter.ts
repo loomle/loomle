@@ -183,6 +183,9 @@ function matchesPalettePinContext(
   if (!context) {
     return true;
   }
+  if ("class" in entry) {
+    return false;
+  }
   const requiredDirection = context.direction === "from" ? "in" : "out";
   return entry.pins?.some(
     (pin) =>
@@ -200,6 +203,9 @@ function normalizePinType(type: string): string {
 }
 
 function withoutEntryPins(entry: CreationEntry): CreationEntry {
+  if ("class" in entry) {
+    return entry;
+  }
   const { pins: _pins, ...rest } = entry;
   return rest;
 }
@@ -316,6 +322,9 @@ function paletteSearchFields(entry: CreationEntry): string[] {
   if ("palette" in entry) {
     return [entry.name, entry.label ?? "", entry.category ?? "", entry.palette.id];
   }
+  if ("class" in entry) {
+    return [entry.name, entry.label ?? "", entry.category ?? "", entry.class];
+  }
   return [entry.name, entry.constructor.callee];
 }
 
@@ -360,10 +369,17 @@ function readPaletteField(entry: CreationEntry, path: string[]): unknown {
       return entry.category;
     }
   }
-  if (!("palette" in entry) && (field === "constructor" || field === "type")) {
+  if (hasOwnConstructor(entry) && (field === "constructor" || field === "type")) {
     return entry.constructor.callee;
   }
+  if ("class" in entry && field === "class") {
+    return entry.class;
+  }
   return undefined;
+}
+
+function hasOwnConstructor(entry: CreationEntry): entry is CreationEntry & { constructor: Call } {
+  return Object.prototype.hasOwnProperty.call(entry, "constructor");
 }
 
 function planPatch(graph: Graph, patch: Patch): PatchPlanResult {

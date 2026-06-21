@@ -74,7 +74,7 @@ export type GraphPatchOp =
   | Reconstruct;
 export type BlueprintPatchOp = BlueprintSet | BlueprintAdd | BlueprintRemove | BlueprintRename | BlueprintMove;
 export type WidgetPatchOp = WidgetAdd | WidgetSet | WidgetRemove | WidgetMove;
-export type CreationEntry = ShortcutCreationEntry | PaletteCreationEntry;
+export type CreationEntry = ShortcutCreationEntry | WidgetClassCreationEntry | PaletteCreationEntry;
 
 export interface Graph {
   kind: "graph";
@@ -461,7 +461,7 @@ export interface WidgetMove {
 }
 export interface CreationResult {
   kind: "creation_result";
-  target: GraphTarget;
+  target: Target;
   entries: CreationEntry[];
 }
 export interface ShortcutCreationEntry {
@@ -471,6 +471,15 @@ export interface ShortcutCreationEntry {
     [k: string]: Expr;
   };
   pins?: Pin[];
+}
+export interface WidgetClassCreationEntry {
+  name: string;
+  class: string;
+  label?: string;
+  category?: string;
+  defaults?: {
+    [k: string]: Expr;
+  };
 }
 export interface PaletteCreationEntry {
   name: string;

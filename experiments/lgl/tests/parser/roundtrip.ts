@@ -100,6 +100,16 @@ page limit 10
 `,
   },
   {
+    name: "query widget palette entry",
+    text: `widgetAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: widget)
+w = widget(asset: widgetAsset, root: mainCanvas)
+query w
+find palette entry "Button"
+with defaults
+page limit 10
+`,
+  },
+  {
     name: "widget result",
     text: `menu = widget(asset: "/Game/UI/WBP_Menu.WBP_Menu", root: mainCanvas)
 mainCanvas = CanvasPanel()
@@ -159,6 +169,15 @@ PrintString = node(palette: "palette:blueprint:function:/Script/Engine.KismetSys
 PrintString.Exec = pin(type: exec, direction: in)
 PrintString.InString = pin(type: string, direction: in, value: "")
 PrintString.Then = pin(type: exec, direction: out)
+`,
+  },
+  {
+    name: "widget palette result",
+    text: `widgetAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: widget)
+w = widget(asset: widgetAsset, root: root)
+Button = Button()
+InventorySlot = widget(class: "/Game/UI/WBP_InventorySlot.WBP_InventorySlot_C")
+PluginFancy = widget(palette: "widget.palette:plugin-fancy")
 `,
   },
   {

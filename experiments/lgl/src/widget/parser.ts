@@ -1,4 +1,4 @@
-import type { Expr, Query, Value, WidgetDocument, WidgetNode, WidgetResult } from "../index.js";
+import type { CreationEntry, Expr, LglObject, Query, Value, WidgetDocument, WidgetNode, WidgetResult } from "../index.js";
 import { tryParseBinding } from "../core/binding.js";
 import { parseCondition, parseDetails, parseOrderBy, parsePage } from "../core/condition.js";
 import { isCall, isLocalRef } from "../core/expr.js";
@@ -26,7 +26,7 @@ export function parseWidgetBindings(lines: ParsedLine[]): Map<string, WidgetBind
       assets.set(binding.target.name, binding.value.args.path);
       continue;
     }
-    if (binding.value.callee === "widget") {
+    if (binding.value.callee === "widget" && ("asset" in binding.value.args || "root" in binding.value.args)) {
       const asset = resolveAsset(binding.value.args.asset, assets, line);
       const root = binding.value.args.root;
       if (!isLocalRef(root) && typeof root !== "string") {
@@ -90,7 +90,58 @@ function parseWidgetFind(line: ParsedLine): Query["find"] {
   if (match) {
     return { kind: "widgets", ...(match[1] ? { text: match[1] } : {}) };
   }
-  throw new ParseError("unsupported_widget_query", "Expected find tree or find widgets [\"text\"].", spanForLine(line));
+  const paletteMatch = /^find palette entry(?:\s+"([^"]+)")?$/.exec(line.text);
+  if (paletteMatch) {
+    return { kind: "palette_entry", ...(paletteMatch[1] ? { text: paletteMatch[1] } : {}) };
+  }
+  throw new ParseError("unsupported_widget_query", "Expected find tree, find widgets [\"text\"], or find palette entry [\"text\"].", spanForLine(line));
+}
+
+export function tryParseWidgetCreationResult(
+  lines: ParsedLine[],
+  bindings: Map<string, WidgetBinding>,
+): LglObject | undefined {
+  const entries: CreationEntry[] = [];
+  const targetBinding = bindings.values().next().value as WidgetBinding | undefined;
+  if (!targetBinding) {
+    return undefined;
+  }
+
+  for (const line of lines) {
+    const binding = tryParseBinding(line);
+    if (!binding || binding.target.kind !== "local" || !isCall(binding.value)) {
+      continue;
+    }
+    if (binding.value.callee === "asset" || bindings.has(binding.target.name)) {
+      continue;
+    }
+    if (binding.value.callee === "widget" && typeof binding.value.args.class === "string") {
+      entries.push({
+        name: binding.target.name,
+        class: binding.value.args.class,
+      });
+      continue;
+    }
+    if (binding.value.callee === "widget" && typeof binding.value.args.palette === "string") {
+      entries.push({
+        name: binding.target.name,
+        palette: { kind: "palette", id: binding.value.args.palette },
+      });
+      continue;
+    }
+    entries.push({
+      name: binding.target.name,
+      constructor: binding.value,
+    });
+  }
+
+  return entries.length > 0
+    ? {
+        kind: "creation_result",
+        target: { domain: "widget", asset: targetBinding.asset },
+        entries,
+      }
+    : undefined;
 }
 
 export function tryParseWidgetResult(lines: ParsedLine[]): WidgetResult | undefined {

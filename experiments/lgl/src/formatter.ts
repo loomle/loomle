@@ -30,5 +30,8 @@ export function formatLglObject(object: LglObject): string {
   if (object.kind === "patch" && object.target.domain === "widget") {
     return formatWidgetLglObject(object);
   }
+  if (object.kind === "creation_result" && object.target.domain === "widget") {
+    return formatWidgetLglObject(object);
+  }
   return formatGraphLglObject(object);
 }

@@ -3,6 +3,7 @@ import type {
   Binding,
   Call,
   Condition,
+  CreationEntry,
   Expr,
   ObjectResult,
   Patch,
@@ -15,6 +16,7 @@ import { isCall, isRef } from "../core/expr.js";
 
 export interface CreateMemoryWidgetAdapterOptions {
   documents: WidgetDocument[];
+  paletteEntries?: CreationEntry[];
 }
 
 export interface MemoryWidgetAdapter extends Adapter {
@@ -25,6 +27,7 @@ export function createMemoryWidgetAdapter(
   options: CreateMemoryWidgetAdapterOptions,
 ): MemoryWidgetAdapter {
   const documents = options.documents.map(cloneDocument);
+  const paletteEntries = (options.paletteEntries ?? defaultWidgetPaletteEntries()).map(cloneCreationEntry);
 
   return {
     domain: "widget",
@@ -40,7 +43,7 @@ export function createMemoryWidgetAdapter(
       if (!document) {
         return { diagnostics: [diagnostic("widget_not_found", `No in-memory widget document is registered for ${target.asset}.`)] };
       }
-      return executeWidgetQuery(document, query);
+      return executeWidgetQuery(document, query, paletteEntries);
     },
     async patch(patch) {
       const target = patch.target;
@@ -189,7 +192,7 @@ function applyMove(
   return undefined;
 }
 
-function executeWidgetQuery(document: WidgetDocument, query: Query): ObjectResult {
+function executeWidgetQuery(document: WidgetDocument, query: Query, paletteEntries: CreationEntry[]): ObjectResult {
   const find = query.find;
   if (!find || find.kind === "tree") {
     return { object: { kind: "widget_result", documents: [cloneDocument(document)] }, diagnostics: [] };
@@ -203,6 +206,21 @@ function executeWidgetQuery(document: WidgetDocument, query: Query): ObjectResul
       object: {
         kind: "widget_result",
         documents: [{ ...baseDocument(document), widgets: page.items.map(cloneWidget) }],
+      },
+      diagnostics: [],
+      ...(page.next ? { page: { next: page.next } } : {}),
+    };
+  }
+  if (find.kind === "palette_entry") {
+    const entries = paletteEntries
+      .filter((entry) => matchesCreationText(entry, find.text))
+      .filter((entry) => matchesCreationCondition(entry, query.where));
+    const page = paginateItems(sortItems(entries, query, (entry, key) => readCreationField(entry, key.split("."))), query);
+    return {
+      object: {
+        kind: "creation_result",
+        target: { domain: "widget", asset: document.asset },
+        entries: page.items.map(cloneCreationEntry),
       },
       diagnostics: [],
       ...(page.next ? { page: { next: page.next } } : {}),
@@ -223,6 +241,9 @@ function bindingPath(binding: Binding): string {
 }
 
 function nodeFromCall(alias: string, call: Call, parent: string): WidgetNode | undefined {
+  if (call.callee === "widget") {
+    return nodeFromWidgetCreationCall(alias, call, parent);
+  }
   const { parent: _parent, ...properties } = call.args;
   if (!isValueRecord(properties)) {
     return undefined;
@@ -230,6 +251,20 @@ function nodeFromCall(alias: string, call: Call, parent: string): WidgetNode | u
   return {
     alias,
     class: call.callee,
+    parent,
+    ...(Object.keys(properties).length > 0 ? { properties } : {}),
+  };
+}
+
+function nodeFromWidgetCreationCall(alias: string, call: Call, parent: string): WidgetNode | undefined {
+  const { class: classPath, palette, parent: _parent, ...properties } = call.args;
+  const widgetClass = typeof classPath === "string" ? classPath : typeof palette === "string" ? palette : undefined;
+  if (!widgetClass || !isValueRecord(properties)) {
+    return undefined;
+  }
+  return {
+    alias,
+    class: widgetClass,
     parent,
     ...(Object.keys(properties).length > 0 ? { properties } : {}),
   };
@@ -267,6 +302,58 @@ function matchesWidgetText(widget: WidgetNode, text: string | undefined): boolea
 
 function matchesWidgetCondition(widget: WidgetNode, condition: Condition | undefined): boolean {
   return matchesCondition(condition, (path) => readWidgetField(widget, path));
+}
+
+function matchesCreationText(entry: CreationEntry, text: string | undefined): boolean {
+  if (!text) {
+    return true;
+  }
+  const lowered = text.toLowerCase();
+  return creationSearchFields(entry).some((field) => field.toLowerCase().includes(lowered));
+}
+
+function matchesCreationCondition(entry: CreationEntry, condition: Condition | undefined): boolean {
+  return matchesCondition(condition, (path) => readCreationField(entry, path));
+}
+
+function creationSearchFields(entry: CreationEntry): string[] {
+  if ("class" in entry) {
+    return [entry.name, entry.class, entry.label ?? "", entry.category ?? ""];
+  }
+  if ("palette" in entry) {
+    return [entry.name, entry.palette.id, entry.label ?? "", entry.category ?? ""];
+  }
+  return [entry.name, entry.constructor.callee];
+}
+
+function readCreationField(entry: CreationEntry, path: string[]): unknown {
+  const field = path.join(".");
+  if (field === "name" || field === "alias") {
+    return entry.name;
+  }
+  if (field === "kind") {
+    return "class" in entry ? "class" : "palette" in entry ? "palette" : "constructor";
+  }
+  if (field === "class" && "class" in entry) {
+    return entry.class;
+  }
+  if (field === "palette" && "palette" in entry) {
+    return entry.palette.id;
+  }
+  if (field === "constructor" && hasOwnConstructor(entry)) {
+    return entry.constructor.callee;
+  }
+  if (field === "label" && "label" in entry) {
+    return entry.label;
+  }
+  if (field === "category" && "category" in entry) {
+    return entry.category;
+  }
+  return undefined;
+}
+
+function hasOwnConstructor(entry: CreationEntry): entry is CreationEntry & { constructor: Call } {
+  return Object.prototype.hasOwnProperty.call(entry, "constructor");
 }
 
 function matchesCondition(condition: Condition | undefined, readField: (path: string[]) => unknown): boolean {
@@ -399,6 +486,30 @@ function cloneDocument(document: WidgetDocument): WidgetDocument {
 
 function cloneWidget(widget: WidgetNode): WidgetNode {
   return structuredClone(widget);
+}
+
+function cloneCreationEntry(entry: CreationEntry): CreationEntry {
+  return structuredClone(entry);
+}
+
+function defaultWidgetPaletteEntries(): CreationEntry[] {
+  return [
+    shortcutEntry("Button"),
+    shortcutEntry("TextBlock"),
+    shortcutEntry("CanvasPanel"),
+    shortcutEntry("VerticalBox"),
+  ];
+}
+
+function shortcutEntry(name: string): CreationEntry {
+  return {
+    name,
+    constructor: {
+      kind: "call",
+      callee: name,
+      args: {},
+    },
+  };
 }
 
 function diagnostic(code: string, message: string): ObjectResult["diagnostics"][number] {

@@ -961,7 +961,7 @@
       "required": ["kind", "target", "entries"],
       "properties": {
         "kind": { "const": "creation_result" },
-        "target": { "$ref": "#/$defs/GraphTarget" },
+        "target": { "$ref": "#/$defs/Target" },
         "entries": {
           "type": "array",
           "items": { "$ref": "#/$defs/CreationEntry" }
@@ -971,6 +971,7 @@
     "CreationEntry": {
       "oneOf": [
         { "$ref": "#/$defs/ShortcutCreationEntry" },
+        { "$ref": "#/$defs/WidgetClassCreationEntry" },
         { "$ref": "#/$defs/PaletteCreationEntry" }
       ]
     },
@@ -1007,6 +1008,21 @@
         "pins": {
           "type": "array",
           "items": { "$ref": "#/$defs/Pin" }
+        }
+      }
+    },
+    "WidgetClassCreationEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "class"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "class": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Expr" }
         }
       }
     },

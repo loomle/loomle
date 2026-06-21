@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   createLgl,
   createMemoryWidgetAdapter,
+  type CreationEntry,
   type WidgetDocument,
 } from "../../src/index.js";
 
@@ -42,7 +43,26 @@ const documents: WidgetDocument[] = [
   },
 ];
 
-const lgl = createLgl({ adapters: [createMemoryWidgetAdapter({ documents })] });
+const paletteEntries: CreationEntry[] = [
+  {
+    name: "Button",
+    constructor: { kind: "call", callee: "Button", args: {} },
+  },
+  {
+    name: "InventorySlot",
+    class: "/Game/UI/WBP_InventorySlot.WBP_InventorySlot_C",
+    label: "Inventory Slot",
+    category: "User Created",
+  },
+  {
+    name: "PluginFancy",
+    palette: { kind: "palette", id: "widget.palette:plugin-fancy" },
+    label: "Plugin Fancy",
+    category: "Plugin",
+  },
+];
+
+const lgl = createLgl({ adapters: [createMemoryWidgetAdapter({ documents, paletteEntries })] });
 const header = `widgetAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: widget)
 w = widget(asset: widgetAsset, root: mainCanvas)`;
 
@@ -66,6 +86,30 @@ assert.match(widgetResult.text ?? "", /stack.start = Button\(text: "Start"\)/);
 assert.doesNotMatch(widgetResult.text ?? "", /stack.quit/);
 assert.doesNotMatch(widgetResult.text ?? "", /title/);
 console.log("[PASS] memory widget adapter filters widgets");
+
+const buttonPalette = await lgl.query(`${header}
+query w
+find palette entry "Button"
+with defaults
+`);
+assert.equal(buttonPalette.diagnostics.length, 0);
+assert.match(buttonPalette.text ?? "", /Button = Button\(\)/);
+assert.doesNotMatch(buttonPalette.text ?? "", /InventorySlot/);
+
+const classPalette = await lgl.query(`${header}
+query w
+find palette entry "Inventory"
+`);
+assert.equal(classPalette.diagnostics.length, 0);
+assert.match(classPalette.text ?? "", /InventorySlot = widget\(class: "\/Game\/UI\/WBP_InventorySlot.WBP_InventorySlot_C"\)/);
+
+const fallbackPalette = await lgl.query(`${header}
+query w
+find palette entry "Plugin"
+`);
+assert.equal(fallbackPalette.diagnostics.length, 0);
+assert.match(fallbackPalette.text ?? "", /PluginFancy = widget\(palette: "widget.palette:plugin-fancy"\)/);
+console.log("[PASS] memory widget adapter returns copyable palette entries");
 
 const missingWidget = await createLgl({ adapters: [createMemoryWidgetAdapter({ documents: [] })] }).query(`${header}
 query w
@@ -98,7 +142,11 @@ const applyPatch = await patchLgl.patch(`${header}
 patch w
 
 stack.help = Button(text: "Help")
+stack.slot = widget(class: "/Game/UI/WBP_InventorySlot.WBP_InventorySlot_C")
+stack.fancy = widget(palette: "widget.palette:plugin-fancy")
 add stack.help
+add stack.slot
+add stack.fancy
 set title.text = "Main Menu"
 move help before start
 remove quit
@@ -106,6 +154,8 @@ remove quit
 assert.equal(applyPatch.diagnostics.length, 0);
 const afterApply = patchAdapter.getDocuments()[0];
 assert.equal(afterApply.widgets.some((widget) => widget.alias === "help"), true);
+assert.equal(afterApply.widgets.find((widget) => widget.alias === "slot")?.class, "/Game/UI/WBP_InventorySlot.WBP_InventorySlot_C");
+assert.equal(afterApply.widgets.find((widget) => widget.alias === "fancy")?.class, "widget.palette:plugin-fancy");
 assert.equal(afterApply.widgets.some((widget) => widget.alias === "quit"), false);
 assert.equal(afterApply.widgets.find((widget) => widget.alias === "title")?.properties?.text, "Main Menu");
 const helpIndex = afterApply.widgets.findIndex((widget) => widget.alias === "help");
