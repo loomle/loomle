@@ -76,6 +76,7 @@ function objectResultToTextResult(result: ObjectResult): TextResult {
   return {
     ...(result.object ? { text: formatLglObject(result.object) } : {}),
     diagnostics: result.diagnostics,
+    ...(result.page ? { page: result.page } : {}),
   };
 }
 

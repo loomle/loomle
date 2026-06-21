@@ -250,12 +250,13 @@ the model; the schema enforces cross-language compatibility.
 SDK methods return agent-facing LGL text and diagnostics after formatting bridge
 responses. Counts, summaries, alias mappings, patch changes, and debug details
 should be expressed inside returned LGL text when needed, not as parallel public
-SDK fields.
+SDK fields. Pagination cursors are the exception because they control the next
+query request rather than describing the returned object.
 
 ```ts
 type LglText = string;
-interface TextResult { text?: LglText; diagnostics: Diagnostic[]; }
-interface ObjectResult { object?: unknown; diagnostics: Diagnostic[]; }
+interface TextResult { text?: LglText; diagnostics: Diagnostic[]; page?: Page; }
+interface ObjectResult { object?: unknown; diagnostics: Diagnostic[]; page?: Page; }
 ```
 
 `ObjectResult` is the adapter/RPC result shape. `TextResult` is the public SDK

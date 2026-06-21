@@ -36,6 +36,20 @@ assert.match(queryResult.text ?? "", /find nodes/);
 assert.match(queryResult.text ?? "", /where name = branch/);
 console.log("[PASS] lgl.query dispatches and formats adapter result");
 
+const pagedAdapter: Adapter = {
+  domain: "blueprint",
+  async query(object): Promise<ObjectResult> {
+    return { object, diagnostics: [], page: { next: "cursor-1" } };
+  },
+  async patch(object): Promise<ObjectResult> {
+    return { object, diagnostics: [] };
+  },
+};
+
+const pagedResult = await createLgl({ adapters: [pagedAdapter] }).query(queryText);
+assert.equal(pagedResult.page?.next, "cursor-1");
+console.log("[PASS] lgl.query preserves pagination cursors");
+
 const patchResult = await lgl.patch(patchText);
 assert.equal(patchResult.diagnostics.length, 0);
 assert.match(patchResult.text ?? "", /patch g dry run/);

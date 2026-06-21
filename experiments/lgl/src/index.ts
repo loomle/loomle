@@ -75,6 +75,7 @@ export type Op = import("./generated/lgl-object-schema.js").GraphPatchOp;
 export interface TextResult {
   text?: LglText;
   diagnostics: ObjectResult["diagnostics"];
+  page?: ObjectResult["page"];
 }
 
 export interface Lgl {

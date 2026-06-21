@@ -102,17 +102,40 @@ page limit 1
 assert.equal(orderedNodes.diagnostics.length, 0);
 assert.match(orderedNodes.text ?? "", /print = node\(graph: g, type: PrintString/);
 assert.doesNotMatch(orderedNodes.text ?? "", /begin = node/);
+assert.equal(orderedNodes.page?.next, "offset:1");
+
+const firstPalettePage = await lgl.query(`${graphHeader}
+query g
+find palette entry
+order by name asc
+page limit 1
+`);
+assert.equal(firstPalettePage.diagnostics.length, 0);
+assert.match(firstPalettePage.text ?? "", /Branch = branch\(\)/);
+assert.equal(firstPalettePage.page?.next, "offset:1");
 
 const pagedPalette = await lgl.query(`${graphHeader}
 query g
 find palette entry
 order by name asc
 page limit 1
-page after "offset:1"
+page after "${firstPalettePage.page?.next}"
 `);
 assert.equal(pagedPalette.diagnostics.length, 0);
 assert.match(pagedPalette.text ?? "", /Delay = delay\(duration: 1\)/);
 assert.doesNotMatch(pagedPalette.text ?? "", /Branch = branch\(\)/);
+assert.equal(pagedPalette.page?.next, "offset:2");
+
+const finalPalettePage = await lgl.query(`${graphHeader}
+query g
+find palette entry
+order by name asc
+page limit 1
+page after "${pagedPalette.page?.next}"
+`);
+assert.equal(finalPalettePage.diagnostics.length, 0);
+assert.match(finalPalettePage.text ?? "", /PrintString = node\(palette:/);
+assert.equal(finalPalettePage.page, undefined);
 console.log("[PASS] memory adapter applies query ordering and pagination");
 
 const dryRunPatch = await lgl.patch(`${graphHeader}

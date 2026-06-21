@@ -94,11 +94,16 @@ function executeQuery(graph: Graph, query: Query): ObjectResult {
       const nodes = graph.nodes
         .filter((node) => matchesText(node, find.text))
         .filter((node) => matchesCondition(node, graph, query.where));
-      const aliases = pageItems(
+      const page = paginateItems(
         sortItems(nodes, query, (node, key) => readConditionField(node, graph, key.split("."))),
         query,
-      ).map((node) => node.alias);
-      return { object: graphSnippet(graph, aliases, query.with?.includes("pins") ?? false), diagnostics: [] };
+      );
+      const aliases = page.items.map((node) => node.alias);
+      return {
+        object: graphSnippet(graph, aliases, query.with?.includes("pins") ?? false),
+        diagnostics: [],
+        ...(page.next ? { page: { next: page.next } } : {}),
+      };
     }
     case "path": {
       const aliases = find.direction === "from"
@@ -107,29 +112,31 @@ function executeQuery(graph: Graph, query: Query): ObjectResult {
       return { object: graphSnippet(graph, aliases, query.with?.includes("pins") ?? false), diagnostics: [] };
     }
     case "palette_entry":
-      return {
-        object: {
-          kind: "creation_result",
-          target: graph.target,
-          entries: findPaletteEntries(find, query),
-        },
-        diagnostics: [],
-      };
+      return findPaletteEntries(graph.target, find, query);
     default:
       return assertNever(find);
   }
 }
 
-function findPaletteEntries(find: FindPaletteEntry, query: Query): CreationEntry[] {
+function findPaletteEntries(target: Target, find: FindPaletteEntry, query: Query): ObjectResult {
   const includePins = query.with?.includes("pins") ?? false;
   const includeDefaults = query.with?.includes("defaults") ?? false;
   const entries = memoryPaletteEntries(includePins, includeDefaults)
     .filter((entry) => matchesPaletteText(entry, find.text))
     .filter((entry) => matchesPaletteCondition(entry, query.where));
-  return pageItems(
+  const page = paginateItems(
     sortItems(entries, query, (entry, key) => readPaletteField(entry, key.split("."))),
     query,
   );
+  return {
+    object: {
+      kind: "creation_result",
+      target,
+      entries: page.items,
+    },
+    diagnostics: [],
+    ...(page.next ? { page: { next: page.next } } : {}),
+  };
 }
 
 function sortItems<T>(items: T[], query: Query, readField: (item: T, key: string) => unknown): T[] {
@@ -147,10 +154,14 @@ function sortItems<T>(items: T[], query: Query, readField: (item: T, key: string
   });
 }
 
-function pageItems<T>(items: T[], query: Query): T[] {
+function paginateItems<T>(items: T[], query: Query): { items: T[]; next?: string } {
   const start = query.page?.after ? cursorOffset(query.page.after) : 0;
   const limit = query.page?.limit ?? 50;
-  return items.slice(start, start + limit);
+  const end = start + limit;
+  return {
+    items: items.slice(start, end),
+    ...(end < items.length ? { next: `offset:${end}` } : {}),
+  };
 }
 
 function cursorOffset(cursor: string): number {
