@@ -583,7 +583,7 @@
       }
     },
     "Detail": {
-      "enum": ["pins", "defaults", "registryTags"]
+      "enum": ["pins", "defaults", "properties", "registryTags"]
     },
     "Condition": {
       "oneOf": [
@@ -986,6 +986,10 @@
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/Expr" }
         },
+        "properties": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/WidgetProperty" }
+        },
         "pins": {
           "type": "array",
           "items": { "$ref": "#/$defs/Pin" }
@@ -1005,6 +1009,10 @@
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/Expr" }
         },
+        "properties": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/WidgetProperty" }
+        },
         "pins": {
           "type": "array",
           "items": { "$ref": "#/$defs/Pin" }
@@ -1023,7 +1031,23 @@
         "defaults": {
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/Expr" }
+        },
+        "properties": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/WidgetProperty" }
         }
+      }
+    },
+    "WidgetProperty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "default": { "$ref": "#/$defs/Expr" },
+        "writable": { "type": "boolean" },
+        "category": { "type": "string", "minLength": 1 }
       }
     },
     "PaletteSourceRef": {

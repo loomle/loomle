@@ -85,6 +85,7 @@ export type {
   WidgetClassCreationEntry,
   WidgetNode,
   WidgetPatchOp,
+  WidgetProperty,
   WidgetResult,
   WidgetTarget,
 } from "./generated/lgl-object-schema.js";

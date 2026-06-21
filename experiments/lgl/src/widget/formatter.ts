@@ -1,7 +1,7 @@
-import type { Binding, CreationEntry, CreationResult, Expr, Patch, Query, WidgetDocument, WidgetNode, WidgetPatchOp, WidgetResult } from "../index.js";
+import type { Binding, CreationEntry, CreationResult, Expr, Patch, Query, WidgetDocument, WidgetNode, WidgetPatchOp, WidgetProperty, WidgetResult } from "../index.js";
 import { formatBindingTarget } from "../core/binding.js";
 import { formatCondition } from "../core/condition.js";
-import { formatArgList, formatExpr } from "../core/expr.js";
+import { formatArgList, formatExpr, nameValue } from "../core/expr.js";
 
 export function formatWidgetLglObject(object: WidgetResult | Query | Patch | CreationResult): string {
   switch (object.kind) {
@@ -87,31 +87,44 @@ function formatWidgetCreationResult(result: CreationResult): string {
     `widgetAsset = asset(path: ${JSON.stringify(result.target.asset)}, type: widget)`,
     "w = widget(asset: widgetAsset, root: root)",
     "",
-    ...result.entries.map(formatCreationEntry),
+    ...result.entries.flatMap(formatCreationEntry),
   ];
   return `${lines.join("\n")}\n`;
 }
 
-function formatCreationEntry(entry: CreationEntry): string {
+function formatCreationEntry(entry: CreationEntry): string[] {
+  const lines: string[] = [];
   if ("class" in entry) {
-    return `${entry.name} = widget(${formatArgList({
+    lines.push(`${entry.name} = widget(${formatArgList({
       class: entry.class,
       ...(entry.defaults ?? {}),
-    })})`;
-  }
-  if ("palette" in entry) {
-    return `${entry.name} = widget(${formatArgList({
+    })})`);
+  } else if ("palette" in entry) {
+    lines.push(`${entry.name} = widget(${formatArgList({
       palette: entry.palette.id,
       ...(entry.defaults ?? {}),
-    })})`;
+    })})`);
+  } else {
+    lines.push(`${entry.name} = ${formatExpr({
+      ...entry.constructor,
+      args: {
+        ...entry.constructor.args,
+        ...(entry.defaults ?? {}),
+      },
+    })}`);
   }
-  return `${entry.name} = ${formatExpr({
-    ...entry.constructor,
-    args: {
-      ...entry.constructor.args,
-      ...(entry.defaults ?? {}),
-    },
-  })}`;
+  lines.push(...(entry.properties ?? []).map((property) => formatWidgetProperty(entry.name, property)));
+  return lines;
+}
+
+function formatWidgetProperty(entryName: string, property: WidgetProperty): string {
+  const args: Record<string, Expr> = {
+    type: nameValue(property.type),
+    ...(property.default !== undefined ? { default: property.default } : {}),
+    ...(property.writable !== undefined ? { writable: property.writable } : {}),
+    ...(property.category !== undefined ? { category: property.category } : {}),
+  };
+  return `${entryName}.${property.name} = property(${formatArgList(args)})`;
 }
 
 function formatWidgetPatch(patch: Patch): string {

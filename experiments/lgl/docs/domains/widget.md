@@ -311,6 +311,30 @@ Button = Button()
 TextBlock = TextBlock()
 ```
 
+`with properties` asks the adapter to include writable property metadata for
+the returned creation entries. Property metadata is descriptive; patch text
+still writes properties as constructor arguments or `set widget.property = ...`.
+
+```lgl
+query menu
+find palette entry "Button"
+with properties
+```
+
+Example result:
+
+```lgl
+Button = Button()
+Button.text = property(type: string, default: "", writable: true)
+```
+
+`with defaults, properties` may be combined:
+
+```lgl
+Button = Button(text: "")
+Button.text = property(type: string, default: "", writable: true)
+```
+
 Use a stable widget constructor when the entry maps to a common native UMG
 widget with clear semantics:
 
@@ -382,9 +406,10 @@ Classification rules:
    return `widget(palette: "...")`.
 
 `with defaults` is intentionally small. It should return common writable
-creation arguments that make immediate patch authoring easier. It must not try
-to expose the full widget property surface, event list, or slot schema. Those
-belong to future `with properties`, `with events`, and `with slots` expansions.
+creation arguments that make immediate patch authoring easier. `with
+properties` returns property metadata for discoverability. Neither expansion
+should expose events or slot schema; those belong to future `with events` and
+`with slots` expansions.
 
 The adapter must validate palette entries against UE state before returning or
 executing them:
@@ -414,18 +439,29 @@ interface WidgetConstructor {
   kind: "constructor";
   name: string;
   defaults?: Record<string, Value>;
+  properties?: WidgetProperty[];
 }
 
 interface WidgetClassCreation {
   kind: "class";
   class: string;
   defaults?: Record<string, Value>;
+  properties?: WidgetProperty[];
 }
 
 interface WidgetPaletteCreation {
   kind: "palette";
   id: string;
   defaults?: Record<string, Value>;
+  properties?: WidgetProperty[];
+}
+
+interface WidgetProperty {
+  name: string;
+  type: string;
+  default?: Value;
+  writable?: boolean;
+  category?: string;
 }
 ```
 

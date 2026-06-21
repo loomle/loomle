@@ -56,7 +56,7 @@ export type Condition =
   | NotCondition
   | AndCondition
   | OrCondition;
-export type Detail = "pins" | "defaults" | "registryTags";
+export type Detail = "pins" | "defaults" | "properties" | "registryTags";
 export type BindingTarget = LocalRef | MemberRef;
 export type BindingValue = Expr | NodeCreation;
 export type NodeCreation = PaletteNodeCreation | ShortcutNodeCreation;
@@ -470,7 +470,15 @@ export interface ShortcutCreationEntry {
   defaults?: {
     [k: string]: Expr;
   };
+  properties?: WidgetProperty[];
   pins?: Pin[];
+}
+export interface WidgetProperty {
+  name: string;
+  type: string;
+  default?: Expr;
+  writable?: boolean;
+  category?: string;
 }
 export interface WidgetClassCreationEntry {
   name: string;
@@ -480,6 +488,7 @@ export interface WidgetClassCreationEntry {
   defaults?: {
     [k: string]: Expr;
   };
+  properties?: WidgetProperty[];
 }
 export interface PaletteCreationEntry {
   name: string;
@@ -489,6 +498,7 @@ export interface PaletteCreationEntry {
   defaults?: {
     [k: string]: Expr;
   };
+  properties?: WidgetProperty[];
   pins?: Pin[];
 }
 export interface PaletteSourceRef {

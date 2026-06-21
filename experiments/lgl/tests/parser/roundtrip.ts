@@ -178,6 +178,7 @@ w = widget(asset: widgetAsset, root: root)
 Button = Button()
 InventorySlot = widget(class: "/Game/UI/WBP_InventorySlot.WBP_InventorySlot_C")
 PluginFancy = widget(palette: "widget.palette:plugin-fancy")
+Button.text = property(type: string, default: "", writable: true)
 `,
   },
   {

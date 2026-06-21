@@ -217,11 +217,12 @@ function executeWidgetQuery(document: WidgetDocument, query: Query, paletteEntri
       .filter((entry) => matchesCreationCondition(entry, query.where));
     const page = paginateItems(sortItems(entries, query, (entry, key) => readCreationField(entry, key.split("."))), query);
     const includeDefaults = query.with?.includes("defaults") ?? false;
+    const includeProperties = query.with?.includes("properties") ?? false;
     return {
       object: {
         kind: "creation_result",
         target: { domain: "widget", asset: document.asset },
-        entries: page.items.map((entry) => cloneCreationEntry(includeDefaults ? entry : withoutCreationDefaults(entry))),
+        entries: page.items.map((entry) => stripCreationDetails(entry, { defaults: includeDefaults, properties: includeProperties })),
       },
       diagnostics: [],
       ...(page.next ? { page: { next: page.next } } : {}),
@@ -495,14 +496,17 @@ function cloneCreationEntry(entry: CreationEntry): CreationEntry {
 
 function defaultWidgetPaletteEntries(): CreationEntry[] {
   return [
-    shortcutEntry("Button", { text: "" }),
-    shortcutEntry("TextBlock", { text: "", fontSize: 24 }),
+    shortcutEntry("Button", { text: "" }, [{ name: "text", type: "string", default: "", writable: true }]),
+    shortcutEntry("TextBlock", { text: "", fontSize: 24 }, [
+      { name: "text", type: "string", default: "", writable: true },
+      { name: "fontSize", type: "number", default: 24, writable: true },
+    ]),
     shortcutEntry("CanvasPanel"),
     shortcutEntry("VerticalBox"),
   ];
 }
 
-function shortcutEntry(name: string, defaults?: Record<string, Value>): CreationEntry {
+function shortcutEntry(name: string, defaults?: Record<string, Value>, properties?: CreationEntry["properties"]): CreationEntry {
   return {
     name,
     constructor: {
@@ -511,12 +515,18 @@ function shortcutEntry(name: string, defaults?: Record<string, Value>): Creation
       args: {},
     },
     ...(defaults ? { defaults } : {}),
+    ...(properties ? { properties } : {}),
   };
 }
 
-function withoutCreationDefaults(entry: CreationEntry): CreationEntry {
+function stripCreationDetails(entry: CreationEntry, include: { defaults: boolean; properties: boolean }): CreationEntry {
   const copy = cloneCreationEntry(entry);
-  delete copy.defaults;
+  if (!include.defaults) {
+    delete copy.defaults;
+  }
+  if (!include.properties) {
+    delete copy.properties;
+  }
   return copy;
 }
 

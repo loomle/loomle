@@ -48,6 +48,7 @@ const paletteEntries: CreationEntry[] = [
     name: "Button",
     constructor: { kind: "call", callee: "Button", args: {} },
     defaults: { text: "" },
+    properties: [{ name: "text", type: "string", default: "", writable: true }],
   },
   {
     name: "InventorySlot",
@@ -104,6 +105,25 @@ with defaults
 assert.equal(buttonPalette.diagnostics.length, 0);
 assert.match(buttonPalette.text ?? "", /Button = Button\(text: ""\)/);
 assert.doesNotMatch(buttonPalette.text ?? "", /InventorySlot/);
+assert.doesNotMatch(buttonPalette.text ?? "", /Button.text = property/);
+
+const buttonProperties = await lgl.query(`${header}
+query w
+find palette entry "Button"
+with properties
+`);
+assert.equal(buttonProperties.diagnostics.length, 0);
+assert.match(buttonProperties.text ?? "", /Button = Button\(\)/);
+assert.match(buttonProperties.text ?? "", /Button.text = property\(type: string, default: "", writable: true\)/);
+
+const buttonDefaultsAndProperties = await lgl.query(`${header}
+query w
+find palette entry "Button"
+with defaults, properties
+`);
+assert.equal(buttonDefaultsAndProperties.diagnostics.length, 0);
+assert.match(buttonDefaultsAndProperties.text ?? "", /Button = Button\(text: ""\)/);
+assert.match(buttonDefaultsAndProperties.text ?? "", /Button.text = property\(type: string, default: "", writable: true\)/);
 
 const classPalette = await lgl.query(`${header}
 query w

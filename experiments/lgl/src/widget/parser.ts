@@ -1,7 +1,7 @@
-import type { CreationEntry, Expr, LglObject, Query, Value, WidgetDocument, WidgetNode, WidgetResult } from "../index.js";
+import type { CreationEntry, Expr, LglObject, Query, Value, WidgetDocument, WidgetNode, WidgetProperty, WidgetResult } from "../index.js";
 import { tryParseBinding } from "../core/binding.js";
 import { parseCondition, parseDetails, parseOrderBy, parsePage } from "../core/condition.js";
-import { isCall, isLocalRef } from "../core/expr.js";
+import { isCall, isLocalRef, symbolName } from "../core/expr.js";
 import { ParseError, type ParsedLine, spanForLine } from "../core/text.js";
 
 export interface WidgetBinding {
@@ -102,6 +102,7 @@ export function tryParseWidgetCreationResult(
   bindings: Map<string, WidgetBinding>,
 ): LglObject | undefined {
   const entries: CreationEntry[] = [];
+  const propertiesByEntry = new Map<string, WidgetProperty[]>();
   const targetBinding = bindings.values().next().value as WidgetBinding | undefined;
   if (!targetBinding) {
     return undefined;
@@ -109,7 +110,16 @@ export function tryParseWidgetCreationResult(
 
   for (const line of lines) {
     const binding = tryParseBinding(line);
-    if (!binding || binding.target.kind !== "local" || !isCall(binding.value)) {
+    if (!binding || !isCall(binding.value)) {
+      continue;
+    }
+    if (binding.target.kind === "member" && binding.value.callee === "property") {
+      const properties = propertiesByEntry.get(binding.target.object) ?? [];
+      properties.push(propertyFromBinding(binding.target.member, binding.value.args, line));
+      propertiesByEntry.set(binding.target.object, properties);
+      continue;
+    }
+    if (binding.target.kind !== "local") {
       continue;
     }
     if (binding.value.callee === "asset" || bindings.has(binding.target.name)) {
@@ -135,6 +145,13 @@ export function tryParseWidgetCreationResult(
     });
   }
 
+  for (const entry of entries) {
+    const properties = propertiesByEntry.get(entry.name);
+    if (properties && properties.length > 0) {
+      entry.properties = properties;
+    }
+  }
+
   return entries.length > 0
     ? {
         kind: "creation_result",
@@ -142,6 +159,28 @@ export function tryParseWidgetCreationResult(
         entries,
       }
     : undefined;
+}
+
+function propertyFromBinding(name: string, args: Record<string, Expr>, line: ParsedLine): WidgetProperty {
+  const type = symbolName(args.type);
+  if (!type) {
+    throw new ParseError("invalid_widget_property", "property(...) requires type: symbol.", spanForLine(line));
+  }
+  const writable = args.writable;
+  if (writable !== undefined && typeof writable !== "boolean") {
+    throw new ParseError("invalid_widget_property", "property(...) writable must be boolean.", spanForLine(line));
+  }
+  const category = args.category;
+  if (category !== undefined && typeof category !== "string") {
+    throw new ParseError("invalid_widget_property", "property(...) category must be string.", spanForLine(line));
+  }
+  return {
+    name,
+    type,
+    ...(args.default !== undefined ? { default: args.default } : {}),
+    ...(writable !== undefined ? { writable } : {}),
+    ...(category !== undefined ? { category } : {}),
+  };
 }
 
 export function tryParseWidgetResult(lines: ParsedLine[]): WidgetResult | undefined {
