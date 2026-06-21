@@ -64,6 +64,9 @@ export function createMemoryGraphAdapter(
       return executeQuery(graph, query);
     },
     async patch(patch) {
+      if (!isGraphTarget(patch.target)) {
+        return { diagnostics: [diagnostic("invalid_graph_target", "Graph adapter requires a graph target.")] };
+      }
       const graph = resolveGraph(patch.target);
       if (!graph) {
         return graphNotFound(patch.target);

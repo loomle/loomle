@@ -60,6 +60,7 @@ export type Detail = "pins" | "defaults" | "registryTags";
 export type BindingTarget = LocalRef | MemberRef;
 export type BindingValue = Expr | NodeCreation;
 export type NodeCreation = PaletteNodeCreation | ShortcutNodeCreation;
+export type PatchOp = GraphPatchOp;
 export type GraphPatchOp =
   | Set
   | Add
@@ -338,10 +339,10 @@ export interface Page {
 }
 export interface Patch {
   kind: "patch";
-  target: GraphTarget;
+  target: Target;
   dryRun: boolean;
   bindings: Binding[];
-  ops: GraphPatchOp[];
+  ops: PatchOp[];
 }
 export interface Binding {
   target: BindingTarget;

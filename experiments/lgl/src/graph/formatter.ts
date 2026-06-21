@@ -19,6 +19,7 @@ import type {
 import { formatBindingTarget } from "../core/binding.js";
 import { formatCondition } from "../core/condition.js";
 import { formatArgList, formatCall, formatExpr, localRef, nameValue } from "../core/expr.js";
+import { isGraphTarget } from "../core/target.js";
 
 const DEFAULT_ASSET_ALIAS = "asset";
 const DEFAULT_GRAPH_ALIAS = "g";
@@ -79,6 +80,9 @@ function formatQuery(query: Query): string {
 }
 
 function formatPatch(patch: Patch): string {
+  if (!isGraphTarget(patch.target)) {
+    throw new Error("Graph formatter received a non-graph patch.");
+  }
   const lines = [
     ...formatTargetBindings(patch.target),
     "",

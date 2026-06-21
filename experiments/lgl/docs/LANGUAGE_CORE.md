@@ -462,7 +462,7 @@ Shared normalized JSON:
 ```ts
 interface Patch<Op extends object = object> {
   kind: "patch";
-  target: Ref;
+  target: Target;
   dryRun: boolean;
   bindings: Binding[];
   ops: Op[];
@@ -476,6 +476,10 @@ as `add <binding>` lowers before domain validation:
 ```txt
 add <binding> -> <binding> + domain add operation
 ```
+
+The current TypeScript implementation has a domain-owned patch envelope with
+graph operations implemented first. Blueprint and widget patch operations can
+extend the same `PatchOp` union without changing the envelope.
 
 Dry run is a mutation execution mode, not a separate language. A dry-run patch
 uses the same parse, resolve, validate, and plan path as a real patch, then

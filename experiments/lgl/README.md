@@ -39,8 +39,8 @@ schema contract use normalized JSON.
 - `src/parser.ts`, `src/formatter.ts`, and `src/memory-adapter.ts` are stable
   public entry shims.
 - `src/core/` contains shared text parsing helpers that are not domain-specific.
-- `src/graph/` contains graph text parsing, graph formatting, and the
-  in-memory graph adapter.
+- `src/graph/` contains graph text parsing, graph patch parsing, graph
+  formatting, and the in-memory graph adapter.
 - `src/asset/` contains asset query parsing, asset result formatting, and the
   in-memory asset adapter.
 - `src/blueprint/` contains Blueprint query parsing, Blueprint result

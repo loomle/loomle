@@ -707,7 +707,7 @@
       "required": ["kind", "target", "dryRun", "bindings", "ops"],
       "properties": {
         "kind": { "const": "patch" },
-        "target": { "$ref": "#/$defs/GraphTarget" },
+        "target": { "$ref": "#/$defs/Target" },
         "dryRun": { "type": "boolean" },
         "bindings": {
           "type": "array",
@@ -715,9 +715,14 @@
         },
         "ops": {
           "type": "array",
-          "items": { "$ref": "#/$defs/GraphPatchOp" }
+          "items": { "$ref": "#/$defs/PatchOp" }
         }
       }
+    },
+    "PatchOp": {
+      "oneOf": [
+        { "$ref": "#/$defs/GraphPatchOp" }
+      ]
     },
     "GraphPatchOp": {
       "oneOf": [

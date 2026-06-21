@@ -62,6 +62,7 @@ export type {
   PaletteCreationEntry,
   PaletteNodeCreation,
   PaletteSourceRef,
+  PatchOp,
   Page,
   Pin,
   PinContext,
@@ -88,7 +89,7 @@ export type {
 export type LglText = string;
 export type ObjectResult = Result;
 export type Find = import("./generated/lgl-object-schema.js").Find;
-export type Op = import("./generated/lgl-object-schema.js").GraphPatchOp;
+export type Op = import("./generated/lgl-object-schema.js").PatchOp;
 
 export interface TextResult {
   text?: LglText;
