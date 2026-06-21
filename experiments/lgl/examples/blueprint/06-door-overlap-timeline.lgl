@@ -1,14 +1,15 @@
 # Source: Unreal Community Wiki automated door tutorial and Epic community door tutorials.
 # Tests paired overlap events, Timeline play/reverse, interpolation, and component rotation.
-graph blueprint("/Game/BP_LGLExample"/EventGraph)
+bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
 
-beginOverlap@F001: OnComponentBeginOverlap({Component: Box})
-endOverlap@F002: OnComponentEndOverlap({Component: Box})
-timeline@F003: Timeline({Name: DoorDriver})
-closedRot@F004: MakeRotator({Roll: 0.0, Pitch: 0.0, Yaw: 0.0})
-openRot@F005: MakeRotator({Roll: 0.0, Pitch: 0.0, Yaw: 90.0})
-lerpRot@F006: LerpRotator()
-setDoorRotation@F007: SetRelativeRotation()
+beginOverlap = node(graph: g, type: OnComponentBeginOverlap, id: "F001", Component: Box)
+endOverlap = node(graph: g, type: OnComponentEndOverlap, id: "F002", Component: Box)
+timeline = node(graph: g, type: Timeline, id: "F003", Name: DoorDriver)
+closedRot = node(graph: g, type: MakeRotator, id: "F004", Roll: 0.0, Pitch: 0.0, Yaw: 0.0)
+openRot = node(graph: g, type: MakeRotator, id: "F005", Roll: 0.0, Pitch: 0.0, Yaw: 90.0)
+lerpRot = node(graph: g, type: LerpRotator, id: "F006")
+setDoorRotation = node(graph: g, type: SetRelativeRotation, id: "F007")
 
 beginOverlap.Then -> timeline.Play
 endOverlap.Then -> timeline.Reverse

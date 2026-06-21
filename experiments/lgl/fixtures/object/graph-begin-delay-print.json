@@ -14,10 +14,8 @@
       "id": "A001",
       "type": "EventBeginPlay",
       "fields": {},
-      "layout": {
-        "at": [0, 0],
-        "size": [180, 80]
-      }
+      "at": [0, 0],
+      "size": [180, 80]
     },
     {
       "alias": "delay",
@@ -26,10 +24,8 @@
       "fields": {
         "Duration": 1
       },
-      "layout": {
-        "at": [320, 0],
-        "size": [200, 100]
-      }
+      "at": [320, 0],
+      "size": [200, 100]
     },
     {
       "alias": "print",
@@ -38,10 +34,8 @@
       "fields": {
         "InString": "Ready"
       },
-      "layout": {
-        "at": [640, 0],
-        "size": [220, 120]
-      }
+      "at": [640, 0],
+      "size": [220, 120]
     }
   ],
   "edges": [
@@ -73,9 +67,7 @@
       "type": "float",
       "direction": "in",
       "value": 1,
-      "layout": {
-        "anchor": [320, 72]
-      }
+      "anchor": [320, 72]
     },
     {
       "node": "print",

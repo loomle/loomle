@@ -9,6 +9,13 @@
     }
   },
   "find": {
-    "kind": "palette_entry"
+    "kind": "palette_entry",
+    "pinContext": {
+      "direction": "near",
+      "pin": {
+        "node": "begin",
+        "pin": "Then"
+      }
+    }
   }
 }

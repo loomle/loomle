@@ -4,15 +4,16 @@ import type {
   Call,
   Condition,
   Edge,
+  Expr,
   Graph,
   Node,
   ObjectResult,
   Op,
   Patch,
   Pin,
-  PinChain,
   PinRef,
   Query,
+  Ref,
   Target,
   Value,
 } from "./index.js";
@@ -49,7 +50,7 @@ export function createMemoryGraphAdapter(
       if (!graph) {
         return graphNotFound(query.target);
       }
-      return { object: executeQuery(graph, query), diagnostics: [] };
+      return executeQuery(graph, query);
     },
     async patch(patch) {
       const graph = resolveGraph(patch.target);
@@ -72,31 +73,35 @@ export function createMemoryGraphAdapter(
   };
 }
 
-function executeQuery(graph: Graph, query: Query): Graph {
+function executeQuery(graph: Graph, query: Query): ObjectResult {
   const find = query.find;
   if (!find) {
-    return cloneGraph(graph);
+    return { object: cloneGraph(graph), diagnostics: [] };
   }
 
   switch (find.kind) {
-    case "node":
-      return graphSnippet(graph, [find.node], true);
     case "nodes": {
       const aliases = graph.nodes
-        .filter((node) => matchesCondition(node, graph, find.where))
+        .filter((node) => matchesText(node, find.text))
+        .filter((node) => matchesCondition(node, graph, query.where))
         .map((node) => node.alias);
-      return graphSnippet(graph, aliases, find.with?.includes("pins") ?? false);
+      return { object: graphSnippet(graph, aliases, query.with?.includes("pins") ?? false), diagnostics: [] };
     }
     case "path": {
-      const aliases = walkPathAliases(graph, find.from);
-      return graphSnippet(graph, aliases, false);
-    }
-    case "surrounding": {
-      const aliases = surroundingAliases(graph, find.around, find.depth);
-      return graphSnippet(graph, aliases, true);
+      const aliases = find.direction === "from"
+        ? walkPathAliasesFrom(graph, find.pin)
+        : walkPathAliasesTo(graph, find.pin);
+      return { object: graphSnippet(graph, aliases, query.with?.includes("pins") ?? false), diagnostics: [] };
     }
     case "palette_entry":
-      return cloneGraph(graph);
+      return {
+        object: {
+          kind: "creation_result",
+          target: graph.target,
+          entries: [],
+        },
+        diagnostics: [],
+      };
     default:
       return assertNever(find);
   }
@@ -105,7 +110,9 @@ function executeQuery(graph: Graph, query: Query): Graph {
 function executePatch(graph: Graph, patch: Patch): ObjectResult {
   const bindingMap = new Map<string, Binding>();
   for (const binding of patch.bindings) {
-    bindingMap.set(binding.name, binding);
+    if (binding.target.kind === "local") {
+      bindingMap.set(binding.target.name, binding);
+    }
   }
 
   for (const op of patch.ops) {
@@ -118,15 +125,14 @@ function executePatch(graph: Graph, patch: Patch): ObjectResult {
   return { object: graph, diagnostics: [] };
 }
 
-function applyOp(graph: Graph, bindings: Map<string, Binding>, op: Op): ObjectResult["diagnostics"][number] | undefined {
+function applyOp(
+  graph: Graph,
+  bindings: Map<string, Binding>,
+  op: Op,
+): ObjectResult["diagnostics"][number] | undefined {
   switch (op.kind) {
     case "insert": {
-      const first = firstPin(op.chain);
-      const last = lastPin(op.chain);
-      if (!first || !last) {
-        return diagnostic("invalid_chain", "Insert requires first and last pins.");
-      }
-      const existingIndex = graph.edges.findIndex((edge) => sameEdge(edge, { from: first, to: last }));
+      const existingIndex = graph.edges.findIndex((edge) => sameEdge(edge, { from: op.from, to: op.to }));
       if (existingIndex < 0) {
         return diagnostic("missing_insert_edge", "Insert requires an existing direct edge.");
       }
@@ -136,11 +142,13 @@ function applyOp(graph: Graph, bindings: Map<string, Binding>, op: Op): ObjectRe
       }
       graph.nodes.push(node);
       graph.edges.splice(existingIndex, 1);
-      graph.edges.push(...edgesFromChain(op.chain));
+      graph.edges.push({ from: op.from, to: op.input }, { from: op.output, to: op.to });
       return undefined;
     }
     case "connect":
-      graph.edges.push(...edgesFromChain(op.chain).filter((edge) => !hasEdge(graph, edge)));
+      if (!hasEdge(graph, op.edge)) {
+        graph.edges.push(op.edge);
+      }
       return undefined;
     case "disconnect":
       if ("edge" in op) {
@@ -159,11 +167,8 @@ function applyOp(graph: Graph, bindings: Map<string, Binding>, op: Op): ObjectRe
       if (!node) {
         return diagnostic("unknown_node", `Node ${op.node} does not exist.`);
       }
-      const current = node.layout?.at ?? [0, 0];
-      node.layout = {
-        ...(node.layout ?? {}),
-        at: op.mode === "to" ? op.at : [current[0] + op.delta[0], current[1] + op.delta[1]],
-      };
+      const current = node.at ?? [0, 0];
+      node.at = op.mode === "to" ? op.at : [current[0] + op.delta[0], current[1] + op.delta[1]];
       return undefined;
     }
     case "remove":
@@ -172,22 +177,19 @@ function applyOp(graph: Graph, bindings: Map<string, Binding>, op: Op): ObjectRe
       graph.edges = graph.edges.filter((edge) => edge.from.node !== op.node && edge.to.node !== op.node);
       return undefined;
     case "set": {
-      const node = graph.nodes.find((candidate) => candidate.alias === op.target.node);
+      const node = graph.nodes.find((candidate) => candidate.alias === op.target.object);
       if (!node) {
-        return diagnostic("unknown_node", `Node ${op.target.node} does not exist.`);
+        return diagnostic("unknown_node", `Node ${op.target.object} does not exist.`);
       }
-      node.fields[op.target.field] = exprToValue(op.value);
+      node.fields[op.target.field] = op.value;
       return undefined;
     }
     case "add": {
-      const node = nodeFromBinding(op.node, bindings);
+      const node = nodeFromBinding(op.binding, bindings);
       if (!node) {
-        return diagnostic("unknown_node_binding", `No node binding exists for ${op.node}.`);
+        return diagnostic("unknown_node_binding", `No node binding exists for ${op.binding}.`);
       }
       graph.nodes.push(node);
-      if (op.connect) {
-        graph.edges.push(op.connect);
-      }
       return undefined;
     }
     case "reconstruct":
@@ -210,6 +212,14 @@ function graphSnippet(graph: Graph, aliases: string[], includePins: boolean): Gr
   };
 }
 
+function matchesText(node: Node, text: string | undefined): boolean {
+  if (!text) {
+    return true;
+  }
+  const lowered = text.toLowerCase();
+  return node.alias.toLowerCase().includes(lowered) || node.type.toLowerCase().includes(lowered);
+}
+
 function matchesCondition(node: Node, graph: Graph, condition: Condition | undefined): boolean {
   if (!condition) {
     return true;
@@ -217,41 +227,72 @@ function matchesCondition(node: Node, graph: Graph, condition: Condition | undef
 
   switch (condition.kind) {
     case "eq":
-      return String(readConditionField(node, graph, condition.field)) === valueToConditionString(condition.value);
+      return String(readConditionField(node, graph, condition.field.path)) === exprToConditionString(condition.value);
+    case "ne":
+      return String(readConditionField(node, graph, condition.field.path)) !== exprToConditionString(condition.value);
     case "contains":
-      return String(readConditionField(node, graph, condition.field)).includes(valueToConditionString(condition.value));
+      return String(readConditionField(node, graph, condition.field.path)).includes(exprToConditionString(condition.value));
+    case "compare":
+      return compareValues(readConditionField(node, graph, condition.field.path), condition.op, condition.value);
+    case "not":
+      return !matchesCondition(node, graph, condition.condition);
     case "and":
       return condition.conditions.every((item) => matchesCondition(node, graph, item));
+    case "or":
+      return condition.conditions.some((item) => matchesCondition(node, graph, item));
     default:
       return assertNever(condition);
   }
 }
 
-function readConditionField(node: Node, graph: Graph, field: string): unknown {
+function readConditionField(node: Node, graph: Graph, path: string[]): unknown {
+  const field = path.join(".");
   if (field === "type") {
     return node.type;
   }
-  if (field === "alias") {
+  if (field === "name" || field === "alias") {
     return node.alias;
   }
   if (field === "id") {
     return node.id;
   }
-  if (field.startsWith("pin ")) {
-    const pinName = field.slice("pin ".length).trim();
-    return graph.pins?.some((pin) => pin.node === node.alias && pin.name === pinName) ?? false;
+  if (path[0] === "pin" && path[1]) {
+    return graph.pins?.some((pin) => pin.node === node.alias && pin.name === path[1]) ?? false;
   }
-  return node.fields[field];
+  return node.fields[path[0]];
 }
 
-function valueToConditionString(value: Value): string {
+function compareValues(left: unknown, op: "gt" | "gte" | "lt" | "lte", right: Expr): boolean {
+  const leftNumber = typeof left === "number" ? left : Number(left);
+  const rightNumber = Number(exprToConditionString(right));
+  if (Number.isNaN(leftNumber) || Number.isNaN(rightNumber)) {
+    return false;
+  }
+  switch (op) {
+    case "gt":
+      return leftNumber > rightNumber;
+    case "gte":
+      return leftNumber >= rightNumber;
+    case "lt":
+      return leftNumber < rightNumber;
+    case "lte":
+      return leftNumber <= rightNumber;
+    default:
+      return assertNever(op);
+  }
+}
+
+function exprToConditionString(value: Expr): string {
   if (isName(value)) {
     return value.name;
+  }
+  if (isRef(value)) {
+    return value.kind === "member" ? `${value.object}.${value.member}` : value.kind === "id" ? value.id : value.name;
   }
   return String(value);
 }
 
-function walkPathAliases(graph: Graph, from: PinRef): string[] {
+function walkPathAliasesFrom(graph: Graph, from: PinRef): string[] {
   const aliases: string[] = [from.node];
   const seen = new Set<string>([from.node]);
   let current = from;
@@ -269,27 +310,22 @@ function walkPathAliases(graph: Graph, from: PinRef): string[] {
   return aliases;
 }
 
-function surroundingAliases(graph: Graph, around: string, depth: number): string[] {
-  const aliases = new Set<string>([around]);
-  let frontier = new Set<string>([around]);
+function walkPathAliasesTo(graph: Graph, to: PinRef): string[] {
+  const aliases: string[] = [to.node];
+  const seen = new Set<string>([to.node]);
+  let current = to;
 
-  for (let step = 0; step < depth; step += 1) {
-    const next = new Set<string>();
-    for (const edge of graph.edges) {
-      if (frontier.has(edge.from.node)) {
-        next.add(edge.to.node);
-      }
-      if (frontier.has(edge.to.node)) {
-        next.add(edge.from.node);
-      }
+  for (;;) {
+    const previous = graph.edges.find((edge) => samePin(edge.to, current));
+    if (!previous || seen.has(previous.from.node)) {
+      break;
     }
-    for (const alias of next) {
-      aliases.add(alias);
-    }
-    frontier = next;
+    aliases.unshift(previous.from.node);
+    seen.add(previous.from.node);
+    current = previous.from;
   }
 
-  return [...aliases];
+  return aliases;
 }
 
 function nodeFromBinding(alias: string, bindings: Map<string, Binding>): Node | undefined {
@@ -297,45 +333,34 @@ function nodeFromBinding(alias: string, bindings: Map<string, Binding>): Node | 
   if (!binding || !isCall(binding.value)) {
     return undefined;
   }
+
+  if (binding.value.callee === "node") {
+    const type = symbolName(binding.value.args.type);
+    if (!type) {
+      return undefined;
+    }
+    const { graph: _graph, type: _type, id, at, size, ...fields } = binding.value.args;
+    return {
+      alias,
+      type,
+      ...(typeof id === "string" ? { id } : {}),
+      fields,
+      ...(Array.isArray(at) ? { at: pointFromValue(at) } : {}),
+      ...(Array.isArray(size) ? { size: pointFromValue(size) } : {}),
+    };
+  }
+
   return {
     alias,
     type: binding.value.callee,
-    fields: cloneValueRecord(binding.value.args),
+    fields: structuredClone(binding.value.args),
   };
 }
 
-function exprToValue(value: Binding["value"]): Value {
-  if (isCall(value)) {
-    return { callee: value.callee, args: cloneValueRecord(value.args) };
-  }
-  return cloneValue(value);
-}
-
-function firstPin(chain: PinChain): PinRef | undefined {
-  const segment = chain.segments[0];
-  return segment?.kind === "pin" ? segment.pin : segment?.input;
-}
-
-function lastPin(chain: PinChain): PinRef | undefined {
-  const segment = chain.segments[chain.segments.length - 1];
-  return segment?.kind === "pin" ? segment.pin : segment?.output;
-}
-
-function edgesFromChain(chain: PinChain): Edge[] {
-  const pins: PinRef[] = [];
-  for (const segment of chain.segments) {
-    if (segment.kind === "pin") {
-      pins.push(segment.pin);
-    } else {
-      pins.push(segment.input, segment.output);
-    }
-  }
-
-  const edges: Edge[] = [];
-  for (let index = 0; index < pins.length - 1; index += 2) {
-    edges.push({ from: pins[index], to: pins[index + 1] });
-  }
-  return edges;
+function pointFromValue(value: Value[]): [number, number] | undefined {
+  return value.length === 2 && typeof value[0] === "number" && typeof value[1] === "number"
+    ? [value[0], value[1]]
+    : undefined;
 }
 
 function hasEdge(graph: Graph, edge: Edge): boolean {
@@ -374,8 +399,30 @@ function isCall(value: Binding["value"]): value is Call {
   return typeof value === "object" && value !== null && !Array.isArray(value) && value.kind === "call";
 }
 
-function isName(value: Value): value is { kind: "name"; name: string } {
+function isName(value: Expr | undefined): value is { kind: "name"; name: string } {
   return typeof value === "object" && value !== null && !Array.isArray(value) && value.kind === "name";
+}
+
+function isRef(value: Expr | undefined): value is Ref {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value.kind === "local" || value.kind === "member" || value.kind === "id")
+  );
+}
+
+function symbolName(value: Expr | undefined): string | undefined {
+  if (isName(value)) {
+    return value.name;
+  }
+  if (isRef(value) && value.kind === "local") {
+    return value.name;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  return undefined;
 }
 
 function cloneGraph(graph: Graph): Graph {
@@ -398,14 +445,6 @@ function cloneEdge(edge: Edge): Edge {
 
 function clonePin(pin: Pin): Pin {
   return structuredClone(pin);
-}
-
-function cloneValue(value: Value): Value {
-  return structuredClone(value);
-}
-
-function cloneValueRecord(value: Record<string, Value>): Record<string, Value> {
-  return structuredClone(value);
 }
 
 function assertNever(value: never): never {

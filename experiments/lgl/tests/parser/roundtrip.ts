@@ -14,43 +14,50 @@ const validate = ajv.compile(schema);
 const cases: Array<{ name: string; text: string }> = [
   {
     name: "graph begin delay print",
-    text: `graph blueprint("/Game/BP_LGLExample"/EventGraph)
+    text: `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
 
-begin@A001: EventBeginPlay()
-delay@A002: Delay({Duration: 1.0})
-print@A003: PrintString({InString: "Ready"})
+begin = node(graph: g, type: EventBeginPlay, id: "A001")
+delay = node(graph: g, type: Delay, id: "A002", Duration: 1.0)
+print = node(graph: g, type: PrintString, id: "A003", InString: "Ready")
 
 begin.Then -> delay.Exec/Completed -> print.Exec
 `,
   },
   {
-    name: "query find node",
-    text: `query blueprint("/Game/BP_LGLExample"/EventGraph)
-
-find node branch with pins, defaults
+    name: "query find nodes",
+    text: `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+query g
+find nodes
+where name = branch
+with pins, defaults
 `,
   },
   {
     name: "query palette entry",
-    text: `query blueprint("/Game/BP_LGLExample"/EventGraph)
-
+    text: `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+query g
 find palette entry "Print String"
 `,
   },
   {
     name: "palette print string",
-    text: `palette blueprint("/Game/BP_LGLExample"/EventGraph)
-
-PrintString = palette({id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString", title: "Print String", category: "Utilities/String"})
+    text: `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+PrintString = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString", label: "Print String", category: "Utilities/String")
 `,
   },
   {
     name: "patch insert delay",
-    text: `patch blueprint("/Game/BP_LGLExample"/EventGraph) dry run
+    text: `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+patch g dry run
 
-Delay = palette({id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay"})
+Delay = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
 
-delay = Delay({Duration: 1.0})
+delay = node(graph: g, type: Delay, Duration: 1.0)
 insert begin.Then -> delay.Exec/Completed -> print.Exec
 move delay to (320, 0)
 `,

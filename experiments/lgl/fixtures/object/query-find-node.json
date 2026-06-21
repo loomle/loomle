@@ -9,8 +9,17 @@
     }
   },
   "find": {
-    "kind": "node",
-    "node": "branch",
-    "with": ["pins", "defaults", "layout"]
-  }
+    "kind": "nodes"
+  },
+  "where": {
+    "kind": "eq",
+    "field": {
+      "path": ["name"]
+    },
+    "value": {
+      "kind": "name",
+      "name": "branch"
+    }
+  },
+  "with": ["pins", "defaults"]
 }

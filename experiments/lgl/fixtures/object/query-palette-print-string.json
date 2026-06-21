@@ -10,11 +10,13 @@
   },
   "find": {
     "kind": "palette_entry",
-    "text": "Print",
-    "where": {
-      "kind": "eq",
-      "field": "function",
-      "value": "/Script/Engine.KismetSystemLibrary.PrintString"
-    }
+    "text": "Print"
+  },
+  "where": {
+    "kind": "eq",
+    "field": {
+      "path": ["function"]
+    },
+    "value": "/Script/Engine.KismetSystemLibrary.PrintString"
   }
 }

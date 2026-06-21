@@ -1,14 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://loomle.dev/schemas/lgl-object.schema.json",
-  "title": "LGL Object Schema",
-  "description": "Normalized LGL JSON object and result contract.",
+  "title": "LGL Normalized Object Schema",
+  "description": "Normalized LGL JSON contract for text parsing, SDK adapters, RPC, results, and diagnostics.",
   "anyOf": [
     { "$ref": "#/$defs/LglObject" },
-    { "$ref": "#/$defs/ObjectResult" },
+    { "$ref": "#/$defs/Result" },
     { "$ref": "#/$defs/Diagnostic" },
     { "$ref": "#/$defs/Target" },
     { "$ref": "#/$defs/GraphRef" },
+    { "$ref": "#/$defs/Ref" },
+    { "$ref": "#/$defs/Expr" },
     { "$ref": "#/$defs/Value" },
     { "$ref": "#/$defs/Name" },
     { "$ref": "#/$defs/PinRef" },
@@ -20,7 +22,7 @@
         { "$ref": "#/$defs/Graph" },
         { "$ref": "#/$defs/Query" },
         { "$ref": "#/$defs/Patch" },
-        { "$ref": "#/$defs/Palette" }
+        { "$ref": "#/$defs/CreationResult" }
       ]
     },
     "Target": {
@@ -57,6 +59,127 @@
         "id": { "type": "string", "minLength": 1 }
       }
     },
+    "Ref": {
+      "oneOf": [
+        { "$ref": "#/$defs/LocalRef" },
+        { "$ref": "#/$defs/MemberRef" },
+        { "$ref": "#/$defs/IdRef" }
+      ]
+    },
+    "LocalRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "const": "local" },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "MemberRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "object", "member"],
+      "properties": {
+        "kind": { "const": "member" },
+        "object": { "type": "string", "minLength": 1 },
+        "member": { "type": "string", "minLength": 1 }
+      }
+    },
+    "IdRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "id" },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "BindingTarget": {
+      "oneOf": [
+        { "$ref": "#/$defs/LocalRef" },
+        { "$ref": "#/$defs/MemberRef" }
+      ]
+    },
+    "Binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "value"],
+      "properties": {
+        "target": { "$ref": "#/$defs/BindingTarget" },
+        "value": { "$ref": "#/$defs/Expr" }
+      }
+    },
+    "Expr": {
+      "oneOf": [
+        { "$ref": "#/$defs/Value" },
+        { "$ref": "#/$defs/Ref" },
+        { "$ref": "#/$defs/Call" }
+      ]
+    },
+    "Value": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        { "$ref": "#/$defs/Name" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Value" }
+        },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Value" },
+          "not": { "required": ["kind"] }
+        }
+      ]
+    },
+    "Name": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "const": "name" },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "callee", "args"],
+      "properties": {
+        "kind": { "const": "call" },
+        "callee": { "type": "string", "minLength": 1 },
+        "args": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Expr" }
+        }
+      }
+    },
+    "Point": {
+      "type": "array",
+      "prefixItems": [{ "type": "number" }, { "type": "number" }],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "PinRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "pin"],
+      "properties": {
+        "node": { "type": "string", "minLength": 1 },
+        "pin": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "$ref": "#/$defs/PinRef" },
+        "to": { "$ref": "#/$defs/PinRef" }
+      }
+    },
     "Graph": {
       "type": "object",
       "additionalProperties": false,
@@ -88,41 +211,10 @@
         "type": { "type": "string", "minLength": 1 },
         "fields": {
           "type": "object",
-          "additionalProperties": { "$ref": "#/$defs/Value" }
+          "additionalProperties": { "$ref": "#/$defs/Expr" }
         },
-        "layout": { "$ref": "#/$defs/NodeLayout" }
-      }
-    },
-    "NodeLayout": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
         "at": { "$ref": "#/$defs/Point" },
         "size": { "$ref": "#/$defs/Point" }
-      }
-    },
-    "Point": {
-      "type": "array",
-      "prefixItems": [{ "type": "number" }, { "type": "number" }],
-      "minItems": 2,
-      "maxItems": 2
-    },
-    "Edge": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["from", "to"],
-      "properties": {
-        "from": { "$ref": "#/$defs/PinRef" },
-        "to": { "$ref": "#/$defs/PinRef" }
-      }
-    },
-    "PinRef": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["node", "pin"],
-      "properties": {
-        "node": { "type": "string", "minLength": 1 },
-        "pin": { "type": "string", "minLength": 1 }
       }
     },
     "Pin": {
@@ -134,14 +226,7 @@
         "name": { "type": "string", "minLength": 1 },
         "type": { "type": "string", "minLength": 1 },
         "direction": { "enum": ["in", "out"] },
-        "value": { "$ref": "#/$defs/Value" },
-        "layout": { "$ref": "#/$defs/PinLayout" }
-      }
-    },
-    "PinLayout": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
+        "value": { "$ref": "#/$defs/Expr" },
         "anchor": { "$ref": "#/$defs/Point" }
       }
     },
@@ -152,15 +237,24 @@
       "properties": {
         "kind": { "const": "query" },
         "target": { "$ref": "#/$defs/Target" },
-        "find": { "$ref": "#/$defs/Find" }
+        "find": { "$ref": "#/$defs/GraphFind" },
+        "where": { "$ref": "#/$defs/Condition" },
+        "with": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Detail" },
+          "uniqueItems": true
+        },
+        "orderBy": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/OrderBy" }
+        },
+        "page": { "$ref": "#/$defs/Page" }
       }
     },
-    "Find": {
+    "GraphFind": {
       "oneOf": [
         { "$ref": "#/$defs/FindNodes" },
-        { "$ref": "#/$defs/FindNode" },
         { "$ref": "#/$defs/FindPath" },
-        { "$ref": "#/$defs/FindSurrounding" },
         { "$ref": "#/$defs/FindPaletteEntry" }
       ]
     },
@@ -170,45 +264,17 @@
       "required": ["kind"],
       "properties": {
         "kind": { "const": "nodes" },
-        "where": { "$ref": "#/$defs/Condition" },
-        "with": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/Detail" },
-          "uniqueItems": true
-        }
-      }
-    },
-    "FindNode": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["kind", "node"],
-      "properties": {
-        "kind": { "const": "node" },
-        "node": { "type": "string", "minLength": 1 },
-        "with": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/Detail" },
-          "uniqueItems": true
-        }
+        "text": { "type": "string", "minLength": 1 }
       }
     },
     "FindPath": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "from"],
+      "required": ["kind", "direction", "pin"],
       "properties": {
         "kind": { "const": "path" },
-        "from": { "$ref": "#/$defs/PinRef" }
-      }
-    },
-    "FindSurrounding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["kind", "around", "depth"],
-      "properties": {
-        "kind": { "const": "surrounding" },
-        "around": { "type": "string", "minLength": 1 },
-        "depth": { "type": "integer", "minimum": 0 }
+        "direction": { "enum": ["from", "to"] },
+        "pin": { "$ref": "#/$defs/PinRef" }
       }
     },
     "FindPaletteEntry": {
@@ -218,21 +284,30 @@
       "properties": {
         "kind": { "const": "palette_entry" },
         "text": { "type": "string", "minLength": 1 },
-        "where": { "$ref": "#/$defs/Condition" }
-      },
-      "anyOf": [
-        { "required": ["text"] },
-        { "required": ["where"] }
-      ]
+        "pinContext": { "$ref": "#/$defs/PinContext" }
+      }
+    },
+    "PinContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["direction", "pin"],
+      "properties": {
+        "direction": { "enum": ["from", "to"] },
+        "pin": { "$ref": "#/$defs/PinRef" }
+      }
     },
     "Detail": {
-      "enum": ["pins", "defaults", "layout"]
+      "enum": ["pins", "defaults"]
     },
     "Condition": {
       "oneOf": [
         { "$ref": "#/$defs/EqCondition" },
+        { "$ref": "#/$defs/NeCondition" },
         { "$ref": "#/$defs/ContainsCondition" },
-        { "$ref": "#/$defs/AndCondition" }
+        { "$ref": "#/$defs/CompareCondition" },
+        { "$ref": "#/$defs/NotCondition" },
+        { "$ref": "#/$defs/AndCondition" },
+        { "$ref": "#/$defs/OrCondition" }
       ]
     },
     "EqCondition": {
@@ -241,8 +316,18 @@
       "required": ["kind", "field", "value"],
       "properties": {
         "kind": { "const": "eq" },
-        "field": { "type": "string", "minLength": 1 },
-        "value": { "$ref": "#/$defs/Value" }
+        "field": { "$ref": "#/$defs/FieldPath" },
+        "value": { "$ref": "#/$defs/Expr" }
+      }
+    },
+    "NeCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "field", "value"],
+      "properties": {
+        "kind": { "const": "ne" },
+        "field": { "$ref": "#/$defs/FieldPath" },
+        "value": { "$ref": "#/$defs/Expr" }
       }
     },
     "ContainsCondition": {
@@ -251,8 +336,28 @@
       "required": ["kind", "field", "value"],
       "properties": {
         "kind": { "const": "contains" },
-        "field": { "type": "string", "minLength": 1 },
-        "value": { "$ref": "#/$defs/Value" }
+        "field": { "$ref": "#/$defs/FieldPath" },
+        "value": { "$ref": "#/$defs/Expr" }
+      }
+    },
+    "CompareCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "op", "field", "value"],
+      "properties": {
+        "kind": { "const": "compare" },
+        "op": { "enum": ["gt", "gte", "lt", "lte"] },
+        "field": { "$ref": "#/$defs/FieldPath" },
+        "value": { "$ref": "#/$defs/Expr" }
+      }
+    },
+    "NotCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "condition"],
+      "properties": {
+        "kind": { "const": "not" },
+        "condition": { "$ref": "#/$defs/Condition" }
       }
     },
     "AndCondition": {
@@ -268,66 +373,46 @@
         }
       }
     },
-    "Value": {
-      "oneOf": [
-        { "type": "null" },
-        { "type": "boolean" },
-        { "type": "number" },
-        { "type": "string" },
-        { "$ref": "#/$defs/Name" },
-        {
+    "OrCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "conditions"],
+      "properties": {
+        "kind": { "const": "or" },
+        "conditions": {
           "type": "array",
-          "items": { "$ref": "#/$defs/Value" }
-        },
-        {
-          "type": "object",
-          "additionalProperties": { "$ref": "#/$defs/Value" },
-          "not": { "required": ["kind"] }
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/Condition" }
         }
-      ]
-    },
-    "Name": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["kind", "name"],
-      "properties": {
-        "kind": { "const": "name" },
-        "name": { "type": "string", "minLength": 1 }
       }
     },
-    "Palette": {
+    "FieldPath": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "target", "entries"],
+      "required": ["path"],
       "properties": {
-        "kind": { "const": "palette" },
-        "target": { "$ref": "#/$defs/Target" },
-        "entries": {
+        "path": {
           "type": "array",
-          "items": { "$ref": "#/$defs/PaletteBinding" }
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
         }
       }
     },
-    "PaletteBinding": {
+    "OrderBy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "entry"],
+      "required": ["key", "direction"],
       "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "entry": { "$ref": "#/$defs/PaletteEntryRef" },
-        "meta": {
-          "type": "object",
-          "additionalProperties": { "$ref": "#/$defs/Value" }
-        }
+        "key": { "type": "string", "minLength": 1 },
+        "direction": { "enum": ["asc", "desc"] }
       }
     },
-    "PaletteEntryRef": {
+    "Page": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "id"],
       "properties": {
-        "kind": { "const": "palette" },
-        "id": { "type": "string", "minLength": 1 }
+        "limit": { "type": "integer", "minimum": 1 },
+        "after": { "type": "string", "minLength": 1 }
       }
     },
     "Patch": {
@@ -344,39 +429,11 @@
         },
         "ops": {
           "type": "array",
-          "items": { "$ref": "#/$defs/Op" }
+          "items": { "$ref": "#/$defs/GraphPatchOp" }
         }
       }
     },
-    "Binding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["name", "value"],
-      "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "value": { "$ref": "#/$defs/Expr" }
-      }
-    },
-    "Expr": {
-      "oneOf": [
-        { "$ref": "#/$defs/Value" },
-        { "$ref": "#/$defs/Call" }
-      ]
-    },
-    "Call": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["kind", "callee", "args"],
-      "properties": {
-        "kind": { "const": "call" },
-        "callee": { "type": "string", "minLength": 1 },
-        "args": {
-          "type": "object",
-          "additionalProperties": { "$ref": "#/$defs/Value" }
-        }
-      }
-    },
-    "Op": {
+    "GraphPatchOp": {
       "oneOf": [
         { "$ref": "#/$defs/Set" },
         { "$ref": "#/$defs/Add" },
@@ -396,46 +453,48 @@
       "required": ["kind", "target", "value"],
       "properties": {
         "kind": { "const": "set" },
-        "target": { "$ref": "#/$defs/FieldRef" },
+        "target": { "$ref": "#/$defs/SetTarget" },
         "value": { "$ref": "#/$defs/Expr" }
       }
     },
-    "FieldRef": {
+    "SetTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["node", "field"],
+      "required": ["object", "field"],
       "properties": {
-        "node": { "type": "string", "minLength": 1 },
+        "object": { "type": "string", "minLength": 1 },
         "field": { "type": "string", "minLength": 1 }
       }
     },
     "Add": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "node"],
+      "required": ["kind", "binding"],
       "properties": {
         "kind": { "const": "add" },
-        "node": { "type": "string", "minLength": 1 },
-        "connect": { "$ref": "#/$defs/Edge" }
+        "binding": { "type": "string", "minLength": 1 }
       }
     },
     "Insert": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "node", "chain"],
+      "required": ["kind", "node", "from", "to", "input", "output"],
       "properties": {
         "kind": { "const": "insert" },
         "node": { "type": "string", "minLength": 1 },
-        "chain": { "$ref": "#/$defs/PinChain" }
+        "from": { "$ref": "#/$defs/PinRef" },
+        "to": { "$ref": "#/$defs/PinRef" },
+        "input": { "$ref": "#/$defs/PinRef" },
+        "output": { "$ref": "#/$defs/PinRef" }
       }
     },
     "Connect": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "chain"],
+      "required": ["kind", "edge"],
       "properties": {
         "kind": { "const": "connect" },
-        "chain": { "$ref": "#/$defs/PinChain" }
+        "edge": { "$ref": "#/$defs/Edge" }
       }
     },
     "DisconnectByEdge": {
@@ -497,44 +556,63 @@
         "preserveLinks": { "type": "boolean" }
       }
     },
-    "PinChain": {
+    "CreationResult": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["segments"],
+      "required": ["kind", "target", "entries"],
       "properties": {
-        "segments": {
+        "kind": { "const": "creation_result" },
+        "target": { "$ref": "#/$defs/Target" },
+        "entries": {
           "type": "array",
-          "minItems": 2,
-          "items": { "$ref": "#/$defs/PinChainSegment" }
+          "items": { "$ref": "#/$defs/CreationEntry" }
         }
       }
     },
-    "PinChainSegment": {
+    "CreationEntry": {
       "oneOf": [
-        { "$ref": "#/$defs/PinSegment" },
-        { "$ref": "#/$defs/ThroughSegment" }
+        { "$ref": "#/$defs/ShortcutCreationEntry" },
+        { "$ref": "#/$defs/PaletteCreationEntry" }
       ]
     },
-    "PinSegment": {
+    "ShortcutCreationEntry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "pin"],
+      "required": ["name", "constructor"],
       "properties": {
-        "kind": { "const": "pin" },
-        "pin": { "$ref": "#/$defs/PinRef" }
+        "name": { "type": "string", "minLength": 1 },
+        "constructor": { "$ref": "#/$defs/Call" },
+        "pins": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Pin" }
+        }
       }
     },
-    "ThroughSegment": {
+    "PaletteCreationEntry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "input", "output"],
+      "required": ["name", "palette"],
       "properties": {
-        "kind": { "const": "through" },
-        "input": { "$ref": "#/$defs/PinRef" },
-        "output": { "$ref": "#/$defs/PinRef" }
+        "name": { "type": "string", "minLength": 1 },
+        "palette": { "$ref": "#/$defs/PaletteSourceRef" },
+        "label": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
+        "pins": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Pin" }
+        }
       }
     },
-    "ObjectResult": {
+    "PaletteSourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "palette" },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Result": {
       "type": "object",
       "additionalProperties": false,
       "required": ["diagnostics"],
@@ -543,6 +621,13 @@
         "diagnostics": {
           "type": "array",
           "items": { "$ref": "#/$defs/Diagnostic" }
+        },
+        "page": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "next": { "type": "string", "minLength": 1 }
+          }
         }
       }
     },

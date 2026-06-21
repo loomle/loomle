@@ -2,6 +2,7 @@ import type {
   Binding,
   Call,
   Condition,
+  CreationEntry,
   Detail,
   Edge,
   Expr,
@@ -11,30 +12,25 @@ import type {
   Node,
   ObjectResult,
   Op,
-  Palette,
-  PaletteBinding,
   Patch,
   Pin,
-  PinChain,
-  PinChainSegment,
   PinRef,
   Query,
+  Ref,
   SourceSpan,
   Target,
   Value,
 } from "./index.js";
 
-type DocumentKind = LglObject["kind"];
-
-interface ParsedHeader {
-  kind: DocumentKind;
-  target: Target;
-  dryRun: boolean;
-}
-
 interface ParsedLine {
   text: string;
   line: number;
+}
+
+interface ParseContext {
+  bindings: Binding[];
+  assets: Map<string, { path: string; type?: string }>;
+  graphs: Map<string, Target>;
 }
 
 export function parseLglObject(text: string): ObjectResult {
@@ -44,21 +40,28 @@ export function parseLglObject(text: string): ObjectResult {
       return errorResult("empty_document", "LGL document is empty.");
     }
 
-    const header = parseHeader(lines[0]);
-    const body = lines.slice(1);
+    const context = parseLeadingBindings(lines);
+    const queryIndex = lines.findIndex((line) => line.text.startsWith("query "));
+    const patchIndex = lines.findIndex((line) => line.text.startsWith("patch "));
 
-    switch (header.kind) {
-      case "graph":
-        return { object: parseGraph(header, body), diagnostics: [] };
-      case "query":
-        return { object: parseQuery(header, body), diagnostics: [] };
-      case "patch":
-        return { object: parsePatch(header, body), diagnostics: [] };
-      case "palette":
-        return { object: parsePalette(header, body), diagnostics: [] };
-      default:
-        return assertNever(header.kind);
+    if (queryIndex >= 0 && patchIndex >= 0) {
+      throw new ParseError("mixed_document_kinds", "A document cannot contain both query and patch statements.", spanForLine(lines[Math.min(queryIndex, patchIndex)]));
     }
+
+    if (queryIndex >= 0) {
+      return { object: parseQuery(lines, queryIndex, context), diagnostics: [] };
+    }
+
+    if (patchIndex >= 0) {
+      return { object: parsePatch(lines, patchIndex, context), diagnostics: [] };
+    }
+
+    const creationResult = tryParseCreationResult(lines, context);
+    if (creationResult) {
+      return { object: creationResult, diagnostics: [] };
+    }
+
+    return { object: parseGraph(lines, context), diagnostics: [] };
   } catch (error) {
     if (error instanceof ParseError) {
       return {
@@ -95,281 +98,349 @@ function preprocessLines(text: string): ParsedLine[] {
   return result;
 }
 
-function parseHeader(line: ParsedLine): ParsedHeader {
-  const match = /^(graph|query|patch|palette)\s+([A-Za-z_][A-Za-z0-9_]*)\("([^"]+)"\/(.+)\)(?:\s+(dry)\s+(run))?$/.exec(
-    line.text,
-  );
-  if (!match) {
-    throw new ParseError(
-      "invalid_header",
-      "Expected a document header such as query blueprint(\"/Game/BP\"/EventGraph).",
-      spanForLine(line),
-    );
+function parseLeadingBindings(lines: ParsedLine[]): ParseContext {
+  const context: ParseContext = {
+    bindings: [],
+    assets: new Map(),
+    graphs: new Map(),
+  };
+
+  for (const line of lines) {
+    if (line.text.startsWith("query ") || line.text.startsWith("patch ")) {
+      break;
+    }
+    const binding = tryParseBinding(line);
+    if (!binding) {
+      continue;
+    }
+    context.bindings.push(binding);
+    registerBinding(context, binding, line);
   }
 
-  const graphText = match[4].trim();
-  const graphIdMatch = /^id\("([^"]+)"\)$/.exec(graphText);
-
-  return {
-    kind: match[1] as DocumentKind,
-    target: {
-      domain: match[2],
-      asset: match[3],
-      graph: graphIdMatch
-        ? { kind: "id", id: graphIdMatch[1] }
-        : { kind: "name", name: graphText },
-    },
-    dryRun: match[5] === "dry" && match[6] === "run",
-  };
+  return context;
 }
 
-function parseGraph(header: ParsedHeader, body: ParsedLine[]): Graph {
+function registerBinding(context: ParseContext, binding: Binding, line: ParsedLine): void {
+  if (binding.target.kind !== "local" || !isCall(binding.value)) {
+    return;
+  }
+
+  if (binding.value.callee === "asset") {
+    const path = binding.value.args.path;
+    if (typeof path !== "string") {
+      throw new ParseError("invalid_asset_binding", "asset(...) requires path: string.", spanForLine(line));
+    }
+    const type = symbolName(binding.value.args.type);
+    context.assets.set(binding.target.name, {
+      path,
+      ...(type ? { type } : {}),
+    });
+    return;
+  }
+
+  if (binding.value.callee === "graph") {
+    const domain = binding.value.args.domain;
+    const asset = binding.value.args.asset;
+    const graph = binding.value.args.graph;
+    const domainName = symbolName(domain);
+    if (!domainName) {
+      throw new ParseError("invalid_graph_binding", "graph(...) requires domain: symbol.", spanForLine(line));
+    }
+    if (!isLocalRef(asset)) {
+      throw new ParseError("invalid_graph_binding", "graph(...) requires asset: assetBinding.", spanForLine(line));
+    }
+    const assetBinding = context.assets.get(asset.name);
+    if (!assetBinding) {
+      throw new ParseError("unknown_asset_binding", `Unknown asset binding ${asset.name}.`, spanForLine(line));
+    }
+    context.graphs.set(binding.target.name, {
+      domain: domainName,
+      asset: assetBinding.path,
+      graph: graphToRef(graph, line),
+    });
+  }
+}
+
+function graphToRef(expr: Expr | undefined, line: ParsedLine): Target["graph"] {
+  const name = symbolName(expr);
+  if (name) {
+    return { kind: "name", name };
+  }
+  if (isCall(expr) && expr.callee === "id" && typeof expr.args.id === "string") {
+    return { kind: "id", id: expr.args.id };
+  }
+  throw new ParseError("invalid_graph_ref", "graph(...) requires graph: Name or id(id: string).", spanForLine(line));
+}
+
+function parseGraph(lines: ParsedLine[], context: ParseContext): Graph {
   const nodes: Node[] = [];
   const pins: Pin[] = [];
   const edges: Edge[] = [];
+  let target: Target | undefined;
 
-  for (const line of body) {
+  for (const line of lines) {
+    const binding = tryParseBinding(line);
+    if (binding) {
+      registerBinding(context, binding, line);
+      if (binding.target.kind === "local" && isCall(binding.value) && binding.value.callee === "node") {
+        const node = nodeFromBinding(binding, line);
+        target = target ?? graphTargetFromNodeCall(binding.value, context, line);
+        nodes.push(node);
+        continue;
+      }
+      if (binding.target.kind === "member" && isCall(binding.value) && binding.value.callee === "pin") {
+        pins.push(pinFromBinding(binding, line));
+        continue;
+      }
+      continue;
+    }
+
     if (line.text.includes("->")) {
       edges.push(...edgesFromChain(parsePinChain(line.text, line)));
       continue;
     }
 
-    if (isPinLine(line.text)) {
-      pins.push(parsePin(line));
-      continue;
-    }
-
-    nodes.push(parseNode(line));
+    throw new ParseError("unsupported_object_statement", "Unsupported object text statement.", spanForLine(line));
   }
 
-  const graph: Graph = {
+  target = target ?? firstGraphTarget(context);
+  if (!target) {
+    throw new ParseError("missing_graph_binding", "Graph object text requires a graph binding or node(graph: ...).", spanForLine(lines[0]));
+  }
+
+  return {
     kind: "graph",
-    target: header.target,
+    target,
     nodes,
     edges,
+    ...(pins.length > 0 ? { pins } : {}),
   };
-
-  if (pins.length > 0) {
-    graph.pins = pins;
-  }
-
-  return graph;
 }
 
-function parseQuery(header: ParsedHeader, body: ParsedLine[]): Query {
-  if (body.length === 0) {
-    return { kind: "query", target: header.target };
-  }
-  if (body.length > 1) {
-    throw new ParseError(
-      "unsupported_query_body",
-      "The first parser version accepts one query statement per document.",
-      spanForLine(body[1]),
-    );
+function parseQuery(lines: ParsedLine[], queryIndex: number, context: ParseContext): Query {
+  const queryLine = lines[queryIndex];
+  const match = /^query\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+dry\s+run)?$/.exec(queryLine.text);
+  if (!match) {
+    throw new ParseError("invalid_query", "Expected query <graph>.", spanForLine(queryLine));
   }
 
-  return {
+  const query: Query = {
     kind: "query",
-    target: header.target,
-    find: parseFind(body[0]),
+    target: resolveGraphTarget(match[1], context, queryLine),
   };
+
+  for (const line of lines.slice(queryIndex + 1)) {
+    if (line.text.startsWith("find ")) {
+      query.find = parseFind(line);
+    } else if (line.text.startsWith("where ")) {
+      query.where = parseCondition(line.text.slice("where ".length), line);
+    } else if (line.text.startsWith("with ")) {
+      query.with = parseDetails(line.text.slice("with ".length));
+    } else if (line.text.startsWith("order by ")) {
+      query.orderBy = parseOrderBy(line.text.slice("order by ".length));
+    } else if (line.text.startsWith("page ")) {
+      query.page = { ...(query.page ?? {}), ...parsePage(line) };
+    } else {
+      throw new ParseError("unsupported_query_clause", "Unsupported query clause.", spanForLine(line));
+    }
+  }
+
+  return query;
 }
 
-function parsePatch(header: ParsedHeader, body: ParsedLine[]): Patch {
-  const bindings: Binding[] = [];
-  const ops: Op[] = [];
+function parsePatch(lines: ParsedLine[], patchIndex: number, context: ParseContext): Patch {
+  const patchLine = lines[patchIndex];
+  const match = /^patch\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+(dry)\s+(run))?$/.exec(patchLine.text);
+  if (!match) {
+    throw new ParseError("invalid_patch", "Expected patch <graph>.", spanForLine(patchLine));
+  }
 
-  for (const line of body) {
-    const binding = tryParseBinding(line);
-    if (binding) {
-      bindings.push(binding);
+  const patch: Patch = {
+    kind: "patch",
+    target: resolveGraphTarget(match[1], context, patchLine),
+    dryRun: match[2] === "dry" && match[3] === "run",
+    bindings: [],
+    ops: [],
+  };
+
+  for (const line of lines.slice(patchIndex + 1)) {
+    const addBinding = tryParseAddBinding(line);
+    if (addBinding) {
+      patch.bindings.push(addBinding.binding);
+      patch.ops.push({ kind: "add", binding: addBinding.name });
       continue;
     }
 
-    ops.push(parseOp(line));
-  }
-
-  return {
-    kind: "patch",
-    target: header.target,
-    dryRun: header.dryRun,
-    bindings,
-    ops,
-  };
-}
-
-function parsePalette(header: ParsedHeader, body: ParsedLine[]): Palette {
-  const entries: PaletteBinding[] = body.map((line) => {
     const binding = tryParseBinding(line);
-    if (!binding || !isCall(binding.value) || binding.value.callee !== "palette") {
-      throw new ParseError(
-        "invalid_palette_binding",
-        "Palette documents must contain Name = palette({...}) bindings.",
-        spanForLine(line),
-      );
+    if (binding) {
+      patch.bindings.push(binding);
+      continue;
     }
 
-    const id = binding.value.args.id;
-    if (typeof id !== "string") {
-      throw new ParseError(
-        "invalid_palette_id",
-        "Palette binding id must be a string.",
-        spanForLine(line),
-      );
-    }
+    patch.ops.push(...parseOps(line));
+  }
 
-    const { id: _id, ...meta } = binding.value.args;
-    return {
-      name: binding.name,
-      entry: { kind: "palette", id },
-      ...(Object.keys(meta).length > 0 ? { meta } : {}),
-    };
-  });
+  return patch;
+}
+
+function tryParseCreationResult(lines: ParsedLine[], context: ParseContext): LglObject | undefined {
+  const entries: CreationEntry[] = [];
+  let target: Target | undefined = firstGraphTarget(context);
+
+  for (const line of lines) {
+    const binding = tryParseBinding(line);
+    if (!binding || binding.target.kind !== "local" || !isCall(binding.value)) {
+      continue;
+    }
+    if (binding.value.callee === "palette") {
+      const id = binding.value.args.id;
+      if (typeof id !== "string") {
+        throw new ParseError("invalid_palette_binding", "palette(...) requires id: string.", spanForLine(line));
+      }
+      const label = binding.value.args.label;
+      const category = binding.value.args.category;
+      entries.push({
+        name: binding.target.name,
+        palette: { kind: "palette", id },
+        ...(typeof label === "string" ? { label } : {}),
+        ...(typeof category === "string" ? { category } : {}),
+      });
+    }
+  }
+
+  if (entries.length === 0) {
+    return undefined;
+  }
+  target = target ?? firstGraphTarget(context);
+  if (!target) {
+    throw new ParseError("missing_graph_binding", "Creation result text requires a graph binding.", spanForLine(lines[0]));
+  }
+  return { kind: "creation_result", target, entries };
+}
+
+function nodeFromBinding(binding: Binding, line: ParsedLine): Node {
+  if (binding.target.kind !== "local" || !isCall(binding.value) || binding.value.callee !== "node") {
+    throw new ParseError("invalid_node", "Expected name = node(...).", spanForLine(line));
+  }
+
+  const { graph: _graph, type, id, at, size, ...fields } = binding.value.args;
+  const typeName = symbolName(type);
+  if (!typeName) {
+    throw new ParseError("invalid_node", "node(...) requires type: symbol.", spanForLine(line));
+  }
 
   return {
-    kind: "palette",
-    target: header.target,
-    entries,
+    alias: binding.target.name,
+    type: typeName,
+    ...(typeof id === "string" ? { id } : {}),
+    fields,
+    ...(Array.isArray(at) ? { at: parsePoint(at, line) } : {}),
+    ...(Array.isArray(size) ? { size: parsePoint(size, line) } : {}),
   };
 }
 
-function parseNode(line: ParsedLine): Node {
-  const [semanticText, layoutText] = splitTrailingObject(line.text);
-  const match = /^([A-Za-z_@][A-Za-z0-9_@]*)(?:@([A-Za-z0-9_-]+))?:\s*([A-Za-z_][A-Za-z0-9_]*)\((.*)\)$/.exec(
-    semanticText,
-  );
-  if (!match) {
-    throw new ParseError("invalid_node", "Expected node line alias@id: Type({...}).", spanForLine(line));
+function graphTargetFromNodeCall(call: Call, context: ParseContext, line: ParsedLine): Target {
+  const graph = call.args.graph;
+  if (!isLocalRef(graph)) {
+    throw new ParseError("invalid_node", "node(...) requires graph: graphBinding.", spanForLine(line));
   }
-
-  const node: Node = {
-    alias: match[1],
-    ...(match[2] ? { id: match[2] } : {}),
-    type: match[3],
-    fields: parseCallArgs(match[4], line),
-  };
-
-  if (layoutText) {
-    const layout = parseObjectLiteral(layoutText, line);
-    node.layout = {};
-    if (Array.isArray(layout.at)) {
-      node.layout.at = parsePoint(layout.at, line);
-    }
-    if (Array.isArray(layout.size)) {
-      node.layout.size = parsePoint(layout.size, line);
-    }
-  }
-
-  return node;
+  return resolveGraphTarget(graph.name, context, line);
 }
 
-function parsePin(line: ParsedLine): Pin {
-  const [semanticText, metaText] = splitTrailingObject(line.text);
-  const match = /^([A-Za-z_@][A-Za-z0-9_@]*)\.([A-Za-z_][A-Za-z0-9_]*):\s*([^ ]+)\s+(in|out)$/.exec(
-    semanticText,
-  );
-  if (!match) {
-    throw new ParseError("invalid_pin", "Expected pin line node.pin: type in|out.", spanForLine(line));
+function pinFromBinding(binding: Binding, line: ParsedLine): Pin {
+  if (binding.target.kind !== "member" || !isCall(binding.value) || binding.value.callee !== "pin") {
+    throw new ParseError("invalid_pin", "Expected node.pin = pin(...).", spanForLine(line));
+  }
+  const type = binding.value.args.type;
+  const direction = binding.value.args.direction;
+  const typeName = symbolName(type);
+  const directionName = symbolName(direction);
+  if (!typeName || (directionName !== "in" && directionName !== "out")) {
+    throw new ParseError("invalid_pin", "pin(...) requires type: symbol and direction: in|out.", spanForLine(line));
   }
 
-  const pin: Pin = {
-    node: match[1],
-    name: match[2],
-    type: match[3],
-    direction: match[4] as "in" | "out",
+  const value = binding.value.args.value;
+  const anchor = binding.value.args.anchor;
+  return {
+    node: binding.target.object,
+    name: binding.target.member,
+    type: typeName,
+    direction: directionName,
+    ...(value !== undefined ? { value } : {}),
+    ...(Array.isArray(anchor) ? { anchor: parsePoint(anchor, line) } : {}),
   };
-
-  if (metaText) {
-    const pinMeta = parsePinMeta(metaText, line);
-    if ("value" in pinMeta) {
-      pin.value = pinMeta.value;
-    }
-    if (pinMeta.anchor) {
-      pin.layout = { anchor: pinMeta.anchor };
-    }
-  }
-
-  return pin;
 }
 
 function parseFind(line: ParsedLine): Find {
-  let match = /^find node\s+([A-Za-z_@][A-Za-z0-9_@]*)(?:\s+with\s+(.+))?$/.exec(line.text);
+  let match = /^find nodes(?:\s+"([^"]+)")?$/.exec(line.text);
   if (match) {
-    return {
-      kind: "node",
-      node: match[1],
-      ...(match[2] ? { with: parseDetails(match[2]) } : {}),
-    };
+    return { kind: "nodes", ...(match[1] ? { text: match[1] } : {}) };
   }
 
-  match = /^find nodes(?:\s+where\s+(.+?))?(?:\s+with\s+(.+))?$/.exec(line.text);
+  match = /^find path\s+(from|to)\s+(.+)$/.exec(line.text);
   if (match) {
-    return {
-      kind: "nodes",
-      ...(match[1] ? { where: parseCondition(match[1], line) } : {}),
-      ...(match[2] ? { with: parseDetails(match[2]) } : {}),
-    };
+    return { kind: "path", direction: match[1] as "from" | "to", pin: parsePinRef(match[2], line) };
   }
 
-  match = /^find path from\s+(.+)$/.exec(line.text);
+  match = /^find palette entry(?:\s+"([^"]+)")?(?:\s+(from|to)\s+(.+))?$/.exec(line.text);
   if (match) {
-    return { kind: "path", from: parsePinRef(match[1], line) };
-  }
-
-  match = /^find surrounding around\s+([A-Za-z_@][A-Za-z0-9_@]*)\s+depth\s+(\d+)$/.exec(line.text);
-  if (match) {
-    return { kind: "surrounding", around: match[1], depth: Number(match[2]) };
-  }
-
-  match = /^find palette entry(?:\s+"([^"]+)")?(?:\s+where\s+(.+))?$/.exec(line.text);
-  if (match) {
-    if (!match[1] && !match[2]) {
-      throw new ParseError(
-        "invalid_palette_query",
-        "Palette entry queries require text, a where condition, or both.",
-        spanForLine(line),
-      );
-    }
     return {
       kind: "palette_entry",
       ...(match[1] ? { text: match[1] } : {}),
-      ...(match[2] ? { where: parseCondition(match[2], line) } : {}),
+      ...(match[2] && match[3]
+        ? { pinContext: { direction: match[2] as "from" | "to", pin: parsePinRef(match[3], line) } }
+        : {}),
     };
   }
 
-  throw new ParseError("unsupported_query", "Unsupported query statement.", spanForLine(line));
+  throw new ParseError("unsupported_query", "Unsupported query find form.", spanForLine(line));
 }
 
 function tryParseBinding(line: ParsedLine): Binding | undefined {
-  const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/.exec(line.text);
-  if (!match) {
+  const eq = findTopLevel(line.text, "=");
+  if (eq < 0 || line.text.startsWith("set ")) {
     return undefined;
   }
-
   return {
-    name: match[1],
-    value: parseExpr(match[2], line),
+    target: parseBindingTarget(line.text.slice(0, eq).trim(), line),
+    value: parseExpr(line.text.slice(eq + 1), line),
   };
 }
 
-function parseOp(line: ParsedLine): Op {
+function tryParseAddBinding(line: ParsedLine): { name: string; binding: Binding } | undefined {
+  const match = /^add\s+(.+)$/.exec(line.text);
+  if (!match || !match[1].includes("=")) {
+    return undefined;
+  }
+  const synthetic = { text: match[1], line: line.line };
+  const binding = tryParseBinding(synthetic);
+  if (!binding || binding.target.kind !== "local") {
+    throw new ParseError("invalid_add_binding", "add binding sugar requires add name = constructor(...).", spanForLine(line));
+  }
+  return { name: binding.target.name, binding };
+}
+
+function parseBindingTarget(text: string, line: ParsedLine): Binding["target"] {
+  const local = /^([A-Za-z_][A-Za-z0-9_]*)$/.exec(text);
+  if (local) {
+    return { kind: "local", name: local[1] };
+  }
+  const member = /^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(text);
+  if (member) {
+    return { kind: "member", object: member[1], member: member[2] };
+  }
+  throw new ParseError("invalid_binding_target", "Expected binding target name or object.member.", spanForLine(line));
+}
+
+function parseOps(line: ParsedLine): Op[] {
   let match = /^insert\s+(.+)$/.exec(line.text);
   if (match) {
-    const chain = parsePinChain(match[1], line);
-    const through = chain.segments.find((segment) => segment.kind === "through");
-    if (!through || through.kind !== "through") {
-      throw new ParseError("invalid_insert", "Insert requires a through segment for the inserted node.", spanForLine(line));
-    }
-    return {
-      kind: "insert",
-      node: through.input.node,
-      chain,
-    };
+    return [parseInsert(match[1], line)];
   }
 
   match = /^connect\s+(.+)$/.exec(line.text);
   if (match) {
-    return { kind: "connect", chain: parsePinChain(match[1], line) };
+    return edgesFromChain(parsePinChain(match[1], line)).map((edge) => ({ kind: "connect", edge }));
   }
 
   match = /^disconnect\s+(.+)$/.exec(line.text);
@@ -379,81 +450,91 @@ function parseOp(line: ParsedLine): Op {
       if (edges.length !== 1) {
         throw new ParseError("invalid_disconnect", "Disconnect edge form must describe exactly one edge.", spanForLine(line));
       }
-      return { kind: "disconnect", edge: edges[0] };
+      return [{ kind: "disconnect", edge: edges[0] }];
     }
-    return { kind: "disconnect", pin: parsePinRef(match[1], line) };
+    return [{ kind: "disconnect", pin: parsePinRef(match[1], line) }];
   }
 
-  match = /^move\s+([A-Za-z_@][A-Za-z0-9_@]*)\s+(to|by)\s+\((-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\)$/.exec(line.text);
+  match = /^move\s+([A-Za-z_][A-Za-z0-9_]*)\s+(to|by)\s+\((-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\)$/.exec(line.text);
   if (match) {
-    if (match[2] === "to") {
-      return { kind: "move", node: match[1], mode: "to", at: [Number(match[3]), Number(match[4])] };
-    }
-    return { kind: "move", node: match[1], mode: "by", delta: [Number(match[3]), Number(match[4])] };
+    return [
+      match[2] === "to"
+        ? { kind: "move", node: match[1], mode: "to", at: [Number(match[3]), Number(match[4])] }
+        : { kind: "move", node: match[1], mode: "by", delta: [Number(match[3]), Number(match[4])] },
+    ];
   }
 
-  match = /^remove\s+([A-Za-z_@][A-Za-z0-9_@]*)$/.exec(line.text);
+  match = /^remove\s+([A-Za-z_][A-Za-z0-9_]*)$/.exec(line.text);
   if (match) {
-    return { kind: "remove", node: match[1] };
+    return [{ kind: "remove", node: match[1] }];
   }
 
-  match = /^add\s+([A-Za-z_@][A-Za-z0-9_@]*)$/.exec(line.text);
+  match = /^add\s+([A-Za-z_][A-Za-z0-9_]*)$/.exec(line.text);
   if (match) {
-    return { kind: "add", node: match[1] };
+    return [{ kind: "add", binding: match[1] }];
   }
 
-  match = /^set\s+([A-Za-z_@][A-Za-z0-9_@]*)\.([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/.exec(line.text);
+  match = /^set\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/.exec(line.text);
   if (match) {
-    return {
-      kind: "set",
-      target: { node: match[1], field: match[2] },
-      value: parseExpr(match[3], line),
-    };
+    return [
+      {
+        kind: "set",
+        target: { object: match[1], field: match[2] },
+        value: parseExpr(match[3], line),
+      },
+    ];
   }
 
-  match = /^reconstruct\s+([A-Za-z_@][A-Za-z0-9_@]*)\s+preserve\s+links$/.exec(line.text);
+  match = /^reconstruct\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+preserve\s+links)?$/.exec(line.text);
   if (match) {
-    return { kind: "reconstruct", node: match[1], preserveLinks: true };
+    return [{ kind: "reconstruct", node: match[1], preserveLinks: line.text.includes(" preserve links") }];
   }
 
   if (line.text.includes("->")) {
-    return { kind: "connect", chain: parsePinChain(line.text, line) };
+    return edgesFromChain(parsePinChain(line.text, line)).map((edge) => ({ kind: "connect", edge }));
   }
 
   throw new ParseError("unsupported_patch_op", "Unsupported patch operation.", spanForLine(line));
 }
 
-function parsePinChain(text: string, line: ParsedLine): PinChain {
+function parseInsert(text: string, line: ParsedLine): Op {
+  const parts = text.split("->").map((part) => part.trim());
+  if (parts.length !== 3 || !parts[1].includes("/")) {
+    throw new ParseError("invalid_insert", "Insert requires from -> node.Input/Output -> to.", spanForLine(line));
+  }
+  const [inputText, outputText] = parts[1].split("/").map((part) => part.trim());
+  const input = parsePinRef(inputText, line);
+  const output = parsePinRef(outputText.includes(".") ? outputText : `${input.node}.${outputText}`, line);
+  return {
+    kind: "insert",
+    node: input.node,
+    from: parsePinRef(parts[0], line),
+    to: parsePinRef(parts[2], line),
+    input,
+    output,
+  };
+}
+
+function parsePinChain(text: string, line: ParsedLine): PinRef[] {
   const parts = text.split("->").map((part) => part.trim());
   if (parts.length < 2) {
     throw new ParseError("invalid_pin_chain", "Pin chains require at least two segments.", spanForLine(line));
   }
 
-  const segments = parts.map((part, index) => {
-    if (index > 0 && index < parts.length - 1 && part.includes("/")) {
-      const [input, output] = part.split("/").map((value) => value.trim());
-      return {
-        kind: "through",
-        input: parsePinRef(input, line),
-        output: parsePinRef(output.includes(".") ? output : `${input.split(".")[0]}.${output}`, line),
-      };
-    }
-    return { kind: "pin", pin: parsePinRef(part, line) };
-  }) as [PinChainSegment, PinChainSegment, ...PinChainSegment[]];
-
-  return { segments };
-}
-
-function edgesFromChain(chain: PinChain): Edge[] {
   const pins: PinRef[] = [];
-  for (const segment of chain.segments) {
-    if (segment.kind === "pin") {
-      pins.push(segment.pin);
+  for (const part of parts) {
+    if (part.includes("/")) {
+      const [input, output] = part.split("/").map((value) => value.trim());
+      const inputRef = parsePinRef(input, line);
+      pins.push(inputRef, parsePinRef(output.includes(".") ? output : `${inputRef.node}.${output}`, line));
     } else {
-      pins.push(segment.input, segment.output);
+      pins.push(parsePinRef(part, line));
     }
   }
+  return pins;
+}
 
+function edgesFromChain(pins: PinRef[]): Edge[] {
   const edges: Edge[] = [];
   for (let index = 0; index < pins.length - 1; index += 2) {
     edges.push({ from: pins[index], to: pins[index + 1] });
@@ -462,7 +543,7 @@ function edgesFromChain(chain: PinChain): Edge[] {
 }
 
 function parsePinRef(text: string, line: ParsedLine): PinRef {
-  const match = /^([A-Za-z_@][A-Za-z0-9_@]*)\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(text.trim());
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(text.trim());
   if (!match) {
     throw new ParseError("invalid_pin_ref", "Expected pin reference node.pin.", spanForLine(line));
   }
@@ -470,46 +551,116 @@ function parsePinRef(text: string, line: ParsedLine): PinRef {
 }
 
 function parseCondition(text: string, line: ParsedLine): Condition {
-  const containsMatch = /^([A-Za-z_][A-Za-z0-9_. ]*)\s+contains\s+(.+)$/.exec(text);
-  if (containsMatch) {
-    return {
-      kind: "contains",
-      field: containsMatch[1].trim(),
-      value: parseValue(containsMatch[2], line),
-    };
-  }
+  return parseOrCondition(text.trim(), line);
+}
 
-  const eqMatch = /^([A-Za-z_][A-Za-z0-9_. ]*)\s*=\s*(.+)$/.exec(text);
-  if (eqMatch) {
-    return {
-      kind: "eq",
-      field: eqMatch[1].trim(),
-      value: parseValue(eqMatch[2], line),
-    };
+function parseOrCondition(text: string, line: ParsedLine): Condition {
+  const parts = splitByKeyword(text, "or");
+  if (parts.length > 1) {
+    return { kind: "or", conditions: parts.map((part) => parseAndCondition(part, line)) as [Condition, ...Condition[]] };
   }
+  return parseAndCondition(text, line);
+}
 
-  throw new ParseError("unsupported_condition", "Unsupported condition.", spanForLine(line));
+function parseAndCondition(text: string, line: ParsedLine): Condition {
+  const parts = splitByKeyword(text, "and");
+  if (parts.length > 1) {
+    return { kind: "and", conditions: parts.map((part) => parseNotCondition(part, line)) as [Condition, ...Condition[]] };
+  }
+  return parseNotCondition(text, line);
+}
+
+function parseNotCondition(text: string, line: ParsedLine): Condition {
+  const trimmed = trimParens(text.trim());
+  if (trimmed.startsWith("not ")) {
+    return { kind: "not", condition: parseCondition(trimmed.slice("not ".length), line) };
+  }
+  return parseComparisonCondition(trimmed, line);
+}
+
+function parseComparisonCondition(text: string, line: ParsedLine): Condition {
+  const match = /^([A-Za-z_][A-Za-z0-9_.]*)\s*(~=|!=|>=|<=|>|<|=)\s*(.+)$/.exec(text);
+  if (!match) {
+    throw new ParseError("unsupported_condition", "Unsupported condition.", spanForLine(line));
+  }
+  const field = { path: match[1].split(".") as [string, ...string[]] };
+  const value = parseExpr(match[3], line);
+  switch (match[2]) {
+    case "=":
+      return { kind: "eq", field, value };
+    case "!=":
+      return { kind: "ne", field, value };
+    case "~=":
+      return { kind: "contains", field, value };
+    case ">":
+      return { kind: "compare", op: "gt", field, value };
+    case ">=":
+      return { kind: "compare", op: "gte", field, value };
+    case "<":
+      return { kind: "compare", op: "lt", field, value };
+    case "<=":
+      return { kind: "compare", op: "lte", field, value };
+    default:
+      return assertNever(match[2] as never);
+  }
+}
+
+function splitByKeyword(text: string, keyword: "and" | "or"): string[] {
+  return splitTopLevel(text, " ")
+    .reduce<string[]>((parts, token) => {
+      if (token === keyword) {
+        parts.push("");
+      } else {
+        parts[parts.length - 1] = parts[parts.length - 1]
+          ? `${parts[parts.length - 1]} ${token}`
+          : token;
+      }
+      return parts;
+    }, [""])
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function trimParens(text: string): string {
+  return text.startsWith("(") && text.endsWith(")") ? text.slice(1, -1).trim() : text;
 }
 
 function parseDetails(text: string): Detail[] {
   return text.split(",").map((part) => part.trim() as Detail);
 }
 
-function parseExpr(text: string, line: ParsedLine): Expr {
-  const call = tryParseCall(text, line);
-  return call ?? parseValue(text, line);
+function parseOrderBy(text: string): Query["orderBy"] {
+  return text.split(",").map((part) => {
+    const match = /^([A-Za-z_][A-Za-z0-9_.]*)(?:\s+(asc|desc))?$/.exec(part.trim());
+    if (!match) {
+      return { key: part.trim(), direction: "asc" as const };
+    }
+    return { key: match[1], direction: (match[2] as "asc" | "desc" | undefined) ?? "asc" };
+  });
 }
 
-function parseCallArgs(text: string, line: ParsedLine): Record<string, Value> {
-  const trimmed = text.trim();
-  if (trimmed === "") {
-    return {};
+function parsePage(line: ParsedLine): Query["page"] {
+  let match = /^page\s+limit\s+(\d+)$/.exec(line.text);
+  if (match) {
+    return { limit: Number(match[1]) };
   }
-  const value = parseValue(trimmed, line);
-  if (!isPlainObject(value)) {
-    throw new ParseError("invalid_call_args", "Call arguments must be an object literal.", spanForLine(line));
+  match = /^page\s+after\s+"([^"]+)"$/.exec(line.text);
+  if (match) {
+    return { after: match[1] };
   }
-  return value;
+  throw new ParseError("invalid_page_clause", "Expected page limit <number> or page after \"cursor\".", spanForLine(line));
+}
+
+function parseExpr(text: string, line: ParsedLine): Expr {
+  const call = tryParseCall(text, line);
+  if (call) {
+    return call;
+  }
+  const ref = tryParseRef(text);
+  if (ref) {
+    return ref;
+  }
+  return parseValue(text, line);
 }
 
 function tryParseCall(text: string, line: ParsedLine): Call | undefined {
@@ -522,6 +673,39 @@ function tryParseCall(text: string, line: ParsedLine): Call | undefined {
     callee: match[1],
     args: parseCallArgs(match[2], line),
   };
+}
+
+function parseCallArgs(text: string, line: ParsedLine): Record<string, Expr> {
+  const trimmed = text.trim();
+  if (trimmed === "") {
+    return {};
+  }
+  const result: Record<string, Expr> = {};
+  for (const part of splitTopLevel(trimmed, ",")) {
+    const colon = findTopLevel(part, ":");
+    if (colon < 0) {
+      throw new ParseError("invalid_call_args", "Constructor arguments must use name: value.", spanForLine(line));
+    }
+    result[part.slice(0, colon).trim()] = parseExpr(part.slice(colon + 1), line);
+  }
+  return result;
+}
+
+function tryParseRef(text: string): Ref | undefined {
+  const trimmed = text.trim();
+  const id = /^@([A-Za-z0-9_-]+)$/.exec(trimmed);
+  if (id) {
+    return { kind: "id", id: id[1] };
+  }
+  const member = /^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(trimmed);
+  if (member) {
+    return { kind: "member", object: member[1], member: member[2] };
+  }
+  const local = /^([A-Za-z_][A-Za-z0-9_]*)$/.exec(trimmed);
+  if (local && !isLiteralWord(local[1])) {
+    return { kind: "local", name: local[1] };
+  }
+  return undefined;
 }
 
 function parseValue(text: string, line: ParsedLine): Value {
@@ -566,8 +750,7 @@ function parseObjectLiteral(text: string, line: ParsedLine): Record<string, Valu
     if (colon < 0) {
       throw new ParseError("invalid_object", "Object literal entries must use key: value.", spanForLine(line));
     }
-    const key = part.slice(0, colon).trim();
-    result[key] = parseValue(part.slice(colon + 1), line);
+    result[part.slice(0, colon).trim()] = parseValue(part.slice(colon + 1), line);
   }
   return result;
 }
@@ -580,32 +763,6 @@ function parseArrayLiteral(text: string, line: ParsedLine): Value[] {
   return splitTopLevel(inner, ",").map((part) => parseValue(part, line));
 }
 
-function parsePinMeta(text: string, line: ParsedLine): { value?: Value; anchor?: [number, number] } {
-  const inner = unwrap(text, "{", "}", line);
-  const result: { value?: Value; anchor?: [number, number] } = {};
-  if (inner.trim() === "") {
-    return result;
-  }
-
-  for (const part of splitTopLevel(inner, ",")) {
-    const colon = findTopLevel(part, ":");
-    if (colon >= 0) {
-      const key = part.slice(0, colon).trim();
-      if (key === "anchor") {
-        const value = parseValue(part.slice(colon + 1), line);
-        if (!Array.isArray(value)) {
-          throw new ParseError("invalid_anchor", "Pin anchor must be a point array.", spanForLine(line));
-        }
-        result.anchor = parsePoint(value, line);
-      }
-    } else {
-      result.value = parseValue(part, line);
-    }
-  }
-
-  return result;
-}
-
 function parsePoint(value: Value[], line: ParsedLine): [number, number] {
   if (value.length !== 2 || typeof value[0] !== "number" || typeof value[1] !== "number") {
     throw new ParseError("invalid_point", "Expected a two-number point.", spanForLine(line));
@@ -613,103 +770,76 @@ function parsePoint(value: Value[], line: ParsedLine): [number, number] {
   return [value[0], value[1]];
 }
 
-function splitTrailingObject(text: string): [string, string | undefined] {
-  if (!text.endsWith("}")) {
-    return [text.trim(), undefined];
+function resolveGraphTarget(name: string, context: ParseContext, line: ParsedLine): Target {
+  const target = context.graphs.get(name);
+  if (!target) {
+    throw new ParseError("unknown_graph_binding", `Unknown graph binding ${name}.`, spanForLine(line));
   }
-
-  let depth = 0;
-  let inString = false;
-  for (let index = text.length - 1; index >= 0; index -= 1) {
-    const char = text[index];
-    if (char === '"' && text[index - 1] !== "\\") {
-      inString = !inString;
-    }
-    if (inString) {
-      continue;
-    }
-    if (char === "}") {
-      depth += 1;
-    } else if (char === "{") {
-      depth -= 1;
-      if (depth === 0) {
-        const before = text.slice(0, index).trimEnd();
-        if (before.endsWith(")")) {
-          return [text.trim(), undefined];
-        }
-        return [before, text.slice(index).trim()];
-      }
-    }
-  }
-
-  return [text.trim(), undefined];
+  return target;
 }
 
-function isPinLine(text: string): boolean {
-  return /^[A-Za-z_@][A-Za-z0-9_@]*\.[A-Za-z_][A-Za-z0-9_]*:/.test(text);
-}
-
-function isCall(value: Expr): value is Call {
-  return isPlainObject(value) && value.kind === "call";
-}
-
-function isPlainObject(value: Value | Expr): value is Record<string, Value> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function firstGraphTarget(context: ParseContext): Target | undefined {
+  return context.graphs.values().next().value as Target | undefined;
 }
 
 function unwrap(text: string, open: string, close: string, line: ParsedLine): string {
   const trimmed = text.trim();
   if (!trimmed.startsWith(open) || !trimmed.endsWith(close)) {
-    throw new ParseError("invalid_delimiters", `Expected ${open}...${close}.`, spanForLine(line));
+    throw new ParseError("invalid_wrapped_value", `Expected ${open}...${close}.`, spanForLine(line));
   }
-  return trimmed.slice(1, -1);
+  return trimmed.slice(open.length, -close.length);
 }
 
-function splitTopLevel(text: string, delimiter: string): string[] {
-  const result: string[] = [];
+function splitTopLevel(text: string, separator: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let inString = false;
   let start = 0;
-  let depth = 0;
-  let inString = false;
 
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
-    if (char === '"' && text[index - 1] !== "\\") {
+    const prev = text[index - 1];
+    if (char === '"' && prev !== "\\") {
       inString = !inString;
+      continue;
     }
     if (inString) {
       continue;
     }
-    if (char === "{" || char === "[" || char === "(") {
+    if (char === "(" || char === "[" || char === "{") {
       depth += 1;
-    } else if (char === "}" || char === "]" || char === ")") {
+    } else if (char === ")" || char === "]" || char === "}") {
       depth -= 1;
-    } else if (char === delimiter && depth === 0) {
-      result.push(text.slice(start, index).trim());
-      start = index + 1;
+    } else if (depth === 0 && text.slice(index, index + separator.length) === separator) {
+      parts.push(text.slice(start, index).trim());
+      start = index + separator.length;
+      index += separator.length - 1;
     }
   }
 
-  result.push(text.slice(start).trim());
-  return result.filter((part) => part !== "");
+  parts.push(text.slice(start).trim());
+  return parts.filter((part) => part.length > 0);
 }
 
-function findTopLevel(text: string, needle: string): number {
+function findTopLevel(text: string, token: string): number {
   let depth = 0;
   let inString = false;
 
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
-    if (char === '"' && text[index - 1] !== "\\") {
+    const prev = text[index - 1];
+    if (char === '"' && prev !== "\\") {
       inString = !inString;
+      continue;
     }
     if (inString) {
       continue;
     }
-    if (char === "{" || char === "[" || char === "(") {
+    if (char === "(" || char === "[" || char === "{") {
       depth += 1;
-    } else if (char === "}" || char === "]" || char === ")") {
+    } else if (char === ")" || char === "]" || char === "}") {
       depth -= 1;
-    } else if (char === needle && depth === 0) {
+    } else if (depth === 0 && text.slice(index, index + token.length) === token) {
       return index;
     }
   }
@@ -717,24 +847,58 @@ function findTopLevel(text: string, needle: string): number {
   return -1;
 }
 
-function errorResult(code: string, message: string): ObjectResult {
-  return { diagnostics: [{ severity: "error", code, message }] };
+function isCall(value: Expr | undefined): value is Call {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && value.kind === "call";
+}
+
+function isName(value: Expr | undefined): value is { kind: "name"; name: string } {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && value.kind === "name";
+}
+
+function isLocalRef(value: Expr | undefined): value is { kind: "local"; name: string } {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && value.kind === "local";
+}
+
+function symbolName(value: Expr | undefined): string | undefined {
+  if (isName(value) || isLocalRef(value)) {
+    return value.name;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  return undefined;
+}
+
+function isLiteralWord(value: string): boolean {
+  return value === "true" || value === "false" || value === "null";
 }
 
 function spanForLine(line: ParsedLine): SourceSpan {
   return { line: line.line, column: 1, length: line.text.length };
 }
 
-function assertNever(value: never): never {
-  throw new Error(`Unexpected value: ${String(value)}`);
-}
-
 class ParseError extends Error {
   constructor(
-    public readonly code: string,
+    readonly code: string,
     message: string,
-    public readonly span?: SourceSpan,
+    readonly span: SourceSpan,
   ) {
     super(message);
   }
+}
+
+function errorResult(code: string, message: string): ObjectResult {
+  return {
+    diagnostics: [
+      {
+        severity: "error",
+        code,
+        message,
+      },
+    ],
+  };
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected value: ${String(value)}`);
 }

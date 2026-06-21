@@ -1,14 +1,17 @@
 # Query for a path starting at one output pin.
-query blueprint("/Game/BP_LGLExample"/EventGraph)
+bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+query g
 
 find path from begin.Then
 
 ---
 
-graph blueprint("/Game/BP_LGLExample"/EventGraph)
+bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
 
-begin@A001: EventBeginPlay()
-delay@A002: Delay({Duration: 1.0})
-print@A003: PrintString({InString: "Ready"})
+begin = node(graph: g, type: EventBeginPlay, id: "A001")
+delay = node(graph: g, type: Delay, id: "A002", Duration: 1.0)
+print = node(graph: g, type: PrintString, id: "A003", InString: "Ready")
 
 begin.Then -> delay.Exec/Completed -> print.Exec

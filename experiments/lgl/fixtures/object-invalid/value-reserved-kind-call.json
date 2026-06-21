@@ -16,7 +16,8 @@
         "InString": {
           "kind": "call",
           "callee": "SomeFunction",
-          "args": {}
+          "args": {},
+          "extra": true
         }
       }
     }

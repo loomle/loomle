@@ -6,11 +6,23 @@
  */
 
 /**
- * Normalized LGL JSON object and result contract.
+ * Normalized LGL JSON contract for text parsing, SDK adapters, RPC, results, and diagnostics.
  */
-export type LGLObjectSchema = LglObject | ObjectResult | Diagnostic | Target | GraphRef | Value | Name | PinRef | Edge;
-export type LglObject = Graph | Query | Patch | Palette;
+export type LGLNormalizedObjectSchema =
+  | LglObject
+  | Result
+  | Diagnostic
+  | Target
+  | GraphRef
+  | Ref
+  | Expr
+  | Value
+  | Name
+  | PinRef
+  | Edge;
+export type LglObject = Graph | Query | Patch | CreationResult;
 export type GraphRef = GraphNameRef | GraphIdRef;
+export type Expr = Value | Ref | Call;
 export type Value =
   | null
   | boolean
@@ -21,24 +33,24 @@ export type Value =
   | {
       [k: string]: Value;
     };
+export type Ref = LocalRef | MemberRef | IdRef;
 /**
  * @minItems 2
  * @maxItems 2
  */
 export type Point = [any, any];
-export type Find = FindNodes | FindNode | FindPath | FindSurrounding | FindPaletteEntry;
-export type Condition = EqCondition | ContainsCondition | AndCondition;
-export type Detail = "pins" | "defaults" | "layout";
-export type FindPaletteEntry = FindPaletteEntry1 & {
-  kind: "palette_entry";
-  text?: string;
-  where?: Condition;
-};
-export type FindPaletteEntry1 = {
-  [k: string]: any;
-};
-export type Expr = Value | Call;
-export type Op =
+export type GraphFind = FindNodes | FindPath | FindPaletteEntry;
+export type Condition =
+  | EqCondition
+  | NeCondition
+  | ContainsCondition
+  | CompareCondition
+  | NotCondition
+  | AndCondition
+  | OrCondition;
+export type Detail = "pins" | "defaults";
+export type BindingTarget = LocalRef | MemberRef;
+export type GraphPatchOp =
   | Set
   | Add
   | Insert
@@ -49,7 +61,7 @@ export type Op =
   | MoveTo
   | MoveBy
   | Reconstruct;
-export type PinChainSegment = PinSegment | ThroughSegment;
+export type CreationEntry = ShortcutCreationEntry | PaletteCreationEntry;
 
 export interface Graph {
   kind: "graph";
@@ -76,17 +88,34 @@ export interface Node {
   id?: string;
   type: string;
   fields: {
-    [k: string]: Value;
+    [k: string]: Expr;
   };
-  layout?: NodeLayout;
+  at?: Point;
+  size?: Point;
 }
 export interface Name {
   kind: "name";
   name: string;
 }
-export interface NodeLayout {
-  at?: Point;
-  size?: Point;
+export interface LocalRef {
+  kind: "local";
+  name: string;
+}
+export interface MemberRef {
+  kind: "member";
+  object: string;
+  member: string;
+}
+export interface IdRef {
+  kind: "id";
+  id: string;
+}
+export interface Call {
+  kind: "call";
+  callee: string;
+  args: {
+    [k: string]: Expr;
+  };
 }
 export interface Edge {
   from: PinRef;
@@ -101,31 +130,66 @@ export interface Pin {
   name: string;
   type: string;
   direction: "in" | "out";
-  value?: Value;
-  layout?: PinLayout;
-}
-export interface PinLayout {
+  value?: Expr;
   anchor?: Point;
 }
 export interface Query {
   kind: "query";
   target: Target;
-  find?: Find;
+  find?: GraphFind;
+  where?: Condition;
+  with?: Detail[];
+  orderBy?: OrderBy[];
+  page?: Page;
 }
 export interface FindNodes {
   kind: "nodes";
-  where?: Condition;
-  with?: Detail[];
+  text?: string;
+}
+export interface FindPath {
+  kind: "path";
+  direction: "from" | "to";
+  pin: PinRef;
+}
+export interface FindPaletteEntry {
+  kind: "palette_entry";
+  text?: string;
+  pinContext?: PinContext;
+}
+export interface PinContext {
+  direction: "from" | "to";
+  pin: PinRef;
 }
 export interface EqCondition {
   kind: "eq";
-  field: string;
-  value: Value;
+  field: FieldPath;
+  value: Expr;
+}
+export interface FieldPath {
+  /**
+   * @minItems 1
+   */
+  path: [string, ...string[]];
+}
+export interface NeCondition {
+  kind: "ne";
+  field: FieldPath;
+  value: Expr;
 }
 export interface ContainsCondition {
   kind: "contains";
-  field: string;
-  value: Value;
+  field: FieldPath;
+  value: Expr;
+}
+export interface CompareCondition {
+  kind: "compare";
+  op: "gt" | "gte" | "lt" | "lte";
+  field: FieldPath;
+  value: Expr;
+}
+export interface NotCondition {
+  kind: "not";
+  condition: Condition;
 }
 export interface AndCondition {
   kind: "and";
@@ -134,75 +198,56 @@ export interface AndCondition {
    */
   conditions: [Condition, ...Condition[]];
 }
-export interface FindNode {
-  kind: "node";
-  node: string;
-  with?: Detail[];
+export interface OrCondition {
+  kind: "or";
+  /**
+   * @minItems 1
+   */
+  conditions: [Condition, ...Condition[]];
 }
-export interface FindPath {
-  kind: "path";
-  from: PinRef;
+export interface OrderBy {
+  key: string;
+  direction: "asc" | "desc";
 }
-export interface FindSurrounding {
-  kind: "surrounding";
-  around: string;
-  depth: number;
+export interface Page {
+  limit?: number;
+  after?: string;
 }
 export interface Patch {
   kind: "patch";
   target: Target;
   dryRun: boolean;
   bindings: Binding[];
-  ops: Op[];
+  ops: GraphPatchOp[];
 }
 export interface Binding {
-  name: string;
+  target: BindingTarget;
   value: Expr;
-}
-export interface Call {
-  kind: "call";
-  callee: string;
-  args: {
-    [k: string]: Value;
-  };
 }
 export interface Set {
   kind: "set";
-  target: FieldRef;
+  target: SetTarget;
   value: Expr;
 }
-export interface FieldRef {
-  node: string;
+export interface SetTarget {
+  object: string;
   field: string;
 }
 export interface Add {
   kind: "add";
-  node: string;
-  connect?: Edge;
+  binding: string;
 }
 export interface Insert {
   kind: "insert";
   node: string;
-  chain: PinChain;
-}
-export interface PinChain {
-  /**
-   * @minItems 2
-   */
-  segments: [PinChainSegment, PinChainSegment, ...PinChainSegment[]];
-}
-export interface PinSegment {
-  kind: "pin";
-  pin: PinRef;
-}
-export interface ThroughSegment {
-  kind: "through";
+  from: PinRef;
+  to: PinRef;
   input: PinRef;
   output: PinRef;
 }
 export interface Connect {
   kind: "connect";
-  chain: PinChain;
+  edge: Edge;
 }
 export interface DisconnectByEdge {
   kind: "disconnect";
@@ -233,25 +278,33 @@ export interface Reconstruct {
   node: string;
   preserveLinks: boolean;
 }
-export interface Palette {
-  kind: "palette";
+export interface CreationResult {
+  kind: "creation_result";
   target: Target;
-  entries: PaletteBinding[];
+  entries: CreationEntry[];
 }
-export interface PaletteBinding {
+export interface ShortcutCreationEntry {
   name: string;
-  entry: PaletteEntryRef;
-  meta?: {
-    [k: string]: Value;
-  };
+  constructor: Call;
+  pins?: Pin[];
 }
-export interface PaletteEntryRef {
+export interface PaletteCreationEntry {
+  name: string;
+  palette: PaletteSourceRef;
+  label?: string;
+  category?: string;
+  pins?: Pin[];
+}
+export interface PaletteSourceRef {
   kind: "palette";
   id: string;
 }
-export interface ObjectResult {
+export interface Result {
   object?: LglObject;
   diagnostics: Diagnostic[];
+  page?: {
+    next?: string;
+  };
 }
 export interface Diagnostic {
   severity: "error" | "warning" | "info";

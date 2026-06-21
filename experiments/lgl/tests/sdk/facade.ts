@@ -1,16 +1,21 @@
 import assert from "node:assert/strict";
 import { createLgl, type Adapter, type ObjectResult } from "../../src/index.js";
 
-const queryText = `query blueprint("/Game/BP_LGLExample"/EventGraph)
-
-find node branch with pins, defaults
+const queryText = `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+query g
+find nodes
+where name = branch
+with pins, defaults
 `;
 
-const patchText = `patch blueprint("/Game/BP_LGLExample"/EventGraph) dry run
+const patchText = `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+patch g dry run
 
-Delay = palette({id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay"})
+Delay = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
 
-delay = Delay({Duration: 1.0})
+delay = node(graph: g, type: Delay, Duration: 1.0)
 insert begin.Then -> delay.Exec/Completed -> print.Exec
 `;
 
@@ -28,13 +33,14 @@ const lgl = createLgl({ adapters: [echoAdapter] });
 
 const queryResult = await lgl.query(queryText);
 assert.equal(queryResult.diagnostics.length, 0);
-assert.match(queryResult.text ?? "", /^query blueprint/);
-assert.match(queryResult.text ?? "", /find node branch with pins, defaults/);
+assert.match(queryResult.text ?? "", /query g/);
+assert.match(queryResult.text ?? "", /find nodes/);
+assert.match(queryResult.text ?? "", /where name = branch/);
 console.log("[PASS] lgl.query dispatches and formats adapter result");
 
 const patchResult = await lgl.patch(patchText);
 assert.equal(patchResult.diagnostics.length, 0);
-assert.match(patchResult.text ?? "", /^patch blueprint/);
+assert.match(patchResult.text ?? "", /patch g dry run/);
 assert.match(patchResult.text ?? "", /insert begin.Then -> delay.Exec\/Completed -> print.Exec/);
 console.log("[PASS] lgl.patch dispatches and formats adapter result");
 

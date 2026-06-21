@@ -1,17 +1,18 @@
 # Source: Epic documentation, "Setting Up Input on an Actor".
 # Tests overlap events, casts, player controller access, and key input.
-graph blueprint("/Game/BP_LGLExample"/EventGraph)
+bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
 
-beginOverlap@C001: TriggerBeginOverlap()
-endOverlap@C002: TriggerEndOverlap()
-castBegin@C003: CastToFirstPersonCharacter()
-castEnd@C004: CastToFirstPersonCharacter()
-playerControllerA@C005: GetPlayerController({PlayerIndex: 0})
-playerControllerB@C006: GetPlayerController({PlayerIndex: 0})
-enableInput@C007: EnableInput()
-disableInput@C008: DisableInput()
-keyE@C009: KeyboardEvent({Key: E})
-print@C00A: PrintString({InString: "Hello"})
+beginOverlap = node(graph: g, type: TriggerBeginOverlap, id: "C001")
+endOverlap = node(graph: g, type: TriggerEndOverlap, id: "C002")
+castBegin = node(graph: g, type: CastToFirstPersonCharacter, id: "C003")
+castEnd = node(graph: g, type: CastToFirstPersonCharacter, id: "C004")
+playerControllerA = node(graph: g, type: GetPlayerController, id: "C005", PlayerIndex: 0)
+playerControllerB = node(graph: g, type: GetPlayerController, id: "C006", PlayerIndex: 0)
+enableInput = node(graph: g, type: EnableInput, id: "C007")
+disableInput = node(graph: g, type: DisableInput, id: "C008")
+keyE = node(graph: g, type: KeyboardEvent, id: "C009", Key: E)
+print = node(graph: g, type: PrintString, id: "C00A", InString: "Hello")
 
 beginOverlap.Then -> castBegin.Exec/Then -> enableInput.Exec
 beginOverlap.OtherActor -> castBegin.Object

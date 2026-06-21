@@ -13,8 +13,8 @@ minimal implementation:
 - `08-insert-delay-before-print.patch.lgl`
 - `10-find-print-nodes.query.lgl`
 - `12-find-path-from-pin.query.lgl`
-- `14-find-node-branch.query.lgl`
-- `16-find-node-delay-layout.query.lgl`
+- `14-find-branch-node.query.lgl`
+- `16-find-delay-pins.query.lgl`
 - `17-move-delay.patch.lgl`
 - `18-find-print-palette.query.lgl`
 - `19-full-graph.query.lgl`
@@ -33,8 +33,8 @@ with `npm run test:examples:extended` from `experiments/lgl`:
 - `07-spawn-projectile-from-input.lgl`
 - `09-add-branch-guard.patch.lgl`
 - `11-find-path-into-branch.query.lgl`
-- `13-find-surrounding-around-branch.query.lgl`
-- `15-find-node-spawn.query.lgl`
+- `13-find-branch-context.query.lgl`
+- `15-find-spawn-node.query.lgl`
 
 ## Reference
 

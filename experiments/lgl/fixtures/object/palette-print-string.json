@@ -1,5 +1,5 @@
 {
-  "kind": "palette",
+  "kind": "creation_result",
   "target": {
     "domain": "blueprint",
     "asset": "/Game/BP_Door",
@@ -11,15 +11,12 @@
   "entries": [
     {
       "name": "PrintString",
-      "entry": {
+      "palette": {
         "kind": "palette",
         "id": "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString"
       },
-      "meta": {
-        "title": "Print String",
-        "category": "Utilities/String",
-        "function": "/Script/Engine.KismetSystemLibrary.PrintString"
-      }
+      "label": "Print String",
+      "category": "Utilities/String"
     }
   ]
 }

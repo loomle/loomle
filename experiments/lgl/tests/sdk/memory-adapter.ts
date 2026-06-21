@@ -46,33 +46,40 @@ const graph: Graph = {
 const adapter = createMemoryGraphAdapter({ domain: "blueprint", graphs: [graph] });
 const lgl = createLgl({ adapters: [adapter] });
 
-const fullGraph = await lgl.query(`query blueprint("/Game/BP_LGLExample"/EventGraph)
+const graphHeader = `bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)`;
+
+const fullGraph = await lgl.query(`${graphHeader}
+query g
 `);
 assert.equal(fullGraph.diagnostics.length, 0);
-assert.match(fullGraph.text ?? "", /begin@A001: EventBeginPlay/);
-assert.match(fullGraph.text ?? "", /print@A003: PrintString/);
+assert.match(fullGraph.text ?? "", /begin = node\(graph: g, type: EventBeginPlay, id: "A001"/);
+assert.match(fullGraph.text ?? "", /print = node\(graph: g, type: PrintString, id: "A003"/);
 console.log("[PASS] memory adapter returns full graph for empty query");
 
-const printNodes = await lgl.query(`query blueprint("/Game/BP_LGLExample"/EventGraph)
-
-find nodes where type = PrintString with pins
+const printNodes = await lgl.query(`${graphHeader}
+query g
+find nodes
+where type = PrintString
+with pins
 `);
 assert.equal(printNodes.diagnostics.length, 0);
-assert.doesNotMatch(printNodes.text ?? "", /begin@A001/);
-assert.match(printNodes.text ?? "", /print@A003: PrintString/);
-assert.match(printNodes.text ?? "", /print.InString: string in/);
+assert.doesNotMatch(printNodes.text ?? "", /begin = node/);
+assert.match(printNodes.text ?? "", /print = node\(graph: g, type: PrintString, id: "A003"/);
+assert.match(printNodes.text ?? "", /print.InString = pin\(type: string, direction: in, value: "Ready"\)/);
 console.log("[PASS] memory adapter filters nodes and pins");
 
-const dryRunPatch = await lgl.patch(`patch blueprint("/Game/BP_LGLExample"/EventGraph) dry run
+const dryRunPatch = await lgl.patch(`${graphHeader}
+patch g dry run
 
-Delay = palette({id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay"})
+Delay = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
 
-delay = Delay({Duration: 1.0})
+delay = node(graph: g, type: Delay, Duration: 1.0)
 insert begin.Then -> delay.Exec/Completed -> print.Exec
 move delay to (320, 0)
 `);
 assert.equal(dryRunPatch.diagnostics.length, 0);
-assert.match(dryRunPatch.text ?? "", /delay: Delay/);
+assert.match(dryRunPatch.text ?? "", /delay = node\(graph: g, type: Delay/);
 assert.match(dryRunPatch.text ?? "", /begin.Then -> delay.Exec/);
 assert.match(dryRunPatch.text ?? "", /delay.Completed -> print.Exec/);
 
@@ -81,11 +88,12 @@ assert.deepEqual(afterDryRun?.edges, graph.edges);
 assert.equal(afterDryRun?.nodes.some((node) => node.alias === "delay"), false);
 console.log("[PASS] memory adapter dry run computes without mutating");
 
-const applyPatch = await lgl.patch(`patch blueprint("/Game/BP_LGLExample"/EventGraph)
+const applyPatch = await lgl.patch(`${graphHeader}
+patch g
 
-Delay = palette({id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay"})
+Delay = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
 
-delay = Delay({Duration: 1.0})
+delay = node(graph: g, type: Delay, Duration: 1.0)
 insert begin.Then -> delay.Exec/Completed -> print.Exec
 move delay to (320, 0)
 `);
@@ -115,11 +123,11 @@ assert.equal(
 );
 console.log("[PASS] memory adapter applies insert patch");
 
-const pathQuery = await lgl.query(`query blueprint("/Game/BP_LGLExample"/EventGraph)
-
+const pathQuery = await lgl.query(`${graphHeader}
+query g
 find path from begin.Then
 `);
 assert.equal(pathQuery.diagnostics.length, 0);
-assert.match(pathQuery.text ?? "", /begin@A001/);
-assert.match(pathQuery.text ?? "", /delay: Delay/);
+assert.match(pathQuery.text ?? "", /begin = node/);
+assert.match(pathQuery.text ?? "", /delay = node/);
 console.log("[PASS] memory adapter query observes applied patch");

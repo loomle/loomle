@@ -1,5 +1,7 @@
-# Patch variant for layout-only node movement.
-patch blueprint("/Game/BP_LGLExample"/EventGraph)
+# Patch variant for editor-position node movement.
+bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+patch g
 
 move delay to (320, 0)
 move print by (240, 0)

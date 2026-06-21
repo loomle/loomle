@@ -1,18 +1,19 @@
 # Source: Epic documentation, "Using a Single Line Trace (Raycast) by Channel".
 # Tests a per-tick trace, vector math, hit breaking, branch, and name printing.
-graph blueprint("/Game/BP_LGLExample"/EventGraph)
+bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
 
-tick@E001: EventTick()
-cameraLocation@E002: GetCameraLocation()
-cameraForward@E003: GetCameraForwardVector()
-distance@E004: FloatConstant({Value: 1500.0})
-scaledForward@E005: VectorTimesFloat()
-traceEnd@E006: VectorPlusVector()
-trace@E007: LineTraceByChannel({TraceChannel: Visibility, TraceComplex: false, DrawDebugType: ForOneFrame})
-breakHit@E008: BreakHitResult()
-branch@E009: Branch()
-hitActorName@E00A: GetDisplayName()
-print@E00B: PrintString()
+tick = node(graph: g, type: EventTick, id: "E001")
+cameraLocation = node(graph: g, type: GetCameraLocation, id: "E002")
+cameraForward = node(graph: g, type: GetCameraForwardVector, id: "E003")
+distance = node(graph: g, type: FloatConstant, id: "E004", Value: 1500.0)
+scaledForward = node(graph: g, type: VectorTimesFloat, id: "E005")
+traceEnd = node(graph: g, type: VectorPlusVector, id: "E006")
+trace = node(graph: g, type: LineTraceByChannel, id: "E007", TraceChannel: Visibility, TraceComplex: false, DrawDebugType: ForOneFrame)
+breakHit = node(graph: g, type: BreakHitResult, id: "E008")
+branch = node(graph: g, type: Branch, id: "E009")
+hitActorName = node(graph: g, type: GetDisplayName, id: "E00A")
+print = node(graph: g, type: PrintString, id: "E00B")
 
 tick.Then -> trace.Exec/Then -> branch.Exec/True -> print.Exec
 cameraForward.ReturnValue -> scaledForward.Vector

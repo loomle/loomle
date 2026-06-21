@@ -1,7 +1,9 @@
-patch blueprint("/Game/BP_LGLExample"/EventGraph)
+bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+patch g
 
-Delay = palette({id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay"})
+Delay = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay")
 
 set print.InString = "Game Started"
-delay = Delay({Duration: 1.0})
+delay = node(graph: g, type: Delay, Duration: 1.0)
 insert begin.Then -> delay.Exec/Completed -> print.Exec

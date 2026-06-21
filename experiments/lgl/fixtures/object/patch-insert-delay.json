@@ -11,7 +11,10 @@
   "dryRun": true,
   "bindings": [
     {
-      "name": "Delay",
+      "target": {
+        "kind": "local",
+        "name": "Delay"
+      },
       "value": {
         "kind": "call",
         "callee": "palette",
@@ -21,11 +24,22 @@
       }
     },
     {
-      "name": "delay",
+      "target": {
+        "kind": "local",
+        "name": "delay"
+      },
       "value": {
         "kind": "call",
-        "callee": "Delay",
+        "callee": "node",
         "args": {
+          "graph": {
+            "kind": "local",
+            "name": "g"
+          },
+          "type": {
+            "kind": "name",
+            "name": "Delay"
+          },
           "Duration": 1
         }
       }
@@ -35,34 +49,21 @@
     {
       "kind": "insert",
       "node": "delay",
-      "chain": {
-        "segments": [
-          {
-            "kind": "pin",
-            "pin": {
-              "node": "begin",
-              "pin": "Then"
-            }
-          },
-          {
-            "kind": "through",
-            "input": {
-              "node": "delay",
-              "pin": "Exec"
-            },
-            "output": {
-              "node": "delay",
-              "pin": "Completed"
-            }
-          },
-          {
-            "kind": "pin",
-            "pin": {
-              "node": "print",
-              "pin": "Exec"
-            }
-          }
-        ]
+      "from": {
+        "node": "begin",
+        "pin": "Then"
+      },
+      "to": {
+        "node": "print",
+        "pin": "Exec"
+      },
+      "input": {
+        "node": "delay",
+        "pin": "Exec"
+      },
+      "output": {
+        "node": "delay",
+        "pin": "Completed"
       }
     },
     {

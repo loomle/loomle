@@ -1,13 +1,14 @@
 # Source pattern: common Blueprint branch/if statement flow.
 # Tests exec fanout and a data value feeding Branch.Condition.
-graph blueprint("/Game/BP_LGLExample"/EventGraph)
+bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
 
-begin@B001: EventBeginPlay()
-health@B002: GetVariable({Name: Health})
-threshold@B003: LessEqualFloat({A: health, B: 0.0})
-branch@B004: Branch()
-dead@B005: PrintString({InString: "Dead"})
-alive@B006: PrintString({InString: "Alive"})
+begin = node(graph: g, type: EventBeginPlay, id: "B001")
+health = node(graph: g, type: GetVariable, id: "B002", Name: Health)
+threshold = node(graph: g, type: LessEqualFloat, id: "B003", A: health, B: 0.0)
+branch = node(graph: g, type: Branch, id: "B004")
+dead = node(graph: g, type: PrintString, id: "B005", InString: "Dead")
+alive = node(graph: g, type: PrintString, id: "B006", InString: "Alive")
 
 begin.Then -> branch.Exec
 threshold.ReturnValue -> branch.Condition
