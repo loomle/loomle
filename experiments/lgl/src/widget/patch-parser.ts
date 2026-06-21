@@ -80,7 +80,17 @@ function parseWidgetOp(line: ParsedLine): WidgetPatchOp {
     return { kind: "remove", target: parseFieldPath(match[1], line) };
   }
 
-  throw new ParseError("unsupported_widget_patch_op", "Expected add binding, set target = value, or remove target.", spanForLine(line));
+  match = /^move\s+([A-Za-z_][A-Za-z0-9_]*)\s+(before|after)\s+([A-Za-z_][A-Za-z0-9_]*)$/.exec(line.text);
+  if (match) {
+    return {
+      kind: "move",
+      target: parseFieldPath(match[1], line),
+      position: match[2] as "before" | "after",
+      relativeTo: parseFieldPath(match[3], line),
+    };
+  }
+
+  throw new ParseError("unsupported_widget_patch_op", "Expected add binding, set target = value, move target before/after sibling, or remove target.", spanForLine(line));
 }
 
 function fieldPathFromBinding(binding: Binding): FieldPath {

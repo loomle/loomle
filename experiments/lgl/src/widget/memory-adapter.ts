@@ -98,7 +98,15 @@ function planWidgetPatch(document: WidgetDocument, patch: Patch): ObjectResult {
       continue;
     }
 
-    return { diagnostics: [diagnostic("invalid_widget_patch_op", "Widget adapter can only execute widget add, set, and remove operations.")] };
+    if (op.kind === "move" && "target" in op && "relativeTo" in op) {
+      const moveResult = applyMove(next, op.target.path, op.relativeTo.path, op.position);
+      if (moveResult) {
+        return { diagnostics: [moveResult] };
+      }
+      continue;
+    }
+
+    return { diagnostics: [diagnostic("invalid_widget_patch_op", "Widget adapter can only execute widget add, set, move, and remove operations.")] };
   }
 
   return { object: { kind: "widget_result", documents: [next] }, diagnostics: [] };
@@ -152,6 +160,33 @@ function applyRemove(document: WidgetDocument, path: string[]): ObjectResult["di
   return document.widgets.length === before
     ? diagnostic("unknown_widget", `Widget ${path[0]} does not exist.`)
     : undefined;
+}
+
+function applyMove(
+  document: WidgetDocument,
+  targetPath: string[],
+  relativeToPath: string[],
+  position: "before" | "after",
+): ObjectResult["diagnostics"][number] | undefined {
+  if (targetPath.length !== 1 || relativeToPath.length !== 1) {
+    return diagnostic("invalid_widget_move_target", "Widget move targets must be widget names.");
+  }
+  const targetIndex = document.widgets.findIndex((widget) => widget.alias === targetPath[0]);
+  const relativeIndex = document.widgets.findIndex((widget) => widget.alias === relativeToPath[0]);
+  if (targetIndex < 0) {
+    return diagnostic("unknown_widget", `Widget ${targetPath[0]} does not exist.`);
+  }
+  if (relativeIndex < 0) {
+    return diagnostic("unknown_widget", `Widget ${relativeToPath[0]} does not exist.`);
+  }
+  if (document.widgets[targetIndex].parent !== document.widgets[relativeIndex].parent) {
+    return diagnostic("invalid_widget_move", "Widget move requires both widgets to share the same parent.");
+  }
+
+  const [widget] = document.widgets.splice(targetIndex, 1);
+  const adjustedRelativeIndex = document.widgets.findIndex((candidate) => candidate.alias === relativeToPath[0]);
+  document.widgets.splice(position === "before" ? adjustedRelativeIndex : adjustedRelativeIndex + 1, 0, widget);
+  return undefined;
 }
 
 function executeWidgetQuery(document: WidgetDocument, query: Query): ObjectResult {

@@ -802,7 +802,8 @@
       "oneOf": [
         { "$ref": "#/$defs/WidgetAdd" },
         { "$ref": "#/$defs/WidgetSet" },
-        { "$ref": "#/$defs/WidgetRemove" }
+        { "$ref": "#/$defs/WidgetRemove" },
+        { "$ref": "#/$defs/WidgetMove" }
       ]
     },
     "WidgetAdd": {
@@ -831,6 +832,17 @@
       "properties": {
         "kind": { "const": "remove" },
         "target": { "$ref": "#/$defs/FieldPath" }
+      }
+    },
+    "WidgetMove": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "relativeTo", "position"],
+      "properties": {
+        "kind": { "const": "move" },
+        "target": { "$ref": "#/$defs/FieldPath" },
+        "relativeTo": { "$ref": "#/$defs/FieldPath" },
+        "position": { "enum": ["before", "after"] }
       }
     },
     "Set": {

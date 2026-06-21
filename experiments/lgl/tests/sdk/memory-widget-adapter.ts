@@ -81,6 +81,7 @@ patch w dry run
 stack.help = Button(text: "Help")
 add stack.help
 set title.text = "Main Menu"
+move help before start
 remove quit
 `);
 assert.equal(dryRunPatch.diagnostics.length, 0);
@@ -99,6 +100,7 @@ patch w
 stack.help = Button(text: "Help")
 add stack.help
 set title.text = "Main Menu"
+move help before start
 remove quit
 `);
 assert.equal(applyPatch.diagnostics.length, 0);
@@ -106,6 +108,9 @@ const afterApply = patchAdapter.getDocuments()[0];
 assert.equal(afterApply.widgets.some((widget) => widget.alias === "help"), true);
 assert.equal(afterApply.widgets.some((widget) => widget.alias === "quit"), false);
 assert.equal(afterApply.widgets.find((widget) => widget.alias === "title")?.properties?.text, "Main Menu");
+const helpIndex = afterApply.widgets.findIndex((widget) => widget.alias === "help");
+const startIndex = afterApply.widgets.findIndex((widget) => widget.alias === "start");
+assert.equal(helpIndex >= 0 && startIndex >= 0 && helpIndex < startIndex, true);
 console.log("[PASS] memory widget adapter applies tree patch");
 
 const atomicFailure = await patchLgl.patch(`${header}

@@ -73,7 +73,7 @@ export type GraphPatchOp =
   | MoveBy
   | Reconstruct;
 export type BlueprintPatchOp = BlueprintSet | BlueprintAdd | BlueprintRemove | BlueprintRename | BlueprintMove;
-export type WidgetPatchOp = WidgetAdd | WidgetSet | WidgetRemove;
+export type WidgetPatchOp = WidgetAdd | WidgetSet | WidgetRemove | WidgetMove;
 export type CreationEntry = ShortcutCreationEntry | PaletteCreationEntry;
 
 export interface Graph {
@@ -452,6 +452,12 @@ export interface WidgetSet {
 export interface WidgetRemove {
   kind: "remove";
   target: FieldPath;
+}
+export interface WidgetMove {
+  kind: "move";
+  target: FieldPath;
+  relativeTo: FieldPath;
+  position: "before" | "after";
 }
 export interface CreationResult {
   kind: "creation_result";

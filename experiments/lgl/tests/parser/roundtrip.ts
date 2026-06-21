@@ -117,6 +117,7 @@ patch w dry run
 stack.help = Button(text: "Help")
 add stack.help
 set title.text = "Main Menu"
+move help before start
 remove quit
 `,
   },

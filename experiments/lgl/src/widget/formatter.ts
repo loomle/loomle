@@ -118,6 +118,8 @@ function formatWidgetOp(op: WidgetPatchOp): string {
       return `set ${op.target.path.join(".")} = ${formatExpr(op.value)}`;
     case "remove":
       return `remove ${op.target.path.join(".")}`;
+    case "move":
+      return `move ${op.target.path.join(".")} ${op.position} ${op.relativeTo.path.join(".")}`;
     default:
       return assertNever(op);
   }

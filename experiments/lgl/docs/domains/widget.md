@@ -289,7 +289,7 @@ Patch operation names should stay close to UE widget tree operations:
 language core. Its canonical form is a child widget binding followed by
 `add child`.
 
-The TypeScript LGL experiment implements `add`, `set`, and `remove` in the
+The TypeScript LGL experiment implements `add`, `set`, `move`, and `remove` in the
 in-memory widget adapter. The UE-backed adapter must route the same operations
 through UMG WidgetTree APIs and slot/property edit paths.
 
@@ -317,8 +317,8 @@ interface Set {
 
 interface Move {
   kind: "move";
-  target: Ref;
-  relativeTo: Ref;
+  target: FieldPath;
+  relativeTo: FieldPath;
   position: "before" | "after";
 }
 

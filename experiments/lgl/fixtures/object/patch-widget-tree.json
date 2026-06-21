@@ -40,6 +40,16 @@
       "target": {
         "path": ["quit"]
       }
+    },
+    {
+      "kind": "move",
+      "target": {
+        "path": ["help"]
+      },
+      "position": "before",
+      "relativeTo": {
+        "path": ["start"]
+      }
     }
   ]
 }
