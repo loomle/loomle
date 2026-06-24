@@ -21,7 +21,7 @@ print = node(graph: g, type: PrintString, InString: "Ready")
 ```
 
 Each statement should fit on one line whenever practical. Blank lines are
-allowed for readability. Indentation does not create hierarchy.
+allowed. Indentation is visual only and does not create hierarchy.
 
 ## Statements
 
@@ -49,7 +49,7 @@ delay.Duration = pin(type: float, direction: in, value: 1.0)
 Domain statements are owned by a domain. The core language only requires them
 to remain line-oriented and normalize through the same text-to-JSON pipeline.
 
-Shared normalized JSON:
+Normalized JSON:
 
 ```ts
 interface Binding {
@@ -66,14 +66,10 @@ type BindingValue =
   | NodeCreation;
 ```
 
-Local targets cover ordinary aliases such as `g` or `print`. Member targets
-cover domain-owned stable members such as `delay.Duration`, `door.Health`, or
-`stack.start`. Domains define what member targets mean and whether they are
-valid for a given object.
-
-Most bindings normalize to `Expr`. Graph patch creation bindings may normalize
-to `NodeCreation` so semantic shortcuts and palette-id fallback remain explicit
-before adapter validation.
+Local targets cover aliases such as `g` or `print`. Member targets cover
+domain-owned stable members such as `delay.Duration`, `door.Health`, or
+`stack.start`. Domains define valid member targets. Most bindings normalize to
+`Expr`; graph patch creation bindings may normalize to `NodeCreation`.
 
 ## Expressions And Values
 
@@ -94,7 +90,7 @@ before adapter validation.
 Quoted values are strings. Unquoted words are symbols resolved by domains or
 adapters. In the target normalized JSON model, symbols map to `Name`.
 
-Shared normalized JSON:
+Normalized JSON:
 
 ```ts
 type Expr =
@@ -123,20 +119,13 @@ interface Call {
 }
 ```
 
-`Name` is the normalized form for unquoted symbols. Domains and adapters decide
-whether a name refers to a class, enum value, field, node type, member, or
-other UE concept.
+`Name` is the normalized form for unquoted symbols. Domains and adapters
+resolve what each name means.
 
 ## References
 
-References point at values or objects already named by earlier statements:
-
-```lgl
-bp
-g
-```
-
-Member references are domain-owned:
+References point at previously named values or objects. Member references are
+domain-owned:
 
 ```lgl
 begin.Then
@@ -152,7 +141,7 @@ Id references provide explicit stable ids when a domain needs them:
 @A001
 ```
 
-Shared normalized JSON:
+Normalized JSON:
 
 ```ts
 type Ref =
@@ -162,8 +151,7 @@ type Ref =
 ```
 
 Member references are two-segment core references. Domains may define richer
-domain refs in their own object models when they need owners, paths, graph
-refs, or UE-specific identity.
+refs when they need owners, paths, graph refs, or UE-specific identity.
 
 ## Constructors
 
@@ -175,20 +163,14 @@ graph(domain: blueprint, asset: bp, graph: EventGraph)
 node(graph: g, type: Delay, id: "A002", Duration: 1.0)
 ```
 
-All constructor arguments are named:
-
-```lgl
-name: value
-```
-
-Named arguments are required because they are clearer for agents, easier to
-validate, and safer to evolve:
+Constructor arguments are named because they are clear for agents, easy to
+validate, and safe to evolve:
 
 ```lgl
 g = graph(domain: blueprint, asset: bp, graph: EventGraph)
 ```
 
-Positional constructor arguments are not part of LGL:
+Positional constructor arguments are not supported:
 
 ```lgl
 g = graph(blueprint, bp, EventGraph)
@@ -209,8 +191,7 @@ Inline objects use JSON-like braces and only mean value objects:
 options: {TraceComplex: false, DrawDebugType: ForOneFrame}
 ```
 
-Braces are not used for document structure, object hierarchy, or domain
-blocks:
+Braces are not structural blocks:
 
 ```lgl
 asset "/Game/BP_Door.BP_Door" {
@@ -234,12 +215,9 @@ The conversion direction is one-way:
 sugar text -> canonical text -> normalized JSON
 ```
 
-Agents should read and write text. The UE bridge executes normalized JSON.
-Parsers, validators, and adapters own the conversion.
-
-Sugar text is optional and domain-defined. It exists only when it makes common
-agent workflows clearer or shorter. Sugar must normalize without UE state or
-schema lookup.
+Agents read and write text. The UE bridge executes normalized JSON. Parsers,
+validators, and adapters own conversion. Sugar text is optional and
+domain-defined; it must normalize without UE state or schema lookup.
 
 Canonical text keeps the LGL surface, but removes shorthand. It is still
 agent-readable and domain-specific:
@@ -263,22 +241,14 @@ connect begin.Then -> print.Exec
 connect(begin.Then, print.Exec)
 ```
 
-Normalized JSON is the schema and RPC contract. Text-level bindings,
-references, and sugar must lower to explicit JSON fields such as `Target`,
-`GraphRef`, `PinRef`, `Edge`, and patch operation objects.
-
-The normalized form must be explicit enough for the bridge to parse, resolve,
-validate, plan, and apply operations without guessing from display text.
-
-Object model belongs beside the language feature it describes. The core defines
-shared normalized JSON here; each domain defines its own normalized JSON inside
-the relevant domain sections. A final domain summary may repeat important
-interfaces, but it should not be the only place where the object model is
-specified.
+Normalized JSON is the schema and RPC contract. It must be explicit enough for
+the bridge to parse, resolve, validate, plan, and apply operations without
+guessing from display text. Shared JSON belongs here; domain JSON belongs in
+the relevant domain feature sections.
 
 ## Query Text
 
-Query text uses one shared shape across domains:
+Query text uses a shared multi-line shape:
 
 ```lgl
 query <target>
@@ -289,9 +259,6 @@ order by <key> asc|desc, <key> asc|desc
 page limit <number>
 page after "cursor"
 ```
-
-`query` and `find` identify the target and what to search for. `where`,
-`with`, `order by`, and `page` are optional.
 
 Query text is clause-per-line. Do not combine `query`, `find`, `where`, `with`,
 `order by`, or `page` on one line. Object text may prefer compact single-line
@@ -314,8 +281,8 @@ literal.
 There is no `select` clause. Each domain defines its default result shape.
 `with` only requests additional expansion beyond that default.
 
-The quoted text after `find` is the primary search text for that find form.
-`where` is for structured filters:
+The quoted text after `find` is the primary search text. `where` is for
+structured filters:
 
 ```lgl
 find assets "door"
@@ -325,13 +292,9 @@ find nodes "Print"
 where type = PrintString
 ```
 
-Field-level fuzzy conditions are allowed for advanced filters, but they should
-not be the normal way to express the main search text.
-
-Domains may define find-form local arguments on the `find` line. These local
-arguments are not global query clauses. For example, a graph path query may use
-pin-context arguments such as `from pin` or `to pin`, while structured filters
-still belong in `where`.
+Field-level fuzzy conditions are allowed for advanced filters, but primary
+search text belongs on `find`. Domains may define find-form local arguments,
+such as graph pin-context arguments `from <pin>` and `to <pin>`.
 
 Condition expressions use a small SQL-like subset:
 
@@ -358,7 +321,7 @@ Supported condition operators:
 Condition precedence follows the usual SQL subset: parentheses first, then
 `not`, then `and`, then `or`.
 
-Shared normalized JSON:
+Normalized JSON:
 
 ```ts
 interface Query {
@@ -395,15 +358,13 @@ interface Page {
 }
 ```
 
-Domain documents define the `find` payload, supported `where` fields,
-supported `with` items, ordering keys, and pagination defaults. `~=` lowers to
-`contains`; domains decide whether that means substring, fuzzy contains, or a
-more specific contains-style match.
+Domain documents define `find` payloads, supported `where` fields, `with`
+items, ordering keys, and pagination defaults. `~=` lowers to `contains`;
+domains decide its exact match behavior.
 
-Pagination is cursor-based in LGL text. If `page limit` is omitted, domains
-should use a default limit, normally 50. If `page after` is omitted, the query
-returns the first page. Results with more data should return an opaque next
-cursor that the agent can pass back unchanged:
+Pagination is cursor-based. If `page limit` is omitted, domains normally use
+50. If `page after` is omitted, the query returns the first page. Results with
+more data return an opaque cursor that agents pass back unchanged:
 
 ```lgl
 query g
@@ -423,7 +384,7 @@ map cursors to offsets or other backend-specific pagination state.
 
 ## Patch Text
 
-Patch text uses the same statement-list model as object text and query text:
+Patch text is a statement list:
 
 ```lgl
 patch target
@@ -432,11 +393,8 @@ operation ...
 sugar statement
 ```
 
-The core language defines the document shape, not the operation vocabulary.
 Domains own operations such as `add`, `set`, `connect`, `insert`, `move`, or
-widget tree edits.
-
-Patch statements may use bindings to make later operations precise:
+widget tree edits. Bindings make later operations precise:
 
 ```lgl
 patch g
@@ -465,7 +423,7 @@ own what `add` means for the bound target.
 Patch sugar follows the same sugar text to canonical text to normalized JSON
 pipeline described above.
 
-Shared normalized JSON:
+Normalized JSON:
 
 ```ts
 interface Patch {
@@ -478,24 +436,21 @@ interface Patch {
 ```
 
 Patch operation payloads are domain-owned. The shared envelope only defines the
-target, dry-run flag, bindings, and ordered operation list. Shared sugar such
-as `add <binding>` lowers before domain validation:
+target, dry-run flag, bindings, and ordered operation list. Shared sugar lowers
+before domain validation:
 
 ```txt
 add <binding> -> <binding> + domain add operation
 ```
 
-`PatchOp` is the schema union of domain operation payloads. New domains add
-operation variants to that union without changing the patch envelope.
-
-Dry run is a mutation execution mode, not a separate language. A dry-run patch
-uses the same parse, resolve, validate, and plan path as a real patch, then
-stops before applying changes.
+`PatchOp` is the schema union of domain operation payloads. Dry run is a
+mutation mode, not a separate language: parse, resolve, validate, and plan
+through the real path, then stop before applying changes.
 
 ## Creation Results
 
-Creation discovery is a query result pattern used by domains that need stable
-ways to create new objects, such as graph nodes or widget tree entries.
+Creation discovery is a query result pattern for domains that need stable ways
+to create new objects, such as graph nodes or widget tree entries.
 
 Agent-facing query text uses domain find forms such as:
 
@@ -513,7 +468,7 @@ InventorySlot = widget(class: "/Game/UI/WBP_InventorySlot.WBP_InventorySlot_C")
 PluginFancy = widget(palette: "widget.palette:plugin-fancy")
 ```
 
-Shared normalized JSON:
+Normalized JSON:
 
 ```ts
 interface CreationResult {
@@ -563,17 +518,16 @@ interface Property {
 }
 ```
 
-`ShortcutEntry` is for semantic constructors that can be copied directly.
-`ClassEntry` is for class-path creation identities. `PaletteEntry` is the
-stable fallback when a domain needs an action, palette, or template id.
-Domains define which entry forms they return and how patch text consumes them.
+`ShortcutEntry` is for semantic constructors, `ClassEntry` for class-path
+creation identities, and `PaletteEntry` for action, palette, or template ids.
+Domains define which forms they return and how patch text consumes them.
 
 ## Results And Diagnostics
 
-Bridge-facing results use normalized JSON plus diagnostics. SDK-facing results
-format successful objects back to LGL text.
+Bridge-facing results use normalized JSON plus diagnostics. SDK results format
+successful objects back to LGL text.
 
-Shared normalized JSON:
+Normalized JSON:
 
 ```ts
 interface Result {

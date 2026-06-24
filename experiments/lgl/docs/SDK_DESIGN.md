@@ -2,16 +2,13 @@
 
 ## Intent
 
-LGL should be a TypeScript SDK for graph operations, not a public Graph IR
-project. The SDK owns parsing, validation, adapter dispatch, diagnostics, and
-result formatting. Agent-facing callers should think in terms of query, patch,
-and the LGL text they send. Palette discovery and palette binding are LGL query
-and patch language features, not separate SDK methods. Full graph snapshots are
-internal cache/offline primitives, not a public SDK method or normal agent read
-path.
+LGL is a TypeScript SDK for agent-facing UE text operations, not a public Graph
+IR project. The SDK owns parsing, validation, adapter dispatch, diagnostics,
+and result formatting. Callers use `query` and `patch` with LGL text. Palette
+discovery and creation binding are language features, not separate SDK methods.
 
-Internal data structures may exist, but they are implementation details. The
-contract is the SDK API plus the LGL text formats it accepts and returns.
+Internal data structures are implementation details. The contract is the SDK
+API plus the LGL text it accepts and returns.
 
 ## Facade
 
@@ -48,15 +45,12 @@ kinds:
 `Palette` is not a top-level text kind. It is discovery data or a patch binding
 source inside domains that expose creation entries.
 
-The normalized JSON model is internal to the SDK, adapters, schemas, and RPC
-boundary. Graph, asset, blueprint, widget, and future domains define their own
-normalized object shapes in domain documents. Those domain sections are the
-target design source.
+Normalized JSON is internal to the SDK, adapters, schemas, and RPC boundary.
+Domain documents define the target object shapes.
 
 ## LGL Scope
 
-The target text forms are documented by the overview, language core, and domain
-docs:
+The target text forms are documented here:
 
 - [`OVERVIEW.md`](OVERVIEW.md): top-level mental model, text kinds, domains,
   and palette positioning.
@@ -64,14 +58,13 @@ docs:
   reference, query, patch, and normalization syntax.
 - [`DOMAINS.md`](DOMAINS.md): domain document contract and normalization
   boundary.
-- [`domains/graph.md`](domains/graph.md): graph text, pins, edges, queries,
-  patches, palette creation entries, and normalized JSON.
-- [`domains/asset.md`](domains/asset.md): asset discovery and reusable asset
-  references.
+- [`domains/graph.md`](domains/graph.md): graph objects, queries, patches, and
+  creation entries.
+- [`domains/asset.md`](domains/asset.md): asset discovery and references.
 - [`domains/blueprint.md`](domains/blueprint.md): Blueprint class, member, and
   component structure.
-- [`domains/widget.md`](domains/widget.md): widget tree constructors, slots,
-  queries, and patches.
+- [`domains/widget.md`](domains/widget.md): widget trees, slots, queries, and
+  patches.
 
 ## Pipeline
 
@@ -89,7 +82,7 @@ LGL text
   -> LGL object text plus diagnostics
 ```
 
-Parser responsibilities:
+Parser:
 
 - parse LGL text into a structured text document
 - parse bindings, constructor calls, references, values, domain statements,
@@ -97,23 +90,20 @@ Parser responsibilities:
 - attach source spans for diagnostics when possible
 - report syntax errors
 
-Parser must not inspect target domains, palette entries, graph schemas, widget
-classes, Blueprint members, pins, or native UE state.
+Parser must not inspect domains, palette entries, schemas, widget classes,
+Blueprint members, pins, or UE state.
 
-Normalizer responsibilities:
+Normalizer:
 
 - convert syntax sugar that does not require target-domain knowledge
 - reject structurally invalid LGL that parsed but violates stable language rules
 - lower canonical text into normalized domain JSON
 - preserve source mapping for diagnostics where practical
 
-Normalizer must not consult palette databases, graph schemas, default exec pin
-rules, UMG class metadata, Blueprint member tables, or native UE state. Compact
-forms may be normalized here only when the rewrite is pure LGL syntax. Any
-rewrite that needs UE or domain-state knowledge belongs in an adapter or should
-remain unsupported in the stable form.
+Normalizer must not consult palette databases, graph schemas, UMG metadata,
+Blueprint member tables, or UE state. It may rewrite only pure LGL syntax.
 
-Adapter/resolver responsibilities:
+Adapter/resolver:
 
 - route by normalized domain target
 - resolve domain references, asset references, palette entries, and creation
@@ -123,16 +113,10 @@ Adapter/resolver responsibilities:
 - compute dry-run changes through the same path used by real mutation
 - apply mutations when dry run is not requested
 
-The TypeScript experiment now exercises this pipeline with schema validation,
-formatter/parser roundtrip tests, examples, and in-memory adapters for graph,
-asset, Blueprint, and widget domains. These adapters are test fixtures for the
-SDK contract. They must not become replacement models for Blueprint, Material,
-PCG, UMG, or other UE semantics.
-
-Adapter examples include resolving creation entries, validating graph pins and
-pin directions, checking existing edges for `insert`, applying graph schema
-connect/disconnect legality, filtering asset registry-like results, and
-planning Blueprint or widget patch changes.
+The TypeScript experiment exercises this pipeline with schema validation,
+roundtrip tests, examples, and in-memory adapters for graph, asset, Blueprint,
+and widget. These adapters are contract fixtures, not replacement models for
+UE semantics.
 
 ## RPC Boundary
 
@@ -150,7 +134,7 @@ raw LGL text. C++ bridge code should not implement the LGL parser or
 formatter. Parsing, source mapping, pure LGL normalization, and LGL text
 formatting stay in TypeScript.
 
-The TypeScript side owns:
+TypeScript owns:
 
 - LGL text parsing
 - pure LGL normalization
@@ -158,8 +142,7 @@ The TypeScript side owns:
 - adapter routing by normalized domain target
 - converting bridge responses into agent-facing LGL results and diagnostics
 
-The UE Bridge side owns everything that depends on real UE editor state or UE
-APIs:
+The UE Bridge owns everything that depends on real UE editor state or APIs:
 
 - asset, Blueprint, graph, widget, and other domain resolution
 - palette query and creation-entry resolution
@@ -173,16 +156,15 @@ APIs:
 - dry-run planning through the same path used by real mutation
 - applying graph edits
 
-This keeps LGL parsing portable while preserving UE as the source of truth for
-Blueprint semantics.
+This keeps parsing portable while preserving UE as the source of truth.
 
-The proposed bridge architecture is documented in
+Bridge architecture is tracked separately in
 [`LGL_NATIVE_BRIDGE.md`](LGL_NATIVE_BRIDGE.md).
 
 ## JSON Schema Contract
 
-The normalized domain JSON model is maintained as JSON Schema. The schema is
-the cross-language contract between TypeScript and C++:
+Normalized domain JSON is maintained as JSON Schema. The schema is the
+cross-language contract between TypeScript and C++:
 
 ```txt
 LGL text
@@ -199,52 +181,33 @@ LGL text
 ```
 
 TypeScript owns parser, formatter, developer ergonomics, and generated
-object-model types. C++ owns lightweight object-model codecs and UE adapter
-behavior. Both sides must conform to the same JSON Schema.
-
-The machine contract is:
+object-model types. C++ owns codecs and UE adapter behavior. The machine
+contract is:
 
 ```txt
 schema/lgl-object.schema.json
 ```
 
-The current schema covers the shared LGL object envelope plus graph, asset,
-Blueprint, widget, query, patch, creation-result, result, and diagnostic
-payloads. As new domains become executable, the schema should extend to their
-normalized JSON objects. Accepted fixtures should validate representative
-object, query, patch, creation-entry, edge, and diagnostic objects. Rejected
-fixtures should cover contract boundaries such as required fields, closed
-object shapes, enum values, mutually exclusive fields, and reserved
-discriminators.
+The schema covers the shared envelope plus graph, asset, Blueprint, widget,
+query, patch, creation-result, result, and diagnostic payloads. Fixtures should
+cover representative accepted objects and rejected contract boundaries such as
+required fields, closed object shapes, enum values, mutually exclusive fields,
+and reserved discriminators.
 
 TypeScript object-model types are generated from this schema into
 `src/generated/lgl-object-schema.ts`. Public SDK facade types such as `Lgl`,
 `Adapter`, and `CreateLglOptions` remain hand-written.
 
-C++ may use generated code later, but the first C++ bridge can use lightweight
-hand-written structs and codecs as long as boundary JSON is validated against
-the same schema.
-
-Suggested validation assets:
-
-```txt
-fixtures/object/graph-begin-delay-print.json
-fixtures/object/patch-insert-delay.json
-fixtures/object/palette-print-string.json
-fixtures/object-invalid/patch-missing-dry-run.json
-```
-
-The important invariant is that TypeScript normalized objects and C++ response
-objects both validate against the same JSON Schema. Human-readable docs explain
-the model; the schema enforces cross-language compatibility.
+C++ may use generated code later, but the first bridge can use hand-written
+structs and codecs as long as boundary JSON validates against the same schema.
+Docs explain the model; the schema enforces cross-language compatibility.
 
 ## Results
 
-SDK methods return agent-facing LGL text and diagnostics after formatting bridge
-responses. Counts, summaries, alias mappings, patch changes, and debug details
-should be expressed inside returned LGL text when needed, not as parallel public
-SDK fields. Pagination cursors are the exception because they control the next
-query request rather than describing the returned object.
+SDK methods return LGL text and diagnostics after formatting bridge responses.
+Counts, summaries, alias mappings, patch changes, and debug details should be
+expressed inside returned LGL text when useful. Pagination cursors are separate
+because they control the next query.
 
 ```ts
 type LglText = string;
@@ -252,14 +215,12 @@ interface TextResult { text?: LglText; diagnostics: Diagnostic[]; page?: Page; }
 interface ObjectResult { object?: LglObject; diagnostics: Diagnostic[]; page?: Page; }
 ```
 
-`ObjectResult` is the adapter/RPC result shape. `TextResult` is the public SDK
-result after formatting `ObjectResult.object` back to LGL text. The concrete
-normalized object type is domain-owned and schema-validated.
+`ObjectResult` is the adapter/RPC shape. `TextResult` is the public SDK shape.
+Concrete normalized object types are domain-owned and schema-validated.
 
-A patch response can return an updated compact `graph` snippet around the
-changed nodes. Created aliases, resolved ids, changed links, and editor
-position changes should be visible in that LGL text when they matter to the
-next agent action. The public SDK result shape remains the same.
+A patch response can return a compact updated snippet around changed objects.
+Created aliases, resolved ids, changed links, and position changes should be
+visible when they matter to the next agent action.
 
 ## Diagnostics
 

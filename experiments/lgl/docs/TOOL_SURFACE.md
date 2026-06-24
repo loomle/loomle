@@ -6,12 +6,12 @@ Loomle tools should wrap the LGL SDK rather than expose parser internals or
 backend graph edit command shapes. The agent-facing surface should be small and
 domain-oriented.
 
-This document describes a future MCP/CLI surface. The current experiment
-implements the TypeScript SDK facade, not these tools.
+This is a future MCP/CLI surface. The current experiment implements the
+TypeScript SDK facade, not these tools.
 
 ## Blueprint Tools
 
-Initial Blueprint-facing tools:
+Initial Blueprint tools:
 
 ```txt
 blueprint_graph_query
@@ -23,51 +23,30 @@ These tools are thin wrappers around the SDK plus the Blueprint adapter.
 
 ## Tool Responsibilities
 
-`blueprint_graph_query`
+### `blueprint_graph_query`
 
-- accepts self-describing LGL query text such as:
-  ```lgl
-  bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
-  g = graph(domain: blueprint, asset: bp, graph: EventGraph)
-  query g
-  find nodes
-  ```
-- returns LGL result documents or snippets
-- covers node search, paths, surrounding context, palette discovery, full
-  snapshot cache reads, and detailed node output
-- is the primary agent read surface
+Primary read surface. Accepts self-describing LGL query text and returns LGL
+result documents or snippets with diagnostics.
 
-`blueprint_graph_patch`
+### `blueprint_graph_patch`
 
-- accepts self-describing LGL patch text such as:
-  ```lgl
-  bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
-  g = graph(domain: blueprint, asset: bp, graph: EventGraph)
-  patch g dry run
-  ```
-- parses the patch before any mutation
-- resolves palette bindings
-- validates pins, aliases, and layout moves
-- returns diagnostics and computed changes
-- applies the mutation through the Blueprint adapter
-- supports `dry run` documents
-- returns created alias/id mappings and updated LGL snippets when useful
+Primary mutation surface. Accepts self-describing LGL patch text, resolves and
+validates the whole patch, supports dry run, and returns diagnostics plus
+updated LGL snippets when useful.
 
-`blueprint_compile`
+### `blueprint_compile`
 
-- remains separate because compile is an asset validation/action boundary, not a
-  graph text operation.
+Remains separate because compile is an asset validation/action boundary, not a
+graph text operation.
 
 ## Backend Tools
 
-Existing tools such as `blueprint_graph_palette`, `blueprint_graph_edit`, and
-node inspect behavior may remain available for debugging or advanced usage, but
-LGL mode should treat them as adapter backend capabilities.
+Existing graph palette/edit/inspect tools may remain available for debugging or
+advanced usage, but LGL mode should treat them as adapter backend capabilities.
 
-Full graph snapshots are still useful as internal cache primitives, but they
-should be requested through empty-body `query` documents rather than a separate
-agent-facing snapshot tool. Large graph snapshots should be written to
-cache/workspace files and referenced by path instead of returned inline.
+Full graph snapshots are internal cache primitives. Request them through query
+documents rather than a separate agent-facing snapshot tool. Large snapshots
+should be written to cache/workspace files and referenced by path.
 
 Normal workflow:
 
