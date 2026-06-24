@@ -17,11 +17,11 @@ their targets are declared by this domain. The graph domain owns the node
 creation syntax; the blueprint domain owns the member and component identities
 those nodes reference.
 
-The TypeScript experiment implements the first Blueprint query/readback loop:
-`blueprint(...)` bindings, `query bp`, `find members`, `find components`,
-canonical Blueprint result text, schema validation, formatter roundtrip, and an
-in-memory Blueprint adapter. UE-backed class/member/component integration
-remains adapter work.
+The TypeScript experiment implements `blueprint(...)` bindings, `query bp`,
+`find members`, `find components`, canonical Blueprint result text, schema
+validation, formatter roundtrip, patch normalization, and an in-memory
+Blueprint adapter. UE-backed class/member/component integration belongs to the
+UE-backed adapter.
 
 ## UE Boundary
 
@@ -355,9 +355,8 @@ interface Component {
 }
 ```
 
-Sibling order is derived from statement order for the same parent. A future
-schema may store explicit order for bridge convenience, but LGL text should not
-require agents to write it.
+Sibling order is derived from statement order for the same parent. LGL text
+does not require agents to write explicit order fields.
 
 Graph nodes may refer to component aliases from this tree:
 
@@ -407,7 +406,7 @@ with metadata, defaults
 order by name asc
 ```
 
-Supported first-pass `find` forms should include:
+Supported `find` forms:
 
 - `find class`
 - `find members ["text"]`
@@ -435,7 +434,7 @@ Default result shapes:
 `with properties` expands component template properties. `with graphs` expands
 graph references for function-like members.
 
-Supported first-pass `where` fields:
+Supported `where` fields:
 
 - `kind`
 - `name`
@@ -444,7 +443,7 @@ Supported first-pass `where` fields:
 - `parent`
 - `text`
 
-Supported first-pass `order by` keys:
+Supported `order by` keys:
 
 - `name`
 - `kind`

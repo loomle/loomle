@@ -10,10 +10,10 @@ initialized UE process. It should not load assets by default. Search should
 return canonical asset identities and lightweight registry metadata that agents
 can feed into later LGL queries or patches.
 
-The TypeScript experiment implements the first asset query/readback loop:
-`query asset`, `find assets`, canonical asset result bindings, schema
-validation, formatter roundtrip, and an in-memory asset adapter. UE Asset
-Registry integration remains adapter work.
+The TypeScript experiment implements `query asset`, `find assets`, canonical
+asset result bindings, schema validation, formatter roundtrip, and an
+in-memory asset adapter. UE Asset Registry integration belongs to the UE-backed
+adapter.
 
 ## Basic Form
 
@@ -102,7 +102,7 @@ type, and selected registry tags. Exact structured filtering belongs in `where`.
 Field-level `~=` may still be used for advanced structured filters, but it is
 not the normal way to express the main asset search text.
 
-Supported first-pass `where` fields:
+Supported `where` fields:
 
 - `root`: package path root such as `/Game`
 - `type`: LGL asset type such as `blueprint`, `material`, `widget`, or `pcg`
@@ -112,7 +112,7 @@ Supported first-pass `where` fields:
 - `registryTag.<key>`: Asset Registry tag filtering
 - `loaded`: whether the asset is currently loaded
 
-Supported first-pass `order by` keys:
+Supported `order by` keys:
 
 - `score`
 - `name`
@@ -147,7 +147,7 @@ door = asset(path: "/Game/Blueprints/BP_Door.BP_Door", type: blueprint, domains:
 doorFrame = asset(path: "/Game/Blueprints/BP_DoorFrame.BP_DoorFrame", type: blueprint, domains: [asset, blueprint], score: 81)
 ```
 
-Results should be deterministic. A first ranking policy can prefer:
+Results should be deterministic. A default ranking policy can prefer:
 
 1. exact object path or package name match
 2. exact asset name match
@@ -216,9 +216,10 @@ asset resolution utilities.
 
 ## Patch
 
-The asset domain currently has no patch text. Asset mutation, such as create,
+The asset domain has no patch text. Asset mutation, such as create,
 rename, move, duplicate, delete, save, metadata edits, redirector cleanup, and
-source-control-aware package operations, belongs to a later asset-tools design.
+source-control-aware package operations, belongs to a separate asset-tools
+design.
 
 There is no `AssetPatch` in the current asset domain target model.
 

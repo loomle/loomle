@@ -8,8 +8,8 @@ naturally hierarchical and component-like.
 
 The TypeScript LGL experiment implements widget object readback, widget query
 normalization, patch normalization, formatting, schema validation, and an
-in-memory widget adapter. The UE-backed adapter still needs to route the same
-object model through UMG WidgetTree APIs.
+in-memory widget adapter. The UE-backed adapter routes the same object model
+through UMG WidgetTree APIs.
 
 ## Basic Form
 
@@ -82,9 +82,8 @@ interface Node {
 }
 ```
 
-Sibling order is derived from statement order for each parent. A future schema
-may store explicit order for bridge convenience, but LGL text should not require
-agents to write it.
+Sibling order is derived from statement order for each parent. LGL text does
+not require agents to write explicit order fields.
 
 ## Constructors
 
@@ -245,7 +244,7 @@ where parent = stack
 
 The default widget query result includes widget identity, class/type, name, and
 parent. `find tree` returns the tree in editor order. Slot and event expansion
-are future UE-backed adapter work, not part of the current TypeScript adapter.
+are separate query expansions outside the TypeScript adapter surface.
 
 Normalized JSON:
 
@@ -420,7 +419,7 @@ Classification rules:
 `with defaults` is intentionally small. It should return common writable
 creation arguments that make immediate patch authoring easier. `with
 properties` returns property metadata for discoverability. Neither expansion
-should expose events or slot schema; those belong to future `with events` and
+should expose events or slot schema; those belong to separate `with events` and
 `with slots` expansions.
 
 The adapter must validate palette entries against UE state before returning or
