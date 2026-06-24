@@ -30,11 +30,10 @@ schema contract use normalized JSON.
 - Generate TypeScript object-model types from the schema.
 - Exercise the adapter contract with the in-memory graph, asset, Blueprint, and
   widget adapters.
-- Keep Blueprint and widget examples under parser/formatter conformance tests.
-- Implement the first non-graph patch loop with Blueprint add/set/remove
-  operations in the TypeScript memory adapter.
-- Keep Unreal-specific behavior behind a Blueprint adapter; the SDK surface
-  should not expose UE bridge internals directly.
+- Keep graph, asset, Blueprint, and widget examples under parser/formatter and
+  memory-adapter tests.
+- Keep Unreal-specific behavior behind adapters; the SDK surface should not
+  expose UE bridge internals directly.
 
 ## Implementation Layout
 
@@ -53,8 +52,10 @@ schema contract use normalized JSON.
 ## Documents
 
 The docs are organized around the shared language core plus UE domains. The
-graph, asset, Blueprint, and widget query loops are implemented by the
-TypeScript experiment. UE-backed adapters remain future bridge work.
+graph, asset, Blueprint, and widget TypeScript adapters exercise the SDK
+contract. UE-backed adapters remain future bridge work.
+
+Language and SDK docs:
 
 - `docs/OVERVIEW.md`: Next LGL direction, representation layers, and core
   design rules.
@@ -62,16 +63,24 @@ TypeScript experiment. UE-backed adapters remain future bridge work.
   syntax.
 - `docs/DOMAINS.md`: How domains own their syntax, normalization, object
   model, query, patch, diagnostics, and examples.
-- `docs/domains/graph.md`: Graph domain from sugar to canonical text
-  to normalized JSON.
-- `docs/domains/asset.md`: Draft asset domain for Asset Registry-backed search,
-  resolve, registry tags, and asset result text.
-- `docs/domains/blueprint.md`: Draft Blueprint domain for class contract,
-  member declarations, custom events, and component tree structure.
-- `docs/domains/widget.md`: Widget domain for UMG tree constructors, tree
-  queries, and future widget patching.
 - `docs/SDK_DESIGN.md`: SDK facade, adapter contract, diagnostics, and result
   types for the current experiment.
+- `schema/lgl-object.schema.json`: JSON Schema contract for normalized LGL
+  objects and adapter/RPC results.
+
+Domain docs:
+
+- `docs/domains/graph.md`: Graph domain from sugar to canonical text
+  to normalized JSON.
+- `docs/domains/asset.md`: Asset domain for Asset Registry-backed search,
+  resolve, registry tags, and asset result text.
+- `docs/domains/blueprint.md`: Blueprint domain for class contract, member
+  declarations, custom events, and component tree structure.
+- `docs/domains/widget.md`: Widget domain for UMG tree constructors, tree
+  queries, palette entries, and widget patching.
+
+Bridge planning and reference docs:
+
 - `docs/LGL_NATIVE_BRIDGE.md`: Future LGL-native UE bridge architecture.
 - `docs/LGL_BRIDGE_CODE_LAYOUT.md`: Proposed LGL-native UE bridge code layout.
 - `docs/LGL_BRIDGE_QUERY_SPIKE.md`: First UE-backed `lgl.object.query` spike
@@ -82,8 +91,6 @@ TypeScript experiment. UE-backed adapters remain future bridge work.
   maps LGL to existing Loomle/UE capabilities.
 - `docs/TOOL_SURFACE.md`: How MCP/CLI tools wrap the SDK.
 - `docs/EXAMPLE_SOURCES.md`: Sources behind the Blueprint example set.
-- `schema/lgl-object.schema.json`: JSON Schema contract for normalized LGL
-  objects and adapter/RPC results.
 
 ## Commands
 
@@ -108,10 +115,9 @@ its own; the same check is included in the default `npm test` gate.
 `npm run test:examples:reference` audits the larger Blueprint reference examples
 on its own; the same check is included in the default `npm test` gate.
 
-The current parser/formatter is a minimal closed-loop implementation for the
-core examples. It covers document headers, graph node and edge lines, simple
-query forms, palette bindings, and a small patch set including `insert` and
-`move`. It covers the current Core, Extended, and Reference Blueprint examples.
+The parser/formatter covers statement-list object, query, patch, and palette
+creation-entry forms for the current graph, asset, Blueprint, and widget
+domains.
 
 The current facade is `createLgl({ adapters })`, returning an object used as
 `lgl.query(text)` and `lgl.patch(text)`. It parses LGL text, dispatches by
@@ -151,8 +157,8 @@ begin.Then -> delay.Exec/Completed -> print.Exec
 ```
 
 Compact `graph` examples are readback snapshots and do not include palette
-bindings. Patch examples use stable palette entry ids or shortcut constructors
-when they create new nodes.
+creation entries. Patch examples use stable palette entry ids or shortcut
+constructors when they create new nodes.
 
 Layout readback appears as named node and pin fields such as `at: [x, y]`,
 `size: [w, h]`, and `anchor: [x, y]`. Patch layout mutation is currently

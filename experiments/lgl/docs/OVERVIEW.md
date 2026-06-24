@@ -20,8 +20,8 @@ LGL separates three concerns:
 
 The top-level language model should not be a union such as `Graph | Query |
 Patch | Palette`. `Graph`, `Asset`, `Blueprint`, and `Widget` are domains.
-`Palette` is discovery data or a patch binding source inside relevant domains,
-not a top-level LGL text kind.
+`Palette` is the global creation-discovery concept inside domains, not a
+top-level LGL text kind.
 
 ## Text Kinds
 
@@ -41,8 +41,8 @@ print = node(graph: g, type: PrintString, id: "A002", InString: "Ready")
 begin.Then -> print.Exec
 ```
 
-Object text is used for snapshots, snippets, search results, palette bindings,
-and patch results.
+Object text is used for snapshots, snippets, search results, palette creation
+entries, and patch results.
 
 ### Query Text
 
@@ -75,8 +75,9 @@ execution resolves and validates the whole patch before applying mutations.
 
 ## Palette
 
-Palette is not a top-level text kind. It is the shared mechanism for discovering
-stable creation entries that can be copied into patch text.
+Palette is not a top-level text kind. It is the global creation-discovery
+concept: domains expose palette queries that return stable creation entries
+that can be copied into patch text.
 
 Agents should not create new UE content by guessing display names, node classes,
 or editor menu text. A domain can expose a palette query that returns copyable

@@ -90,7 +90,7 @@ For currently implemented domains, the normalized JSON section should describe
 the current schema and explicitly call out any implementation gap that affects
 agent-facing behavior.
 
-## Planned Domains
+## Current Domains
 
 - [`domains/graph.md`](domains/graph.md): graph objects, nodes, pins, edges,
   graph queries, graph patches, shortcut constructors, and palette fallback
@@ -103,5 +103,6 @@ agent-facing behavior.
 - [`domains/widget.md`](domains/widget.md): modeled widget constructors, widget
   tree structure, slots, queries, and widget tree patching.
 
-Graph is implemented by the TypeScript experiment. Asset, blueprint, and widget
-are target designs.
+The TypeScript experiment includes parser, formatter, schema, and in-memory
+adapter coverage for graph, asset, Blueprint, and widget. UE-backed adapters
+remain separate bridge work.
