@@ -22,8 +22,8 @@ begin.Then -> print.Exec
 ```
 
 Returned graph text should be standalone and copyable by default. Query
-results repeat required asset and graph bindings unless a future option
-explicitly requests contextless output.
+results repeat required asset and graph bindings so snippets stay
+self-contained.
 
 ## Graph Objects
 
@@ -223,14 +223,14 @@ where id = "A001"
 with pins, defaults
 ```
 
-Supported first-pass `where` fields for `find nodes`:
+Supported `where` fields for `find nodes`:
 
 - `type`
 - `name`
 - `id`
 - `comment`
 
-Supported first-pass `where` fields for `find palette entry`:
+Supported `where` fields for `find palette entry`:
 
 - `component`
 - `contextSensitive`
@@ -249,7 +249,7 @@ find palette entry "Less Equal" to branch.Condition
 graph edge direction toward the pin. Do not express pin context as
 `where pin = ...`.
 
-Supported first-pass `order by` keys:
+Supported `order by` keys:
 
 - `name`
 - `type`
@@ -363,105 +363,7 @@ type GraphPatchOp =
   | Remove
   | Move
   | Reconstruct;
-```
 
-### Connect
-
-Sugar:
-
-```lgl
-connect begin.Then -> print.Exec
-begin.Then -> print.Exec
-```
-
-Canonical:
-
-```lgl
-connect(begin.Then, print.Exec)
-```
-
-Normalized JSON:
-
-```ts
-interface Connect {
-  kind: "connect";
-  edge: Edge;
-}
-```
-
-### Add And Connect
-
-`add name pin -> pin` creates one binding and one immediate edge. It is sugar
-for `add name` plus one `connect` edge:
-
-```lgl
-add delay begin.Then -> delay.Exec
-```
-
-Canonical:
-
-```lgl
-add(delay, connect: edge(begin.Then, delay.Exec))
-```
-
-Normalized JSON:
-
-```ts
-interface Add {
-  kind: "add";
-  binding: string;
-  connect?: Edge;
-}
-```
-
-Use `add and connect` when adding a new node and attaching one edge. Use
-`insert` when replacing an existing direct edge with a new node path.
-
-### Insert
-
-Sugar:
-
-```lgl
-insert begin.Then -> delay.Exec/Completed -> print.Exec
-```
-
-Canonical:
-
-```lgl
-insert(delay, from: begin.Then, to: print.Exec, input: delay.Exec, output: delay.Completed)
-```
-
-Normalized JSON:
-
-```ts
-interface Insert {
-  kind: "insert";
-  node: string;
-  from: PinRef;
-  to: PinRef;
-  input: PinRef;
-  output: PinRef;
-}
-```
-
-`from` and `to` describe the existing direct edge being replaced. `input` and
-`output` describe the inserted node's pins.
-
-### Other Ops
-
-```lgl
-set print.InString = "Ready"
-add delay
-disconnect branch.Condition
-remove print
-move delay to (320, 0)
-move print by (240, 0)
-reconstruct print preserve links
-```
-
-Normalized JSON:
-
-```ts
 interface Set {
   kind: "set";
   target: SetTarget;
@@ -471,6 +373,26 @@ interface Set {
 interface SetTarget {
   object: string;
   field: string;
+}
+
+interface Add {
+  kind: "add";
+  binding: string;
+  connect?: Edge;
+}
+
+interface Connect {
+  kind: "connect";
+  edge: Edge;
+}
+
+interface Insert {
+  kind: "insert";
+  node: string;
+  from: PinRef;
+  to: PinRef;
+  input: PinRef;
+  output: PinRef;
 }
 
 type Disconnect =
@@ -493,8 +415,16 @@ interface Reconstruct {
 }
 ```
 
-`disconnect pin` is shorthand for removing all links from that pin. The
-adapter must expand and validate the affected edges against the live graph.
+Operation notes:
+
+- `connect pin -> pin` and bare `pin -> pin` both normalize to `Connect`.
+- `add name pin -> pin` creates one binding plus one immediate edge. Use it
+  when adding a new node and attaching one edge.
+- `insert from -> node.input/output -> to` replaces an existing direct edge.
+  `from` and `to` describe the old edge; `input` and `output` describe the
+  inserted node pins.
+- `disconnect pin` removes all links from that pin. The adapter expands and
+  validates the affected edges against the live graph.
 
 ## Patch Preflight
 
@@ -536,17 +466,6 @@ with pins
 mutation. Its primary job is to validate the whole patch. It should not become
 the main query surface for static pin discovery.
 
-Illustrative dry-run planned result:
-
-```lgl
-patch g dry run result
-
-delay1 = node(graph: g, type: Delay, planned: true)
-delay1.Exec = pin(type: exec, direction: in)
-delay1.Duration = pin(type: float, direction: in, value: 1.0)
-delay1.Completed = pin(type: exec, direction: out)
-```
-
 Dynamic pins must be determined before validation. Constructor arguments or
 node-local edits should carry the necessary information:
 
@@ -561,328 +480,10 @@ It should not silently guess pin names.
 
 ## Palette
 
-Palette is the graph domain's creation-entry surface. It groups shortcut
-constructors, UE Action Menu fallback entries, and the pin/default details an
-agent needs before writing a one-shot patch.
-
-### Shortcut Node Creation
-
-Common UE graph nodes should have shortcut constructors when the agent intent
-is stable and explicit. The constructor names describe the common creation
-operation, not which editor menu item created it.
-
-```lgl
-add health = get(variable: Health)
-add setHealth = set(variable: Health)
-add overlap = event(component: Trigger, event: OnComponentBeginOverlap)
-add print = call(function: "/Script/Engine.KismetSystemLibrary.PrintString", InString: "Ready")
-```
-
-These constructors are not aliases for arbitrary node classes. They are compact
-LGL forms for common UE graph creation operations:
-
-| Constructor | Meaning | Example |
-| --- | --- | --- |
-| `get(variable: ref)` | Variable getter node | `get(variable: Health)` |
-| `set(variable: ref)` | Variable setter node | `set(variable: Health)` |
-| `event(component: ref, event: name)` | Component-bound event node | `event(component: Trigger, event: OnComponentBeginOverlap)` |
-| `call(function: ref)` | Function call node | `call(function: "/Script/Engine.KismetSystemLibrary.PrintString")` |
-| `branch()` | Branch node | `branch()` |
-| `sequence()` | Execution sequence node | `sequence()` |
-| `delay(duration: value)` | Delay node | `delay(duration: 1.0)` |
-| `cast(to: classRef)` | Dynamic cast node | `cast(to: "/Script/Engine.Character")` |
-
-The adapter may implement these constructors by using UE palette spawners,
-schema helpers, or direct UE node creation APIs. That choice is bridge-internal.
-The agent-facing text should preserve the shortcut creation request.
-
-Shortcut constructors and palette fallback can both produce the same UE node
-class. For example, `get(variable: Health)` and a palette entry for `Get Health`
-both create a variable-get node. They differ only in the returned creation
-binding.
-
-Normalized JSON should keep that distinction. The complete `NodeCreation`
-model is defined in Creation Object Model below; this section only establishes
-that shortcut creation and palette fallback remain separate creation kinds.
-
-The bridge owns UE-dependent resolution: member lookup, variable access
-legality, delegate lookup, function overload resolution, and node placement.
-
-### Constructor Selection
-
-Use a shortcut constructor when all of these are true:
-
-1. The UE concept is stable and commonly used.
-2. The required arguments are explicit in LGL.
-3. The adapter can validate the request against UE state.
-4. The agent does not need to choose among multiple Action Menu entries.
-
-When a shortcut constructor exists, `find palette entry` should return that
-constructor binding instead of forcing palette-id creation. Palette ids remain
-the fallback form for unmodeled UE Action Menu items.
-
-Use palette fallback when any of these are true:
-
-1. The action is plugin-defined or project-defined and has no LGL constructor.
-2. The action depends on Action Menu ranking or editor-specific filtering.
-3. The action has ambiguous overloads that the current LGL form cannot express.
-4. The bridge has not yet modeled the UE concept as a shortcut constructor.
-
-### Constructor Inventory
-
-The first batch should prefer constructors that are already stable in UE and
-already have direct or well-understood bridge paths.
-
-| UE concept | Preferred LGL | LGL callee / form | Creation path | First batch |
-| --- | --- | --- | --- | --- |
-| Variable getter | `get(variable: X)` | `get` | `UK2Node_VariableGet` or UE schema helper | yes |
-| Variable setter | `set(variable: X)` | `set` | `UK2Node_VariableSet` or UE schema helper | yes |
-| Component-bound event | `event(component: X, event: Y)` | `event` | `UK2Node_ComponentBoundEvent` or bound-event spawner | yes |
-| Custom event node | `event(name: X)` | `event` | `UK2Node_CustomEvent` | yes |
-| Native event node | `event(name: X, owner: C)` | `event` | `FKismetEditorUtilities::AddDefaultEventNode` | yes |
-| Function call | `call(function: X)` | `call` | `UK2Node_CallFunction` or function spawner | yes |
-| Branch | `branch()` | `branch` | `UK2Node_IfThenElse` | yes |
-| Sequence | `sequence()` | `sequence` | `UK2Node_ExecutionSequence` | yes |
-| Dynamic cast | `cast(to: X)` | `cast` | `UK2Node_DynamicCast` | yes |
-| Reroute | `reroute()` | `reroute` | `UK2Node_Knot` | yes |
-| Comment | `comment(text: "...")` | `comment` | `UEdGraphNode_Comment` | yes |
-| Self | `self()` | `self` | `UK2Node_Self` | yes |
-| Delay | `delay(duration: X)` | `delay` | function call helper | yes |
-| Timeline | `timeline(name: X)` | `timeline` | `UK2Node_Timeline` | maybe |
-| Macro instance | `macro(library: A, graph: B)` | `macro` | `UK2Node_MacroInstance` | maybe |
-| Function result | `return()` | `return` | `UK2Node_FunctionResult` | maybe |
-| Collapsed graph | `collapsed_graph(name: X)` | `collapsed_graph` | `UK2Node_Composite` | maybe |
-| Add component node | `add_component(class: X)` | `add_component` | `UK2Node_AddComponent` / `UK2Node_AddComponentByClass` | later |
-| Delegate bind/assign/call | `bind(dispatcher: X)`, `assign(dispatcher: X)`, `call(dispatcher: X)` | `bind` / `assign` / `call` | delegate spawners | later |
-| Plugin or unmodeled action | `node(palette: "...")` | `palette_node` | Action Menu palette entry | no |
-
-`yes` means the constructor should be part of the initial LGL graph creation
-surface. `maybe` means the UE concept is stable but needs a sharper text shape
-before it becomes first batch. `later` means the constructor is probably useful,
-but the surrounding UE semantics need a separate design pass.
-
-### Constructor Arguments
-
-Constructor arguments must be named. References use the lightest precise form:
-
-| Ref kind | Preferred text | When to use |
-| --- | --- | --- |
-| Short member name | `Health` | Current Blueprint member or unambiguous graph context |
-| Owned member name | `door.Health` | Disambiguating a Blueprint member or component |
-| UE object path | `"/Script/Engine.KismetSystemLibrary.PrintString"` | Native, plugin, or cross-asset reference |
-
-Do not use inline value objects as the normal ref form:
-
-```lgl
-get(variable: { owner: door, name: Health })
-```
-
-Shortcut constructor arguments normalize as ordinary `Expr` values. The adapter
-resolves names, owned references, and paths against UE state. Agent-facing text
-should stay compact and readable.
-
-First-batch constructor argument forms:
-
-```lgl
-get(variable: Health)
-set(variable: Health, value: 100.0)
-event(component: Trigger, event: OnComponentBeginOverlap)
-event(name: OnDoorOpened)
-event(name: ReceiveBeginPlay, owner: "/Script/Engine.Actor")
-call(function: "/Script/Engine.KismetSystemLibrary.PrintString", InString: "Ready")
-branch()
-sequence()
-delay(duration: 1.0)
-cast(to: "/Script/Engine.Character")
-reroute()
-comment(text: "Initialize door state")
-self()
-```
-
-Rules:
-
-1. `get(variable: X)` creates a variable getter node.
-2. `set(variable: X)` creates a variable setter node.
-3. `set(variable: X, value: V)` also sets the setter value pin default.
-4. `event(component: X, event: Y)` creates a component-bound event node.
-5. `event(name: X)` creates a custom event node.
-6. `event(name: X, owner: C)` creates a native/default event node.
-7. `call(function: X, args...)` creates a function call node and applies pin
-   defaults from the remaining named arguments.
-8. `delay(duration: X)` is a first-class constructor even though the bridge may
-   implement it as a `KismetSystemLibrary.Delay` function call.
-9. `cast(to: C)` creates a dynamic cast node.
-10. `comment(text: X)` creates an editor comment node.
-
-`event` intentionally uses the agent-facing word `event` even when UE stores the
-component case as a multicast delegate property. Normalized JSON preserves the
-agent's constructor call through `ShortcutNodeCreation`; the adapter resolves
-that call to UE component and delegate metadata.
-
-If a short ref is ambiguous, the adapter should reject the request and suggest
-an owned member name or full path. It should not guess.
-
-### Creation Object Model
-
-Shortcut constructors do not normalize into palette entries. Normalized JSON
-must preserve the creation intent:
-
-```txt
-shortcut constructor -> constructor normalized JSON -> bridge creation strategy
-palette fallback     -> palette normalized JSON   -> bridge palette execution
-```
-
-The bridge adapter may implement shortcut creation by using direct UE APIs,
-UE schema helpers, or UE Action Menu spawners. That implementation choice must
-not be exposed as the normalized LGL truth.
-
-Creation bindings should normalize by creation kind. There are exactly two
-agent-facing creation forms:
-
-```lgl
-# Palette-id fallback.
-print = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString", InString: "Ready")
-
-# Semantic shortcut.
-delay = delay(duration: 1.0)
-```
-
-Existing node readback is separate and uses `type` plus graph identity:
-
-```lgl
-print = node(graph: g, type: PrintString, id: "A003", InString: "Ready")
-```
-
-`type` and `palette` are mutually exclusive. `type` describes an existing node.
-`palette` requests creation through a stable UE palette/action id. Shortcut
-constructors request modeled semantic creation. Creation bindings do not need a
-`graph` argument because `patch g` and `add` define the graph context.
-
-Normalized JSON preserves creation kind:
-
-```ts
-type NodeCreation =
-  | ShortcutNodeCreation
-  | PaletteNodeCreation;
-
-interface ShortcutNodeCreation {
-  kind: "shortcut_node";
-  constructor: Call;
-}
-
-interface PaletteNodeCreation {
-  kind: "palette_node";
-  palette: string;
-  defaults?: Record<string, Expr>;
-}
-```
-
-Examples:
-
-```lgl
-health = get(variable: Health)
-setHealth = set(variable: Health, value: 100.0)
-overlap = event(component: Trigger, event: OnComponentBeginOverlap)
-print = call(function: "/Script/Engine.KismetSystemLibrary.PrintString", InString: "Ready")
-```
-
-```json
-[
-  {
-    "target": { "kind": "local", "name": "health" },
-    "value": {
-      "kind": "shortcut_node",
-      "constructor": {
-        "kind": "call",
-        "callee": "get",
-        "args": {
-          "variable": { "kind": "name", "name": "Health" }
-        }
-      }
-    }
-  },
-  {
-    "target": { "kind": "local", "name": "setHealth" },
-    "value": {
-      "kind": "shortcut_node",
-      "constructor": {
-        "kind": "call",
-        "callee": "set",
-        "args": {
-          "variable": { "kind": "name", "name": "Health" },
-          "value": 100.0
-        }
-      }
-    }
-  },
-  {
-    "target": { "kind": "local", "name": "overlap" },
-    "value": {
-      "kind": "shortcut_node",
-      "constructor": {
-        "kind": "call",
-        "callee": "event",
-        "args": {
-          "component": { "kind": "name", "name": "Trigger" },
-          "event": { "kind": "name", "name": "OnComponentBeginOverlap" }
-        }
-      }
-    }
-  },
-  {
-    "target": { "kind": "local", "name": "print" },
-    "value": {
-      "kind": "shortcut_node",
-      "constructor": {
-        "kind": "call",
-        "callee": "call",
-        "args": {
-          "function": "/Script/Engine.KismetSystemLibrary.PrintString",
-          "InString": "Ready"
-        }
-      }
-    }
-  }
-]
-```
-
-Palette fallback remains explicit and uses the palette id directly:
-
-```lgl
-delay = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay", Duration: 1.0)
-```
-
-```json
-{
-  "target": { "kind": "local", "name": "delay" },
-  "value": {
-    "kind": "palette_node",
-    "palette": "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay",
-    "defaults": {
-      "Duration": 1.0
-    }
-  }
-}
-```
-
-This separation keeps normalized creation intent stable. Shortcut constructors
-preserve the agent's semantic request for the adapter to validate, while
-palette fallback preserves the exact UE Action Menu id.
-
-### Palette Entry Details
-
-`find palette entry` is the single creation-entry query. It searches both
-Loomle-modeled shortcut entries and UE Action Menu fallback entries. The result
-must be a binding that can be copied into a patch:
-
-- modeled shortcut entries return their constructor binding, such as
-  `Delay = delay(duration: value)`
-- fallback entries return a palette-id node creation binding, such as
-  `PrintString = node(palette: "...")`
-
-Default palette results should stay lightweight, but `with pins` and
-`with defaults` may request details for the node that a returned entry would
-create.
+Palette is the graph domain's global creation-discovery surface. It returns
+copyable creation entries for patch text: modeled shortcut constructors when
+the intent is stable, and palette-id fallback entries when UE Action Menu state
+is the safest creation identity.
 
 ```lgl
 query g
@@ -891,14 +492,13 @@ with pins, defaults
 page limit 50
 ```
 
-Pin context uses `from pin` or `to pin` on the `find` line. These are
-find-form local arguments, not global query clauses. Use them only when the
-context is a graph pin and direction matters.
+Default palette results stay lightweight. `with pins` returns pins for the node
+an entry would create, and `with defaults` returns defaults when UE exposes
+them. Pin/default details must come from UE template nodes, spawners, schemas,
+or other UE-owned metadata.
 
-Use `where` for structured palette-entry filters such as component or
-context-sensitivity.
-
-Supported first-pass palette-entry filters:
+Pin context uses `from pin` or `to pin` on the `find` line. Use `where` for
+structured filters such as component or context sensitivity.
 
 | Filter | Example | UE mapping |
 | --- | --- | --- |
@@ -907,83 +507,23 @@ Supported first-pass palette-entry filters:
 | `component` | `where component = Trigger` | `FBlueprintActionContext.SelectedObjects` component property |
 | `contextSensitive` | `where contextSensitive = false` | `MakeContextMenu(..., bIsContextSensitive, ...)` |
 
-Examples:
-
-```lgl
-query g
-find palette entry "Branch" from begin.Then
-with pins
-
-query g
-find palette entry from begin.Then
-with pins
-
-query g
-find palette entry "Less Equal" to branch.Condition
-with pins
-
-query g
-find palette entry "Begin Overlap"
-where component = Trigger
-with pins
-
-query g
-find palette entry
-where component = Trigger
-with pins
-
-query g
-find palette entry "Print String"
-where contextSensitive = false
-with pins
-```
-
 `contextSensitive = true` is the default and should usually be omitted.
-`page limit` defaults to 50 when omitted. The search text after
-`find palette entry` may be omitted when `from`, `to`, or `where` provides
-enough context. This is useful for context-first discovery from a pin or
-component.
+`page limit` defaults to 50. The search text after `find palette entry` may be
+omitted when `from`, `to`, or `where` provides enough context.
 
-Recommended fallback sequence when an entry is not found:
-
-1. Search with text and pin or component context, such as `find palette entry
-   "Branch" from begin.Then` or `find palette entry "Begin Overlap"` plus
-   `where component = Trigger`.
-2. Remove text and keep context, such as `find palette entry` plus `where
-   component = Trigger`, or `find palette entry from begin.Then`.
-3. Keep text and use `where contextSensitive = false`.
-4. Broaden the text, such as `"OnComponentBeginOverlap"` to `"Overlap"`.
-
-Possible fallback text result:
-
-```lgl
-PrintString = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString")
-
-PrintString.Exec = pin(type: exec, direction: in)
-PrintString.InString = pin(type: string, direction: in, value: "Ready")
-PrintString.Then = pin(type: exec, direction: out)
-```
-
-Possible modeled shortcut result:
+Palette result examples:
 
 ```lgl
 Delay = delay(duration: value)
 Delay.Exec = pin(type: exec, direction: in)
 Delay.Duration = pin(type: float, direction: in)
 Delay.Completed = pin(type: exec, direction: out)
+
+PrintString = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString")
+PrintString.Exec = pin(type: exec, direction: in)
+PrintString.InString = pin(type: string, direction: in)
+PrintString.Then = pin(type: exec, direction: out)
 ```
-
-Rules:
-
-1. Default palette query returns entry identity and lightweight display fields.
-2. `with pins` returns pins for the node the entry would create.
-3. `with defaults` returns default values for that created node when UE exposes
-   them.
-4. Pin and default data must come from UE template nodes, spawners, schemas, or
-   other UE-owned metadata, not a Loomle-maintained static node database.
-5. Context-dependent entries, such as component-bound events, require the
-   corresponding `where` context they would need for execution.
-6. If pin/default data is incomplete, return an actionable diagnostic.
 
 Normalized JSON:
 
@@ -1013,83 +553,85 @@ interface PaletteEntry {
 }
 ```
 
-Palette entry query results format these entries as copyable object text. A
-modeled shortcut entry formats as its constructor binding. A fallback entry
-formats as `Name = node(palette: "...")`. Pin details format as `Name.Pin =
-pin(...)` lines when `with pins` is requested.
-
-Palette entry details let fallback creation remain one-shot:
-
-```txt
-query palette with pins -> patch add + connect
-```
-
-without forcing:
-
-```txt
-query palette -> add node -> inspect node -> connect
-```
-
-### Node Creation
+## Node Creation
 
 Node object text and node creation use different fields:
 
 | Use | Field | Example |
 | --- | --- | --- |
-| Object Text | `type` | `node(graph: g, type: Delay, id: "A002")` |
-| Shortcut creation | constructor | `get(variable: Health)` |
+| Existing node object text | `type` | `node(graph: g, type: Delay, id: "A002")` |
+| Shortcut creation | constructor | `delay(duration: 1.0)` |
 | Palette fallback creation | `palette` | `node(palette: "palette-id", Duration: 1.0)` |
 
-Shortcut creation text:
+Shortcut constructors describe common UE graph creation intents. They are not
+aliases for arbitrary node classes, and they do not normalize into palette
+entries:
 
 ```lgl
 add health = get(variable: Health)
-add setHealth = set(variable: Health)
+add setHealth = set(variable: Health, value: 100.0)
 add overlap = event(component: Trigger, event: OnComponentBeginOverlap)
+add print = call(function: "/Script/Engine.KismetSystemLibrary.PrintString", InString: "Ready")
+add delay = delay(duration: 1.0)
 ```
 
-Palette fallback creation text:
+Use a shortcut constructor when the UE concept is stable, commonly used,
+explicit in LGL, and does not require the agent to choose among multiple Action
+Menu entries. Use palette fallback for plugin/project actions, editor-ranked
+actions, ambiguous overloads, or unmodeled UE concepts:
 
 ```lgl
 delay = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.Delay", Duration: 1.0)
 add delay
 ```
 
-Do not create from ambiguous positional forms:
+Stable shortcut constructors:
+
+| Constructor | Meaning |
+| --- | --- |
+| `get(variable: X)` | Variable getter |
+| `set(variable: X, value?: V)` | Variable setter, optionally with value default |
+| `event(component: X, event: Y)` | Component-bound event |
+| `event(name: X)` | Custom event |
+| `event(name: X, owner: C)` | Native/default event |
+| `call(function: X, args...)` | Function call with pin defaults |
+| `branch()` | Branch |
+| `sequence()` | Execution sequence |
+| `delay(duration: X)` | Delay |
+| `cast(to: C)` | Dynamic cast |
+| `reroute()` | Reroute |
+| `comment(text: X)` | Editor comment |
+| `self()` | Self |
+
+Unmodeled or ambiguous concepts use `node(palette: "...")` until they have a
+stable shortcut constructor.
+
+Constructor arguments must be named. References use the lightest precise form:
+short member names for unambiguous Blueprint members, owned names such as
+`door.Health` for disambiguation, and UE object paths for native, plugin, or
+cross-asset references. Do not use positional forms:
 
 ```lgl
 delay = node(g, Delay, Duration: 1.0)
 ```
 
-The adapter must resolve `palette: "..."` as a stable UE palette/action id.
-
-The adapter must resolve shortcut constructors through the relevant UE owner:
-variables and dispatchers through Blueprint member/property metadata,
-component-bound events through component properties and multicast delegate
-properties, and function calls through UE function metadata.
-
-`node(palette: "...", Duration: 1.0)` lowers to a `palette_node` creation with
-`palette: "..."` and `defaults` containing the remaining named arguments. The
-adapter executes the palette id in the patch graph context.
-
-## Normalized JSON
-
-Graph normalized JSON is defined beside each feature above. The summary below
-shows the top-level graph-domain payloads and keeps existing public names where
-they still fit. These variants are implementation details, not top-level LGL
-text kinds:
+Normalized JSON preserves creation kind:
 
 ```ts
-interface Graph {
-  kind: "graph";
-  target: Target;
-  nodes: Node[];
-  edges: Edge[];
-  pins?: Pin[];
+type NodeCreation =
+  | ShortcutNodeCreation
+  | PaletteNodeCreation;
+
+interface ShortcutNodeCreation {
+  kind: "shortcut_node";
+  constructor: Call;
 }
 
-Query with target.domain = "graph" and find = GraphFind
-Patch with target.domain = "graph" and ops = GraphPatchOp[]
+interface PaletteNodeCreation {
+  kind: "palette_node";
+  palette: string;
+  defaults?: Record<string, Expr>;
+}
 ```
 
 ## Adapter Boundary
