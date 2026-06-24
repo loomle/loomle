@@ -971,7 +971,7 @@
     "CreationEntry": {
       "oneOf": [
         { "$ref": "#/$defs/ShortcutEntry" },
-        { "$ref": "#/$defs/WidgetClassEntry" },
+        { "$ref": "#/$defs/ClassEntry" },
         { "$ref": "#/$defs/PaletteEntry" }
       ]
     },
@@ -988,7 +988,7 @@
         },
         "properties": {
           "type": "array",
-          "items": { "$ref": "#/$defs/WidgetProperty" }
+          "items": { "$ref": "#/$defs/Property" }
         },
         "pins": {
           "type": "array",
@@ -1011,7 +1011,7 @@
         },
         "properties": {
           "type": "array",
-          "items": { "$ref": "#/$defs/WidgetProperty" }
+          "items": { "$ref": "#/$defs/Property" }
         },
         "pins": {
           "type": "array",
@@ -1019,7 +1019,7 @@
         }
       }
     },
-    "WidgetClassEntry": {
+    "ClassEntry": {
       "type": "object",
       "additionalProperties": false,
       "required": ["name", "class"],
@@ -1034,11 +1034,11 @@
         },
         "properties": {
           "type": "array",
-          "items": { "$ref": "#/$defs/WidgetProperty" }
+          "items": { "$ref": "#/$defs/Property" }
         }
       }
     },
-    "WidgetProperty": {
+    "Property": {
       "type": "object",
       "additionalProperties": false,
       "required": ["name", "type"],

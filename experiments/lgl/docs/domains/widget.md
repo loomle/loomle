@@ -449,23 +449,23 @@ interface CreationResult {
 
 type CreationEntry =
   | ShortcutEntry
-  | WidgetClassEntry
+  | ClassEntry
   | PaletteEntry;
 
 interface ShortcutEntry {
   name: string;
   constructor: Call;
   defaults?: Record<string, Expr>;
-  properties?: WidgetProperty[];
+  properties?: Property[];
 }
 
-interface WidgetClassEntry {
+interface ClassEntry {
   name: string;
   class: string;
   label?: string;
   category?: string;
   defaults?: Record<string, Expr>;
-  properties?: WidgetProperty[];
+  properties?: Property[];
 }
 
 interface PaletteEntry {
@@ -474,10 +474,10 @@ interface PaletteEntry {
   label?: string;
   category?: string;
   defaults?: Record<string, Expr>;
-  properties?: WidgetProperty[];
+  properties?: Property[];
 }
 
-interface WidgetProperty {
+interface Property {
   name: string;
   type: string;
   default?: Expr;

@@ -1,4 +1,4 @@
-import type { CreationEntry, Expr, LglObject, Query, Value, WidgetDocument, WidgetNode, WidgetProperty, WidgetResult } from "../index.js";
+import type { CreationEntry, Expr, LglObject, Property, Query, Value, WidgetDocument, WidgetNode, WidgetResult } from "../index.js";
 import { tryParseBinding } from "../core/binding.js";
 import { parseCondition, parseDetails, parseOrderBy, parsePage } from "../core/condition.js";
 import { isCall, isLocalRef, symbolName } from "../core/expr.js";
@@ -102,7 +102,7 @@ export function tryParseWidgetCreationResult(
   bindings: Map<string, WidgetBinding>,
 ): LglObject | undefined {
   const entries: CreationEntry[] = [];
-  const propertiesByEntry = new Map<string, WidgetProperty[]>();
+  const propertiesByEntry = new Map<string, Property[]>();
   const targetBinding = bindings.values().next().value as WidgetBinding | undefined;
   if (!targetBinding) {
     return undefined;
@@ -161,7 +161,7 @@ export function tryParseWidgetCreationResult(
     : undefined;
 }
 
-function propertyFromBinding(name: string, args: Record<string, Expr>, line: ParsedLine): WidgetProperty {
+function propertyFromBinding(name: string, args: Record<string, Expr>, line: ParsedLine): Property {
   const type = symbolName(args.type);
   if (!type) {
     throw new ParseError("invalid_widget_property", "property(...) requires type: symbol.", spanForLine(line));

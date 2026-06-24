@@ -1,4 +1,4 @@
-import type { Binding, CreationEntry, CreationResult, Expr, Patch, Query, WidgetDocument, WidgetNode, WidgetPatchOp, WidgetProperty, WidgetResult } from "../index.js";
+import type { Binding, CreationEntry, CreationResult, Expr, Patch, Property, Query, WidgetDocument, WidgetNode, WidgetPatchOp, WidgetResult } from "../index.js";
 import { formatBindingTarget } from "../core/binding.js";
 import { formatCondition } from "../core/condition.js";
 import { formatArgList, formatExpr, nameValue } from "../core/expr.js";
@@ -113,11 +113,11 @@ function formatCreationEntry(entry: CreationEntry): string[] {
       },
     })}`);
   }
-  lines.push(...(entry.properties ?? []).map((property) => formatWidgetProperty(entry.name, property)));
+  lines.push(...(entry.properties ?? []).map((property) => formatProperty(entry.name, property)));
   return lines;
 }
 
-function formatWidgetProperty(entryName: string, property: WidgetProperty): string {
+function formatProperty(entryName: string, property: Property): string {
   const args: Record<string, Expr> = {
     type: nameValue(property.type),
     ...(property.default !== undefined ? { default: property.default } : {}),

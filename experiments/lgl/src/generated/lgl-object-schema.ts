@@ -74,7 +74,7 @@ export type GraphPatchOp =
   | Reconstruct;
 export type BlueprintPatchOp = BlueprintSet | BlueprintAdd | BlueprintRemove | BlueprintRename | BlueprintMove;
 export type WidgetPatchOp = WidgetAdd | WidgetSet | WidgetRemove | WidgetMove;
-export type CreationEntry = ShortcutEntry | WidgetClassEntry | PaletteEntry;
+export type CreationEntry = ShortcutEntry | ClassEntry | PaletteEntry;
 
 export interface Graph {
   kind: "graph";
@@ -470,17 +470,17 @@ export interface ShortcutEntry {
   defaults?: {
     [k: string]: Expr;
   };
-  properties?: WidgetProperty[];
+  properties?: Property[];
   pins?: Pin[];
 }
-export interface WidgetProperty {
+export interface Property {
   name: string;
   type: string;
   default?: Expr;
   writable?: boolean;
   category?: string;
 }
-export interface WidgetClassEntry {
+export interface ClassEntry {
   name: string;
   class: string;
   label?: string;
@@ -488,7 +488,7 @@ export interface WidgetClassEntry {
   defaults?: {
     [k: string]: Expr;
   };
-  properties?: WidgetProperty[];
+  properties?: Property[];
 }
 export interface PaletteEntry {
   name: string;
@@ -498,7 +498,7 @@ export interface PaletteEntry {
   defaults?: {
     [k: string]: Expr;
   };
-  properties?: WidgetProperty[];
+  properties?: Property[];
   pins?: Pin[];
 }
 export interface PaletteSourceRef {
