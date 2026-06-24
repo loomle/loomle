@@ -6,10 +6,6 @@ The graph domain describes UE graph-shaped assets in LGL. It covers graph
 identity, node text, pin text, edge/path text, graph queries, graph patches,
 shortcut node creation, and palette fallback creation.
 
-Implementation migration notes live in
-[`../notes/graph-migration.md`](../notes/graph-migration.md). This document
-describes the target domain shape.
-
 ## Basic Form
 
 Graph object text is a statement list:
@@ -1095,10 +1091,6 @@ interface Graph {
 Query with target.domain = "graph" and find = GraphFind
 Patch with target.domain = "graph" and ops = GraphPatchOp[]
 ```
-
-Implementation migration details live in
-[`../notes/graph-migration.md`](../notes/graph-migration.md). This section
-states the target graph-domain object model.
 
 ## Adapter Boundary
 

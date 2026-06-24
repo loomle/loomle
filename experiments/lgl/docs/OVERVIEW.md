@@ -149,8 +149,6 @@ language categories.
 - [`domains/asset.md`](domains/asset.md): asset domain design.
 - [`domains/blueprint.md`](domains/blueprint.md): Blueprint domain design.
 - [`domains/widget.md`](domains/widget.md): widget domain design.
-- [`notes/graph-migration.md`](notes/graph-migration.md): migration notes for
-  remaining graph-domain implementation differences.
 
 Some bridge implementation documents still describe earlier spike plans. Treat
 them as factual UE implementation context, not as the language source of truth.

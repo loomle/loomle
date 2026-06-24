@@ -64,8 +64,6 @@ TypeScript experiment. UE-backed adapters remain future bridge work.
   model, query, patch, diagnostics, and examples.
 - `docs/domains/graph.md`: Graph domain from sugar to canonical text
   to normalized JSON.
-- `docs/notes/graph-migration.md`: Migration notes for remaining graph-domain
-  implementation differences.
 - `docs/domains/asset.md`: Draft asset domain for Asset Registry-backed search,
   resolve, registry tags, and asset result text.
 - `docs/domains/blueprint.md`: Draft Blueprint domain for class contract,

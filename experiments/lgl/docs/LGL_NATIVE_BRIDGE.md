@@ -45,7 +45,7 @@ fix the underlying complexity:
 
 The LGL-native bridge should make query and patch the primary graph operations.
 Existing lower-level bridge capabilities can remain as internal mechanisms,
-debug tools, or migration aids.
+debug tools, or comparison aids.
 
 The LGL-native path must not call existing public graph tool implementations as
 its backend. If old code contains useful UE API logic, move the relevant logic
@@ -292,7 +292,7 @@ has two viable first steps:
 The first implementation can use hand-written structs if boundary validation
 prevents drift.
 
-## Migration Strategy
+## Implementation Sequence
 
 Do not rewrite the entire bridge at once, and do not implement the new path as a
 wrapper over the old public tools.

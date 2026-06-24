@@ -72,8 +72,6 @@ docs:
   component structure.
 - [`domains/widget.md`](domains/widget.md): widget tree constructors, slots,
   queries, and patches.
-- [`notes/graph-migration.md`](notes/graph-migration.md): migration notes for
-  remaining graph-domain implementation differences.
 
 ## Pipeline
 

@@ -28,13 +28,9 @@ The shared language core defines text kinds, bindings, constructors,
 references, arrays, inline object values, and statement lists. Domains define
 what those constructs mean for their UE area.
 
-Domain docs should be the source of truth for the target domain language. They
-may mention current implementation gaps, but the main body should describe the
-final target shape instead of reading like a migration checklist.
-
-Domain docs should keep public names stable when those names still match the
-target design. Deliberate renames belong in the relevant domain document and,
-for implemented areas, in migration notes.
+Domain docs should be the source of truth for the domain language. They should
+describe the intended syntax, object model, query behavior, patch behavior, and
+adapter boundary directly.
 
 ## Normalization Boundary
 
@@ -91,8 +87,8 @@ Each domain that supports queries must define:
 - pagination behavior and defaults
 
 For currently implemented domains, the normalized JSON section should describe
-the target schema and explicitly call out any current implementation gap that
-must be migrated.
+the current schema and explicitly call out any implementation gap that affects
+agent-facing behavior.
 
 ## Planned Domains
 
