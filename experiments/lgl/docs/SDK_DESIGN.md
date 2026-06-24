@@ -25,7 +25,7 @@ declare function createLgl(options?: CreateLglOptions): Lgl;
 ```
 
 The SDK facade accepts self-describing LGL text. Domain, asset, graph, query
-shape, patch target, palette bindings, and dry-run intent live in LGL text, not
+shape, patch target, creation entries, and dry-run intent live in LGL text, not
 in side parameters.
 
 Call sites should normally hold this facade as `lgl`:
@@ -118,27 +118,23 @@ remain unsupported in the stable form.
 Adapter/resolver responsibilities:
 
 - route by normalized domain target
-- resolve domain references, asset references, palette bindings, and creation
+- resolve domain references, asset references, palette entries, and creation
   entries
 - validate domain objects and operations against real domain state
 - validate graph-state-dependent operations such as graph `insert`
 - compute dry-run changes through the same path used by real mutation
 - apply mutations when dry run is not requested
 
-The first implementation checkpoint is a minimal TypeScript-only loop:
-parse representative LGL documents into normalized graph-domain JSON values,
-validate them against `schema/lgl-object.schema.json`, format them back to LGL
-text, and parse the formatted text again. This checkpoint intentionally does
-not invoke UE adapters.
+The TypeScript experiment now exercises this pipeline with schema validation,
+formatter/parser roundtrip tests, examples, and in-memory adapters for graph,
+asset, Blueprint, and widget domains. These adapters are test fixtures for the
+SDK contract. They must not become replacement models for Blueprint, Material,
+PCG, UMG, or other UE semantics.
 
-The in-memory graph adapter is a test fixture for this checkpoint. It exercises
-the adapter contract and basic query/patch result flow using `Graph` objects,
-but it must not become a replacement model for Blueprint, Material, PCG, or UE
-graph semantics.
-
-Graph adapter examples include resolving palette bindings, validating node
-types, validating pins and pin directions, checking existing edges for
-`insert`, and applying graph schema connect/disconnect legality.
+Adapter examples include resolving creation entries, validating graph pins and
+pin directions, checking existing edges for `insert`, applying graph schema
+connect/disconnect legality, filtering asset registry-like results, and
+planning Blueprint or widget patch changes.
 
 ## RPC Boundary
 
@@ -214,13 +210,14 @@ The machine contract is:
 schema/lgl-object.schema.json
 ```
 
-The current schema covers the implemented graph-domain contract plus shared
-result envelopes and diagnostics. As new domains become executable, the schema
-should extend to their normalized JSON objects. Accepted fixtures should
-validate representative object, query, patch, creation-entry, edge, and
-diagnostic objects. Rejected fixtures should cover contract boundaries such as
-required fields, closed object shapes, enum values, mutually exclusive fields,
-and reserved discriminators.
+The current schema covers the shared LGL object envelope plus graph, asset,
+Blueprint, widget, query, patch, creation-result, result, and diagnostic
+payloads. As new domains become executable, the schema should extend to their
+normalized JSON objects. Accepted fixtures should validate representative
+object, query, patch, creation-entry, edge, and diagnostic objects. Rejected
+fixtures should cover contract boundaries such as required fields, closed
+object shapes, enum values, mutually exclusive fields, and reserved
+discriminators.
 
 TypeScript object-model types are generated from this schema into
 `src/generated/lgl-object-schema.ts`. Public SDK facade types such as `Lgl`,
@@ -254,7 +251,7 @@ query request rather than describing the returned object.
 ```ts
 type LglText = string;
 interface TextResult { text?: LglText; diagnostics: Diagnostic[]; page?: Page; }
-interface ObjectResult { object?: unknown; diagnostics: Diagnostic[]; page?: Page; }
+interface ObjectResult { object?: LglObject; diagnostics: Diagnostic[]; page?: Page; }
 ```
 
 `ObjectResult` is the adapter/RPC result shape. `TextResult` is the public SDK
@@ -299,8 +296,8 @@ with pins
 ```ts
 interface Adapter {
   domain: string;
-  query(object: unknown): Promise<ObjectResult>;
-  patch(object: unknown): Promise<ObjectResult>;
+  query(object: Query): Promise<ObjectResult>;
+  patch?(object: Patch): Promise<ObjectResult>;
 }
 ```
 

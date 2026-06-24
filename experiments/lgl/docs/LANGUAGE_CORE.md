@@ -54,18 +54,26 @@ Shared normalized JSON:
 ```ts
 interface Binding {
   target: BindingTarget;
-  value: Expr;
+  value: BindingValue;
 }
 
 type BindingTarget =
   | { kind: "local"; name: string }
   | { kind: "member"; object: string; member: string };
+
+type BindingValue =
+  | Expr
+  | NodeCreation;
 ```
 
 Local targets cover ordinary aliases such as `g` or `print`. Member targets
 cover domain-owned stable members such as `delay.Duration`, `door.Health`, or
 `stack.start`. Domains define what member targets mean and whether they are
 valid for a given object.
+
+Most bindings normalize to `Expr`. Graph patch creation bindings may normalize
+to `NodeCreation` so semantic shortcuts and palette-id fallback remain explicit
+before adapter validation.
 
 ## Expressions And Values
 
@@ -353,12 +361,12 @@ Condition precedence follows the usual SQL subset: parentheses first, then
 Shared normalized JSON:
 
 ```ts
-interface Query<F extends object = object> {
+interface Query {
   kind: "query";
-  target: Ref;
-  find?: F;
+  target: Target;
+  find?: Find;
   where?: Condition;
-  with?: string[];
+  with?: Detail[];
   orderBy?: OrderBy[];
   page?: Page;
 }
@@ -460,12 +468,12 @@ pipeline described above.
 Shared normalized JSON:
 
 ```ts
-interface Patch<Op extends object = object> {
+interface Patch {
   kind: "patch";
   target: Target;
   dryRun: boolean;
   bindings: Binding[];
-  ops: Op[];
+  ops: PatchOp[];
 }
 ```
 
@@ -477,13 +485,88 @@ as `add <binding>` lowers before domain validation:
 add <binding> -> <binding> + domain add operation
 ```
 
-The current TypeScript implementation has a domain-owned patch envelope with
-graph operations implemented first. Blueprint and widget patch operations can
-extend the same `PatchOp` union without changing the envelope.
+`PatchOp` is the schema union of domain operation payloads. New domains add
+operation variants to that union without changing the patch envelope.
 
 Dry run is a mutation execution mode, not a separate language. A dry-run patch
 uses the same parse, resolve, validate, and plan path as a real patch, then
 stops before applying changes.
+
+## Creation Results
+
+Creation discovery is a query result pattern used by domains that need stable
+ways to create new objects, such as graph nodes or widget tree entries.
+
+Agent-facing query text uses domain find forms such as:
+
+```lgl
+find palette entry "Button"
+with defaults, properties
+```
+
+The returned object text should be directly copyable into patch text whenever
+possible:
+
+```lgl
+Button = Button(text: "")
+InventorySlot = widget(class: "/Game/UI/WBP_InventorySlot.WBP_InventorySlot_C")
+PluginFancy = widget(palette: "widget.palette:plugin-fancy")
+```
+
+Shared normalized JSON:
+
+```ts
+interface CreationResult {
+  kind: "creation_result";
+  target: Target;
+  entries: CreationEntry[];
+}
+
+type CreationEntry =
+  | ShortcutEntry
+  | ClassEntry
+  | PaletteEntry;
+
+interface ShortcutEntry {
+  name: string;
+  constructor: Call;
+  defaults?: Record<string, Expr>;
+  properties?: Property[];
+  pins?: Pin[];
+}
+
+interface ClassEntry {
+  name: string;
+  class: string;
+  label?: string;
+  category?: string;
+  defaults?: Record<string, Expr>;
+  properties?: Property[];
+}
+
+interface PaletteEntry {
+  name: string;
+  palette: PaletteSourceRef;
+  label?: string;
+  category?: string;
+  defaults?: Record<string, Expr>;
+  properties?: Property[];
+  pins?: Pin[];
+}
+
+interface Property {
+  name: string;
+  type: string;
+  default?: Expr;
+  writable?: boolean;
+  category?: string;
+}
+```
+
+`ShortcutEntry` is for semantic constructors that can be copied directly.
+`ClassEntry` is for class-path creation identities. `PaletteEntry` is the
+stable fallback when a domain needs an action, palette, or template id.
+Domains define which entry forms they return and how patch text consumes them.
 
 ## Results And Diagnostics
 
@@ -493,8 +576,8 @@ format successful objects back to LGL text.
 Shared normalized JSON:
 
 ```ts
-interface Result<T = unknown> {
-  object?: T;
+interface Result {
+  object?: LglObject;
   diagnostics: Diagnostic[];
   page?: {
     next?: string;
