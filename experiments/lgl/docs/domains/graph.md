@@ -993,10 +993,10 @@ Normalized JSON:
 
 ```ts
 type CreationEntry =
-  | ShortcutCreationEntry
-  | PaletteCreationEntry;
+  | ShortcutEntry
+  | PaletteEntry;
 
-interface ShortcutCreationEntry {
+interface ShortcutEntry {
   name: string;
   constructor: Call;
   label?: string;
@@ -1004,7 +1004,7 @@ interface ShortcutCreationEntry {
   defaults?: Record<string, Expr>;
 }
 
-interface PaletteCreationEntry {
+interface PaletteEntry {
   name: string;
   palette: {
     kind: "palette";

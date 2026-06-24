@@ -215,6 +215,7 @@ Widget query syntax:
 query <widget>
 find tree
 find widgets ["text"]
+find palette entry ["text"]
 where <condition>
 with <item>, <item>
 order by <key> asc|desc, <key> asc|desc
@@ -225,6 +226,12 @@ page after "cursor"
 For `find widgets`, the quoted text is the primary search text over widget name,
 class/type, and relevant display text. Use `where` for structured filters such
 as `type = Button`.
+
+For `find palette entry`, the quoted text is the primary search text over
+entry name, class path, palette id, label, and category. It returns creation
+entries that can be copied directly into patch text. Use `with defaults` to
+include common creation arguments and `with properties` to include writable
+property metadata.
 
 Exact widget lookup and parent-child queries use structured filters:
 
@@ -247,7 +254,8 @@ type WidgetQuery = Query<Find>;
 
 type Find =
   | FindTree
-  | FindWidgets;
+  | FindWidgets
+  | FindPaletteEntry;
 
 interface FindTree {
   kind: "tree";
@@ -255,6 +263,11 @@ interface FindTree {
 
 interface FindWidgets {
   kind: "widgets";
+  text?: string;
+}
+
+interface FindPaletteEntry {
+  kind: "palette_entry";
   text?: string;
 }
 ```
@@ -428,38 +441,46 @@ executing them:
 Normalized JSON:
 
 ```ts
-type WidgetPaletteResult = Result<CreationBinding>;
+interface CreationResult {
+  kind: "creation_result";
+  target: Target;
+  entries: CreationEntry[];
+}
 
-type CreationBinding =
-  | WidgetConstructor
-  | WidgetClassCreation
-  | WidgetPaletteCreation;
+type CreationEntry =
+  | ShortcutEntry
+  | WidgetClassEntry
+  | PaletteEntry;
 
-interface WidgetConstructor {
-  kind: "constructor";
+interface ShortcutEntry {
   name: string;
-  defaults?: Record<string, Value>;
+  constructor: Call;
+  defaults?: Record<string, Expr>;
   properties?: WidgetProperty[];
 }
 
-interface WidgetClassCreation {
-  kind: "class";
+interface WidgetClassEntry {
+  name: string;
   class: string;
-  defaults?: Record<string, Value>;
+  label?: string;
+  category?: string;
+  defaults?: Record<string, Expr>;
   properties?: WidgetProperty[];
 }
 
-interface WidgetPaletteCreation {
-  kind: "palette";
-  id: string;
-  defaults?: Record<string, Value>;
+interface PaletteEntry {
+  name: string;
+  palette: PaletteSourceRef;
+  label?: string;
+  category?: string;
+  defaults?: Record<string, Expr>;
   properties?: WidgetProperty[];
 }
 
 interface WidgetProperty {
   name: string;
   type: string;
-  default?: Value;
+  default?: Expr;
   writable?: boolean;
   category?: string;
 }
@@ -482,14 +503,19 @@ Patch operation names should stay close to UE widget tree operations:
 
 | Operation | Syntax | Example |
 | --- | --- | --- |
-| Add widget | `add parent.child = WidgetType(...)` | `add stack.help = Button(text: "Help")` |
+| Add widget | `add parent.child` or `add parent.child = WidgetType(...)` | `add stack.help = Button(text: "Help")` |
 | Set property | `set target = value` | `set title.text = "Main Menu"` |
 | Move widget | `move child before/after sibling` | `move help after start` |
 | Remove widget | `remove name` | `remove quit` |
 
 `add parent.child = WidgetType(...)` uses the shared patch sugar from the
 language core. Its canonical form is a child widget binding followed by
-`add child`.
+`add parent.child`:
+
+```lgl
+stack.help = Button(text: "Help")
+add stack.help
+```
 
 The TypeScript LGL experiment implements `add`, `set`, `move`, and `remove` in the
 in-memory widget adapter. The UE-backed adapter must route the same operations
@@ -550,11 +576,8 @@ WidgetDocument
 // Widget query and patch text
 type WidgetQuery = Query<Find>;
 type WidgetPatch = Patch<PatchOp>;
-type WidgetPaletteResult = Result<CreationBinding>;
+type WidgetPaletteResult = CreationResult;
 ```
-
-The current schema covers readback, query, and patch. Widget palette JSON is
-design-level until the widget palette parser and UE-backed adapter are added.
 
 ## Adapter Boundary
 

@@ -970,12 +970,12 @@
     },
     "CreationEntry": {
       "oneOf": [
-        { "$ref": "#/$defs/ShortcutCreationEntry" },
-        { "$ref": "#/$defs/WidgetClassCreationEntry" },
-        { "$ref": "#/$defs/PaletteCreationEntry" }
+        { "$ref": "#/$defs/ShortcutEntry" },
+        { "$ref": "#/$defs/WidgetClassEntry" },
+        { "$ref": "#/$defs/PaletteEntry" }
       ]
     },
-    "ShortcutCreationEntry": {
+    "ShortcutEntry": {
       "type": "object",
       "additionalProperties": false,
       "required": ["name", "constructor"],
@@ -996,7 +996,7 @@
         }
       }
     },
-    "PaletteCreationEntry": {
+    "PaletteEntry": {
       "type": "object",
       "additionalProperties": false,
       "required": ["name", "palette"],
@@ -1019,7 +1019,7 @@
         }
       }
     },
-    "WidgetClassCreationEntry": {
+    "WidgetClassEntry": {
       "type": "object",
       "additionalProperties": false,
       "required": ["name", "class"],
