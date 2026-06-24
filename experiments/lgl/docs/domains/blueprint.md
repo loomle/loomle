@@ -155,6 +155,65 @@ type Member =
   | Macro
   | Dispatcher
   | Event;
+
+interface Variable {
+  kind: "variable";
+  name: string;
+  type: Ref | Name;
+  default?: Value;
+  category?: string;
+  replication?: Name;
+  exposeOnSpawn?: boolean;
+  private?: boolean;
+  metadata?: Record<string, Value>;
+  guid?: string;
+}
+
+interface Function {
+  kind: "function";
+  name: string;
+  inputs?: Parameter[];
+  outputs?: Parameter[];
+  pure?: boolean;
+  const?: boolean;
+  override?: boolean;
+  owner?: Ref;
+  graph?: Ref;
+  metadata?: Record<string, Value>;
+}
+
+interface Macro {
+  kind: "macro";
+  name: string;
+  inputs?: Parameter[];
+  outputs?: Parameter[];
+  graph?: Ref;
+  metadata?: Record<string, Value>;
+}
+
+interface Dispatcher {
+  kind: "dispatcher";
+  name: string;
+  inputs?: Parameter[];
+  graph?: Ref;
+  metadata?: Record<string, Value>;
+}
+
+interface Event {
+  kind: "event";
+  name: string;
+  inputs?: Parameter[];
+  replication?: Name;
+  reliable?: boolean;
+  graph?: Ref;
+  metadata?: Record<string, Value>;
+}
+
+interface Parameter {
+  name: string;
+  type: Ref | Name;
+  default?: Value;
+}
 ```
 
 ### Variables
@@ -176,23 +235,6 @@ door.Health = variable(
 The declaration contains type, flags, category, metadata, replication, and
 editor-facing exposure settings. Runtime default overrides may also appear as
 `door.default.Health` when the object text is describing CDO state.
-
-Normalized JSON:
-
-```ts
-interface Variable {
-  kind: "variable";
-  name: string;
-  type: Ref | Name;
-  default?: Value;
-  category?: string;
-  replication?: Name;
-  exposeOnSpawn?: boolean;
-  private?: boolean;
-  metadata?: Record<string, Value>;
-  guid?: string;
-}
-```
 
 ### Functions And Macros
 
@@ -219,38 +261,6 @@ door.GetBodyMesh = function(override: true, owner: "/Script/Oasium.OasiumAvatarB
 The adapter must resolve overrides through UE's override lookup path rather
 than creating a same-named user function graph.
 
-Normalized JSON:
-
-```ts
-interface Function {
-  kind: "function";
-  name: string;
-  inputs?: Parameter[];
-  outputs?: Parameter[];
-  pure?: boolean;
-  const?: boolean;
-  override?: boolean;
-  owner?: Ref;
-  graph?: Ref;
-  metadata?: Record<string, Value>;
-}
-
-interface Macro {
-  kind: "macro";
-  name: string;
-  inputs?: Parameter[];
-  outputs?: Parameter[];
-  graph?: Ref;
-  metadata?: Record<string, Value>;
-}
-
-interface Parameter {
-  name: string;
-  type: Ref | Name;
-  default?: Value;
-}
-```
-
 ### Dispatchers
 
 Dispatchers are multicast delegate variables plus delegate signature graphs:
@@ -261,18 +271,6 @@ door.OnOpened = dispatcher(inputs: [instigator: Actor])
 
 LGL should expose them as dispatchers, not as ordinary variables, even though UE
 stores part of the state through member-variable machinery.
-
-Normalized JSON:
-
-```ts
-interface Dispatcher {
-  kind: "dispatcher";
-  name: string;
-  inputs?: Parameter[];
-  graph?: Ref;
-  metadata?: Record<string, Value>;
-}
-```
 
 ### Custom Events
 
@@ -285,20 +283,6 @@ door.OnDoorOpened = event(inputs: [instigator: Actor], replication: server, reli
 
 Custom events support inputs, not return values. Graph placement and wiring are
 graph concerns.
-
-Normalized JSON:
-
-```ts
-interface Event {
-  kind: "event";
-  name: string;
-  inputs?: Parameter[];
-  replication?: Name;
-  reliable?: boolean;
-  graph?: Ref;
-  metadata?: Record<string, Value>;
-}
-```
 
 Component-bound events are different from custom events. They are graph nodes
 bound to a component property and a multicast delegate property:
@@ -551,23 +535,6 @@ same operations through UE-owned Blueprint, member, and component edit paths.
 
 The adapter determines whether an operation target is a class field, member, or
 component, then routes through the corresponding UE-owned path.
-
-## Normalized JSON
-
-Blueprint normalized JSON is defined beside each feature above. The summary
-below shows the top-level blueprint-domain payloads:
-
-```ts
-// Blueprint object text
-Blueprint
-
-// Blueprint query and patch text
-Query with target.domain = "blueprint" and find = Find
-Patch with target.domain = "blueprint" and ops = PatchOp[]
-```
-
-Text is for agents. Normalized JSON is for schema validation, RPC, generated
-types, and bridge adapters.
 
 ## Adapter Boundary
 

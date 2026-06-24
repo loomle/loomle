@@ -223,22 +223,6 @@ design.
 
 There is no `AssetPatch` in the current asset domain target model.
 
-## Normalized JSON
-
-Asset normalized JSON is defined beside each feature above. The summary below
-shows the top-level asset-domain payloads:
-
-```ts
-// Asset query text
-Query with target.domain = "asset" and find = FindAssets
-
-// Asset object text
-AssetResult
-```
-
-Text is for agents. Normalized JSON is for schema validation, RPC, generated
-types, and bridge adapters.
-
 ## Adapter Boundary
 
 Pure LGL normalization may:

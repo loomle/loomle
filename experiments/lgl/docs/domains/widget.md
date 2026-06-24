@@ -50,11 +50,13 @@ Structural `{}` blocks are not used.
 | Child widget | `parent.child = WidgetType(props...)` | `stack.start = Button(text: "Start")` |
 | Slot metadata | `slot: value` | `stack.start = Button(text: "Start", slot: fill)` |
 
-Widget asset identity uses the asset domain and named arguments. Avoid
-positional asset constructors:
+Widget asset identity uses the asset domain and named arguments. Widget
+constructors also use named arguments. Avoid positional forms:
 
 ```lgl
 widget("/Game/UI/WBP_Menu.WBP_Menu")
+Button("Start")
+VerticalBox([title, start])
 ```
 
 Prefer:
@@ -84,30 +86,6 @@ interface Node {
 
 Sibling order is derived from statement order for each parent. LGL text does
 not require agents to write explicit order fields.
-
-## Constructors
-
-Widget constructors use named arguments:
-
-```lgl
-title = TextBlock(text: "Main Menu", fontSize: 32)
-start = Button(text: "Start")
-mainCanvas = CanvasPanel()
-```
-
-Do not use positional widget constructors:
-
-```lgl
-Button("Start")
-VerticalBox([title, start])
-```
-
-Named arguments cost a few more tokens but avoid schema-order guessing:
-
-```lgl
-Button(text: "Start")
-VerticalBox()
-```
 
 ## Tree Sugar
 
@@ -143,24 +121,8 @@ Canonical text uses `parent` and preserves statement order. Normalized JSON
 should not need a separate `children` array; child lists can be derived from
 parent plus order.
 
-## Tree Object Text
-
-Widget tree query results should prefer editor-order tree sugar:
-
-```lgl
-menuAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: widget)
-menu = widget(asset: menuAsset, root: mainCanvas)
-
-mainCanvas = CanvasPanel()
-mainCanvas.stack = VerticalBox()
-stack.title = TextBlock(text: "Main Menu", fontSize: 32)
-stack.start = Button(text: "Start")
-stack.quit = Button(text: "Quit")
-```
-
-This format is flat, streamable, and close to the hierarchy shown in the UMG
-editor. Agents can read a line such as `stack.start = ...` without scanning
-the root tree to know the widget's parent.
+Widget query results should prefer editor-order tree sugar. The format is
+flat, streamable, and close to the hierarchy shown in the UMG editor.
 
 ## Slots
 
@@ -277,9 +239,8 @@ fields, expansions, sort keys, and pagination defaults.
 ## Palette
 
 Widget palette queries discover creation forms for widget patching. They use
-the same `find palette entry` shape as other domains, but widget results should
-prefer the most direct creation text rather than forcing every entry through a
-palette id.
+the same `find palette entry` shape as other domains, but results prefer the
+most direct creation text rather than forcing every entry through a palette id.
 
 ```lgl
 query menu
@@ -288,38 +249,19 @@ with defaults
 page limit 10
 ```
 
-Widget palette result text is ordered by how directly the agent can use it in a
-patch:
+Default results stay compact:
 
 ```lgl
 Button = Button()
 TextBlock = TextBlock()
-InventorySlot = widget(class: "/Game/UI/WBP_InventorySlot.WBP_InventorySlot_C")
-PluginFancy = widget(palette: "widget.palette:...")
 ```
 
-`with defaults` asks the adapter to include common writable creation arguments
-that are useful immediately in patch text:
-
-```lgl
-query menu
-find palette entry "Button"
-with defaults
-```
-
-Example result:
+`with defaults` includes common writable creation arguments that are useful
+immediately in patch text:
 
 ```lgl
 Button = Button(text: "")
 TextBlock = TextBlock(text: "", fontSize: 24)
-```
-
-Without `with defaults`, palette results should stay compact and omit optional
-arguments:
-
-```lgl
-Button = Button()
-TextBlock = TextBlock()
 ```
 
 `with properties` asks the adapter to include writable property metadata for
@@ -327,15 +269,6 @@ the returned creation entries. Property metadata is descriptive; patch text
 still writes properties as constructor arguments or `set widget.property = ...`.
 
 ```lgl
-query menu
-find palette entry "Button"
-with properties
-```
-
-Example result:
-
-```lgl
-Button = Button()
 Button.text = property(type: string, default: "", writable: true)
 ```
 
@@ -381,40 +314,15 @@ add stack.slot = widget(class: "/Game/UI/WBP_InventorySlot.WBP_InventorySlot_C")
 add stack.fancy = widget(palette: "widget.palette:...")
 ```
 
-Widget palette differs from Blueprint graph palette. UMG widget creation is
-class-driven: the adapter can create most widgets by resolving a `UWidget`
-class and calling the WidgetTree creation path. Blueprint graph node creation
-often needs Action Menu spawner state beyond the node class, so graph keeps
-palette ids as a more important fallback.
+Widget palette is class-driven. Common native widgets return constructor
+entries such as `Button()` and `TextBlock()`. User widgets and WidgetBlueprint
+assets return `widget(class: "...")`. Special templates that cannot be
+represented by constructor or class path return `widget(palette: "...")`.
 
-Widget palette queries are contextual. The UE-backed adapter should evaluate
-entries against the target WidgetBlueprint and UE palette filtering rules:
-hidden and deprecated classes, editor-only widgets, project palette settings,
-the active WidgetBlueprint class, and unloaded WidgetBlueprint assets.
-
-### UE-Backed Adapter Rules
-
-The UE-backed adapter should model the UMG editor palette, not the older bridge
-shortcut that only enumerated loaded classes.
-
-Collection sources:
-
-1. Loaded native classes derived from `UWidget`.
-2. Loaded user widget classes derived from `UUserWidget`.
-3. Unloaded WidgetBlueprint and generated class assets discovered through the
-   Asset Registry.
-4. Project/editor palette filters such as hidden classes, deprecated classes,
-   editor-only widgets, engine/developer content visibility, and hidden
-   categories.
-
-Classification rules:
-
-1. Common native widgets with stable LGL meaning return constructor entries,
-   such as `Button()`, `TextBlock()`, `CanvasPanel()`, and `VerticalBox()`.
-2. User widgets, WidgetBlueprint assets, and plugin/native widgets whose class
-   path is the complete creation identity return `widget(class: "...")`.
-3. Special templates that cannot be represented by constructor or class path
-   return `widget(palette: "...")`.
+The UE-backed adapter should model the UMG editor palette, including native
+`UWidget` classes, user widget classes, unloaded WidgetBlueprint assets from
+the Asset Registry, hidden/deprecated/editor-only filtering, and project
+palette settings.
 
 `with defaults` is intentionally small. It should return common writable
 creation arguments that make immediate patch authoring easier. `with
@@ -557,26 +465,6 @@ Widget patch text uses the shared `Patch` envelope with `target.domain =
 
 The adapter resolves targets to WidgetTree instances and applies operations
 through UMG WidgetTree APIs.
-
-## Normalized JSON
-
-Widget normalized JSON is defined beside each feature above. The summary below
-shows the top-level widget-domain payloads:
-
-```ts
-interface WidgetResult {
-  kind: "widget_result";
-  documents: WidgetDocument[];
-}
-
-// Widget object text
-WidgetDocument
-
-// Widget query and patch text
-Query with target.domain = "widget" and find = Find
-Patch with target.domain = "widget" and ops = PatchOp[]
-CreationResult
-```
 
 ## Adapter Boundary
 
