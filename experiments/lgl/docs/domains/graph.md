@@ -265,8 +265,6 @@ Query text uses one clause per line. Keep the full condition expression on the
 Normalized JSON:
 
 ```ts
-type GraphQuery = Query<GraphFind>;
-
 type GraphFind =
   | FindNodes
   | FindPath
@@ -293,9 +291,11 @@ interface FindPaletteEntry {
 }
 ```
 
-`where`, `with`, `orderBy`, and `page` use the shared query model from the
-language core. The graph domain validates allowed fields, expansions, sort
-keys, and whether a pin context is legal for the selected find form.
+Graph query text uses the shared `Query` envelope with `target.domain =
+"graph"` and `find = GraphFind`. `where`, `with`, `orderBy`, and `page` use
+the shared query model from the language core. The graph domain validates
+allowed fields, expansions, sort keys, and whether a pin context is legal for
+the selected find form.
 
 ## Patch
 
@@ -1092,9 +1092,8 @@ interface Graph {
   pins?: Pin[];
 }
 
-type GraphQuery = Query<GraphFind>;
-
-type GraphPatch = Patch<GraphPatchOp>;
+Query with target.domain = "graph" and find = GraphFind
+Patch with target.domain = "graph" and ops = GraphPatchOp[]
 ```
 
 Implementation migration details live in

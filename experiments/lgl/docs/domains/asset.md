@@ -127,17 +127,16 @@ Registry tags.
 Normalized JSON:
 
 ```ts
-type AssetQuery = Query<FindAssets>;
-
 interface FindAssets {
   kind: "assets";
   text?: string;
 }
 ```
 
-`where`, `with`, `orderBy`, and `page` use the shared query model from the
-language core. The asset domain validates allowed fields, expansions, sort
-keys, and pagination defaults.
+Asset query text uses the shared `Query` envelope with `target.domain =
+"asset"` and `find = FindAssets`. `where`, `with`, `orderBy`, and `page` use
+the shared query model from the language core. The asset domain validates
+allowed fields, expansions, sort keys, and pagination defaults.
 
 ## Results
 
@@ -163,7 +162,10 @@ behavior outside default search.
 Normalized JSON:
 
 ```ts
-type AssetResult = Result<Asset[]>;
+interface AssetResult {
+  kind: "asset_result";
+  assets: Asset[];
+}
 ```
 
 The formatter turns asset result objects into canonical asset bindings.
@@ -226,8 +228,11 @@ Asset normalized JSON is defined beside each feature above. The summary below
 shows the top-level asset-domain payloads:
 
 ```ts
-type AssetQuery = Query<FindAssets>;
-type AssetResult = Result<Asset[]>;
+// Asset query text
+Query with target.domain = "asset" and find = FindAssets
+
+// Asset object text
+AssetResult
 ```
 
 Text is for agents. Normalized JSON is for schema validation, RPC, generated

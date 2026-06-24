@@ -250,8 +250,6 @@ are future UE-backed adapter work, not part of the current TypeScript adapter.
 Normalized JSON:
 
 ```ts
-type WidgetQuery = Query<Find>;
-
 type Find =
   | FindTree
   | FindWidgets
@@ -272,9 +270,10 @@ interface FindPaletteEntry {
 }
 ```
 
-`where`, `with`, `orderBy`, and `page` use the shared query model from the
-language core. The widget domain validates allowed fields, expansions, sort
-keys, and pagination defaults.
+Widget query text uses the shared `Query` envelope with `target.domain =
+"widget"` and `find = Find`. `where`, `with`, `orderBy`, and `page` use the
+shared query model from the language core. The widget domain validates allowed
+fields, expansions, sort keys, and pagination defaults.
 
 ## Palette
 
@@ -524,8 +523,6 @@ through UMG WidgetTree APIs and slot/property edit paths.
 Normalized JSON:
 
 ```ts
-type WidgetPatch = Patch<PatchOp>;
-
 type PatchOp =
   | Add
   | Set
@@ -556,6 +553,9 @@ interface Remove {
 }
 ```
 
+Widget patch text uses the shared `Patch` envelope with `target.domain =
+"widget"` and `ops = PatchOp[]`.
+
 The adapter resolves targets to WidgetTree instances and applies operations
 through UMG WidgetTree APIs.
 
@@ -574,9 +574,9 @@ interface WidgetResult {
 WidgetDocument
 
 // Widget query and patch text
-type WidgetQuery = Query<Find>;
-type WidgetPatch = Patch<PatchOp>;
-type WidgetPaletteResult = CreationResult;
+Query with target.domain = "widget" and find = Find
+Patch with target.domain = "widget" and ops = PatchOp[]
+CreationResult
 ```
 
 ## Adapter Boundary

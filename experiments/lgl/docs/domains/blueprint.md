@@ -453,8 +453,6 @@ Supported first-pass `order by` keys:
 Normalized JSON:
 
 ```ts
-type BlueprintQuery = Query<Find>;
-
 type Find =
   | FindClass
   | FindMembers
@@ -475,9 +473,10 @@ interface FindComponents {
 }
 ```
 
-`where`, `with`, `orderBy`, and `page` use the shared query model from the
-language core. The blueprint domain validates allowed fields, expansions, sort
-keys, and pagination defaults.
+Blueprint query text uses the shared `Query` envelope with `target.domain =
+"blueprint"` and `find = Find`. `where`, `with`, `orderBy`, and `page` use the
+shared query model from the language core. The blueprint domain validates
+allowed fields, expansions, sort keys, and pagination defaults.
 
 ## Patch
 
@@ -520,8 +519,6 @@ form is a member or component binding followed by `add target`.
 Normalized JSON:
 
 ```ts
-type BlueprintPatch = Patch<PatchOp>;
-
 type PatchOp =
   | Set
   | Add
@@ -546,6 +543,9 @@ interface Remove {
 }
 ```
 
+Blueprint patch text uses the shared `Patch` envelope with `target.domain =
+"blueprint"` and `ops = PatchOp[]`.
+
 The TypeScript LGL experiment implements `add`, `set`, `remove`, `rename`, and
 component `move` in the in-memory adapter. The UE-backed adapter must route the
 same operations through UE-owned Blueprint, member, and component edit paths.
@@ -563,8 +563,8 @@ below shows the top-level blueprint-domain payloads:
 Blueprint
 
 // Blueprint query and patch text
-type BlueprintQuery = Query<Find>;
-type BlueprintPatch = Patch<PatchOp>;
+Query with target.domain = "blueprint" and find = Find
+Patch with target.domain = "blueprint" and ops = PatchOp[]
 ```
 
 Text is for agents. Normalized JSON is for schema validation, RPC, generated
