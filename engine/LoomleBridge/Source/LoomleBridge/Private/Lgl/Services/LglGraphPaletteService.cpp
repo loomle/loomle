@@ -3,8 +3,10 @@
 #include "LglGraphPaletteService.h"
 
 #include "BlueprintActionFilter.h"
+#include "BlueprintActionMenuItem.h"
 #include "BlueprintActionMenuBuilder.h"
 #include "BlueprintActionMenuUtils.h"
+#include "BlueprintNodeSpawner.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "EdGraph/EdGraph.h"
@@ -158,13 +160,25 @@ bool HasField(const FLglObjectRequest& Request, const FString& Field)
     return Request.Object.IsValid() && Request.Object->HasField(Field);
 }
 
-bool HasDetails(const FLglObjectRequest& Request)
+bool QueryIncludes(const FLglObjectRequest& Request, const FString& Detail)
 {
     const TArray<TSharedPtr<FJsonValue>>* Details = nullptr;
-    return Request.Object.IsValid()
-        && Request.Object->TryGetArrayField(TEXT("with"), Details)
-        && Details != nullptr
-        && Details->Num() > 0;
+    if (!Request.Object.IsValid()
+        || !Request.Object->TryGetArrayField(TEXT("with"), Details)
+        || Details == nullptr)
+    {
+        return false;
+    }
+
+    for (const TSharedPtr<FJsonValue>& Value : *Details)
+    {
+        FString Text;
+        if (Value.IsValid() && Value->TryGetString(Text) && Text == Detail)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 FLglObjectResult UnsupportedPaletteFeature(const FString& Feature, const FString& Suggestion)
@@ -229,6 +243,45 @@ int32 ActionScore(const TSharedPtr<FEdGraphSchemaAction>& Action, const FString&
         return 20;
     }
     return 30;
+}
+
+FString PinDirection(const UEdGraphPin* Pin)
+{
+    return Pin != nullptr && Pin->Direction == EGPD_Output ? TEXT("out") : TEXT("in");
+}
+
+FString PinType(const UEdGraphPin* Pin)
+{
+    if (Pin == nullptr)
+    {
+        return TEXT("unknown");
+    }
+    if (!Pin->PinType.PinCategory.IsNone())
+    {
+        return Pin->PinType.PinCategory.ToString();
+    }
+    return TEXT("unknown");
+}
+
+FString PinDefaultValue(const UEdGraphPin* Pin)
+{
+    if (Pin == nullptr)
+    {
+        return FString();
+    }
+    if (!Pin->DefaultValue.IsEmpty())
+    {
+        return Pin->DefaultValue;
+    }
+    if (Pin->DefaultObject != nullptr)
+    {
+        return Pin->DefaultObject->GetPathName();
+    }
+    if (!Pin->DefaultTextValue.IsEmpty())
+    {
+        return Pin->DefaultTextValue.ToString();
+    }
+    return FString();
 }
 
 FString PaletteActionId(const TSharedPtr<FEdGraphSchemaAction>& Action, int32 Index)
@@ -356,20 +409,58 @@ bool ResolvePinContext(
     return true;
 }
 
+UEdGraphNode* TemplateNodeForAction(
+    const TSharedPtr<FEdGraphSchemaAction>& Action,
+    const FLglResolvedGraph& ResolvedGraph)
+{
+    if (!Action.IsValid() || Action->GetTypeId() != FBlueprintActionMenuItem::StaticGetTypeId())
+    {
+        return nullptr;
+    }
+
+    const FBlueprintActionMenuItem* MenuItem = static_cast<const FBlueprintActionMenuItem*>(Action.Get());
+    const UBlueprintNodeSpawner* Spawner = MenuItem != nullptr ? MenuItem->GetRawAction() : nullptr;
+    UEdGraphNode* TemplateNode = Spawner != nullptr ? Spawner->GetTemplateNode(ResolvedGraph.Graph) : nullptr;
+    if (TemplateNode != nullptr && TemplateNode->Pins.Num() == 0)
+    {
+        TemplateNode->AllocateDefaultPins();
+    }
+    return TemplateNode;
+}
+
+TSharedPtr<FJsonObject> EncodeTemplatePin(const UEdGraphPin* Pin, const FString& EntryName, bool bIncludeDefaults)
+{
+    TSharedPtr<FJsonObject> Object = MakeShared<FJsonObject>();
+    Object->SetStringField(TEXT("node"), EntryName);
+    Object->SetStringField(TEXT("name"), Pin != nullptr ? Pin->PinName.ToString() : FString());
+    Object->SetStringField(TEXT("type"), PinType(Pin));
+    Object->SetStringField(TEXT("direction"), PinDirection(Pin));
+    const FString DefaultValue = bIncludeDefaults ? PinDefaultValue(Pin) : FString();
+    if (!DefaultValue.IsEmpty())
+    {
+        Object->SetStringField(TEXT("value"), DefaultValue);
+    }
+    return Object;
+}
+
 TSharedPtr<FJsonObject> EncodePaletteEntry(
     const TSharedPtr<FEdGraphSchemaAction>& Action,
     int32 Index,
-    TSet<FString>& UsedNames)
+    TSet<FString>& UsedNames,
+    const FLglResolvedGraph& ResolvedGraph,
+    bool bIncludePins,
+    bool bIncludeDefaults)
 {
     const FString Label = Action.IsValid() ? TextToString(Action->GetMenuDescription()) : FString();
     const FString Category = Action.IsValid() ? TextToString(Action->GetCategory()) : FString();
+    const FString EntryName = MakeUniqueName(Label, UsedNames);
 
     TSharedPtr<FJsonObject> PaletteRef = MakeShared<FJsonObject>();
     PaletteRef->SetStringField(TEXT("kind"), TEXT("palette"));
     PaletteRef->SetStringField(TEXT("id"), PaletteActionId(Action, Index));
 
     TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
-    Entry->SetStringField(TEXT("name"), MakeUniqueName(Label, UsedNames));
+    Entry->SetStringField(TEXT("name"), EntryName);
     Entry->SetObjectField(TEXT("palette"), PaletteRef);
     if (!Label.IsEmpty())
     {
@@ -378,6 +469,42 @@ TSharedPtr<FJsonObject> EncodePaletteEntry(
     if (!Category.IsEmpty())
     {
         Entry->SetStringField(TEXT("category"), Category);
+    }
+
+    if (bIncludePins || bIncludeDefaults)
+    {
+        if (UEdGraphNode* TemplateNode = TemplateNodeForAction(Action, ResolvedGraph))
+        {
+            TArray<TSharedPtr<FJsonValue>> Pins;
+            TSharedPtr<FJsonObject> Defaults = MakeShared<FJsonObject>();
+
+            for (const UEdGraphPin* Pin : TemplateNode->Pins)
+            {
+                if (Pin == nullptr)
+                {
+                    continue;
+                }
+
+                const FString DefaultValue = PinDefaultValue(Pin);
+                if (bIncludePins)
+                {
+                    Pins.Add(MakeShared<FJsonValueObject>(EncodeTemplatePin(Pin, EntryName, bIncludeDefaults)));
+                }
+                if (bIncludeDefaults && Pin->Direction == EGPD_Input && !DefaultValue.IsEmpty())
+                {
+                    Defaults->SetStringField(Pin->PinName.ToString(), DefaultValue);
+                }
+            }
+
+            if (bIncludePins)
+            {
+                Entry->SetArrayField(TEXT("pins"), Pins);
+            }
+            if (bIncludeDefaults)
+            {
+                Entry->SetObjectField(TEXT("defaults"), Defaults);
+            }
+        }
     }
     return Entry;
 }
@@ -428,15 +555,11 @@ FLglObjectResult FLglGraphPaletteService::QueryPaletteEntries(
             TEXT("orderBy"),
             TEXT("Palette entries are currently sorted by text match score and UE action order."));
     }
-    if (HasDetails(Request))
-    {
-        return UnsupportedPaletteFeature(
-            TEXT("with details"),
-            TEXT("Query palette entries without with pins/defaults until template-node detail expansion is implemented."));
-    }
 
     const FString Text = ReadFindText(Request);
     const int32 Limit = ReadPageLimit(Request);
+    const bool bIncludePins = QueryIncludes(Request, TEXT("pins"));
+    const bool bIncludeDefaults = QueryIncludes(Request, TEXT("defaults"));
 
     TArray<UEdGraphPin*> ContextPins;
     FLglObjectResult Error;
@@ -478,7 +601,13 @@ FLglObjectResult FLglGraphPaletteService::QueryPaletteEntries(
         {
             break;
         }
-        Entries.Add(MakeShared<FJsonValueObject>(EncodePaletteEntry(Match.Action, Match.Index, UsedNames)));
+        Entries.Add(MakeShared<FJsonValueObject>(EncodePaletteEntry(
+            Match.Action,
+            Match.Index,
+            UsedNames,
+            ResolvedGraph,
+            bIncludePins,
+            bIncludeDefaults)));
     }
 
     TSharedPtr<FJsonObject> Object = MakeShared<FJsonObject>();
