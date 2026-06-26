@@ -71,4 +71,33 @@ TSharedPtr<FJsonObject> FLglModule::BuildQueryResult(const TSharedPtr<FJsonObjec
     }
     return FLglJsonCodec::EncodeObjectResult(Result);
 }
+
+TSharedPtr<FJsonObject> FLglModule::BuildPatchResult(const TSharedPtr<FJsonObject>& Arguments)
+{
+    constexpr const TCHAR* Method = TEXT("lgl.patch");
+    FLglObjectRequest Request;
+    FLglObjectResult Error;
+    if (!FLglJsonCodec::DecodeObjectRequest(Method, Arguments, Request, Error))
+    {
+        return FLglJsonCodec::EncodeObjectResult(Error);
+    }
+
+    if (!FLglSchemaValidator::ValidateRequest(Request, TEXT("patch"), Error))
+    {
+        return FLglJsonCodec::EncodeObjectResult(Error);
+    }
+
+    const TSharedPtr<FJsonObject> Target = Request.Object->GetObjectField(TEXT("target"));
+    FString Domain;
+    Target->TryGetStringField(TEXT("domain"), Domain);
+
+    FLglAdapterRegistry Registry = BuildRegistry();
+    ILglDomainAdapter* Adapter = Registry.Find(Domain);
+    FLglObjectResult Result = Adapter ? Adapter->Patch(Request) : UnsupportedDomain(Method, Domain);
+    if (!FLglSchemaValidator::ValidateResult(Result, Error))
+    {
+        return FLglJsonCodec::EncodeObjectResult(Error);
+    }
+    return FLglJsonCodec::EncodeObjectResult(Result);
+}
 }

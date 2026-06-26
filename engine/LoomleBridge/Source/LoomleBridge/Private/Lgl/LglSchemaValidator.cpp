@@ -349,7 +349,7 @@ bool FLglSchemaValidator::ValidateRequest(
         OutError = InvalidObject(
             FString::Printf(TEXT("%s expects object.kind = %s, got %s."), *Request.Method, *ExpectedKind, *Kind),
             ExpectedKind.Equals(TEXT("query"))
-                ? TEXT("Use lgl.patch for patch objects once that RPC exists.")
+                ? TEXT("Use lgl.patch for patch objects.")
                 : TEXT("Use lgl.query for query objects."));
         return false;
     }

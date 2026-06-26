@@ -20,9 +20,11 @@ lgl.query
 lgl.patch
 ```
 
-The current milestone registers and implements only `lgl.query`. `lgl.patch`
-is the next mutation milestone after query readback is working against live UE
-state.
+The current milestone registers `lgl.query` and `lgl.patch`. `lgl.query`
+performs live readback. `lgl.patch` starts with the shared patch boundary and
+mutation result envelope; domain edit operations must return clear
+`not_implemented` diagnostics until they share parse, resolve, validate, plan,
+and apply paths.
 
 `lgl.query` and `lgl.patch` receive an object envelope:
 

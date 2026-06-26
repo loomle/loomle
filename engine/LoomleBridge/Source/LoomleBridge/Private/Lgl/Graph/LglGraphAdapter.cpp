@@ -7,6 +7,7 @@
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
 #include "EdGraph/EdGraphPin.h"
+#include "../../LoomleMutationResult.h"
 #include "../LglCapabilityValidator.h"
 #include "../LglDiagnostics.h"
 #include "../LglResult.h"
@@ -711,6 +712,91 @@ TSharedPtr<FJsonObject> BuildGraphReadback(
     return Result;
 }
 
+TArray<TSharedPtr<FJsonValue>> ReadPatchOps(const FLglObjectRequest& Request)
+{
+    const TArray<TSharedPtr<FJsonValue>>* Ops = nullptr;
+    if (!Request.Object.IsValid() || !Request.Object->TryGetArrayField(TEXT("ops"), Ops) || Ops == nullptr)
+    {
+        return {};
+    }
+    return *Ops;
+}
+
+FString ReadPatchOpKind(const TSharedPtr<FJsonValue>& OpValue)
+{
+    const TSharedPtr<FJsonObject>* OpObject = nullptr;
+    if (!OpValue.IsValid() || !OpValue->TryGetObject(OpObject) || OpObject == nullptr || !(*OpObject).IsValid())
+    {
+        return FString();
+    }
+
+    FString Kind;
+    (*OpObject)->TryGetStringField(TEXT("kind"), Kind);
+    return Kind;
+}
+
+TSharedPtr<FJsonValue> MakePatchDiagnostic(
+    const FString& Severity,
+    const FString& Code,
+    const FString& Message,
+    int32 Index,
+    const FString& Operation)
+{
+    TSharedPtr<FJsonObject> Diagnostic = FLglDiagnostics::Make(Severity, Code, Message);
+    Diagnostic->SetStringField(TEXT("domain"), TEXT("graph"));
+    Diagnostic->SetStringField(TEXT("operation"), Operation);
+    TArray<TSharedPtr<FJsonValue>> Path;
+    Path.Add(MakeShared<FJsonValueString>(TEXT("ops")));
+    Path.Add(MakeShared<FJsonValueNumber>(Index));
+    Diagnostic->SetArrayField(TEXT("path"), Path);
+    return MakeShared<FJsonValueObject>(Diagnostic);
+}
+
+TSharedPtr<FJsonObject> BuildGraphPatchResolvedRefs(const FLglResolvedGraph& ResolvedGraph)
+{
+    TSharedPtr<FJsonObject> ResolvedRefs = MakeShared<FJsonObject>();
+
+    TSharedPtr<FJsonObject> Asset = MakeShared<FJsonObject>();
+    Asset->SetStringField(TEXT("path"), ResolvedGraph.AssetPath);
+    ResolvedRefs->SetObjectField(TEXT("asset"), Asset);
+
+    TSharedPtr<FJsonObject> Graph = MakeShared<FJsonObject>();
+    Graph->SetStringField(TEXT("name"), ResolvedGraph.GraphName);
+    if (!ResolvedGraph.GraphId.IsEmpty())
+    {
+        Graph->SetStringField(TEXT("id"), ResolvedGraph.GraphId);
+    }
+    ResolvedRefs->SetObjectField(TEXT("graph"), Graph);
+
+    return ResolvedRefs;
+}
+
+TSharedPtr<FJsonObject> BuildGraphPatchPlan(
+    const FString& AssetPath,
+    const TArray<TSharedPtr<FJsonValue>>& Ops,
+    const TSharedPtr<FJsonObject>& ResolvedRefs)
+{
+    TArray<TSharedPtr<FJsonValue>> PlannedCommands;
+    PlannedCommands.Reserve(Ops.Num());
+    for (int32 Index = 0; Index < Ops.Num(); ++Index)
+    {
+        const FString Kind = ReadPatchOpKind(Ops[Index]);
+        TSharedPtr<FJsonObject> Command = MakeShared<FJsonObject>();
+        Command->SetNumberField(TEXT("index"), Index);
+        Command->SetStringField(TEXT("op"), Kind.IsEmpty() ? TEXT("unknown") : Kind);
+        Command->SetBoolField(TEXT("valid"), false);
+        Command->SetBoolField(TEXT("changed"), false);
+        Command->SetStringField(TEXT("errorCode"), TEXT("capability.not_implemented"));
+        PlannedCommands.Add(MakeShared<FJsonValueObject>(Command));
+    }
+    return LoomleMutation::BuildBatchPlan(
+        TEXT("lgl.graph.patch"),
+        AssetPath,
+        TEXT("patch"),
+        PlannedCommands,
+        ResolvedRefs);
+}
+
 FLglObjectResult InvalidTarget(const FString& Message, const FString& Suggestion)
 {
     return FLglResult::FromDiagnostic(
@@ -795,11 +881,56 @@ FLglObjectResult FLglGraphAdapter::Query(const FLglObjectRequest& Request)
 
 FLglObjectResult FLglGraphAdapter::Patch(const FLglObjectRequest& Request)
 {
-    return FLglResult::FromDiagnostic(
-        FLglDiagnostics::Error(
+    FLglObjectResult Error;
+    if (!ValidateGraphTarget(Request, Error))
+    {
+        return Error;
+    }
+
+    FLglResolvedGraph ResolvedGraph;
+    FLglGraphResolver Resolver;
+    if (!Resolver.Resolve(Request.Object->GetObjectField(TEXT("target")), ResolvedGraph, Error))
+    {
+        return Error;
+    }
+
+    bool bDryRun = false;
+    Request.Object->TryGetBoolField(TEXT("dryRun"), bDryRun);
+
+    const TArray<TSharedPtr<FJsonValue>> Ops = ReadPatchOps(Request);
+    const TSharedPtr<FJsonObject> ResolvedRefs = BuildGraphPatchResolvedRefs(ResolvedGraph);
+
+    TSharedPtr<FJsonObject> Object = MakeShared<FJsonObject>();
+    Object->SetStringField(TEXT("kind"), TEXT("mutation_result"));
+    Object->SetArrayField(TEXT("ops"), Ops);
+    Object->SetObjectField(TEXT("planned"), BuildGraphPatchPlan(ResolvedGraph.AssetPath, Ops, ResolvedRefs));
+    Object->SetObjectField(TEXT("resolvedRefs"), ResolvedRefs);
+
+    TArray<TSharedPtr<FJsonValue>> Diagnostics;
+    for (int32 Index = 0; Index < Ops.Num(); ++Index)
+    {
+        const FString Kind = ReadPatchOpKind(Ops[Index]);
+        Diagnostics.Add(MakePatchDiagnostic(
+            TEXT("error"),
             TEXT("capability.not_implemented"),
-            TEXT("lgl.patch is not implemented for graph yet."))
-            .Domain(TEXT("graph"))
-            .Build());
+            FString::Printf(
+                TEXT("Graph patch operation %s is not implemented in the LGL bridge yet."),
+                Kind.IsEmpty() ? TEXT("unknown") : *Kind),
+            Index,
+            Kind.IsEmpty() ? TEXT("unknown") : Kind));
+    }
+    LoomleMutation::SetDiagnostics(Object, Diagnostics);
+    LoomleMutation::SetMutationEnvelope(
+        Object,
+        TEXT("lgl.graph.patch"),
+        ResolvedGraph.AssetPath,
+        TEXT("patch"),
+        bDryRun,
+        false,
+        Diagnostics.IsEmpty());
+
+    FLglObjectResult Result;
+    Result.Object = Object;
+    return Result;
 }
 }

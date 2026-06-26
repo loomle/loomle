@@ -12,5 +12,6 @@ class FLglModule
 {
 public:
     static TSharedPtr<FJsonObject> BuildQueryResult(const TSharedPtr<FJsonObject>& Arguments);
+    static TSharedPtr<FJsonObject> BuildPatchResult(const TSharedPtr<FJsonObject>& Arguments);
 };
 }
