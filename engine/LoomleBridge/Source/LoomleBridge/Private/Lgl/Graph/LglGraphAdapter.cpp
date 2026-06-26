@@ -6,6 +6,7 @@
 #include "../LglCapabilityValidator.h"
 #include "../LglDiagnostics.h"
 #include "../LglResult.h"
+#include "../Services/LglGraphResolver.h"
 
 namespace Loomle::Lgl
 {
@@ -79,14 +80,17 @@ bool ValidateGraphTarget(const FLglObjectRequest& Request, FLglObjectResult& Out
     return true;
 }
 
-FLglObjectResult NotImplemented()
+FLglObjectResult NotImplemented(const FLglResolvedGraph& ResolvedGraph)
 {
     return FLglResult::FromDiagnostic(
         FLglDiagnostics::Info(
             TEXT("capability.not_implemented"),
-            TEXT("lgl.query reached the graph bridge adapter; graph readback is not implemented yet."))
+            FString::Printf(TEXT("lgl.query resolved graph %s in %s; graph readback is not implemented yet."),
+                *ResolvedGraph.GraphName,
+                *ResolvedGraph.AssetPath))
             .Domain(TEXT("graph"))
-            .Suggestion(TEXT("Next implementation step is graph asset resolution and compact graph readback."))
+            .Ref(ResolvedGraph.GraphId)
+            .Suggestion(TEXT("Next implementation step is compact graph readback for find nodes/path/palette entry."))
             .Build());
 }
 }
@@ -109,7 +113,14 @@ FLglObjectResult FLglGraphAdapter::Query(const FLglObjectRequest& Request)
         return Error;
     }
 
-    return NotImplemented();
+    FLglResolvedGraph ResolvedGraph;
+    FLglGraphResolver Resolver;
+    if (!Resolver.Resolve(Request.Object->GetObjectField(TEXT("target")), ResolvedGraph, Error))
+    {
+        return Error;
+    }
+
+    return NotImplemented(ResolvedGraph);
 }
 
 FLglObjectResult FLglGraphAdapter::Patch(const FLglObjectRequest& Request)
