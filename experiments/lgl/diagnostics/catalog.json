@@ -81,6 +81,8 @@
     { "code": "resolution.asset_registry_unavailable", "layer": "resolution", "defaultSeverity": "error", "title": "Asset Registry unavailable" },
     { "code": "resolution.asset_not_found", "layer": "resolution", "defaultSeverity": "error", "title": "Asset not found" },
     { "code": "resolution.graph_not_found", "layer": "resolution", "defaultSeverity": "error", "title": "Graph not found" },
+    { "code": "resolution.node_not_found", "layer": "resolution", "defaultSeverity": "error", "title": "Node not found" },
+    { "code": "resolution.pin_not_found", "layer": "resolution", "defaultSeverity": "error", "title": "Pin not found" },
     { "code": "resolution.unsupported_graph_owner", "layer": "resolution", "defaultSeverity": "error", "title": "Unsupported graph owner" },
     { "code": "unknown_asset_binding", "layer": "resolution", "defaultSeverity": "error", "title": "Unknown asset binding", "legacy": true },
     { "code": "unknown_blueprint_binding", "layer": "resolution", "defaultSeverity": "error", "title": "Unknown Blueprint binding", "legacy": true },

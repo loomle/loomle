@@ -8,6 +8,8 @@
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "EdGraph/EdGraph.h"
+#include "EdGraph/EdGraphNode.h"
+#include "EdGraph/EdGraphPin.h"
 #include "GraphEditorActions.h"
 #include "LglGraphResolver.h"
 #include "Misc/SecureHash.h"
@@ -51,6 +53,56 @@ FString SanitizeEntryName(const FString& Text)
         Name.InsertAt(0, TEXT("_"));
     }
     return Name;
+}
+
+FString SanitizeAlias(const FString& Text)
+{
+    FString Alias;
+    Alias.Reserve(Text.Len());
+    for (const TCHAR Character : Text)
+    {
+        if (FChar::IsAlnum(Character) || Character == TEXT('_'))
+        {
+            Alias.AppendChar(Character);
+        }
+        else
+        {
+            Alias.AppendChar(TEXT('_'));
+        }
+    }
+
+    if (Alias.IsEmpty())
+    {
+        Alias = TEXT("node");
+    }
+    if (FChar::IsDigit(Alias[0]))
+    {
+        Alias.InsertAt(0, TEXT("_"));
+    }
+    return Alias;
+}
+
+FString MakeUniqueAlias(const FString& Base, TSet<FString>& UsedAliases)
+{
+    const FString SanitizedBase = SanitizeAlias(Base);
+    FString Alias = SanitizedBase;
+    int32 Suffix = 2;
+    while (UsedAliases.Contains(Alias))
+    {
+        Alias = FString::Printf(TEXT("%s_%d"), *SanitizedBase, Suffix++);
+    }
+    UsedAliases.Add(Alias);
+    return Alias;
+}
+
+FString NodeType(const UEdGraphNode* Node)
+{
+    return Node != nullptr && Node->GetClass() != nullptr ? Node->GetClass()->GetName() : TEXT("Node");
+}
+
+FString NodeTitle(const UEdGraphNode* Node)
+{
+    return Node != nullptr ? Node->GetNodeTitle(ENodeTitleType::ListView).ToString() : FString();
 }
 
 FString MakeUniqueName(const FString& Label, TSet<FString>& UsedNames)
@@ -113,19 +165,6 @@ bool HasDetails(const FLglObjectRequest& Request)
         && Request.Object->TryGetArrayField(TEXT("with"), Details)
         && Details != nullptr
         && Details->Num() > 0;
-}
-
-bool HasPinContext(const FLglObjectRequest& Request)
-{
-    const TSharedPtr<FJsonObject>* Find = nullptr;
-    if (!Request.Object.IsValid()
-        || !Request.Object->TryGetObjectField(TEXT("find"), Find)
-        || Find == nullptr
-        || !(*Find).IsValid())
-    {
-        return false;
-    }
-    return (*Find)->HasField(TEXT("pinContext"));
 }
 
 FLglObjectResult UnsupportedPaletteFeature(const FString& Feature, const FString& Suggestion)
@@ -205,6 +244,118 @@ FString PaletteActionId(const TSharedPtr<FEdGraphSchemaAction>& Action, int32 In
     return FString::Printf(TEXT("palette:%s"), *FMD5::HashAnsiString(*StableText));
 }
 
+void BuildNodesByAlias(const FLglResolvedGraph& ResolvedGraph, TMap<FString, UEdGraphNode*>& OutNodesByAlias)
+{
+    OutNodesByAlias.Reset();
+    TSet<FString> UsedAliases;
+
+    if (ResolvedGraph.Graph == nullptr)
+    {
+        return;
+    }
+
+    for (UEdGraphNode* Node : ResolvedGraph.Graph->Nodes)
+    {
+        if (Node == nullptr)
+        {
+            continue;
+        }
+
+        const FString AliasBase = !NodeTitle(Node).IsEmpty() ? NodeTitle(Node) : NodeType(Node);
+        OutNodesByAlias.Add(MakeUniqueAlias(AliasBase, UsedAliases), Node);
+    }
+}
+
+bool ReadPinContext(const FLglObjectRequest& Request, FString& OutDirection, FString& OutNodeAlias, FString& OutPinName)
+{
+    OutDirection.Reset();
+    OutNodeAlias.Reset();
+    OutPinName.Reset();
+
+    const TSharedPtr<FJsonObject>* Find = nullptr;
+    if (!Request.Object.IsValid()
+        || !Request.Object->TryGetObjectField(TEXT("find"), Find)
+        || Find == nullptr
+        || !(*Find).IsValid())
+    {
+        return false;
+    }
+
+    const TSharedPtr<FJsonObject>* PinContext = nullptr;
+    if (!(*Find)->TryGetObjectField(TEXT("pinContext"), PinContext)
+        || PinContext == nullptr
+        || !(*PinContext).IsValid())
+    {
+        return false;
+    }
+
+    (*PinContext)->TryGetStringField(TEXT("direction"), OutDirection);
+    const TSharedPtr<FJsonObject>* Pin = nullptr;
+    if (!(*PinContext)->TryGetObjectField(TEXT("pin"), Pin) || Pin == nullptr || !(*Pin).IsValid())
+    {
+        return false;
+    }
+
+    (*Pin)->TryGetStringField(TEXT("node"), OutNodeAlias);
+    (*Pin)->TryGetStringField(TEXT("pin"), OutPinName);
+    return !OutDirection.IsEmpty() && !OutNodeAlias.IsEmpty() && !OutPinName.IsEmpty();
+}
+
+bool ResolvePinContext(
+    const FLglObjectRequest& Request,
+    const FLglResolvedGraph& ResolvedGraph,
+    TArray<UEdGraphPin*>& OutPins,
+    FLglObjectResult& OutError)
+{
+    OutPins.Reset();
+
+    FString Direction;
+    FString NodeAlias;
+    FString PinName;
+    if (!ReadPinContext(Request, Direction, NodeAlias, PinName))
+    {
+        return true;
+    }
+
+    TMap<FString, UEdGraphNode*> NodesByAlias;
+    BuildNodesByAlias(ResolvedGraph, NodesByAlias);
+
+    UEdGraphNode* const* Node = NodesByAlias.Find(NodeAlias);
+    if (Node == nullptr || *Node == nullptr)
+    {
+        OutError = FLglResult::FromDiagnostic(
+            FLglDiagnostics::Error(
+                TEXT("resolution.node_not_found"),
+                FString::Printf(TEXT("Graph palette pin context node %s was not found."), *NodeAlias))
+                .Domain(TEXT("graph"))
+                .Operation(TEXT("find palette entry"))
+                .Path({TEXT("find"), TEXT("pinContext"), TEXT("pin"), TEXT("node")})
+                .Actual(NodeAlias)
+                .Suggestion(TEXT("Use a node alias returned by a graph query."))
+                .Build());
+        return false;
+    }
+
+    UEdGraphPin* Pin = (*Node)->FindPin(*PinName);
+    if (Pin == nullptr)
+    {
+        OutError = FLglResult::FromDiagnostic(
+            FLglDiagnostics::Error(
+                TEXT("resolution.pin_not_found"),
+                FString::Printf(TEXT("Graph palette pin context pin %s.%s was not found."), *NodeAlias, *PinName))
+                .Domain(TEXT("graph"))
+                .Operation(TEXT("find palette entry"))
+                .Path({TEXT("find"), TEXT("pinContext"), TEXT("pin"), TEXT("pin")})
+                .Actual(FString::Printf(TEXT("%s.%s"), *NodeAlias, *PinName))
+                .Suggestion(TEXT("Query the graph with pins and use an existing pin name."))
+                .Build());
+        return false;
+    }
+
+    OutPins.Add(Pin);
+    return true;
+}
+
 TSharedPtr<FJsonObject> EncodePaletteEntry(
     const TSharedPtr<FEdGraphSchemaAction>& Action,
     int32 Index,
@@ -231,11 +382,15 @@ TSharedPtr<FJsonObject> EncodePaletteEntry(
     return Entry;
 }
 
-void BuildActionMenu(const FLglResolvedGraph& ResolvedGraph, FBlueprintActionMenuBuilder& Builder)
+void BuildActionMenu(
+    const FLglResolvedGraph& ResolvedGraph,
+    const TArray<UEdGraphPin*>& ContextPins,
+    FBlueprintActionMenuBuilder& Builder)
 {
     FBlueprintActionContext Context;
     Context.Blueprints.Add(ResolvedGraph.Blueprint);
     Context.Graphs.Add(ResolvedGraph.Graph);
+    Context.Pins.Append(ContextPins);
 
     constexpr bool bContextSensitive = true;
     const uint32 TargetMask =
@@ -261,12 +416,6 @@ FLglObjectResult FLglGraphPaletteService::QueryPaletteEntries(
     const FLglObjectRequest& Request,
     const FLglResolvedGraph& ResolvedGraph) const
 {
-    if (HasPinContext(Request))
-    {
-        return UnsupportedPaletteFeature(
-            TEXT("pin context"),
-            TEXT("Query palette entries without from/to pin context until the graph palette service resolves UE pin contexts."));
-    }
     if (HasField(Request, TEXT("where")))
     {
         return UnsupportedPaletteFeature(
@@ -289,8 +438,15 @@ FLglObjectResult FLglGraphPaletteService::QueryPaletteEntries(
     const FString Text = ReadFindText(Request);
     const int32 Limit = ReadPageLimit(Request);
 
+    TArray<UEdGraphPin*> ContextPins;
+    FLglObjectResult Error;
+    if (!ResolvePinContext(Request, ResolvedGraph, ContextPins, Error))
+    {
+        return Error;
+    }
+
     FBlueprintActionMenuBuilder Builder;
-    BuildActionMenu(ResolvedGraph, Builder);
+    BuildActionMenu(ResolvedGraph, ContextPins, Builder);
 
     struct FMatch
     {
