@@ -29,13 +29,12 @@ FLglQueryCapabilities GraphQueryCapabilities()
     Capabilities.WhereFields = {
         TEXT("type"),
         TEXT("name"),
-        TEXT("id"),
-        TEXT("comment")
+        TEXT("id")
     };
     Capabilities.bValidateDetails = true;
     Capabilities.Details = {TEXT("pins"), TEXT("defaults")};
     Capabilities.bValidateOrderKeys = true;
-    Capabilities.OrderKeys = {TEXT("name"), TEXT("type"), TEXT("id")};
+    Capabilities.OrderKeys = {TEXT("name"), TEXT("type")};
     Capabilities.bSupportsPageAfter = false;
     Capabilities.bSupportsCompare = false;
     return Capabilities;
@@ -212,10 +211,6 @@ FString ReadNodeField(const UEdGraphNode* Node, const FString& Alias, const FStr
     if (Field == TEXT("type"))
     {
         return NodeType(Node);
-    }
-    if (Field == TEXT("comment"))
-    {
-        return Node != nullptr ? Node->NodeComment : FString();
     }
     return FString();
 }
