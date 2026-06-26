@@ -5,6 +5,7 @@
 #include "Asset/LglAssetAdapter.h"
 #include "Blueprint/LglBlueprintAdapter.h"
 #include "Dom/JsonObject.h"
+#include "Graph/LglGraphAdapter.h"
 #include "LglAdapterRegistry.h"
 #include "LglDiagnostics.h"
 #include "LglDomainAdapter.h"
@@ -24,6 +25,7 @@ FLglAdapterRegistry BuildRegistry()
     FLglAdapterRegistry Registry;
     Registry.Register(MakeShared<FLglAssetAdapter>(AssetRegistry));
     Registry.Register(MakeShared<FLglBlueprintAdapter>());
+    Registry.Register(MakeShared<FLglGraphAdapter>());
     return Registry;
 }
 
@@ -35,8 +37,8 @@ FLglObjectResult UnsupportedDomain(const FString& Method, const FString& Domain)
             FString::Printf(TEXT("%s does not support target.domain = %s."), *Method, *Domain))
             .Path({TEXT("target"), TEXT("domain")})
             .Actual(Domain)
-            .Supported({TEXT("asset"), TEXT("blueprint")})
-            .Suggestion(TEXT("Use target.domain = \"asset\" or \"blueprint\" for the current LGL bridge query milestone."))
+            .Supported({TEXT("asset"), TEXT("blueprint"), TEXT("graph")})
+            .Suggestion(TEXT("Use target.domain = \"asset\", \"blueprint\", or \"graph\" for the current LGL bridge query milestone."))
             .Build());
 }
 }
