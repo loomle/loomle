@@ -16,6 +16,9 @@ namespace Loomle::Lgl
 {
 namespace
 {
+constexpr int32 DefaultLimit = 50;
+constexpr int32 MaxLimit = 200;
+
 FLglQueryCapabilities GraphQueryCapabilities()
 {
     FLglQueryCapabilities Capabilities;
@@ -357,11 +360,31 @@ void ReadFindNodesText(const FLglObjectRequest& Request, FString& OutText)
     }
 }
 
+int32 ReadPageLimit(const FLglObjectRequest& Request)
+{
+    const TSharedPtr<FJsonObject>* Page = nullptr;
+    if (!Request.Object.IsValid()
+        || !Request.Object->TryGetObjectField(TEXT("page"), Page)
+        || Page == nullptr
+        || !(*Page).IsValid())
+    {
+        return DefaultLimit;
+    }
+
+    double Limit = 0.0;
+    if ((*Page)->TryGetNumberField(TEXT("limit"), Limit))
+    {
+        return FMath::Clamp(static_cast<int32>(Limit), 1, MaxLimit);
+    }
+    return DefaultLimit;
+}
+
 TSharedPtr<FJsonObject> BuildGraphReadback(
     const FLglObjectRequest& Request,
     const FLglResolvedGraph& ResolvedGraph)
 {
     const bool bIncludePins = QueryIncludes(Request, TEXT("pins"));
+    const int32 Limit = ReadPageLimit(Request);
     FString FindText;
     ReadFindNodesText(Request, FindText);
 
@@ -393,6 +416,10 @@ TSharedPtr<FJsonObject> BuildGraphReadback(
         if (MatchesText(Node, Alias, FindText) && MatchesCondition(Node, Alias, Where))
         {
             IncludedNodes.Add(Node);
+            if (IncludedNodes.Num() >= Limit)
+            {
+                break;
+            }
         }
     }
 
