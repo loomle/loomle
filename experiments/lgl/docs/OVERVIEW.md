@@ -121,6 +121,8 @@ staying readable. Normalized JSON is the schema and bridge contract.
 The language core defines shared statement, expression, value, binding,
 constructor, reference, array, inline object, query, patch, and normalization
 rules. Domain documents define what those constructs mean for UE concepts.
+Diagnostics use a shared shape so errors become agent repair guidance rather
+than free-form text.
 
 ## Domains
 
@@ -144,6 +146,8 @@ language categories.
 
 - [`LANGUAGE_CORE.md`](LANGUAGE_CORE.md): shared LGL syntax and text-to-JSON
   principles.
+- [`DIAGNOSTICS.md`](DIAGNOSTICS.md): shared diagnostic shape, error layers,
+  and agent repair guidance.
 - [`DOMAINS.md`](DOMAINS.md): domain document contract and normalization
   boundary.
 - [`domains/graph.md`](domains/graph.md): graph domain design.

@@ -1,5 +1,6 @@
 import { formatLglObject } from "./formatter.js";
 import { parseLglObject } from "./parser.js";
+import { validateLglObject, validateObjectResult } from "./schema-validator.js";
 import { readFile } from "node:fs/promises";
 import type {
   Adapter,
@@ -48,6 +49,11 @@ async function run(
     return { diagnostics: parsed.diagnostics };
   }
 
+  const objectDiagnostic = await validateLglObject(parsed.object);
+  if (objectDiagnostic) {
+    return { diagnostics: [objectDiagnostic] };
+  }
+
   if (parsed.object.kind !== expectedKind) {
     return {
       diagnostics: [
@@ -91,6 +97,11 @@ async function run(
   const result = expectedKind === "query"
     ? await adapter.query(parsed.object as Query)
     : await patchAdapter!(parsed.object as Patch);
+
+  const resultDiagnostic = await validateObjectResult(result);
+  if (resultDiagnostic) {
+    return { diagnostics: [resultDiagnostic] };
+  }
 
   return objectResultToTextResult(result);
 }

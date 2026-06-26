@@ -80,9 +80,9 @@ export function parseBlueprintQuery(
     } else if (line.text.startsWith("where ")) {
       query.where = parseCondition(line.text.slice("where ".length), line);
     } else if (line.text.startsWith("with ")) {
-      query.with = parseDetails(line.text.slice("with ".length));
+      query.with = parseDetails(line.text.slice("with ".length), line);
     } else if (line.text.startsWith("order by ")) {
-      query.orderBy = parseOrderBy(line.text.slice("order by ".length));
+      query.orderBy = parseOrderBy(line.text.slice("order by ".length), line);
     } else if (line.text.startsWith("page ")) {
       query.page = { ...(query.page ?? {}), ...parsePage(line) };
     } else {

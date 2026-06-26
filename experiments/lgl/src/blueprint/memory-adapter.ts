@@ -12,6 +12,7 @@ import type {
   Query,
   Value,
 } from "../index.js";
+import { validateQueryCapabilities } from "../core/capabilities.js";
 import { isCall, isRef, symbolName } from "../core/expr.js";
 
 export interface CreateMemoryBlueprintAdapterOptions {
@@ -272,6 +273,18 @@ function isComponentName(blueprint: Blueprint, name: string): boolean {
 }
 
 function executeBlueprintQuery(blueprint: Blueprint, query: Query): ObjectResult {
+  const capabilityDiagnostics = validateQueryCapabilities(query, {
+    domain: "blueprint",
+    findKinds: ["members", "components"],
+    whereFields: ["name", "kind", "type", "category", "class", "parent"],
+    orderKeys: ["name", "kind", "type", "category", "class", "parent"],
+    supportsPageAfter: true,
+    supportsCompare: true,
+  });
+  if (capabilityDiagnostics.length > 0) {
+    return { diagnostics: capabilityDiagnostics };
+  }
+
   const find = query.find;
   if (!find) {
     return { object: { kind: "blueprint_result", blueprints: [cloneBlueprint(blueprint)] }, diagnostics: [] };

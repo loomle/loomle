@@ -1086,8 +1086,28 @@
         "severity": { "enum": ["error", "warning", "info"] },
         "code": { "type": "string", "minLength": 1 },
         "message": { "type": "string", "minLength": 1 },
+        "path": { "$ref": "#/$defs/DiagnosticPath" },
         "span": { "$ref": "#/$defs/SourceSpan" },
+        "domain": { "type": "string", "minLength": 1 },
+        "operation": { "type": "string", "minLength": 1 },
+        "ref": { "type": "string", "minLength": 1 },
+        "expected": true,
+        "actual": true,
+        "supported": true,
+        "matches": {
+          "type": "array",
+          "items": true
+        },
         "suggestion": { "type": "string", "minLength": 1 }
+      }
+    },
+    "DiagnosticPath": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          { "type": "integer", "minimum": 0 }
+        ]
       }
     },
     "SourceSpan": {
@@ -1097,6 +1117,8 @@
       "properties": {
         "line": { "type": "integer", "minimum": 1 },
         "column": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 },
+        "endColumn": { "type": "integer", "minimum": 1 },
         "length": { "type": "integer", "minimum": 0 }
       }
     }

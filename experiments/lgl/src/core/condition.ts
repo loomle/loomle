@@ -77,15 +77,28 @@ function trimParens(text: string): string {
   return text.startsWith("(") && text.endsWith(")") ? text.slice(1, -1).trim() : text;
 }
 
-export function parseDetails(text: string): Detail[] {
-  return text.split(",").map((part) => part.trim() as Detail);
+export function parseDetails(text: string, line: ParsedLine): Detail[] {
+  const details = text.split(",").map((part) => part.trim());
+  if (details.length === 0 || details.some((detail) => detail.length === 0)) {
+    throw new ParseError("language.invalid_detail", "Expected with <detail>, <detail>.", spanForLine(line));
+  }
+  const allowed = new Set(["pins", "defaults", "properties", "registryTags"]);
+  const invalid = details.find((detail) => !allowed.has(detail));
+  if (invalid) {
+    throw new ParseError("language.invalid_detail", `Unsupported detail: ${invalid}.`, spanForLine(line));
+  }
+  return details as Detail[];
 }
 
-export function parseOrderBy(text: string): Query["orderBy"] {
-  return text.split(",").map((part) => {
-    const match = /^([A-Za-z_][A-Za-z0-9_.]*)(?:\s+(asc|desc))?$/.exec(part.trim());
+export function parseOrderBy(text: string, line: ParsedLine): Query["orderBy"] {
+  const parts = text.split(",").map((part) => part.trim());
+  if (parts.length === 0 || parts.some((part) => part.length === 0)) {
+    throw new ParseError("language.invalid_order_by", "Expected order by <key> [asc|desc].", spanForLine(line));
+  }
+  return parts.map((part) => {
+    const match = /^([A-Za-z_][A-Za-z0-9_.]*)(?:\s+(asc|desc))?$/.exec(part);
     if (!match) {
-      return { key: part.trim(), direction: "asc" as const };
+      throw new ParseError("language.invalid_order_by", "Expected order by <key> [asc|desc].", spanForLine(line));
     }
     return { key: match[1], direction: (match[2] as "asc" | "desc" | undefined) ?? "asc" };
   });
@@ -94,13 +107,17 @@ export function parseOrderBy(text: string): Query["orderBy"] {
 export function parsePage(line: ParsedLine): Query["page"] {
   let match = /^page\s+limit\s+(\d+)$/.exec(line.text);
   if (match) {
-    return { limit: Number(match[1]) };
+    const limit = Number(match[1]);
+    if (limit < 1) {
+      throw new ParseError("language.invalid_page", "Page limit must be greater than zero.", spanForLine(line));
+    }
+    return { limit };
   }
   match = /^page\s+after\s+"([^"]+)"$/.exec(line.text);
   if (match) {
     return { after: match[1] };
   }
-  throw new ParseError("invalid_page_clause", "Expected page limit <number> or page after \"cursor\".", spanForLine(line));
+  throw new ParseError("language.invalid_page", "Expected page limit <number> or page after \"cursor\".", spanForLine(line));
 }
 
 export function formatCondition(condition: Condition): string {

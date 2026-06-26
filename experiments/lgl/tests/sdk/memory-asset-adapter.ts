@@ -81,3 +81,25 @@ assert.equal(withoutTags.diagnostics.length, 0);
 assert.match(withoutTags.text ?? "", /menu = asset/);
 assert.doesNotMatch(withoutTags.text ?? "", /registryTags/);
 console.log("[PASS] memory asset adapter respects registryTags expansion");
+
+const unsupportedDetail = await lgl.query(`query asset
+find assets
+with pins
+`);
+assert.equal(unsupportedDetail.text, undefined);
+assert.equal(unsupportedDetail.diagnostics[0]?.code, "capability.unsupported_detail");
+
+const unsupportedWhere = await lgl.query(`query asset
+find assets
+where modifiedTime = 10
+`);
+assert.equal(unsupportedWhere.text, undefined);
+assert.equal(unsupportedWhere.diagnostics[0]?.code, "capability.unsupported_where_field");
+
+const unsupportedOrder = await lgl.query(`query asset
+find assets
+order by modifiedTime asc
+`);
+assert.equal(unsupportedOrder.text, undefined);
+assert.equal(unsupportedOrder.diagnostics[0]?.code, "capability.unsupported_order_key");
+console.log("[PASS] memory asset adapter reports query capability diagnostics");

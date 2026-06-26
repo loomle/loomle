@@ -20,6 +20,7 @@ import type {
   Ref,
   Value,
 } from "../index.js";
+import { validateQueryCapabilities } from "../core/capabilities.js";
 import { isGraphTarget } from "../core/target.js";
 
 export interface CreateMemoryGraphAdapterOptions {
@@ -91,6 +92,19 @@ export function createMemoryGraphAdapter(
 }
 
 function executeQuery(graph: Graph, query: Query): ObjectResult {
+  const capabilityDiagnostics = validateQueryCapabilities(query, {
+    domain: graph.target.domain,
+    findKinds: ["nodes", "path", "palette_entry"],
+    whereFields: ["type", "name", "alias", "id", "pin.*", "*"],
+    details: ["pins", "defaults"],
+    orderKeys: ["type", "name", "alias", "id", "palette", "label", "category", "constructor", "class", "*"],
+    supportsPageAfter: true,
+    supportsCompare: true,
+  });
+  if (capabilityDiagnostics.length > 0) {
+    return { diagnostics: capabilityDiagnostics };
+  }
+
   const find = query.find;
   if (!find) {
     return { object: cloneGraph(graph), diagnostics: [] };

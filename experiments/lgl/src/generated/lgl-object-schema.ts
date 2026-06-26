@@ -75,6 +75,7 @@ export type GraphPatchOp =
 export type BlueprintPatchOp = BlueprintSet | BlueprintAdd | BlueprintRemove | BlueprintRename | BlueprintMove;
 export type WidgetPatchOp = WidgetAdd | WidgetSet | WidgetRemove | WidgetMove;
 export type CreationEntry = ShortcutEntry | ClassEntry | PaletteEntry;
+export type DiagnosticPath = (string | number)[];
 
 export interface Graph {
   kind: "graph";
@@ -516,11 +517,21 @@ export interface Diagnostic {
   severity: "error" | "warning" | "info";
   code: string;
   message: string;
+  path?: DiagnosticPath;
   span?: SourceSpan;
+  domain?: string;
+  operation?: string;
+  ref?: string;
+  expected?: any;
+  actual?: any;
+  supported?: any;
+  matches?: any[];
   suggestion?: string;
 }
 export interface SourceSpan {
   line: number;
   column: number;
+  endLine?: number;
+  endColumn?: number;
   length?: number;
 }

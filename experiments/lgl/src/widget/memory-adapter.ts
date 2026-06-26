@@ -12,6 +12,7 @@ import type {
   WidgetDocument,
   WidgetNode,
 } from "../index.js";
+import { validateQueryCapabilities } from "../core/capabilities.js";
 import { isCall, isRef } from "../core/expr.js";
 
 export interface CreateMemoryWidgetAdapterOptions {
@@ -193,6 +194,31 @@ function applyMove(
 }
 
 function executeWidgetQuery(document: WidgetDocument, query: Query, paletteEntries: CreationEntry[]): ObjectResult {
+  const capabilityDiagnostics = validateQueryCapabilities(query, {
+    domain: "widget",
+    findKinds: ["tree", "widgets", "palette_entry"],
+    whereFields: [
+      "name",
+      "alias",
+      "class",
+      "type",
+      "parent",
+      "property.*",
+      "kind",
+      "palette",
+      "constructor",
+      "label",
+      "category",
+    ],
+    details: ["defaults", "properties"],
+    orderKeys: ["name", "alias", "class", "type", "parent", "kind", "palette", "constructor", "label", "category"],
+    supportsPageAfter: true,
+    supportsCompare: true,
+  });
+  if (capabilityDiagnostics.length > 0) {
+    return { diagnostics: capabilityDiagnostics };
+  }
+
   const find = query.find;
   if (!find || find.kind === "tree") {
     return { object: { kind: "widget_result", documents: [cloneDocument(document)] }, diagnostics: [] };

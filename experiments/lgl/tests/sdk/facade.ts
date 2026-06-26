@@ -88,3 +88,46 @@ const diagnosticResult = await createLgl({ adapters: [diagnosticAdapter] }).quer
 assert.equal(diagnosticResult.text, undefined);
 assert.equal(diagnosticResult.diagnostics[0]?.code, "adapter_error");
 console.log("[PASS] lgl.query preserves adapter diagnostics");
+
+const invalidObjectAdapter: Adapter = {
+  domain: "blueprint",
+  async query(): Promise<ObjectResult> {
+    return {
+      object: {
+        kind: "graph",
+        target: {
+          domain: "blueprint",
+          asset: "/Game/BP_LGLExample",
+          graph: { kind: "name", name: "EventGraph" },
+        },
+        nodes: [
+          {
+            alias: "print",
+            type: "PrintString",
+            fields: {},
+            editorTitle: "Print String",
+          },
+        ],
+        edges: [],
+      },
+      diagnostics: [],
+    } as unknown as ObjectResult;
+  },
+};
+
+const invalidObjectResult = await createLgl({ adapters: [invalidObjectAdapter] }).query(queryText);
+assert.equal(invalidObjectResult.text, undefined);
+assert.equal(invalidObjectResult.diagnostics[0]?.code, "language.invalid_result_shape");
+console.log("[PASS] lgl.query rejects schema-invalid adapter objects");
+
+const invalidEnvelopeAdapter: Adapter = {
+  domain: "blueprint",
+  async query(): Promise<ObjectResult> {
+    return { object: { kind: "asset_result", assets: [] } } as unknown as ObjectResult;
+  },
+};
+
+const invalidEnvelopeResult = await createLgl({ adapters: [invalidEnvelopeAdapter] }).query(queryText);
+assert.equal(invalidEnvelopeResult.text, undefined);
+assert.equal(invalidEnvelopeResult.diagnostics[0]?.code, "language.invalid_result_shape");
+console.log("[PASS] lgl.query rejects schema-invalid adapter result envelopes");

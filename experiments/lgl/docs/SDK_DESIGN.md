@@ -64,6 +64,8 @@ The target text forms are documented here:
   and palette positioning.
 - [`LANGUAGE_CORE.md`](LANGUAGE_CORE.md): shared statement, constructor, value,
   reference, query, patch, and normalization syntax.
+- [`DIAGNOSTICS.md`](DIAGNOSTICS.md): shared diagnostic shape and error-layer
+  rules for SDK, bridge, and domains.
 - [`DOMAINS.md`](DOMAINS.md): domain document contract and normalization
   boundary.
 - [`domains/graph.md`](domains/graph.md): graph objects, queries, patches, and
@@ -111,11 +113,30 @@ Normalizer:
 Normalizer must not consult palette databases, graph schemas, UMG metadata,
 Blueprint member tables, or UE state. It may rewrite only pure LGL syntax.
 
+Language-level validation belongs before adapter execution. The SDK should
+reject malformed language shapes once, not inside every domain adapter:
+
+- query clauses normalize to valid `Query` objects
+- `find`, when present, is an object with `kind`
+- `where` is a valid recursive `Condition` tree
+- `with` is a detail string list
+- `order by` is a list of order entries with keys and directions
+- `page` contains valid `limit` and/or `after`
+- patch operations normalize to valid patch operation objects
+- bindings, constructor calls, references, values, arrays, and inline objects
+  are structurally valid
+
+The SDK language layer must not reject a request merely because a domain does
+not support a language-valid `find` kind, `where` field, detail expansion,
+order key, pagination mode, or patch operation. Those are capability errors and
+belong to adapters.
+
 Adapter/resolver:
 
 - route by normalized domain target
 - resolve domain references, asset references, palette entries, and creation
   entries
+- reject language-valid but domain-unsupported query and patch capabilities
 - validate domain objects and operations against real domain state
 - validate graph-state-dependent operations such as graph `insert`
 - compute dry-run changes through the same path used by real mutation
@@ -125,6 +146,9 @@ The TypeScript experiment exercises this pipeline with schema validation,
 roundtrip tests, examples, and in-memory adapters for graph, asset, Blueprint,
 and widget. These adapters are contract fixtures, not replacement models for
 UE semantics.
+
+All parser, validator, adapter, and formatter diagnostics must use the shared
+shape and layer rules in [`DIAGNOSTICS.md`](DIAGNOSTICS.md).
 
 ## RPC Boundary
 
@@ -147,11 +171,17 @@ TypeScript owns:
 - LGL text parsing
 - pure LGL normalization
 - structural validation that does not require target state
+- language-level rejection of malformed query, condition, order, page, patch,
+  binding, constructor, reference, and value shapes
 - adapter routing by normalized domain target
 - converting bridge responses into agent-facing LGL results and diagnostics
 
 The UE Bridge owns everything that depends on real UE editor state or APIs:
 
+- repeated language-level object validation at the RPC boundary for callers
+  that bypass the SDK
+- domain capability validation for live UE adapters, preferably through shared
+  capability helpers rather than per-adapter duplicated shape checks
 - asset, Blueprint, graph, widget, and other domain resolution
 - palette query and palette entry resolution
 - graph node spawner execution

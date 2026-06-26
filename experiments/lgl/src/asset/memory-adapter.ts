@@ -7,6 +7,7 @@ import type {
   Query,
   Value,
 } from "../index.js";
+import { validateQueryCapabilities } from "../core/capabilities.js";
 import { isRef } from "../core/expr.js";
 
 export interface CreateMemoryAssetAdapterOptions {
@@ -37,6 +38,19 @@ export function createMemoryAssetAdapter(
 }
 
 function executeAssetQuery(assets: Asset[], query: Query): ObjectResult {
+  const capabilityDiagnostics = validateQueryCapabilities(query, {
+    domain: "asset",
+    findKinds: ["assets"],
+    whereFields: ["name", "alias", "path", "root", "type", "class", "loaded", "score", "registryTag.*"],
+    details: ["registryTags"],
+    orderKeys: ["name", "alias", "path", "root", "type", "class", "loaded", "score"],
+    supportsPageAfter: true,
+    supportsCompare: true,
+  });
+  if (capabilityDiagnostics.length > 0) {
+    return { diagnostics: capabilityDiagnostics };
+  }
+
   const find = query.find;
   if (find && find.kind !== "assets") {
     return { diagnostics: [diagnostic("invalid_asset_find", "Asset adapter can only execute find assets queries.")] };

@@ -9,6 +9,7 @@
     "check:generated": "npm run generate:types && git diff --exit-code -- src/generated/lgl-object-schema.ts",
     "build": "tsc -p tsconfig.json",
     "test:schema": "npm run build && node dist/tests/schema/validate-fixtures.js",
+    "test:diagnostics": "npm run build && node dist/tests/diagnostics/catalog.js",
     "test:invalid": "npm run build && node dist/tests/parser/invalid.js",
     "test:roundtrip": "npm run build && node dist/tests/parser/roundtrip.js",
     "test:examples": "npm run build && node dist/tests/parser/core-examples.js",
@@ -19,7 +20,7 @@
     "test:memory:asset": "npm run build && node dist/tests/sdk/memory-asset-adapter.js",
     "test:memory:blueprint": "npm run build && node dist/tests/sdk/memory-blueprint-adapter.js",
     "test:memory:widget": "npm run build && node dist/tests/sdk/memory-widget-adapter.js",
-    "test": "npm run check:generated && npm run test:schema && npm run test:invalid && npm run test:roundtrip && npm run test:examples && npm run test:examples:extended && npm run test:examples:reference && npm run test:facade && npm run test:memory && npm run test:memory:asset && npm run test:memory:blueprint && npm run test:memory:widget"
+    "test": "npm run check:generated && npm run test:schema && npm run test:diagnostics && npm run test:invalid && npm run test:roundtrip && npm run test:examples && npm run test:examples:extended && npm run test:examples:reference && npm run test:facade && npm run test:memory && npm run test:memory:asset && npm run test:memory:blueprint && npm run test:memory:widget"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loomle.dev/schemas/lgl-diagnostic-catalog.schema.json",
+  "title": "LGL Diagnostic Catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["diagnostics"],
+  "properties": {
+    "diagnostics": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/DiagnosticDefinition" }
+    }
+  },
+  "$defs": {
+    "DiagnosticDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "layer", "defaultSeverity", "title"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)?$"
+        },
+        "layer": {
+          "enum": ["language", "capability", "resolution", "validation"]
+        },
+        "defaultSeverity": {
+          "enum": ["error", "warning", "info"]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requiredFields": {
+          "$ref": "#/$defs/DiagnosticFields"
+        },
+        "optionalFields": {
+          "$ref": "#/$defs/DiagnosticFields"
+        },
+        "legacy": {
+          "type": "boolean"
+        }
+      }
+    },
+    "DiagnosticFields": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/DiagnosticField" },
+      "uniqueItems": true
+    },
+    "DiagnosticField": {
+      "enum": [
+        "path",
+        "span",
+        "domain",
+        "operation",
+        "ref",
+        "expected",
+        "actual",
+        "supported",
+        "matches",
+        "suggestion"
+      ]
+    }
+  }
+}

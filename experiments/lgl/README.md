@@ -61,6 +61,9 @@ Language and SDK docs:
   design rules.
 - `docs/LANGUAGE_CORE.md`: Shared statement, constructor, value, and reference
   syntax.
+- `docs/DIAGNOSTICS.md`: Shared diagnostic shape, error layers, and repair
+  guidance.
+- `diagnostics/catalog.json`: Lightweight registry for public diagnostic codes.
 - `docs/DOMAINS.md`: How domains own their syntax, normalization, object
   model, query, patch, diagnostics, and examples.
 - `docs/SDK_DESIGN.md`: SDK facade, adapter contract, diagnostics, and result
@@ -83,6 +86,8 @@ Bridge planning and reference docs:
 
 - `docs/BRIDGE_ARCHITECTURE.md`: Concise UE bridge architecture for
   `lgl.query` and `lgl.patch`.
+- `docs/BRIDGE_ASSET_ADAPTER.md`: UE Asset Registry-backed asset query
+  adapter responsibilities.
 - `docs/BRIDGE_BLUEPRINT_ADAPTER.md`: Blueprint domain adapter
   responsibilities.
 - `docs/BRIDGE_QUERY_SPIKE.md`: First UE-backed `lgl.query` spike
