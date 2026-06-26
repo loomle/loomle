@@ -583,7 +583,7 @@
       }
     },
     "Detail": {
-      "enum": ["pins", "defaults", "properties", "registryTags"]
+      "enum": ["pins", "defaults", "layout", "properties", "registryTags"]
     },
     "Condition": {
       "oneOf": [

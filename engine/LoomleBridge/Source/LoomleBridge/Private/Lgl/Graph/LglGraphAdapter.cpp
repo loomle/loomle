@@ -33,7 +33,7 @@ FLglQueryCapabilities GraphQueryCapabilities()
         TEXT("id")
     };
     Capabilities.bValidateDetails = true;
-    Capabilities.Details = {TEXT("pins"), TEXT("defaults")};
+    Capabilities.Details = {TEXT("pins"), TEXT("defaults"), TEXT("layout")};
     Capabilities.bValidateOrderKeys = true;
     Capabilities.OrderKeys = {TEXT("name"), TEXT("type")};
     Capabilities.bSupportsPageAfter = false;
@@ -304,7 +304,11 @@ TSharedPtr<FJsonObject> MakePinRef(const FString& NodeAlias, const FString& PinN
     return Ref;
 }
 
-TSharedPtr<FJsonObject> EncodeNode(const UEdGraphNode* Node, const FString& Alias, bool bIncludeDefaults)
+TSharedPtr<FJsonObject> EncodeNode(
+    const UEdGraphNode* Node,
+    const FString& Alias,
+    bool bIncludeDefaults,
+    bool bIncludeLayout)
 {
     TSharedPtr<FJsonObject> Object = MakeShared<FJsonObject>();
     Object->SetStringField(TEXT("alias"), Alias);
@@ -324,10 +328,21 @@ TSharedPtr<FJsonObject> EncodeNode(const UEdGraphNode* Node, const FString& Alia
     }
     Object->SetObjectField(TEXT("fields"), Fields);
 
-    TArray<TSharedPtr<FJsonValue>> At;
-    At.Add(MakeShared<FJsonValueNumber>(Node != nullptr ? Node->NodePosX : 0));
-    At.Add(MakeShared<FJsonValueNumber>(Node != nullptr ? Node->NodePosY : 0));
-    Object->SetArrayField(TEXT("at"), At);
+    if (bIncludeLayout)
+    {
+        TArray<TSharedPtr<FJsonValue>> At;
+        At.Add(MakeShared<FJsonValueNumber>(Node != nullptr ? Node->NodePosX : 0));
+        At.Add(MakeShared<FJsonValueNumber>(Node != nullptr ? Node->NodePosY : 0));
+        Object->SetArrayField(TEXT("at"), At);
+
+        if (Node != nullptr && Node->NodeWidth > 0 && Node->NodeHeight > 0)
+        {
+            TArray<TSharedPtr<FJsonValue>> Size;
+            Size.Add(MakeShared<FJsonValueNumber>(Node->NodeWidth));
+            Size.Add(MakeShared<FJsonValueNumber>(Node->NodeHeight));
+            Object->SetArrayField(TEXT("size"), Size);
+        }
+    }
     return Object;
 }
 
@@ -580,6 +595,7 @@ TSharedPtr<FJsonObject> BuildGraphReadback(
 {
     const bool bIncludePins = QueryIncludes(Request, TEXT("pins"));
     const bool bIncludeDefaults = QueryIncludes(Request, TEXT("defaults"));
+    const bool bIncludeLayout = QueryIncludes(Request, TEXT("layout"));
     const int32 Limit = ReadPageLimit(Request);
     TArray<TPair<FString, FString>> OrderBy;
     ReadOrderBy(Request, OrderBy);
@@ -653,7 +669,7 @@ TSharedPtr<FJsonObject> BuildGraphReadback(
     for (UEdGraphNode* Node : IncludedNodes)
     {
         const FString Alias = AliasesByNode.FindRef(Node);
-        Nodes.Add(MakeShared<FJsonValueObject>(EncodeNode(Node, Alias, bIncludeDefaults)));
+        Nodes.Add(MakeShared<FJsonValueObject>(EncodeNode(Node, Alias, bIncludeDefaults, bIncludeLayout)));
 
         if (bIncludePins)
         {

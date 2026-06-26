@@ -69,7 +69,7 @@ Expected result shape:
 - normalized output-to-input edges
 - pins only when requested
 - defaults only when requested
-- layout metadata through `at`, `size`, and `anchor` fields when available
+- layout metadata through `at` and non-zero `size` fields when requested
 
 Ambiguous readable node matches must return `ambiguous_node` with candidates
 rather than guessing.
@@ -134,8 +134,8 @@ Layout readback starts with UE model data:
 - `UEdGraphNode::NodePosY`
 - comment node width and height when relevant
 
-Pin anchors may be estimated unless measured editor geometry is available.
-Estimated layout should not be presented as precise Slate geometry.
+Pin anchors require measured editor geometry and should not be estimated in
+asset readback.
 
 Patch layout mutation starts with node movement:
 

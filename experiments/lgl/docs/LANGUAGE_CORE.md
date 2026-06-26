@@ -273,7 +273,7 @@ literal.
 | `query` | target domain or bound object | `query asset`, `query g` |
 | `find` | domain-defined result kind and optional primary search text | `find assets "door"`, `find palette entry "Print String"` |
 | `where` | structured filter expression | `where type = blueprint and not loaded` |
-| `with` | expand beyond the domain default result | `with registryTags`, `with pins, defaults` |
+| `with` | expand beyond the domain default result | `with registryTags`, `with pins, defaults, layout` |
 | `order by` | deterministic result ordering | `order by score desc, path asc` |
 | `page limit` | maximum result count | `page limit 50` |
 | `page after` | continue after a returned cursor | `page after "cursor"` |

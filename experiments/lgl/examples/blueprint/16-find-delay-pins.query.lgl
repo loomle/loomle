@@ -5,7 +5,7 @@ query g
 
 find nodes
 where name = delay
-with pins, defaults
+with pins, defaults, layout
 
 ---
 
@@ -14,8 +14,8 @@ g = graph(domain: blueprint, asset: bp, graph: EventGraph)
 
 delay = node(graph: g, type: Delay, id: "A002", Duration: 1.0, at: [320, 0], size: [200, 100])
 
-delay.Exec = pin(type: exec, direction: in, anchor: [320, 24])
-delay.Duration = pin(type: float, direction: in, value: 1.0, anchor: [320, 72])
-delay.Completed = pin(type: exec, direction: out, anchor: [500, 24])
+delay.Exec = pin(type: exec, direction: in)
+delay.Duration = pin(type: float, direction: in, value: 1.0)
+delay.Completed = pin(type: exec, direction: out)
 
 begin.Then -> delay.Exec/Completed -> print.Exec

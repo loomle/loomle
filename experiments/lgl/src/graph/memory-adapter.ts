@@ -96,7 +96,7 @@ function executeQuery(graph: Graph, query: Query): ObjectResult {
     domain: graph.target.domain,
     findKinds: ["nodes", "path", "palette_entry"],
     whereFields: ["type", "name", "alias", "id", "pin.*", "*"],
-    details: ["pins", "defaults"],
+    details: ["pins", "defaults", "layout"],
     orderKeys: ["type", "name", "alias", "id", "palette", "label", "category", "constructor", "class", "*"],
     supportsPageAfter: true,
     supportsCompare: true,
@@ -121,7 +121,7 @@ function executeQuery(graph: Graph, query: Query): ObjectResult {
       );
       const aliases = page.items.map((node) => node.alias);
       return {
-        object: graphSnippet(graph, aliases, query.with?.includes("pins") ?? false),
+        object: graphSnippet(graph, aliases, query.with?.includes("pins") ?? false, query.with?.includes("layout") ?? false),
         diagnostics: [],
         ...(page.next ? { page: { next: page.next } } : {}),
       };
@@ -130,7 +130,10 @@ function executeQuery(graph: Graph, query: Query): ObjectResult {
       const aliases = find.direction === "from"
         ? walkPathAliasesFrom(graph, find.pin)
         : walkPathAliasesTo(graph, find.pin);
-      return { object: graphSnippet(graph, aliases, query.with?.includes("pins") ?? false), diagnostics: [] };
+      return {
+        object: graphSnippet(graph, aliases, query.with?.includes("pins") ?? false, query.with?.includes("layout") ?? false),
+        diagnostics: [],
+      };
     }
     case "palette_entry":
       return findPaletteEntries(graph, find, query);
@@ -598,12 +601,12 @@ function applyOp(
   }
 }
 
-function graphSnippet(graph: Graph, aliases: string[], includePins: boolean): Graph {
+function graphSnippet(graph: Graph, aliases: string[], includePins: boolean, includeLayout: boolean): Graph {
   const aliasSet = new Set(aliases);
   return {
     kind: "graph",
     target: graph.target,
-    nodes: graph.nodes.filter((node) => aliasSet.has(node.alias)).map(cloneNode),
+    nodes: graph.nodes.filter((node) => aliasSet.has(node.alias)).map((node) => cloneNode(node, includeLayout)),
     edges: graph.edges.filter((edge) => aliasSet.has(edge.from.node) && aliasSet.has(edge.to.node)).map(cloneEdge),
     ...(includePins && graph.pins
       ? { pins: graph.pins.filter((pin) => aliasSet.has(pin.node)).map(clonePin) }
@@ -869,14 +872,19 @@ function cloneGraph(graph: Graph): Graph {
   return {
     kind: "graph",
     target: structuredClone(graph.target),
-    nodes: graph.nodes.map(cloneNode),
+    nodes: graph.nodes.map((node) => cloneNode(node)),
     edges: graph.edges.map(cloneEdge),
     ...(graph.pins ? { pins: graph.pins.map(clonePin) } : {}),
   };
 }
 
-function cloneNode(node: Node): Node {
-  return structuredClone(node);
+function cloneNode(node: Node, includeLayout = true): Node {
+  const copy = structuredClone(node);
+  if (!includeLayout) {
+    delete copy.at;
+    delete copy.size;
+  }
+  return copy;
 }
 
 function cloneEdge(edge: Edge): Edge {

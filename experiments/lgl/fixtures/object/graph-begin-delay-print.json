@@ -66,8 +66,7 @@
       "name": "Duration",
       "type": "float",
       "direction": "in",
-      "value": 1,
-      "anchor": [320, 72]
+      "value": 1
     },
     {
       "node": "print",

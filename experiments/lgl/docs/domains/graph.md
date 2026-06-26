@@ -96,8 +96,10 @@ interface Node {
 }
 ```
 
-`at` and `size` are graph editor metadata. LGL does not introduce a separate
-layout object.
+`at` and `size` are returned only when the query asks for `with layout`.
+`at` maps to UE `NodePosX/NodePosY`. `size` maps to UE
+`NodeWidth/NodeHeight` and should be omitted when UE has not stored a non-zero
+size. LGL does not introduce a separate layout object.
 
 ## Pins
 
@@ -105,8 +107,8 @@ Pin object text uses member bindings and named metadata:
 
 ```lgl
 delay.Exec = pin(type: exec, direction: in)
-delay.Duration = pin(type: float, direction: in, value: 1.0, anchor: [320, 72])
-delay.Completed = pin(type: exec, direction: out, anchor: [500, 24])
+delay.Duration = pin(type: float, direction: in, value: 1.0)
+delay.Completed = pin(type: exec, direction: out)
 ```
 
 Normalized JSON:
@@ -121,6 +123,10 @@ interface Pin {
   anchor?: Point;
 }
 ```
+
+`anchor` is reserved for live editor layout data. Plain asset readback should
+not estimate pin anchors because UE stores exact pin positions in Slate widget
+geometry, not on `UEdGraphPin`.
 
 Avoid positional pin metadata:
 
@@ -196,8 +202,8 @@ page after "cursor"
 ```
 
 Graph query has no `select` clause. The default result includes graph context
-and matched graph objects. `with` expands additional data such as pins and
-defaults.
+and matched graph objects. `with` expands additional data such as pins,
+defaults, and layout.
 
 `find palette entry` discovers creation entries for later patch use. The
 Palette section defines shortcut constructor results, fallback palette results,

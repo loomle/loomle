@@ -56,7 +56,7 @@ export type Condition =
   | NotCondition
   | AndCondition
   | OrCondition;
-export type Detail = "pins" | "defaults" | "properties" | "registryTags";
+export type Detail = "pins" | "defaults" | "layout" | "properties" | "registryTags";
 export type BindingTarget = LocalRef | MemberRef;
 export type BindingValue = Expr | NodeCreation;
 export type NodeCreation = PaletteNodeCreation | ShortcutNodeCreation;

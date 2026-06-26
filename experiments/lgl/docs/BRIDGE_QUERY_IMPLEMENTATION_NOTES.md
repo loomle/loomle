@@ -149,10 +149,9 @@ UEdGraphNode_Comment::NodeWidth
 UEdGraphNode_Comment::NodeHeight
 ```
 
-Existing code estimates other node sizes and exec pin anchors. The current LGL
-schema exposes layout as best-effort metadata fields (`at`, `size`, and
-`anchor`); it does not have a separate `layout` detail flag or estimated-layout
-marker.
+Existing code estimates other node sizes and exec pin anchors. The LGL bridge
+should avoid estimated layout in normal asset readback. Stable node layout
+belongs behind `with layout`; pin anchors require measured live editor geometry.
 
 Measured Slate geometry is out of scope for the first spike.
 
@@ -278,11 +277,10 @@ LGL output:
 ```txt
 Node.at
 Node.size
-Pin.anchor
 ```
 
-Pin layout may be derived as best-effort `anchor` metadata when measured editor
-geometry is unavailable.
+Pin layout should not be derived as best-effort `anchor` metadata when measured
+editor geometry is unavailable.
 
 ## Suggested Implementation Order
 
@@ -294,8 +292,8 @@ geometry is unavailable.
    `LglBlueprintResolve`.
 5. Implement empty query graph readback in `LglBlueprintRead`.
 6. Implement `find nodes where name = <name>` matching and ambiguity diagnostics.
-7. Add pins and defaults readback behind requested `with` flags; include
-   best-effort `at`, `size`, and `anchor` layout fields when available.
+7. Add pins, defaults, and layout readback behind requested `with` flags;
+   include node `at` and non-zero node `size` when available.
 8. Validate or structurally check response objects before encoding.
 9. Add accepted and rejected object JSON fixtures.
 10. Add a dependency check or review checklist ensuring LGL files do not call

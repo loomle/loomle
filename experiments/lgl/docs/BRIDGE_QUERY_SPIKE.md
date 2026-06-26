@@ -131,9 +131,9 @@ object should contain only the information requested by the query.
 
 For `with pins`, include node pins and enough pin identity for follow-up patch
 work. For `with defaults`, include node fields, pin values, or palette defaults
-where the returned object type supports them. Node and pin layout readback uses
-the schema fields `at`, `size`, and `anchor`; layout is not a separate `with`
-detail in the current object schema.
+where the returned object type supports them. For `with layout`, include stable
+UE editor layout fields such as node `at` and non-zero node `size`. Do not
+estimate pin anchors in asset readback.
 
 The response must be schema-valid before it leaves the LGL bridge boundary.
 

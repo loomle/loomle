@@ -82,7 +82,7 @@ export function parseDetails(text: string, line: ParsedLine): Detail[] {
   if (details.length === 0 || details.some((detail) => detail.length === 0)) {
     throw new ParseError("language.invalid_detail", "Expected with <detail>, <detail>.", spanForLine(line));
   }
-  const allowed = new Set(["pins", "defaults", "properties", "registryTags"]);
+  const allowed = new Set(["pins", "defaults", "layout", "properties", "registryTags"]);
   const invalid = details.find((detail) => !allowed.has(detail));
   if (invalid) {
     throw new ParseError("language.invalid_detail", `Unsupported detail: ${invalid}.`, spanForLine(line));
