@@ -10,6 +10,7 @@
 #include "../LglCapabilityValidator.h"
 #include "../LglDiagnostics.h"
 #include "../LglResult.h"
+#include "../Services/LglGraphPaletteService.h"
 #include "../Services/LglGraphResolver.h"
 
 namespace Loomle::Lgl
@@ -439,18 +440,6 @@ FString ReadFindKind(const FLglObjectRequest& Request)
     return Kind;
 }
 
-FLglObjectResult PaletteNotImplemented()
-{
-    return FLglResult::FromDiagnostic(
-        FLglDiagnostics::Info(
-            TEXT("capability.not_implemented"),
-            TEXT("Graph palette entry discovery is not implemented in the LGL bridge yet."))
-            .Domain(TEXT("graph"))
-            .Operation(TEXT("find palette entry"))
-            .Suggestion(TEXT("Next implementation step is a UE Action Menu backed graph palette service."))
-            .Build());
-}
-
 int32 ReadPageLimit(const FLglObjectRequest& Request)
 {
     const TSharedPtr<FJsonObject>* Page = nullptr;
@@ -779,7 +768,8 @@ FLglObjectResult FLglGraphAdapter::Query(const FLglObjectRequest& Request)
 
     if (ReadFindKind(Request) == TEXT("palette_entry"))
     {
-        return PaletteNotImplemented();
+        FLglGraphPaletteService PaletteService;
+        return PaletteService.QueryPaletteEntries(Request, ResolvedGraph);
     }
 
     FLglObjectResult Result;
