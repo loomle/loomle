@@ -35,7 +35,7 @@ FLglQueryCapabilities GraphQueryCapabilities()
     Capabilities.bValidateDetails = true;
     Capabilities.Details = {TEXT("pins")};
     Capabilities.bValidateOrderKeys = true;
-    Capabilities.OrderKeys = {};
+    Capabilities.OrderKeys = {TEXT("name"), TEXT("type"), TEXT("id")};
     Capabilities.bSupportsPageAfter = false;
     Capabilities.bSupportsCompare = false;
     return Capabilities;
@@ -379,12 +379,66 @@ int32 ReadPageLimit(const FLglObjectRequest& Request)
     return DefaultLimit;
 }
 
+void ReadOrderBy(const FLglObjectRequest& Request, TArray<TPair<FString, FString>>& OutOrderBy)
+{
+    OutOrderBy.Reset();
+    const TArray<TSharedPtr<FJsonValue>>* Orders = nullptr;
+    if (!Request.Object.IsValid() || !Request.Object->TryGetArrayField(TEXT("orderBy"), Orders) || Orders == nullptr)
+    {
+        return;
+    }
+
+    for (const TSharedPtr<FJsonValue>& Value : *Orders)
+    {
+        const TSharedPtr<FJsonObject>* Order = nullptr;
+        if (!Value.IsValid() || !Value->TryGetObject(Order) || Order == nullptr || !(*Order).IsValid())
+        {
+            continue;
+        }
+
+        FString Key;
+        FString Direction;
+        (*Order)->TryGetStringField(TEXT("key"), Key);
+        (*Order)->TryGetStringField(TEXT("direction"), Direction);
+        if (!Key.IsEmpty())
+        {
+            OutOrderBy.Add(TPair<FString, FString>(Key, Direction));
+        }
+    }
+}
+
+void SortNodes(TArray<UEdGraphNode*>& Nodes, const TMap<const UEdGraphNode*, FString>& AliasesByNode, const TArray<TPair<FString, FString>>& OrderBy)
+{
+    if (OrderBy.IsEmpty())
+    {
+        return;
+    }
+
+    Nodes.Sort([&AliasesByNode, &OrderBy](const UEdGraphNode& Left, const UEdGraphNode& Right)
+    {
+        for (const TPair<FString, FString>& Order : OrderBy)
+        {
+            const FString LeftValue = ReadNodeField(&Left, AliasesByNode.FindRef(&Left), Order.Key);
+            const FString RightValue = ReadNodeField(&Right, AliasesByNode.FindRef(&Right), Order.Key);
+            const int32 Compare = LeftValue.Compare(RightValue, ESearchCase::IgnoreCase);
+            if (Compare == 0)
+            {
+                continue;
+            }
+            return Order.Value == TEXT("desc") ? Compare > 0 : Compare < 0;
+        }
+        return NodeId(&Left) < NodeId(&Right);
+    });
+}
+
 TSharedPtr<FJsonObject> BuildGraphReadback(
     const FLglObjectRequest& Request,
     const FLglResolvedGraph& ResolvedGraph)
 {
     const bool bIncludePins = QueryIncludes(Request, TEXT("pins"));
     const int32 Limit = ReadPageLimit(Request);
+    TArray<TPair<FString, FString>> OrderBy;
+    ReadOrderBy(Request, OrderBy);
     FString FindText;
     ReadFindNodesText(Request, FindText);
 
@@ -416,11 +470,12 @@ TSharedPtr<FJsonObject> BuildGraphReadback(
         if (MatchesText(Node, Alias, FindText) && MatchesCondition(Node, Alias, Where))
         {
             IncludedNodes.Add(Node);
-            if (IncludedNodes.Num() >= Limit)
-            {
-                break;
-            }
         }
+    }
+    SortNodes(IncludedNodes, AliasesByNode, OrderBy);
+    if (IncludedNodes.Num() > Limit)
+    {
+        IncludedNodes.SetNum(Limit);
     }
 
     TSet<UEdGraphNode*> IncludedNodeSet;
