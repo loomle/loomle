@@ -33,7 +33,7 @@ FLglQueryCapabilities GraphQueryCapabilities()
         TEXT("comment")
     };
     Capabilities.bValidateDetails = true;
-    Capabilities.Details = {TEXT("pins")};
+    Capabilities.Details = {TEXT("pins"), TEXT("defaults")};
     Capabilities.bValidateOrderKeys = true;
     Capabilities.OrderKeys = {TEXT("name"), TEXT("type"), TEXT("id")};
     Capabilities.bSupportsPageAfter = false;
@@ -111,6 +111,27 @@ FString PinType(const UEdGraphPin* Pin)
         return Pin->PinType.PinCategory.ToString();
     }
     return TEXT("unknown");
+}
+
+FString PinDefaultValue(const UEdGraphPin* Pin)
+{
+    if (Pin == nullptr)
+    {
+        return FString();
+    }
+    if (!Pin->DefaultValue.IsEmpty())
+    {
+        return Pin->DefaultValue;
+    }
+    if (Pin->DefaultObject != nullptr)
+    {
+        return Pin->DefaultObject->GetPathName();
+    }
+    if (!Pin->DefaultTextValue.IsEmpty())
+    {
+        return Pin->DefaultTextValue.ToString();
+    }
+    return FString();
 }
 
 FString ExprToString(const TSharedPtr<FJsonValue>& Value)
@@ -287,13 +308,25 @@ TSharedPtr<FJsonObject> MakePinRef(const FString& NodeAlias, const FString& PinN
     return Ref;
 }
 
-TSharedPtr<FJsonObject> EncodeNode(const UEdGraphNode* Node, const FString& Alias)
+TSharedPtr<FJsonObject> EncodeNode(const UEdGraphNode* Node, const FString& Alias, bool bIncludeDefaults)
 {
     TSharedPtr<FJsonObject> Object = MakeShared<FJsonObject>();
     Object->SetStringField(TEXT("alias"), Alias);
     Object->SetStringField(TEXT("id"), NodeId(Node));
     Object->SetStringField(TEXT("type"), NodeType(Node));
-    Object->SetObjectField(TEXT("fields"), MakeShared<FJsonObject>());
+    TSharedPtr<FJsonObject> Fields = MakeShared<FJsonObject>();
+    if (bIncludeDefaults && Node != nullptr)
+    {
+        for (const UEdGraphPin* Pin : Node->Pins)
+        {
+            const FString DefaultValue = PinDefaultValue(Pin);
+            if (Pin != nullptr && !DefaultValue.IsEmpty())
+            {
+                Fields->SetStringField(Pin->PinName.ToString(), DefaultValue);
+            }
+        }
+    }
+    Object->SetObjectField(TEXT("fields"), Fields);
 
     TArray<TSharedPtr<FJsonValue>> At;
     At.Add(MakeShared<FJsonValueNumber>(Node != nullptr ? Node->NodePosX : 0));
@@ -302,16 +335,17 @@ TSharedPtr<FJsonObject> EncodeNode(const UEdGraphNode* Node, const FString& Alia
     return Object;
 }
 
-TSharedPtr<FJsonObject> EncodePin(const UEdGraphPin* Pin, const FString& NodeAlias)
+TSharedPtr<FJsonObject> EncodePin(const UEdGraphPin* Pin, const FString& NodeAlias, bool bIncludeDefaults)
 {
     TSharedPtr<FJsonObject> Object = MakeShared<FJsonObject>();
     Object->SetStringField(TEXT("node"), NodeAlias);
     Object->SetStringField(TEXT("name"), Pin != nullptr ? Pin->PinName.ToString() : FString());
     Object->SetStringField(TEXT("type"), PinType(Pin));
     Object->SetStringField(TEXT("direction"), PinDirection(Pin));
-    if (Pin != nullptr && !Pin->DefaultValue.IsEmpty())
+    const FString DefaultValue = bIncludeDefaults ? PinDefaultValue(Pin) : FString();
+    if (!DefaultValue.IsEmpty())
     {
-        Object->SetStringField(TEXT("value"), Pin->DefaultValue);
+        Object->SetStringField(TEXT("value"), DefaultValue);
     }
     return Object;
 }
@@ -436,6 +470,7 @@ TSharedPtr<FJsonObject> BuildGraphReadback(
     const FLglResolvedGraph& ResolvedGraph)
 {
     const bool bIncludePins = QueryIncludes(Request, TEXT("pins"));
+    const bool bIncludeDefaults = QueryIncludes(Request, TEXT("defaults"));
     const int32 Limit = ReadPageLimit(Request);
     TArray<TPair<FString, FString>> OrderBy;
     ReadOrderBy(Request, OrderBy);
@@ -488,13 +523,13 @@ TSharedPtr<FJsonObject> BuildGraphReadback(
     for (UEdGraphNode* Node : IncludedNodes)
     {
         const FString Alias = AliasesByNode.FindRef(Node);
-        Nodes.Add(MakeShared<FJsonValueObject>(EncodeNode(Node, Alias)));
+        Nodes.Add(MakeShared<FJsonValueObject>(EncodeNode(Node, Alias, bIncludeDefaults)));
 
         if (bIncludePins)
         {
             for (UEdGraphPin* Pin : Node->Pins)
             {
-                Pins.Add(MakeShared<FJsonValueObject>(EncodePin(Pin, Alias)));
+                Pins.Add(MakeShared<FJsonValueObject>(EncodePin(Pin, Alias, bIncludeDefaults)));
             }
         }
     }
