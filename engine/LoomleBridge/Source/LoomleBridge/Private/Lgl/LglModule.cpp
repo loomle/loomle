@@ -29,11 +29,15 @@ FLglAdapterRegistry BuildRegistry()
 
 FLglObjectResult UnsupportedDomain(const FString& Method, const FString& Domain)
 {
-    return FLglResult::FromDiagnostic(FLglDiagnostics::Make(
-        TEXT("error"),
-        TEXT("unsupported_domain"),
-        FString::Printf(TEXT("%s does not support target.domain = %s."), *Method, *Domain),
-        TEXT("Use Target.domain = \"asset\" or \"blueprint\" for the current LGL bridge query milestone.")));
+    return FLglResult::FromDiagnostic(
+        FLglDiagnostics::Error(
+            TEXT("capability.unsupported_domain"),
+            FString::Printf(TEXT("%s does not support target.domain = %s."), *Method, *Domain))
+            .Path({TEXT("target"), TEXT("domain")})
+            .Actual(Domain)
+            .Supported({TEXT("asset"), TEXT("blueprint")})
+            .Suggestion(TEXT("Use target.domain = \"asset\" or \"blueprint\" for the current LGL bridge query milestone."))
+            .Build());
 }
 }
 

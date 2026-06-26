@@ -16,11 +16,14 @@ constexpr int32 DefaultLimit = 50;
 
 FLglObjectResult UnsupportedQueryFeature(const FString& Feature, const FString& Suggestion)
 {
-    return FLglResult::FromDiagnostic(FLglDiagnostics::Make(
-        TEXT("error"),
-        TEXT("unsupported_query_feature"),
-        FString::Printf(TEXT("The asset adapter does not support %s yet."), *Feature),
-        Suggestion));
+    return FLglResult::FromDiagnostic(
+        FLglDiagnostics::Error(
+            TEXT("capability.unsupported_query_feature"),
+            FString::Printf(TEXT("The asset adapter does not support %s yet."), *Feature))
+            .Domain(TEXT("asset"))
+            .Actual(Feature)
+            .Suggestion(Suggestion)
+            .Build());
 }
 
 bool HasField(const TSharedPtr<FJsonObject>& Object, const FString& Field)
@@ -37,7 +40,7 @@ bool IsSupportedWhereField(const FString& Field)
         || Field == TEXT("path");
 }
 
-bool ReadSingleFieldPath(
+bool ReadSingleFieldPathForCapability(
     const TSharedPtr<FJsonObject>& Condition,
     FString& OutField,
     FLglObjectResult& OutError)
@@ -45,10 +48,9 @@ bool ReadSingleFieldPath(
     const TSharedPtr<FJsonObject>* Field = nullptr;
     if (!Condition->TryGetObjectField(TEXT("field"), Field) || Field == nullptr || !(*Field).IsValid())
     {
-        OutError = FLglResult::FromDiagnostic(FLglDiagnostics::Make(
-            TEXT("error"),
-            TEXT("invalid_where"),
-            TEXT("Asset where condition is missing field.path.")));
+        OutError = UnsupportedQueryFeature(
+            TEXT("where field"),
+            TEXT("Use normalized where conditions with field.path."));
         return false;
     }
 
@@ -57,7 +59,7 @@ bool ReadSingleFieldPath(
     {
         OutError = FLglResult::FromDiagnostic(FLglDiagnostics::Make(
             TEXT("error"),
-            TEXT("unsupported_where_field"),
+            TEXT("capability.unsupported_where_field"),
             TEXT("Asset where currently supports only single-segment fields."),
             TEXT("Use root, type, class, name, or path.")));
         return false;
@@ -65,60 +67,48 @@ bool ReadSingleFieldPath(
 
     if (!(*Path)[0].IsValid() || !(*Path)[0]->TryGetString(OutField) || OutField.IsEmpty())
     {
-        OutError = FLglResult::FromDiagnostic(FLglDiagnostics::Make(
-            TEXT("error"),
-            TEXT("invalid_where"),
-            TEXT("Asset where field.path must contain a non-empty string.")));
+        OutError = UnsupportedQueryFeature(
+            TEXT("where field"),
+            TEXT("Use normalized where conditions with non-empty field.path segments."));
         return false;
     }
 
     if (!IsSupportedWhereField(OutField))
     {
-        OutError = FLglResult::FromDiagnostic(FLglDiagnostics::Make(
-            TEXT("error"),
-            TEXT("unsupported_where_field"),
-            FString::Printf(TEXT("Asset where does not support field %s yet."), *OutField),
-            TEXT("Use root, type, class, name, or path.")));
+        OutError = FLglResult::FromDiagnostic(
+            FLglDiagnostics::Error(
+                TEXT("capability.unsupported_where_field"),
+                FString::Printf(TEXT("Asset where does not support field %s yet."), *OutField))
+                .Domain(TEXT("asset"))
+                .Path({TEXT("where"), TEXT("field")})
+                .Actual(OutField)
+                .Supported({TEXT("root"), TEXT("type"), TEXT("class"), TEXT("name"), TEXT("path")})
+                .Suggestion(TEXT("Use root, type, class, name, or path."))
+                .Build());
         return false;
     }
 
     return true;
 }
 
-bool ValidateWhereCondition(const TSharedPtr<FJsonObject>& Condition, FLglObjectResult& OutError)
+bool ValidateWhereCapabilities(const TSharedPtr<FJsonObject>& Condition, FLglObjectResult& OutError)
 {
     if (!Condition.IsValid())
     {
-        OutError = FLglResult::FromDiagnostic(FLglDiagnostics::Make(
-            TEXT("error"),
-            TEXT("invalid_where"),
-            TEXT("Asset where condition must be an object.")));
+        OutError = UnsupportedQueryFeature(
+            TEXT("where"),
+            TEXT("Use normalized where condition objects."));
         return false;
     }
 
     FString Kind;
-    if (!Condition->TryGetStringField(TEXT("kind"), Kind) || Kind.IsEmpty())
-    {
-        OutError = FLglResult::FromDiagnostic(FLglDiagnostics::Make(
-            TEXT("error"),
-            TEXT("invalid_where"),
-            TEXT("Asset where condition is missing kind.")));
-        return false;
-    }
+    Condition->TryGetStringField(TEXT("kind"), Kind);
 
     if (Kind == TEXT("eq") || Kind == TEXT("ne") || Kind == TEXT("contains"))
     {
         FString Field;
-        if (!ReadSingleFieldPath(Condition, Field, OutError))
+        if (!ReadSingleFieldPathForCapability(Condition, Field, OutError))
         {
-            return false;
-        }
-        if (!Condition->HasField(TEXT("value")))
-        {
-            OutError = FLglResult::FromDiagnostic(FLglDiagnostics::Make(
-                TEXT("error"),
-                TEXT("invalid_where"),
-                TEXT("Asset where comparison is missing value.")));
             return false;
         }
         return true;
@@ -129,24 +119,22 @@ bool ValidateWhereCondition(const TSharedPtr<FJsonObject>& Condition, FLglObject
         const TSharedPtr<FJsonObject>* Inner = nullptr;
         if (!Condition->TryGetObjectField(TEXT("condition"), Inner) || Inner == nullptr)
         {
-            OutError = FLglResult::FromDiagnostic(FLglDiagnostics::Make(
-                TEXT("error"),
-                TEXT("invalid_where"),
-                TEXT("Asset not condition is missing condition.")));
+            OutError = UnsupportedQueryFeature(
+                TEXT("where not"),
+                TEXT("Use normalized where not conditions with a condition object."));
             return false;
         }
-        return ValidateWhereCondition(*Inner, OutError);
+        return ValidateWhereCapabilities(*Inner, OutError);
     }
 
     if (Kind == TEXT("and") || Kind == TEXT("or"))
     {
         const TArray<TSharedPtr<FJsonValue>>* Conditions = nullptr;
-        if (!Condition->TryGetArrayField(TEXT("conditions"), Conditions) || Conditions == nullptr || Conditions->Num() == 0)
+        if (!Condition->TryGetArrayField(TEXT("conditions"), Conditions) || Conditions == nullptr)
         {
-            OutError = FLglResult::FromDiagnostic(FLglDiagnostics::Make(
-                TEXT("error"),
-                TEXT("invalid_where"),
-                FString::Printf(TEXT("Asset %s condition requires a non-empty conditions array."), *Kind)));
+            OutError = UnsupportedQueryFeature(
+                FString::Printf(TEXT("where %s"), *Kind),
+                TEXT("Use normalized compound where conditions."));
             return false;
         }
 
@@ -155,13 +143,12 @@ bool ValidateWhereCondition(const TSharedPtr<FJsonObject>& Condition, FLglObject
             const TSharedPtr<FJsonObject>* ItemObject = nullptr;
             if (!Item.IsValid() || !Item->TryGetObject(ItemObject) || ItemObject == nullptr)
             {
-                OutError = FLglResult::FromDiagnostic(FLglDiagnostics::Make(
-                    TEXT("error"),
-                    TEXT("invalid_where"),
-                    TEXT("Asset compound where condition contains a non-object item.")));
+                OutError = UnsupportedQueryFeature(
+                    FString::Printf(TEXT("where %s"), *Kind),
+                    TEXT("Use normalized compound where conditions with condition object items."));
                 return false;
             }
-            if (!ValidateWhereCondition(*ItemObject, OutError))
+            if (!ValidateWhereCapabilities(*ItemObject, OutError))
             {
                 return false;
             }
@@ -179,7 +166,7 @@ bool ValidateWhereCondition(const TSharedPtr<FJsonObject>& Condition, FLglObject
 
     OutError = FLglResult::FromDiagnostic(FLglDiagnostics::Make(
         TEXT("error"),
-        TEXT("unsupported_where_condition"),
+        TEXT("capability.unsupported_where_condition"),
         FString::Printf(TEXT("Asset where does not support condition kind %s."), *Kind),
         TEXT("Use eq, ne, contains, not, and, or.")));
     return false;
@@ -198,14 +185,13 @@ bool ReadWhere(const TSharedPtr<FJsonObject>& Object, TSharedPtr<FJsonObject>& O
     const TSharedPtr<FJsonObject>* Where = nullptr;
     if (!WhereValue->TryGetObject(Where) || Where == nullptr || !(*Where).IsValid())
     {
-        OutError = FLglResult::FromDiagnostic(FLglDiagnostics::Make(
-            TEXT("error"),
-            TEXT("invalid_where"),
-            TEXT("Asset where must be a condition object.")));
+        OutError = UnsupportedQueryFeature(
+            TEXT("where"),
+            TEXT("Use normalized where condition objects."));
         return false;
     }
 
-    if (!ValidateWhereCondition(*Where, OutError))
+    if (!ValidateWhereCapabilities(*Where, OutError))
     {
         return false;
     }
@@ -229,7 +215,7 @@ bool ReadFindText(const TSharedPtr<FJsonObject>& Object, FString& OutText, FLglO
     {
         OutError = FLglResult::FromDiagnostic(FLglDiagnostics::Make(
             TEXT("error"),
-            TEXT("unsupported_query"),
+            TEXT("capability.unsupported_find"),
             TEXT("The asset adapter only supports find assets in this milestone."),
             TEXT("Use query asset with find.kind = \"assets\".")));
         return false;
@@ -296,7 +282,7 @@ FLglObjectResult FLglAssetAdapter::Query(const FLglObjectRequest& Request)
     {
         return FLglResult::FromDiagnostic(FLglDiagnostics::Make(
             TEXT("error"),
-            TEXT("invalid_request"),
+            TEXT("language.invalid_object_shape"),
             TEXT("Asset query requires a normalized LGL object.")));
     }
 
@@ -304,7 +290,7 @@ FLglObjectResult FLglAssetAdapter::Query(const FLglObjectRequest& Request)
     {
         return FLglResult::FromDiagnostic(FLglDiagnostics::Make(
             TEXT("error"),
-            TEXT("asset_registry_unavailable"),
+            TEXT("resolution.asset_registry_unavailable"),
             TEXT("UE Asset Registry is not available.")));
     }
 
@@ -346,7 +332,7 @@ FLglObjectResult FLglAssetAdapter::Patch(const FLglObjectRequest& Request)
 {
     return FLglResult::FromDiagnostic(FLglDiagnostics::Make(
         TEXT("error"),
-        TEXT("unsupported_operation"),
+        TEXT("capability.unsupported_patch_op"),
         TEXT("The asset domain has no LGL patch operation.")));
 }
 }

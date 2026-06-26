@@ -22,7 +22,7 @@ FLglObjectResult FLglBlueprintAdapter::Query(const FLglObjectRequest& Request)
     {
         return FLglResult::FromDiagnostic(FLglDiagnostics::Make(
             TEXT("error"),
-            TEXT("invalid_object"),
+            TEXT("language.invalid_object_shape"),
             TEXT("LGL query target is missing required string field asset.")));
     }
 
@@ -31,7 +31,7 @@ FLglObjectResult FLglBlueprintAdapter::Query(const FLglObjectRequest& Request)
     {
         return FLglResult::FromDiagnostic(FLglDiagnostics::Make(
             TEXT("error"),
-            TEXT("invalid_object"),
+            TEXT("language.invalid_object_shape"),
             TEXT("LGL query target is missing required graph reference object.")));
     }
 
@@ -44,7 +44,7 @@ FLglObjectResult FLglBlueprintAdapter::Query(const FLglObjectRequest& Request)
         {
             return FLglResult::FromDiagnostic(FLglDiagnostics::Make(
                 TEXT("error"),
-                TEXT("unsupported_query"),
+                TEXT("capability.unsupported_find"),
                 FString::Printf(TEXT("lgl.query does not support find kind %s in the first stub."), *FindKind),
                 TEXT("Use an empty query or find nodes in the first LGL bridge query spike.")));
         }
@@ -52,7 +52,7 @@ FLglObjectResult FLglBlueprintAdapter::Query(const FLglObjectRequest& Request)
 
     return FLglResult::FromDiagnostic(FLglDiagnostics::Make(
         TEXT("info"),
-        TEXT("not_implemented"),
+        TEXT("capability.not_implemented"),
         TEXT("lgl.query reached the LGL-native bridge stub; Blueprint readback is not implemented yet."),
         TEXT("Next implementation step is Blueprint asset and graph resolution in Private/Lgl/Blueprint.")));
 }
@@ -61,7 +61,7 @@ FLglObjectResult FLglBlueprintAdapter::Patch(const FLglObjectRequest& Request)
 {
     return FLglResult::FromDiagnostic(FLglDiagnostics::Make(
         TEXT("error"),
-        TEXT("not_implemented"),
+        TEXT("capability.not_implemented"),
         TEXT("lgl.patch is not implemented for Blueprint yet.")));
 }
 }

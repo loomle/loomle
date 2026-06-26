@@ -15,7 +15,7 @@ FLglObjectResult InvalidObject(const FString& Message, const FString& Suggestion
 {
     return FLglResult::FromDiagnostic(FLglDiagnostics::Make(
         TEXT("error"),
-        TEXT("invalid_object"),
+        TEXT("language.invalid_object_shape"),
         Message,
         Suggestion));
 }
@@ -122,6 +122,209 @@ bool ValidateStringArrayField(
     }
     return true;
 }
+
+bool ValidateFieldPath(
+    const TSharedPtr<FJsonObject>& Condition,
+    const FString& ConditionKind,
+    FLglObjectResult& OutError)
+{
+    const TSharedPtr<FJsonObject>* Field = nullptr;
+    if (!Condition->TryGetObjectField(TEXT("field"), Field) || Field == nullptr || !(*Field).IsValid())
+    {
+        OutError = InvalidObject(FString::Printf(TEXT("LGL %s condition is missing field object."), *ConditionKind));
+        return false;
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* Path = nullptr;
+    if (!(*Field)->TryGetArrayField(TEXT("path"), Path) || Path == nullptr || Path->Num() == 0)
+    {
+        OutError = InvalidObject(FString::Printf(TEXT("LGL %s condition field.path must be a non-empty array."), *ConditionKind));
+        return false;
+    }
+
+    for (const TSharedPtr<FJsonValue>& Segment : *Path)
+    {
+        FString SegmentText;
+        if (!Segment.IsValid() || !Segment->TryGetString(SegmentText) || SegmentText.IsEmpty())
+        {
+            OutError = InvalidObject(FString::Printf(TEXT("LGL %s condition field.path must contain only non-empty strings."), *ConditionKind));
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ValidateWhereCondition(const TSharedPtr<FJsonObject>& Condition, FLglObjectResult& OutError)
+{
+    if (!Condition.IsValid())
+    {
+        OutError = InvalidObject(TEXT("LGL where condition must be an object."));
+        return false;
+    }
+
+    FString Kind;
+    if (!Condition->TryGetStringField(TEXT("kind"), Kind) || Kind.IsEmpty())
+    {
+        OutError = InvalidObject(TEXT("LGL where condition is missing required string field kind."));
+        return false;
+    }
+
+    if (Kind == TEXT("eq") || Kind == TEXT("ne") || Kind == TEXT("contains") || Kind == TEXT("compare"))
+    {
+        if (!ValidateFieldPath(Condition, Kind, OutError))
+        {
+            return false;
+        }
+        if (!Condition->HasField(TEXT("value")))
+        {
+            OutError = InvalidObject(FString::Printf(TEXT("LGL %s condition is missing value."), *Kind));
+            return false;
+        }
+        if (Kind == TEXT("compare"))
+        {
+            FString Op;
+            if (!Condition->TryGetStringField(TEXT("op"), Op)
+                || !(Op == TEXT("gt") || Op == TEXT("gte") || Op == TEXT("lt") || Op == TEXT("lte")))
+            {
+                OutError = InvalidObject(TEXT("LGL compare condition op must be gt, gte, lt, or lte."));
+                return false;
+            }
+        }
+        return true;
+    }
+
+    if (Kind == TEXT("not"))
+    {
+        const TSharedPtr<FJsonObject>* Inner = nullptr;
+        if (!Condition->TryGetObjectField(TEXT("condition"), Inner) || Inner == nullptr || !(*Inner).IsValid())
+        {
+            OutError = InvalidObject(TEXT("LGL not condition is missing condition object."));
+            return false;
+        }
+        return ValidateWhereCondition(*Inner, OutError);
+    }
+
+    if (Kind == TEXT("and") || Kind == TEXT("or"))
+    {
+        const TArray<TSharedPtr<FJsonValue>>* Conditions = nullptr;
+        if (!Condition->TryGetArrayField(TEXT("conditions"), Conditions) || Conditions == nullptr || Conditions->Num() == 0)
+        {
+            OutError = InvalidObject(FString::Printf(TEXT("LGL %s condition requires a non-empty conditions array."), *Kind));
+            return false;
+        }
+
+        for (const TSharedPtr<FJsonValue>& Item : *Conditions)
+        {
+            const TSharedPtr<FJsonObject>* ItemObject = nullptr;
+            if (!Item.IsValid() || !Item->TryGetObject(ItemObject) || ItemObject == nullptr || !(*ItemObject).IsValid())
+            {
+                OutError = InvalidObject(TEXT("LGL compound where condition contains a non-object item."));
+                return false;
+            }
+            if (!ValidateWhereCondition(*ItemObject, OutError))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    OutError = InvalidObject(
+        FString::Printf(TEXT("Unsupported LGL where condition kind %s."), *Kind),
+        TEXT("Use eq, ne, contains, compare, not, and, or."));
+    return false;
+}
+
+bool ValidateWhere(const TSharedPtr<FJsonObject>& Object, FLglObjectResult& OutError)
+{
+    const TSharedPtr<FJsonValue> WhereValue = Object->TryGetField(TEXT("where"));
+    if (!WhereValue.IsValid() || WhereValue->IsNull())
+    {
+        return true;
+    }
+
+    const TSharedPtr<FJsonObject>* Where = nullptr;
+    if (!WhereValue->TryGetObject(Where) || Where == nullptr || !(*Where).IsValid())
+    {
+        OutError = InvalidObject(TEXT("LGL query where field must be a condition object."));
+        return false;
+    }
+
+    return ValidateWhereCondition(*Where, OutError);
+}
+
+bool ValidateOrderBy(const TSharedPtr<FJsonObject>& Object, FLglObjectResult& OutError)
+{
+    const TArray<TSharedPtr<FJsonValue>>* Orders = nullptr;
+    if (!Object->TryGetArrayField(TEXT("orderBy"), Orders))
+    {
+        return true;
+    }
+
+    for (const TSharedPtr<FJsonValue>& OrderValue : *Orders)
+    {
+        const TSharedPtr<FJsonObject>* Order = nullptr;
+        if (!OrderValue.IsValid() || !OrderValue->TryGetObject(Order) || Order == nullptr || !(*Order).IsValid())
+        {
+            OutError = InvalidObject(TEXT("LGL query orderBy field must contain only order objects."));
+            return false;
+        }
+
+        FString Key;
+        if (!(*Order)->TryGetStringField(TEXT("key"), Key) || Key.IsEmpty())
+        {
+            OutError = InvalidObject(TEXT("LGL query orderBy item is missing required string field key."));
+            return false;
+        }
+
+        FString Direction;
+        if (!(*Order)->TryGetStringField(TEXT("direction"), Direction)
+            || !(Direction == TEXT("asc") || Direction == TEXT("desc")))
+        {
+            OutError = InvalidObject(TEXT("LGL query orderBy item direction must be asc or desc."));
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ValidatePage(const TSharedPtr<FJsonObject>& Object, FLglObjectResult& OutError)
+{
+    const TSharedPtr<FJsonValue> PageValue = Object->TryGetField(TEXT("page"));
+    if (!PageValue.IsValid() || PageValue->IsNull())
+    {
+        return true;
+    }
+
+    const TSharedPtr<FJsonObject>* Page = nullptr;
+    if (!PageValue->TryGetObject(Page) || Page == nullptr || !(*Page).IsValid())
+    {
+        OutError = InvalidObject(TEXT("LGL query page field must be an object."));
+        return false;
+    }
+
+    if ((*Page)->HasField(TEXT("limit")))
+    {
+        double Limit = 0.0;
+        if (!(*Page)->TryGetNumberField(TEXT("limit"), Limit) || Limit <= 0.0)
+        {
+            OutError = InvalidObject(TEXT("LGL query page.limit must be a positive number."));
+            return false;
+        }
+    }
+
+    if ((*Page)->HasField(TEXT("after")))
+    {
+        FString After;
+        if (!(*Page)->TryGetStringField(TEXT("after"), After) || After.IsEmpty())
+        {
+            OutError = InvalidObject(TEXT("LGL query page.after must be a non-empty string."));
+            return false;
+        }
+    }
+
+    return true;
+}
 }
 
 bool FLglSchemaValidator::ValidateRequest(
@@ -202,6 +405,21 @@ bool FLglSchemaValidator::ValidateRequest(
         return false;
     }
 
+    if (!ValidateWhere(Request.Object, OutError))
+    {
+        return false;
+    }
+
+    if (!ValidateOrderBy(Request.Object, OutError))
+    {
+        return false;
+    }
+
+    if (!ValidatePage(Request.Object, OutError))
+    {
+        return false;
+    }
+
     return true;
 }
 
@@ -215,7 +433,7 @@ bool FLglSchemaValidator::ValidateResult(
         {
             OutError = FLglResult::FromDiagnostic(FLglDiagnostics::Make(
                 TEXT("error"),
-                TEXT("invalid_result"),
+                TEXT("language.invalid_result_shape"),
                 TEXT("LGL result contains an invalid diagnostic object.")));
             return false;
         }

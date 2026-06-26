@@ -19,7 +19,7 @@ bool FLglJsonCodec::DecodeObjectRequest(
     {
         OutError = FLglResult::FromDiagnostic(FLglDiagnostics::Make(
             TEXT("error"),
-            TEXT("invalid_request"),
+            TEXT("language.invalid_object_shape"),
             FString::Printf(TEXT("%s requires an object request envelope."), *Method)));
         return false;
     }
@@ -29,7 +29,7 @@ bool FLglJsonCodec::DecodeObjectRequest(
     {
         OutError = FLglResult::FromDiagnostic(FLglDiagnostics::Make(
             TEXT("error"),
-            TEXT("invalid_request"),
+            TEXT("language.invalid_object_shape"),
             FString::Printf(TEXT("%s requires an object field containing a normalized LGL object."), *Method),
             TEXT("Send { \"object\": { \"kind\": \"query\", \"target\": ... } }.")));
         return false;
