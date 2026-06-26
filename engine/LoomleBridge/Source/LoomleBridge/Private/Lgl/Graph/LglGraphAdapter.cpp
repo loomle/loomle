@@ -24,7 +24,7 @@ FLglQueryCapabilities GraphQueryCapabilities()
     FLglQueryCapabilities Capabilities;
     Capabilities.Domain = TEXT("graph");
     Capabilities.bValidateFindKinds = true;
-    Capabilities.FindKinds = {TEXT("nodes")};
+    Capabilities.FindKinds = {TEXT("nodes"), TEXT("path")};
     Capabilities.bValidateWhereFields = true;
     Capabilities.WhereFields = {
         TEXT("type"),
@@ -394,6 +394,40 @@ void ReadFindNodesText(const FLglObjectRequest& Request, FString& OutText)
     }
 }
 
+bool ReadFindPath(const FLglObjectRequest& Request, FString& OutDirection, FString& OutNodeAlias, FString& OutPinName)
+{
+    OutDirection.Reset();
+    OutNodeAlias.Reset();
+    OutPinName.Reset();
+
+    const TSharedPtr<FJsonObject>* Find = nullptr;
+    if (!Request.Object.IsValid()
+        || !Request.Object->TryGetObjectField(TEXT("find"), Find)
+        || Find == nullptr
+        || !(*Find).IsValid())
+    {
+        return false;
+    }
+
+    FString Kind;
+    (*Find)->TryGetStringField(TEXT("kind"), Kind);
+    if (Kind != TEXT("path"))
+    {
+        return false;
+    }
+
+    (*Find)->TryGetStringField(TEXT("direction"), OutDirection);
+    const TSharedPtr<FJsonObject>* Pin = nullptr;
+    if (!(*Find)->TryGetObjectField(TEXT("pin"), Pin) || Pin == nullptr || !(*Pin).IsValid())
+    {
+        return false;
+    }
+
+    (*Pin)->TryGetStringField(TEXT("node"), OutNodeAlias);
+    (*Pin)->TryGetStringField(TEXT("pin"), OutPinName);
+    return !OutDirection.IsEmpty() && !OutNodeAlias.IsEmpty() && !OutPinName.IsEmpty();
+}
+
 int32 ReadPageLimit(const FLglObjectRequest& Request)
 {
     const TSharedPtr<FJsonObject>* Page = nullptr;
@@ -465,6 +499,69 @@ void SortNodes(TArray<UEdGraphNode*>& Nodes, const TMap<const UEdGraphNode*, FSt
     });
 }
 
+UEdGraphPin* FindPinByAlias(
+    const TMap<FString, UEdGraphNode*>& NodesByAlias,
+    const FString& NodeAlias,
+    const FString& PinName)
+{
+    UEdGraphNode* const* Node = NodesByAlias.Find(NodeAlias);
+    if (Node == nullptr || *Node == nullptr)
+    {
+        return nullptr;
+    }
+    return (*Node)->FindPin(*PinName);
+}
+
+void WalkPathFrom(UEdGraphPin* StartPin, TArray<UEdGraphNode*>& OutNodes)
+{
+    OutNodes.Reset();
+    UEdGraphPin* CurrentPin = StartPin;
+    TSet<UEdGraphNode*> SeenNodes;
+
+    while (CurrentPin != nullptr)
+    {
+        UEdGraphNode* CurrentNode = CurrentPin->GetOwningNode();
+        if (CurrentNode == nullptr || SeenNodes.Contains(CurrentNode))
+        {
+            break;
+        }
+
+        OutNodes.Add(CurrentNode);
+        SeenNodes.Add(CurrentNode);
+
+        if (CurrentPin->Direction != EGPD_Output || CurrentPin->LinkedTo.IsEmpty())
+        {
+            break;
+        }
+        CurrentPin = CurrentPin->LinkedTo[0];
+    }
+}
+
+void WalkPathTo(UEdGraphPin* StartPin, TArray<UEdGraphNode*>& OutNodes)
+{
+    OutNodes.Reset();
+    UEdGraphPin* CurrentPin = StartPin;
+    TSet<UEdGraphNode*> SeenNodes;
+
+    while (CurrentPin != nullptr)
+    {
+        UEdGraphNode* CurrentNode = CurrentPin->GetOwningNode();
+        if (CurrentNode == nullptr || SeenNodes.Contains(CurrentNode))
+        {
+            break;
+        }
+
+        OutNodes.Insert(CurrentNode, 0);
+        SeenNodes.Add(CurrentNode);
+
+        if (CurrentPin->Direction != EGPD_Input || CurrentPin->LinkedTo.IsEmpty())
+        {
+            break;
+        }
+        CurrentPin = CurrentPin->LinkedTo[0];
+    }
+}
+
 TSharedPtr<FJsonObject> BuildGraphReadback(
     const FLglObjectRequest& Request,
     const FLglResolvedGraph& ResolvedGraph)
@@ -488,6 +585,7 @@ TSharedPtr<FJsonObject> BuildGraphReadback(
     Result->SetObjectField(TEXT("target"), Request.Object->GetObjectField(TEXT("target")));
 
     TMap<const UEdGraphNode*, FString> AliasesByNode;
+    TMap<FString, UEdGraphNode*> NodesByAlias;
     TArray<UEdGraphNode*> IncludedNodes;
     TSet<FString> UsedAliases;
 
@@ -501,16 +599,36 @@ TSharedPtr<FJsonObject> BuildGraphReadback(
         const FString AliasBase = !NodeTitle(Node).IsEmpty() ? NodeTitle(Node) : NodeType(Node);
         const FString Alias = MakeUniqueAlias(AliasBase, UsedAliases);
         AliasesByNode.Add(Node, Alias);
+        NodesByAlias.Add(Alias, Node);
 
         if (MatchesText(Node, Alias, FindText) && MatchesCondition(Node, Alias, Where))
         {
             IncludedNodes.Add(Node);
         }
     }
-    SortNodes(IncludedNodes, AliasesByNode, OrderBy);
-    if (IncludedNodes.Num() > Limit)
+
+    FString PathDirection;
+    FString PathNodeAlias;
+    FString PathPinName;
+    if (ReadFindPath(Request, PathDirection, PathNodeAlias, PathPinName))
     {
-        IncludedNodes.SetNum(Limit);
+        UEdGraphPin* StartPin = FindPinByAlias(NodesByAlias, PathNodeAlias, PathPinName);
+        if (PathDirection == TEXT("from"))
+        {
+            WalkPathFrom(StartPin, IncludedNodes);
+        }
+        else
+        {
+            WalkPathTo(StartPin, IncludedNodes);
+        }
+    }
+    else
+    {
+        SortNodes(IncludedNodes, AliasesByNode, OrderBy);
+        if (IncludedNodes.Num() > Limit)
+        {
+            IncludedNodes.SetNum(Limit);
+        }
     }
 
     TSet<UEdGraphNode*> IncludedNodeSet;
