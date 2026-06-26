@@ -24,7 +24,7 @@ FLglQueryCapabilities GraphQueryCapabilities()
     FLglQueryCapabilities Capabilities;
     Capabilities.Domain = TEXT("graph");
     Capabilities.bValidateFindKinds = true;
-    Capabilities.FindKinds = {TEXT("nodes"), TEXT("path")};
+    Capabilities.FindKinds = {TEXT("nodes"), TEXT("path"), TEXT("palette_entry")};
     Capabilities.bValidateWhereFields = true;
     Capabilities.WhereFields = {
         TEXT("type"),
@@ -423,6 +423,34 @@ bool ReadFindPath(const FLglObjectRequest& Request, FString& OutDirection, FStri
     return !OutDirection.IsEmpty() && !OutNodeAlias.IsEmpty() && !OutPinName.IsEmpty();
 }
 
+FString ReadFindKind(const FLglObjectRequest& Request)
+{
+    const TSharedPtr<FJsonObject>* Find = nullptr;
+    if (!Request.Object.IsValid()
+        || !Request.Object->TryGetObjectField(TEXT("find"), Find)
+        || Find == nullptr
+        || !(*Find).IsValid())
+    {
+        return FString();
+    }
+
+    FString Kind;
+    (*Find)->TryGetStringField(TEXT("kind"), Kind);
+    return Kind;
+}
+
+FLglObjectResult PaletteNotImplemented()
+{
+    return FLglResult::FromDiagnostic(
+        FLglDiagnostics::Info(
+            TEXT("capability.not_implemented"),
+            TEXT("Graph palette entry discovery is not implemented in the LGL bridge yet."))
+            .Domain(TEXT("graph"))
+            .Operation(TEXT("find palette entry"))
+            .Suggestion(TEXT("Next implementation step is a UE Action Menu backed graph palette service."))
+            .Build());
+}
+
 int32 ReadPageLimit(const FLglObjectRequest& Request)
 {
     const TSharedPtr<FJsonObject>* Page = nullptr;
@@ -747,6 +775,11 @@ FLglObjectResult FLglGraphAdapter::Query(const FLglObjectRequest& Request)
     if (!Resolver.Resolve(Request.Object->GetObjectField(TEXT("target")), ResolvedGraph, Error))
     {
         return Error;
+    }
+
+    if (ReadFindKind(Request) == TEXT("palette_entry"))
+    {
+        return PaletteNotImplemented();
     }
 
     FLglObjectResult Result;
