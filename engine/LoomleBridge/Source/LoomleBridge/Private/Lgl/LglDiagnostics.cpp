@@ -56,6 +56,11 @@ FLglDiagnosticBuilder& FLglDiagnosticBuilder::Ref(const FString& Value)
 
 FLglDiagnosticBuilder& FLglDiagnosticBuilder::Path(std::initializer_list<FString> Segments)
 {
+    return Path(TArray<FString>(Segments));
+}
+
+FLglDiagnosticBuilder& FLglDiagnosticBuilder::Path(const TArray<FString>& Segments)
+{
     TArray<TSharedPtr<FJsonValue>> Values;
     for (const FString& Segment : Segments)
     {
@@ -72,6 +77,11 @@ FLglDiagnosticBuilder& FLglDiagnosticBuilder::Actual(const FString& Value)
 }
 
 FLglDiagnosticBuilder& FLglDiagnosticBuilder::Supported(std::initializer_list<FString> Values)
+{
+    return Supported(TArray<FString>(Values));
+}
+
+FLglDiagnosticBuilder& FLglDiagnosticBuilder::Supported(const TArray<FString>& Values)
 {
     TArray<TSharedPtr<FJsonValue>> SupportedValues;
     for (const FString& Value : Values)

@@ -22,8 +22,10 @@ public:
     FLglDiagnosticBuilder& Operation(const FString& Value);
     FLglDiagnosticBuilder& Ref(const FString& Value);
     FLglDiagnosticBuilder& Path(std::initializer_list<FString> Segments);
+    FLglDiagnosticBuilder& Path(const TArray<FString>& Segments);
     FLglDiagnosticBuilder& Actual(const FString& Value);
     FLglDiagnosticBuilder& Supported(std::initializer_list<FString> Values);
+    FLglDiagnosticBuilder& Supported(const TArray<FString>& Values);
 
     TSharedPtr<FJsonObject> Build() const;
 
