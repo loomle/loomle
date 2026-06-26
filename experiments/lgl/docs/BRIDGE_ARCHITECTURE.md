@@ -13,12 +13,16 @@ validation remains tied to the shared LGL object schema.
 
 ## Public RPC
 
-The bridge-facing LGL RPC surface is:
+The target bridge-facing LGL RPC surface is:
 
 ```txt
 lgl.query
 lgl.patch
 ```
+
+The current milestone registers and implements only `lgl.query`. `lgl.patch`
+is the next mutation milestone after query readback is working against live UE
+state.
 
 `lgl.query` and `lgl.patch` receive an object envelope:
 
@@ -44,9 +48,10 @@ Responses are `ObjectResult` JSON:
 `asset_result`, `blueprint_result`, `widget_result`, or `palette_result`.
 `graph` is not a separate response envelope.
 
-The TypeScript SDK owns `lgl.schema()`. Schema inspection describes the LGL
-object contract and SDK/domain capabilities; it does not require a bridge RPC
-or live UE graph state.
+The TypeScript SDK owns `lgl.schema()`. For now it is a minimal contract
+inspection interface for the active LGL object schema. Domain capability
+metadata needs separate design and does not require a bridge RPC or live UE
+graph state.
 
 ## Flow
 

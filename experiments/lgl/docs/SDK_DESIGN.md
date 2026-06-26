@@ -35,10 +35,11 @@ await lgl.patch(text);
 await lgl.schema();
 ```
 
-`schema` exposes the active LGL object contract and domain capabilities for
-tooling. It is not a graph query, does not read UE assets, and does not require
-a UE bridge RPC. The SDK should serve it from the local schema package and SDK
-capability metadata.
+`schema` is reserved for SDK-side contract inspection. For now it should stay a
+minimal interface: expose the active LGL object schema and no domain capability
+model. Capabilities need separate design before they become part of this API.
+It is not a graph query, does not read UE assets, and does not require a UE
+bridge RPC.
 
 ## Text And Object Model
 

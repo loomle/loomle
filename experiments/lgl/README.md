@@ -122,7 +122,8 @@ The current facade is `createLgl({ adapters })`, returning an object used as
 `lgl.query(text)`, `lgl.patch(text)`, and `lgl.schema()`. Query and patch parse
 LGL text, dispatch by target domain to an adapter or bridge RPC, and format
 adapter `ObjectResult` values back to LGL text. Schema is served by the
-TypeScript SDK from the local object contract and capability metadata.
+TypeScript SDK from the local object contract. Capability metadata needs
+separate design before it becomes part of this API.
 
 `createMemoryGraphAdapter` is an in-memory SDK test fixture for exercising the
 adapter contract without Unreal Editor. It is useful for query/patch closed-loop

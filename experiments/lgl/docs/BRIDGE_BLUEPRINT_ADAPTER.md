@@ -88,7 +88,7 @@ find palette entry "Print String"
 Patch-time creation should use stable palette entry ids:
 
 ```txt
-PrintStringSource = palette(id: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString")
+PrintString = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString")
 ```
 
 Context-sensitive entries must carry enough identity to reconstruct the UE
