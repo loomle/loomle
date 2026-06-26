@@ -22,8 +22,8 @@ schema contract use normalized JSON.
 
 ## Current Scope
 
-- Provide the `createLgl({ adapters })` facade used as `lgl.query(text)` and
-  `lgl.patch(text)`.
+- Provide the `createLgl({ adapters })` facade used as `lgl.query(text)`,
+  `lgl.patch(text)`, and `lgl.schema()`.
 - Parse accepted LGL text into normalized `LglObject` values.
 - Format normalized objects back to LGL text.
 - Validate normalized objects against `schema/lgl-object.schema.json`.
@@ -81,15 +81,14 @@ Domain docs:
 
 Bridge planning and reference docs:
 
-- `docs/LGL_NATIVE_BRIDGE.md`: Future LGL-native UE bridge architecture.
-- `docs/LGL_BRIDGE_CODE_LAYOUT.md`: Proposed LGL-native UE bridge code layout.
-- `docs/LGL_BRIDGE_QUERY_SPIKE.md`: First UE-backed `lgl.object.query` spike
+- `docs/BRIDGE_ARCHITECTURE.md`: Concise UE bridge architecture for
+  `lgl.query` and `lgl.patch`.
+- `docs/BRIDGE_BLUEPRINT_ADAPTER.md`: Blueprint domain adapter
+  responsibilities.
+- `docs/BRIDGE_QUERY_SPIKE.md`: First UE-backed `lgl.query` spike
   contract.
-- `docs/LGL_BRIDGE_QUERY_IMPLEMENTATION_NOTES.md`: UE bridge code references
+- `docs/BRIDGE_QUERY_IMPLEMENTATION_NOTES.md`: UE bridge code references
   and implementation notes for the query spike.
-- `docs/BLUEPRINT_ADAPTER.md`: Blueprint adapter responsibilities and how it
-  maps LGL to existing Loomle/UE capabilities.
-- `docs/TOOL_SURFACE.md`: How MCP/CLI tools wrap the SDK.
 - `docs/EXAMPLE_SOURCES.md`: Sources behind the Blueprint example set.
 
 ## Commands
@@ -116,13 +115,14 @@ its own; the same check is included in the default `npm test` gate.
 on its own; the same check is included in the default `npm test` gate.
 
 The parser/formatter covers statement-list object, query, patch, and palette
-creation-entry forms for the current graph, asset, Blueprint, and widget
+entry forms for the current graph, asset, Blueprint, and widget
 domains.
 
 The current facade is `createLgl({ adapters })`, returning an object used as
-`lgl.query(text)` and `lgl.patch(text)`. It parses LGL text, dispatches by
-target domain to an adapter, and formats adapter `ObjectResult` values back to
-LGL text.
+`lgl.query(text)`, `lgl.patch(text)`, and `lgl.schema()`. Query and patch parse
+LGL text, dispatch by target domain to an adapter or bridge RPC, and format
+adapter `ObjectResult` values back to LGL text. Schema is served by the
+TypeScript SDK from the local object contract and capability metadata.
 
 `createMemoryGraphAdapter` is an in-memory SDK test fixture for exercising the
 adapter contract without Unreal Editor. It is useful for query/patch closed-loop

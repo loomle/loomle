@@ -103,7 +103,7 @@ add print
 ```
 
 Domains may also define shortcut constructors for stable common creation intents.
-Shortcut constructors and palette ids are both creation-entry mechanisms:
+Shortcut constructors and palette ids are both palette entry mechanisms:
 constructors are compact modeled forms, while palette ids are the explicit
 fallback for unmodeled, plugin-defined, or otherwise editor-discovered entries.
 

@@ -10,11 +10,13 @@ The spike exists to prove the object RPC boundary and Blueprint readback path
 before adding mutation, palette lookup, or public LGL text tools.
 
 Implementation notes from the existing UE bridge are collected in
-[`LGL_BRIDGE_QUERY_IMPLEMENTATION_NOTES.md`](LGL_BRIDGE_QUERY_IMPLEMENTATION_NOTES.md).
+[`BRIDGE_QUERY_IMPLEMENTATION_NOTES.md`](BRIDGE_QUERY_IMPLEMENTATION_NOTES.md).
+The bridge architecture is defined in
+[`BRIDGE_ARCHITECTURE.md`](BRIDGE_ARCHITECTURE.md).
 
 ## Goal
 
-Implement a minimal `lgl.object.query` path that accepts normalized LGL object
+Implement a minimal `lgl.query` path that accepts normalized LGL object
 JSON and returns an LGL object result built from live UE Blueprint graph state.
 
 This is not an MCP text tool. The TypeScript SDK remains responsible for LGL
@@ -25,19 +27,18 @@ bridge receives object JSON only.
 
 Supported:
 
-- RPC: `lgl.object.query`
-- target domain: `blueprint`
-- graph reference: asset path plus graph name
+- RPC: `lgl.query`
+- target: `GraphTarget` with `target.domain = "blueprint"`
+- graph reference: asset path plus graph name or graph id
 - query forms:
   - empty query
-  - `find node <name> with pins, defaults`
-  - `find node <name> with pins, defaults, layout`
+  - `find nodes where name = <name> with pins, defaults`
 - response object: compact `graph` snippet
 - diagnostics: schema, target, graph, node, and unsupported-query failures
 
 Not supported:
 
-- `lgl.object.patch`
+- `lgl.patch`
 - raw LGL text parsing inside UE
 - public MCP `lgl.query`
 - palette queries
@@ -72,9 +73,11 @@ Example empty query object:
     "target": {
       "domain": "blueprint",
       "asset": "/Game/BP_Door",
-      "graph": "EventGraph"
-    },
-    "find": []
+      "graph": {
+        "kind": "name",
+        "name": "EventGraph"
+      }
+    }
   }
 }
 ```
@@ -88,15 +91,25 @@ Example find-node query object:
     "target": {
       "domain": "blueprint",
       "asset": "/Game/BP_Door",
-      "graph": "EventGraph"
-    },
-    "find": [
-      {
-        "kind": "node",
-        "name": "branch",
-        "with": ["pins", "defaults", "layout"]
+      "graph": {
+        "kind": "name",
+        "name": "EventGraph"
       }
-    ]
+    },
+    "find": {
+      "kind": "nodes"
+    },
+    "where": {
+      "kind": "eq",
+      "field": {
+        "path": ["name"]
+      },
+      "value": {
+        "kind": "name",
+        "name": "branch"
+      }
+    },
+    "with": ["pins", "defaults"]
   }
 }
 ```
@@ -109,6 +122,7 @@ The bridge returns:
 interface ObjectResult {
   object?: LglObject;
   diagnostics: Diagnostic[];
+  page?: Page;
 }
 ```
 
@@ -116,8 +130,10 @@ Successful query responses should return a compact `graph` object. The graph
 object should contain only the information requested by the query.
 
 For `with pins`, include node pins and enough pin identity for follow-up patch
-work. For `with defaults`, include pin defaults when UE exposes them. For
-`with layout`, include node layout and pin layout when available.
+work. For `with defaults`, include node fields, pin values, or palette defaults
+where the returned object type supports them. Node and pin layout readback uses
+the schema fields `at`, `size`, and `anchor`; layout is not a separate `with`
+detail in the current object schema.
 
 The response must be schema-valid before it leaves the LGL bridge boundary.
 
@@ -134,7 +150,7 @@ For the first spike, the snapshot should be small and inline. It should include:
 - target
 - graph identity
 - node aliases or ids
-- node titles/types sufficient for follow-up `find node`
+- node titles/types sufficient for follow-up `find nodes where name = <name>`
 - links between included nodes when cheap to read
 
 It does not need to include every pin, default, layout field, or large metadata
@@ -142,7 +158,8 @@ field. Large graph cache references are out of scope for the first spike.
 
 ## Find Node Behavior
 
-`find node <name>` resolves exactly one Blueprint graph node.
+The first spike supports the constrained form `find nodes where name = <name>`.
+It must return exactly one Blueprint graph node or a diagnostic.
 
 The node name may match a stable LGL alias, a UE node title, or another
 adapter-defined readable identity. The matching rules must be documented in the
@@ -177,15 +194,15 @@ Suggested recovery text examples:
 
 - `Run an empty query for this graph and use one of the returned node names.`
 - `Use Target.domain = "blueprint" for this spike.`
-- `This query form is not implemented yet; use empty query or find node.`
+- `This query form is not implemented yet; use empty query or find nodes.`
 
 Diagnostics should identify the request path when the problem is structural,
-for example `object.target.domain` or `object.find[0].with`.
+for example `object.target.domain` or `object.with`.
 
 ## Implementation Boundary
 
-The spike should use the new LGL-native files described in
-[`LGL_BRIDGE_CODE_LAYOUT.md`](LGL_BRIDGE_CODE_LAYOUT.md).
+The spike should follow the core, adapter, and shared service boundaries in
+[`BRIDGE_ARCHITECTURE.md`](BRIDGE_ARCHITECTURE.md).
 
 Production LGL code must not call existing public graph inspect handlers. Old
 bridge tools may be used only as reference material or comparison-test oracles.
@@ -208,12 +225,12 @@ RPC endpoint
 
 The first spike is complete when:
 
-- `lgl.object.query` is registered and reachable in the UE bridge.
+- `lgl.query` is registered and reachable in the UE bridge.
 - malformed request envelopes fail before adapter dispatch.
 - non-Blueprint domains fail with `unsupported_domain`.
 - missing assets and graphs return actionable diagnostics.
 - empty Blueprint graph queries return schema-valid graph snippets.
-- `find node ... with pins, defaults` returns one-node snippets from live UE
+- `find nodes where name = <name> with pins, defaults` returns one-node snippets from live UE
   graph state.
 - ambiguous node matches return candidates instead of guessing.
 - tests or fixtures cover accepted and rejected object JSON.
@@ -225,7 +242,7 @@ After this spike:
 
 - add palette query readback
 - add path and surrounding-context query forms
-- introduce `lgl.object.patch` dry-run planning
+- introduce `lgl.patch` dry-run planning
 - add public MCP `lgl.query` after object RPC and TypeScript formatting work
   are connected
 - reassess generated or semi-generated C++ codecs once the object boundary is

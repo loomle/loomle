@@ -23,7 +23,7 @@ export type {
   Connect,
   ContainsCondition,
   CreationEntry,
-  CreationResult,
+  PaletteResult,
   Detail,
   Diagnostic,
   DisconnectByEdge,
@@ -101,9 +101,15 @@ export interface TextResult {
   page?: ObjectResult["page"];
 }
 
+export interface SchemaResult {
+  schema: unknown;
+  diagnostics: ObjectResult["diagnostics"];
+}
+
 export interface Lgl {
   query(text: LglText): Promise<TextResult>;
   patch(text: LglText): Promise<TextResult>;
+  schema(): Promise<SchemaResult>;
 }
 
 export interface CreateLglOptions {

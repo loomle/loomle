@@ -19,18 +19,18 @@ TSharedPtr<FJsonObject> FLglModule::MakeInvalidObject(const FString& Message, co
     return FLglResult::Error(FLglDiagnostics::Make(TEXT("error"), TEXT("invalid_object"), Message, Suggestion));
 }
 
-TSharedPtr<FJsonObject> FLglModule::BuildObjectQueryResult(const TSharedPtr<FJsonObject>& Arguments)
+TSharedPtr<FJsonObject> FLglModule::BuildQueryResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     if (!Arguments.IsValid())
     {
-        return MakeInvalidRequest(TEXT("lgl.object.query requires an object request envelope."));
+        return MakeInvalidRequest(TEXT("lgl.query requires an object request envelope."));
     }
 
     const TSharedPtr<FJsonObject>* ObjectPtr = nullptr;
     if (!Arguments->TryGetObjectField(TEXT("object"), ObjectPtr) || ObjectPtr == nullptr || !(*ObjectPtr).IsValid())
     {
         return MakeInvalidRequest(
-            TEXT("lgl.object.query requires an object field containing a normalized LGL query object."),
+            TEXT("lgl.query requires an object field containing a normalized LGL query object."),
             TEXT("Send { \"object\": { \"kind\": \"query\", \"target\": ... } }."));
     }
 
@@ -43,8 +43,8 @@ TSharedPtr<FJsonObject> FLglModule::BuildObjectQueryResult(const TSharedPtr<FJso
     if (!Kind.Equals(TEXT("query")))
     {
         return MakeInvalidObject(
-            FString::Printf(TEXT("lgl.object.query expects object.kind = query, got %s."), *Kind),
-            TEXT("Use lgl.object.patch for patch objects once that RPC exists."));
+            FString::Printf(TEXT("lgl.query expects object.kind = query, got %s."), *Kind),
+            TEXT("Use lgl.patch for patch objects once that RPC exists."));
     }
 
     const TSharedPtr<FJsonObject>* TargetPtr = nullptr;
@@ -77,7 +77,7 @@ TSharedPtr<FJsonObject> FLglModule::BuildObjectQueryResult(const TSharedPtr<FJso
         return FLglResult::Error(FLglDiagnostics::Make(
             TEXT("error"),
             TEXT("unsupported_domain"),
-            FString::Printf(TEXT("lgl.object.query only supports target.domain = blueprint in the first spike, got %s."), *Domain),
+            FString::Printf(TEXT("lgl.query only supports target.domain = blueprint in the first spike, got %s."), *Domain),
             TEXT("Use Target.domain = \"blueprint\" for the current LGL bridge query spike.")));
     }
 
@@ -96,20 +96,20 @@ TSharedPtr<FJsonObject> FLglModule::BuildObjectQueryResult(const TSharedPtr<FJso
             return MakeInvalidObject(TEXT("LGL query find object is missing required string field kind."));
         }
 
-        if (!FindKind.Equals(TEXT("node")))
+        if (!FindKind.Equals(TEXT("nodes")))
         {
             return FLglResult::Error(FLglDiagnostics::Make(
                 TEXT("error"),
                 TEXT("unsupported_query"),
-                FString::Printf(TEXT("lgl.object.query does not support find kind %s in the first stub."), *FindKind),
-                TEXT("Use an empty query or find node in the first LGL bridge query spike.")));
+                FString::Printf(TEXT("lgl.query does not support find kind %s in the first stub."), *FindKind),
+                TEXT("Use an empty query or find nodes in the first LGL bridge query spike.")));
         }
     }
 
     return FLglResult::Error(FLglDiagnostics::Make(
         TEXT("info"),
         TEXT("not_implemented"),
-        TEXT("lgl.object.query reached the LGL-native bridge stub; Blueprint readback is not implemented yet."),
+        TEXT("lgl.query reached the LGL-native bridge stub; Blueprint readback is not implemented yet."),
         TEXT("Next implementation step is Blueprint asset and graph resolution in Private/Lgl/Blueprint.")));
 }
 }

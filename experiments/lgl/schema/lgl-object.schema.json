@@ -25,7 +25,7 @@
         { "$ref": "#/$defs/WidgetResult" },
         { "$ref": "#/$defs/Query" },
         { "$ref": "#/$defs/Patch" },
-        { "$ref": "#/$defs/CreationResult" }
+        { "$ref": "#/$defs/PaletteResult" }
       ]
     },
     "Target": {
@@ -955,12 +955,12 @@
         "preserveLinks": { "type": "boolean" }
       }
     },
-    "CreationResult": {
+    "PaletteResult": {
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "target", "entries"],
       "properties": {
-        "kind": { "const": "creation_result" },
+        "kind": { "const": "palette_result" },
         "target": { "$ref": "#/$defs/Target" },
         "entries": {
           "type": "array",

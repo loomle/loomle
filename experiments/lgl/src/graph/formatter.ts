@@ -3,7 +3,7 @@ import type {
   BindingValue,
   Call,
   CreationEntry,
-  CreationResult,
+  PaletteResult,
   Edge,
   Expr,
   GraphFind,
@@ -25,7 +25,7 @@ import { isGraphTarget } from "../core/target.js";
 const DEFAULT_ASSET_ALIAS = "asset";
 const DEFAULT_GRAPH_ALIAS = "g";
 
-type GraphLglObject = Graph | Query | Patch | CreationResult;
+type GraphLglObject = Graph | Query | Patch | PaletteResult;
 
 export function formatGraphLglObject(object: GraphLglObject): string {
   switch (object.kind) {
@@ -35,11 +35,11 @@ export function formatGraphLglObject(object: GraphLglObject): string {
       return formatQuery(object);
     case "patch":
       return formatPatch(object);
-    case "creation_result":
+    case "palette_result":
       if (!isGraphTarget(object.target)) {
-        throw new Error("Graph formatter received a non-graph creation result.");
+        throw new Error("Graph formatter received a non-graph palette result.");
       }
-      return formatCreationResult(object.target, object.entries);
+      return formatPaletteResult(object.target, object.entries);
     default:
       throw new Error("Graph formatter received a non-graph object.");
   }
@@ -99,7 +99,7 @@ function formatPatch(patch: Patch): string {
   return `${trimTrailingBlankLines(lines).join("\n")}\n`;
 }
 
-function formatCreationResult(target: GraphTarget, entries: CreationEntry[]): string {
+function formatPaletteResult(target: GraphTarget, entries: CreationEntry[]): string {
   const lines = [...formatTargetBindings(target), ""];
   for (const entry of entries) {
     if ("palette" in entry) {
@@ -107,7 +107,7 @@ function formatCreationResult(target: GraphTarget, entries: CreationEntry[]): st
     } else if (hasOwnConstructor(entry)) {
       lines.push(`${entry.name} = ${formatCall(entry.constructor)}`);
     } else {
-      throw new Error("Graph formatter received a widget class creation entry.");
+      throw new Error("Graph formatter received a widget class palette entry.");
     }
     if ("pins" in entry && entry.pins) {
       lines.push(...entry.pins.map((pin) => formatPin({ ...pin, node: entry.name })));

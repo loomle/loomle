@@ -97,7 +97,7 @@ function parseWidgetFind(line: ParsedLine): Query["find"] {
   throw new ParseError("unsupported_widget_query", "Expected find tree, find widgets [\"text\"], or find palette entry [\"text\"].", spanForLine(line));
 }
 
-export function tryParseWidgetCreationResult(
+export function tryParseWidgetPaletteResult(
   lines: ParsedLine[],
   bindings: Map<string, WidgetBinding>,
 ): LglObject | undefined {
@@ -154,7 +154,7 @@ export function tryParseWidgetCreationResult(
 
   return entries.length > 0
     ? {
-        kind: "creation_result",
+        kind: "palette_result",
         target: { domain: "widget", asset: targetBinding.asset },
         entries,
       }

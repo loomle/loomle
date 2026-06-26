@@ -1,5 +1,5 @@
 {
-  "kind": "creation_result",
+  "kind": "palette_result",
   "target": {
     "domain": "blueprint",
     "asset": "/Game/BP_Door",

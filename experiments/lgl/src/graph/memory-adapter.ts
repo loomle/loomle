@@ -153,7 +153,7 @@ function findPaletteEntries(graph: Graph, find: FindPaletteEntry, query: Query):
   );
   return {
     object: {
-      kind: "creation_result",
+      kind: "palette_result",
       target: graph.target,
       entries: page.items,
     },

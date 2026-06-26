@@ -11,7 +11,7 @@ namespace Loomle::Lgl
 class FLglModule
 {
 public:
-    static TSharedPtr<FJsonObject> BuildObjectQueryResult(const TSharedPtr<FJsonObject>& Arguments);
+    static TSharedPtr<FJsonObject> BuildQueryResult(const TSharedPtr<FJsonObject>& Arguments);
 
 private:
     static TSharedPtr<FJsonObject> MakeInvalidRequest(const FString& Message, const FString& Suggestion = FString());

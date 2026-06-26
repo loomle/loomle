@@ -20,7 +20,7 @@ export type LGLNormalizedObjectSchema =
   | Name
   | PinRef
   | Edge;
-export type LglObject = Graph | AssetResult | BlueprintResult | WidgetResult | Query | Patch | CreationResult;
+export type LglObject = Graph | AssetResult | BlueprintResult | WidgetResult | Query | Patch | PaletteResult;
 export type GraphRef = GraphNameRef | GraphIdRef;
 export type Expr = Value | Ref | Call;
 export type Value =
@@ -459,8 +459,8 @@ export interface WidgetMove {
   relativeTo: FieldPath;
   position: "before" | "after";
 }
-export interface CreationResult {
-  kind: "creation_result";
+export interface PaletteResult {
+  kind: "palette_result";
   target: Target;
   entries: CreationEntry[];
 }

@@ -16,6 +16,7 @@ API plus the LGL text it accepts and returns.
 interface Lgl {
   query(text: LglText): Promise<TextResult>;
   patch(text: LglText): Promise<TextResult>;
+  schema(): Promise<SchemaResult>;
 }
 
 declare function createLgl(options?: CreateLglOptions): Lgl;
@@ -31,7 +32,13 @@ Call sites should normally hold this facade as `lgl`:
 const lgl = createLgl({ adapters: [blueprintAdapter] });
 await lgl.query(text);
 await lgl.patch(text);
+await lgl.schema();
 ```
+
+`schema` exposes the active LGL object contract and domain capabilities for
+tooling. It is not a graph query, does not read UE assets, and does not require
+a UE bridge RPC. The SDK should serve it from the local schema package and SDK
+capability metadata.
 
 ## Text And Object Model
 
@@ -145,7 +152,7 @@ TypeScript owns:
 The UE Bridge owns everything that depends on real UE editor state or APIs:
 
 - asset, Blueprint, graph, widget, and other domain resolution
-- palette query and creation-entry resolution
+- palette query and palette entry resolution
 - graph node spawner execution
 - graph node type, field, pin, and direction validation
 - current graph edge lookup
@@ -159,7 +166,7 @@ The UE Bridge owns everything that depends on real UE editor state or APIs:
 This keeps parsing portable while preserving UE as the source of truth.
 
 Bridge architecture is tracked separately in
-[`LGL_NATIVE_BRIDGE.md`](LGL_NATIVE_BRIDGE.md).
+[`BRIDGE_ARCHITECTURE.md`](BRIDGE_ARCHITECTURE.md).
 
 ## JSON Schema Contract
 
@@ -189,7 +196,7 @@ schema/lgl-object.schema.json
 ```
 
 The schema covers the shared envelope plus graph, asset, Blueprint, widget,
-query, patch, creation-result, result, and diagnostic payloads. Fixtures should
+query, patch, palette-result, result, and diagnostic payloads. Fixtures should
 cover representative accepted objects and rejected contract boundaries such as
 required fields, closed object shapes, enum values, mutually exclusive fields,
 and reserved discriminators.
@@ -213,10 +220,14 @@ because they control the next query.
 type LglText = string;
 interface TextResult { text?: LglText; diagnostics: Diagnostic[]; page?: Page; }
 interface ObjectResult { object?: LglObject; diagnostics: Diagnostic[]; page?: Page; }
+interface SchemaResult { schema: unknown; diagnostics: Diagnostic[]; }
 ```
 
 `ObjectResult` is the adapter/RPC shape. `TextResult` is the public SDK shape.
 Concrete normalized object types are domain-owned and schema-validated.
+`Graph` is one possible `ObjectResult.object`, alongside result objects such as
+`AssetResult`, `BlueprintResult`, `WidgetResult`, and `PaletteResult`; it is
+not a separate response envelope.
 
 A patch response can return a compact updated snippet around changed objects.
 Created aliases, resolved ids, changed links, and position changes should be
@@ -235,7 +246,7 @@ Examples:
 - `unknown_palette_id`: use a `Name = node(palette: "entry-id")`
   creation template from a palette query result.
 - `ambiguous_palette_query`: refine the `find palette entry` query before patching.
-- `unknown_pin`: query the graph node or creation entry with pins:
+- `unknown_pin`: query the graph node or palette entry with pins:
 
 ```lgl
 query g

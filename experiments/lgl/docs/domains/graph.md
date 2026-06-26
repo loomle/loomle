@@ -330,7 +330,7 @@ Patch operations:
 | Reconstruct node | `reconstruct name preserve links` | same |
 
 Palette-id creation templates used in a patch should come from
-`find palette entry`; see Palette for creation-entry discovery and pin/default
+`find palette entry`; see Palette for palette entry discovery and pin/default
 details.
 
 `add name = node(...)` uses the shared patch sugar from the language core. Its
@@ -453,7 +453,7 @@ The adapter should process graph patches in phases:
 5. Validate connections and graph-state-dependent operations.
 6. Apply mutations only after validation succeeds.
 
-Static pins should be discovered through creation-entry details, not through a
+Static pins should be discovered through palette entry details, not through a
 mutation dry run:
 
 ```lgl

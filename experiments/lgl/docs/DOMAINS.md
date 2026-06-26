@@ -18,7 +18,7 @@ Each domain document should define:
 - accepted sugar and its canonical expansion
 - query text
 - patch text
-- palette or creation-entry behavior, when the domain exposes discoverable
+- palette entry behavior, when the domain exposes discoverable
   creation entries
 - normalized JSON object model
 - diagnostics

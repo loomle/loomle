@@ -220,7 +220,7 @@ function executeWidgetQuery(document: WidgetDocument, query: Query, paletteEntri
     const includeProperties = query.with?.includes("properties") ?? false;
     return {
       object: {
-        kind: "creation_result",
+        kind: "palette_result",
         target: { domain: "widget", asset: document.asset },
         entries: page.items.map((entry) => stripCreationDetails(entry, { defaults: includeDefaults, properties: includeProperties })),
       },

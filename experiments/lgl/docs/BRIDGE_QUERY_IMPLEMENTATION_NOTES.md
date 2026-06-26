@@ -1,10 +1,10 @@
 # LGL Bridge Query Implementation Notes
 
 These notes summarize the existing UE bridge code that should inform the first
-`lgl.object.query` implementation.
+`lgl.query` implementation.
 
 The notes are reference material for implementation. They do not change the
-spike scope in [`LGL_BRIDGE_QUERY_SPIKE.md`](LGL_BRIDGE_QUERY_SPIKE.md).
+spike scope in [`BRIDGE_QUERY_SPIKE.md`](BRIDGE_QUERY_SPIKE.md).
 
 ## Existing Code To Read
 
@@ -52,7 +52,7 @@ blueprint.palette
 The LGL path needs a new object RPC entry, starting with:
 
 ```txt
-lgl.object.query
+lgl.query
 ```
 
 The dispatch branch should call the new LGL module boundary, not
@@ -71,7 +71,8 @@ Important behavior to preserve:
   - `FunctionGraphs`
   - `MacroGraphs`
   - implemented interface graphs
-- empty graph names commonly fall back to `EventGraph`
+- legacy text/tool paths may default to `EventGraph`, but normalized LGL object
+  requests must carry an explicit non-empty `GraphRef`
 - graph ids use `UEdGraph::GraphGuid`
 
 The LGL implementation should move the focused resolution behavior into
@@ -94,9 +95,9 @@ For LGL, the stable internal node id should come from `NodeGuid` when present.
 The readable LGL alias should be derived separately and must be unique within a
 returned snippet.
 
-`find node <name>` should not silently choose among multiple matches. If a
-readable name matches more than one UE node, return `ambiguous_node` with
-candidates.
+The first spike supports the constrained form `find nodes where name = <name>`.
+It should not silently choose among multiple matches. If a readable name matches
+more than one UE node, return `ambiguous_node` with candidates.
 
 ### Pin Readback
 
@@ -148,15 +149,16 @@ UEdGraphNode_Comment::NodeWidth
 UEdGraphNode_Comment::NodeHeight
 ```
 
-Existing code estimates other node sizes and exec pin anchors. The first LGL
-spike may use model position and partial estimated layout, as long as the
-response marks estimated data clearly.
+Existing code estimates other node sizes and exec pin anchors. The current LGL
+schema exposes layout as best-effort metadata fields (`at`, `size`, and
+`anchor`); it does not have a separate `layout` detail flag or estimated-layout
+marker.
 
 Measured Slate geometry is out of scope for the first spike.
 
 ## Old Boundaries Not To Reuse
 
-Do not implement `lgl.object.query` by calling:
+Do not implement `lgl.query` by calling:
 
 ```txt
 BuildBlueprintGraphInspectToolResult
@@ -254,7 +256,7 @@ LGL output:
 Pin.name
 Pin.direction
 Pin.type
-Pin.default
+Pin.value
 ```
 
 Defaults should be omitted when UE has no meaningful value rather than filled
@@ -274,25 +276,26 @@ UEdGraphNode_Comment::NodeHeight
 LGL output:
 
 ```txt
-Node.layout.at
-Node.layout.size
-Pin.layout.anchor
+Node.at
+Node.size
+Pin.anchor
 ```
 
-Pin layout should be marked or derived as estimated if it is not read from
-measured editor geometry.
+Pin layout may be derived as best-effort `anchor` metadata when measured editor
+geometry is unavailable.
 
 ## Suggested Implementation Order
 
-1. Add new LGL module registration and a stub `lgl.object.query` RPC.
+1. Add new LGL module registration and a stub `lgl.query` RPC.
 2. Decode the request envelope and reject malformed or non-query objects before
    adapter dispatch.
 3. Add an adapter registry with only the `blueprint` adapter registered.
 4. Implement Blueprint asset and graph resolution in
    `LglBlueprintResolve`.
 5. Implement empty query graph readback in `LglBlueprintRead`.
-6. Implement `find node` matching and ambiguity diagnostics.
-7. Add pins/defaults/layout readback behind requested `with` flags.
+6. Implement `find nodes where name = <name>` matching and ambiguity diagnostics.
+7. Add pins and defaults readback behind requested `with` flags; include
+   best-effort `at`, `size`, and `anchor` layout fields when available.
 8. Validate or structurally check response objects before encoding.
 9. Add accepted and rejected object JSON fixtures.
 10. Add a dependency check or review checklist ensuring LGL files do not call
@@ -322,8 +325,9 @@ Before implementing patch support, the query spike should demonstrate:
 - unknown domain fails before Blueprint code runs
 - Blueprint asset and graph resolution produce clear diagnostics
 - empty query returns schema-shaped graph snippets
-- `find node` returns one node or an ambiguity diagnostic
-- pins/defaults/layout are included only when requested
+- `find nodes where name = <name>` returns one node or an ambiguity diagnostic
+- pins/defaults are included only when requested; layout metadata is emitted
+  through `at`, `size`, and `anchor` when available
 - edge output is normalized and duplicate-free
 - implementation files live under `Private/Lgl`
 - production LGL code does not call old public inspect handlers

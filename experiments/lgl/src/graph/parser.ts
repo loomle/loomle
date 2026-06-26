@@ -17,7 +17,7 @@ import type {
 import { parseAssetQuery, tryParseAssetResult } from "../asset/parser.js";
 import { parseBlueprintBindings, parseBlueprintQuery, tryParseBlueprintResult } from "../blueprint/parser.js";
 import { parseBlueprintPatch } from "../blueprint/patch-parser.js";
-import { parseWidgetBindings, parseWidgetQuery, tryParseWidgetCreationResult, tryParseWidgetResult } from "../widget/parser.js";
+import { parseWidgetBindings, parseWidgetQuery, tryParseWidgetPaletteResult, tryParseWidgetResult } from "../widget/parser.js";
 import { parseWidgetPatch } from "../widget/patch-parser.js";
 import { tryParseBinding } from "../core/binding.js";
 import { parseCondition, parseDetails, parseOrderBy, parsePage } from "../core/condition.js";
@@ -98,14 +98,14 @@ export function parseLglObject(text: string): ObjectResult {
       return { object: widgetResult, diagnostics: [] };
     }
 
-    const widgetCreationResult = tryParseWidgetCreationResult(lines, widgetBindings);
-    if (widgetCreationResult) {
-      return { object: widgetCreationResult, diagnostics: [] };
+    const widgetPaletteResult = tryParseWidgetPaletteResult(lines, widgetBindings);
+    if (widgetPaletteResult) {
+      return { object: widgetPaletteResult, diagnostics: [] };
     }
 
-    const creationResult = tryParseCreationResult(lines, context);
-    if (creationResult) {
-      return { object: creationResult, diagnostics: [] };
+    const paletteResult = tryParsePaletteResult(lines, context);
+    if (paletteResult) {
+      return { object: paletteResult, diagnostics: [] };
     }
 
     return { object: parseGraph(lines, context), diagnostics: [] };
@@ -297,7 +297,7 @@ function parseQuery(lines: ParsedLine[], queryIndex: number, context: ParseConte
   return query;
 }
 
-function tryParseCreationResult(lines: ParsedLine[], context: ParseContext): LglObject | undefined {
+function tryParsePaletteResult(lines: ParsedLine[], context: ParseContext): LglObject | undefined {
   const entries: CreationEntry[] = [];
   const pins: Pin[] = [];
   let target: GraphTarget | undefined = firstGraphTarget(context);
@@ -344,7 +344,7 @@ function tryParseCreationResult(lines: ParsedLine[], context: ParseContext): Lgl
       entry.pins = [...(entry.pins ?? []), pin];
     }
   }
-  return { kind: "creation_result", target, entries };
+  return { kind: "palette_result", target, entries };
 }
 
 function isShortcutCall(call: Call): boolean {

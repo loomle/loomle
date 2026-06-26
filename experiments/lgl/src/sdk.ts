@@ -1,5 +1,6 @@
 import { formatLglObject } from "./formatter.js";
 import { parseLglObject } from "./parser.js";
+import { readFile } from "node:fs/promises";
 import type {
   Adapter,
   CreateLglOptions,
@@ -25,7 +26,16 @@ export function createLgl(options: CreateLglOptions = {}): Lgl {
     patch(text) {
       return run("patch", text, adapters);
     },
+    schema() {
+      return loadSchema();
+    },
   };
+}
+
+async function loadSchema() {
+  const url = new URL("../../schema/lgl-object.schema.json", import.meta.url);
+  const schema = JSON.parse(await readFile(url, "utf8")) as unknown;
+  return { schema, diagnostics: [] };
 }
 
 async function run(

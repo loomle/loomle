@@ -1,9 +1,9 @@
-import type { Binding, CreationEntry, CreationResult, Expr, Patch, Property, Query, WidgetDocument, WidgetNode, WidgetPatchOp, WidgetResult } from "../index.js";
+import type { Binding, CreationEntry, PaletteResult, Expr, Patch, Property, Query, WidgetDocument, WidgetNode, WidgetPatchOp, WidgetResult } from "../index.js";
 import { formatBindingTarget } from "../core/binding.js";
 import { formatCondition } from "../core/condition.js";
 import { formatArgList, formatExpr, nameValue } from "../core/expr.js";
 
-export function formatWidgetLglObject(object: WidgetResult | Query | Patch | CreationResult): string {
+export function formatWidgetLglObject(object: WidgetResult | Query | Patch | PaletteResult): string {
   switch (object.kind) {
     case "widget_result":
       return formatWidgetResult(object);
@@ -11,8 +11,8 @@ export function formatWidgetLglObject(object: WidgetResult | Query | Patch | Cre
       return formatWidgetQuery(object);
     case "patch":
       return formatWidgetPatch(object);
-    case "creation_result":
-      return formatWidgetCreationResult(object);
+    case "palette_result":
+      return formatWidgetPaletteResult(object);
     default:
       return assertNever(object);
   }
@@ -79,9 +79,9 @@ function formatWidgetQuery(query: Query): string {
   return `${lines.join("\n")}\n`;
 }
 
-function formatWidgetCreationResult(result: CreationResult): string {
+function formatWidgetPaletteResult(result: PaletteResult): string {
   if (result.target.domain !== "widget" || !("asset" in result.target)) {
-    throw new Error("Widget formatter received a non-widget creation result.");
+    throw new Error("Widget formatter received a non-widget palette result.");
   }
   const lines = [
     `widgetAsset = asset(path: ${JSON.stringify(result.target.asset)}, type: widget)`,

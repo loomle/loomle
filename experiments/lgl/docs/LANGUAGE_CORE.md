@@ -471,8 +471,8 @@ PluginFancy = widget(palette: "widget.palette:plugin-fancy")
 Normalized JSON:
 
 ```ts
-interface CreationResult {
-  kind: "creation_result";
+interface PaletteResult {
+  kind: "palette_result";
   target: Target;
   entries: CreationEntry[];
 }
