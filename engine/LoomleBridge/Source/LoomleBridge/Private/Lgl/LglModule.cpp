@@ -2,114 +2,67 @@
 
 #include "LglModule.h"
 
+#include "Asset/LglAssetAdapter.h"
+#include "Blueprint/LglBlueprintAdapter.h"
 #include "Dom/JsonObject.h"
-#include "Dom/JsonValue.h"
+#include "LglAdapterRegistry.h"
 #include "LglDiagnostics.h"
+#include "LglDomainAdapter.h"
+#include "LglJsonCodec.h"
+#include "LglObjectModel.h"
 #include "LglResult.h"
+#include "LglSchemaValidator.h"
+#include "Services/LglAssetRegistry.h"
 
 namespace Loomle::Lgl
 {
-TSharedPtr<FJsonObject> FLglModule::MakeInvalidRequest(const FString& Message, const FString& Suggestion)
+namespace
 {
-    return FLglResult::Error(FLglDiagnostics::Make(TEXT("error"), TEXT("invalid_request"), Message, Suggestion));
+FLglAdapterRegistry BuildRegistry()
+{
+    TSharedRef<FLglAssetRegistry> AssetRegistry = MakeShared<FLglAssetRegistry>();
+    FLglAdapterRegistry Registry;
+    Registry.Register(MakeShared<FLglAssetAdapter>(AssetRegistry));
+    Registry.Register(MakeShared<FLglBlueprintAdapter>());
+    return Registry;
 }
 
-TSharedPtr<FJsonObject> FLglModule::MakeInvalidObject(const FString& Message, const FString& Suggestion)
+FLglObjectResult UnsupportedDomain(const FString& Method, const FString& Domain)
 {
-    return FLglResult::Error(FLglDiagnostics::Make(TEXT("error"), TEXT("invalid_object"), Message, Suggestion));
+    return FLglResult::FromDiagnostic(FLglDiagnostics::Make(
+        TEXT("error"),
+        TEXT("unsupported_domain"),
+        FString::Printf(TEXT("%s does not support target.domain = %s."), *Method, *Domain),
+        TEXT("Use Target.domain = \"asset\" or \"blueprint\" for the current LGL bridge query milestone.")));
+}
 }
 
 TSharedPtr<FJsonObject> FLglModule::BuildQueryResult(const TSharedPtr<FJsonObject>& Arguments)
 {
-    if (!Arguments.IsValid())
+    constexpr const TCHAR* Method = TEXT("lgl.query");
+    FLglObjectRequest Request;
+    FLglObjectResult Error;
+    if (!FLglJsonCodec::DecodeObjectRequest(Method, Arguments, Request, Error))
     {
-        return MakeInvalidRequest(TEXT("lgl.query requires an object request envelope."));
+        return FLglJsonCodec::EncodeObjectResult(Error);
     }
 
-    const TSharedPtr<FJsonObject>* ObjectPtr = nullptr;
-    if (!Arguments->TryGetObjectField(TEXT("object"), ObjectPtr) || ObjectPtr == nullptr || !(*ObjectPtr).IsValid())
+    if (!FLglSchemaValidator::ValidateRequest(Request, TEXT("query"), Error))
     {
-        return MakeInvalidRequest(
-            TEXT("lgl.query requires an object field containing a normalized LGL query object."),
-            TEXT("Send { \"object\": { \"kind\": \"query\", \"target\": ... } }."));
+        return FLglJsonCodec::EncodeObjectResult(Error);
     }
 
-    const TSharedPtr<FJsonObject> Object = *ObjectPtr;
-    FString Kind;
-    if (!Object->TryGetStringField(TEXT("kind"), Kind) || Kind.IsEmpty())
-    {
-        return MakeInvalidObject(TEXT("LGL object is missing required string field kind."));
-    }
-    if (!Kind.Equals(TEXT("query")))
-    {
-        return MakeInvalidObject(
-            FString::Printf(TEXT("lgl.query expects object.kind = query, got %s."), *Kind),
-            TEXT("Use lgl.patch for patch objects once that RPC exists."));
-    }
-
-    const TSharedPtr<FJsonObject>* TargetPtr = nullptr;
-    if (!Object->TryGetObjectField(TEXT("target"), TargetPtr) || TargetPtr == nullptr || !(*TargetPtr).IsValid())
-    {
-        return MakeInvalidObject(TEXT("LGL query object is missing required target object."));
-    }
-
-    const TSharedPtr<FJsonObject> Target = *TargetPtr;
+    const TSharedPtr<FJsonObject> Target = Request.Object->GetObjectField(TEXT("target"));
     FString Domain;
-    if (!Target->TryGetStringField(TEXT("domain"), Domain) || Domain.IsEmpty())
+    Target->TryGetStringField(TEXT("domain"), Domain);
+
+    FLglAdapterRegistry Registry = BuildRegistry();
+    ILglDomainAdapter* Adapter = Registry.Find(Domain);
+    FLglObjectResult Result = Adapter ? Adapter->Query(Request) : UnsupportedDomain(Method, Domain);
+    if (!FLglSchemaValidator::ValidateResult(Result, Error))
     {
-        return MakeInvalidObject(TEXT("LGL query target is missing required string field domain."));
+        return FLglJsonCodec::EncodeObjectResult(Error);
     }
-
-    FString Asset;
-    if (!Target->TryGetStringField(TEXT("asset"), Asset) || Asset.IsEmpty())
-    {
-        return MakeInvalidObject(TEXT("LGL query target is missing required string field asset."));
-    }
-
-    const TSharedPtr<FJsonObject>* GraphPtr = nullptr;
-    if (!Target->TryGetObjectField(TEXT("graph"), GraphPtr) || GraphPtr == nullptr || !(*GraphPtr).IsValid())
-    {
-        return MakeInvalidObject(TEXT("LGL query target is missing required graph reference object."));
-    }
-
-    if (!Domain.Equals(TEXT("blueprint")))
-    {
-        return FLglResult::Error(FLglDiagnostics::Make(
-            TEXT("error"),
-            TEXT("unsupported_domain"),
-            FString::Printf(TEXT("lgl.query only supports target.domain = blueprint in the first spike, got %s."), *Domain),
-            TEXT("Use Target.domain = \"blueprint\" for the current LGL bridge query spike.")));
-    }
-
-    const TSharedPtr<FJsonValue> FindValue = Object->TryGetField(TEXT("find"));
-    if (FindValue.IsValid() && !FindValue->IsNull())
-    {
-        const TSharedPtr<FJsonObject>* FindPtr = nullptr;
-        if (!FindValue->TryGetObject(FindPtr) || FindPtr == nullptr || !(*FindPtr).IsValid())
-        {
-            return MakeInvalidObject(TEXT("LGL query find field must be an object when present."));
-        }
-
-        FString FindKind;
-        if (!(*FindPtr)->TryGetStringField(TEXT("kind"), FindKind) || FindKind.IsEmpty())
-        {
-            return MakeInvalidObject(TEXT("LGL query find object is missing required string field kind."));
-        }
-
-        if (!FindKind.Equals(TEXT("nodes")))
-        {
-            return FLglResult::Error(FLglDiagnostics::Make(
-                TEXT("error"),
-                TEXT("unsupported_query"),
-                FString::Printf(TEXT("lgl.query does not support find kind %s in the first stub."), *FindKind),
-                TEXT("Use an empty query or find nodes in the first LGL bridge query spike.")));
-        }
-    }
-
-    return FLglResult::Error(FLglDiagnostics::Make(
-        TEXT("info"),
-        TEXT("not_implemented"),
-        TEXT("lgl.query reached the LGL-native bridge stub; Blueprint readback is not implemented yet."),
-        TEXT("Next implementation step is Blueprint asset and graph resolution in Private/Lgl/Blueprint.")));
+    return FLglJsonCodec::EncodeObjectResult(Result);
 }
 }

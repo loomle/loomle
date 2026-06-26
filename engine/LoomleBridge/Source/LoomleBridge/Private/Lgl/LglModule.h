@@ -12,9 +12,5 @@ class FLglModule
 {
 public:
     static TSharedPtr<FJsonObject> BuildQueryResult(const TSharedPtr<FJsonObject>& Arguments);
-
-private:
-    static TSharedPtr<FJsonObject> MakeInvalidRequest(const FString& Message, const FString& Suggestion = FString());
-    static TSharedPtr<FJsonObject> MakeInvalidObject(const FString& Message, const FString& Suggestion = FString());
 };
 }

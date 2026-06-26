@@ -4,19 +4,34 @@
 
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
+#include "LglObjectModel.h"
 
 namespace Loomle::Lgl
 {
-TSharedPtr<FJsonObject> FLglResult::Error(const TSharedPtr<FJsonObject>& Diagnostic)
+FLglObjectResult FLglResult::FromDiagnostic(const TSharedPtr<FJsonObject>& Diagnostic)
 {
-    TArray<TSharedPtr<FJsonValue>> Diagnostics;
+    FLglObjectResult Result;
     if (Diagnostic.IsValid())
     {
-        Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
+        Result.Diagnostics.Add(Diagnostic);
+    }
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FLglResult::Error(const TSharedPtr<FJsonObject>& Diagnostic)
+{
+    const FLglObjectResult Result = FromDiagnostic(Diagnostic);
+    TArray<TSharedPtr<FJsonValue>> Diagnostics;
+    for (const TSharedPtr<FJsonObject>& Item : Result.Diagnostics)
+    {
+        if (Item.IsValid())
+        {
+            Diagnostics.Add(MakeShared<FJsonValueObject>(Item));
+        }
     }
 
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetArrayField(TEXT("diagnostics"), Diagnostics);
-    return Result;
+    TSharedPtr<FJsonObject> Encoded = MakeShared<FJsonObject>();
+    Encoded->SetArrayField(TEXT("diagnostics"), Diagnostics);
+    return Encoded;
 }
 }
