@@ -1,6 +1,6 @@
 // Copyright 2026 Loomle contributors.
 
-#include "LglGraphPaletteService.h"
+#include "LglBlueprintGraphPaletteService.h"
 
 #include "BlueprintActionFilter.h"
 #include "BlueprintActionMenuItem.h"
@@ -13,7 +13,7 @@
 #include "EdGraph/EdGraphNode.h"
 #include "EdGraph/EdGraphPin.h"
 #include "GraphEditorActions.h"
-#include "LglGraphResolver.h"
+#include "LglBlueprintGraphResolver.h"
 #include "Misc/SecureHash.h"
 #include "../LglDiagnostics.h"
 #include "../LglObjectModel.h"
@@ -297,7 +297,7 @@ FString PaletteActionId(const TSharedPtr<FEdGraphSchemaAction>& Action, int32 In
     return FString::Printf(TEXT("palette:%s"), *FMD5::HashAnsiString(*StableText));
 }
 
-void BuildNodesByAlias(const FLglResolvedGraph& ResolvedGraph, TMap<FString, UEdGraphNode*>& OutNodesByAlias)
+void BuildNodesByAlias(const FLglBlueprintResolvedGraph& ResolvedGraph, TMap<FString, UEdGraphNode*>& OutNodesByAlias)
 {
     OutNodesByAlias.Reset();
     TSet<FString> UsedAliases;
@@ -356,7 +356,7 @@ bool ReadPinContext(const FLglObjectRequest& Request, FString& OutDirection, FSt
 
 bool ResolvePinContext(
     const FLglObjectRequest& Request,
-    const FLglResolvedGraph& ResolvedGraph,
+    const FLglBlueprintResolvedGraph& ResolvedGraph,
     TArray<UEdGraphPin*>& OutPins,
     FLglObjectResult& OutError)
 {
@@ -411,7 +411,7 @@ bool ResolvePinContext(
 
 UEdGraphNode* TemplateNodeForAction(
     const TSharedPtr<FEdGraphSchemaAction>& Action,
-    const FLglResolvedGraph& ResolvedGraph)
+    const FLglBlueprintResolvedGraph& ResolvedGraph)
 {
     if (!Action.IsValid() || Action->GetTypeId() != FBlueprintActionMenuItem::StaticGetTypeId())
     {
@@ -447,7 +447,7 @@ TSharedPtr<FJsonObject> EncodePaletteEntry(
     const TSharedPtr<FEdGraphSchemaAction>& Action,
     int32 Index,
     TSet<FString>& UsedNames,
-    const FLglResolvedGraph& ResolvedGraph,
+    const FLglBlueprintResolvedGraph& ResolvedGraph,
     bool bIncludePins,
     bool bIncludeDefaults)
 {
@@ -510,7 +510,7 @@ TSharedPtr<FJsonObject> EncodePaletteEntry(
 }
 
 void BuildActionMenu(
-    const FLglResolvedGraph& ResolvedGraph,
+    const FLglBlueprintResolvedGraph& ResolvedGraph,
     const TArray<UEdGraphPin*>& ContextPins,
     FBlueprintActionMenuBuilder& Builder)
 {
@@ -539,9 +539,9 @@ void BuildActionMenu(
 }
 }
 
-FLglObjectResult FLglGraphPaletteService::QueryPaletteEntries(
+FLglObjectResult FLglBlueprintGraphPaletteService::QueryPaletteEntries(
     const FLglObjectRequest& Request,
-    const FLglResolvedGraph& ResolvedGraph) const
+    const FLglBlueprintResolvedGraph& ResolvedGraph) const
 {
     if (HasField(Request, TEXT("where")))
     {
@@ -620,8 +620,8 @@ FLglObjectResult FLglGraphPaletteService::QueryPaletteEntries(
     return Result;
 }
 
-bool FLglGraphPaletteService::ResolvePaletteAction(
-    const FLglResolvedGraph& ResolvedGraph,
+bool FLglBlueprintGraphPaletteService::ResolvePaletteAction(
+    const FLglBlueprintResolvedGraph& ResolvedGraph,
     const FString& PaletteId,
     TSharedPtr<FEdGraphSchemaAction>& OutAction,
     FLglObjectResult& OutError) const

@@ -103,9 +103,9 @@ stop before applying when dry run is requested.
 Normal node creation must go through UE palette/action spawners. LGL should not
 invent Blueprint node instances directly.
 
-Initial graph patch operations should map to UE graph edits through the adapter
-and shared services when the patch target is a `GraphTarget` whose
-`target.domain` is `blueprint`:
+Initial graph patch operations should map to UE graph edits through Blueprint
+graph services when the patch target is a `GraphTarget` whose `target.domain`
+is `blueprint`:
 
 - `add`
 - `connect`

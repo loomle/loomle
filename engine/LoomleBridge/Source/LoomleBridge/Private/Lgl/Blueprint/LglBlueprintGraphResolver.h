@@ -11,7 +11,7 @@ class FJsonObject;
 
 namespace Loomle::Lgl
 {
-struct FLglResolvedGraph
+struct FLglBlueprintResolvedGraph
 {
     FString AssetPath;
     UBlueprint* Blueprint = nullptr;
@@ -20,12 +20,12 @@ struct FLglResolvedGraph
     FString GraphId;
 };
 
-class FLglGraphResolver
+class FLglBlueprintGraphResolver
 {
 public:
     bool Resolve(
         const TSharedPtr<FJsonObject>& Target,
-        FLglResolvedGraph& OutGraph,
+        FLglBlueprintResolvedGraph& OutGraph,
         FLglObjectResult& OutError) const;
 };
 }

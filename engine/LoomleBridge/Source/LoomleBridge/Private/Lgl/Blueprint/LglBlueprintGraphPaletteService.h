@@ -11,17 +11,17 @@ namespace Loomle::Lgl
 {
 struct FLglObjectRequest;
 struct FLglObjectResult;
-struct FLglResolvedGraph;
+struct FLglBlueprintResolvedGraph;
 
-class FLglGraphPaletteService
+class FLglBlueprintGraphPaletteService
 {
 public:
     FLglObjectResult QueryPaletteEntries(
         const FLglObjectRequest& Request,
-        const FLglResolvedGraph& ResolvedGraph) const;
+        const FLglBlueprintResolvedGraph& ResolvedGraph) const;
 
     bool ResolvePaletteAction(
-        const FLglResolvedGraph& ResolvedGraph,
+        const FLglBlueprintResolvedGraph& ResolvedGraph,
         const FString& PaletteId,
         TSharedPtr<FEdGraphSchemaAction>& OutAction,
         FLglObjectResult& OutError) const;

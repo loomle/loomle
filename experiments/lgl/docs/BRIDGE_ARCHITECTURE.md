@@ -21,10 +21,12 @@ lgl.patch
 ```
 
 The current milestone registers `lgl.query` and `lgl.patch`. `lgl.query`
-performs live readback. `lgl.patch` starts with graph palette-node creation:
-`add` can consume a normalized `palette_node` binding, resolve the palette id
-through UE Action Menu, validate default pins, and create the node through UE's
-node-spawner path. Other graph edit operations must return clear
+performs live readback. `lgl.patch` starts with graph palette-node creation and
+direct pin connection: `add` can consume a normalized `palette_node` binding,
+resolve the palette id through UE Action Menu, validate default pins, and
+create the node through UE's node-spawner path; `connect` resolves pin refs,
+validates direct connections through the UE graph schema, and applies them with
+`TryCreateConnection`. Other graph edit operations must return clear
 `not_implemented` diagnostics until they share parse, resolve, validate, plan,
 and apply paths.
 
@@ -92,15 +94,17 @@ Domain adapters own target semantics:
 - future adapters: Material, PCG, Niagara, Control Rig, and other UE graph
   systems
 
-Shared UE services own reusable editor operations:
+Shared UE services own editor operations that are genuinely domain-neutral:
 
 - asset resolution
-- graph resolution
-- graph readback
-- graph patch planning and application
-- palette search and palette entry resolution
 - value and pin conversion
 - transaction, dirtying, reconstruction, and compile feedback helpers
+
+Graph resolution, graph readback, graph patch planning, and palette discovery
+belong first to the owning domain adapter, such as Blueprint, Material, PCG, or
+WidgetBlueprint. A helper should move into a shared graph layer only after it no
+longer depends on domain APIs such as Blueprint Action Menu, K2 schemas,
+Material expressions, or PCG settings.
 
 ## Core Contracts
 
@@ -278,8 +282,8 @@ Adapters are dispatched by `target.domain`.
 
 Graph behavior is not a standalone dispatch target in the bridge. A graph always
 belongs to a UE domain such as Blueprint, Material, PCG, or WidgetBlueprint. The
-domain adapter may delegate common graph read and patch work to shared graph
-services.
+domain adapter owns concrete graph read, palette, and patch services for that
+domain. Shared graph helpers must stay protocol-level or truly domain-neutral.
 
 ## Code Shape
 
@@ -428,6 +432,8 @@ Milestone 6 adds Blueprint graph patch dry run and mutation:
 - support graph patch ops through one patch planning pipeline
 - resolve palette ids and shortcut constructors
 - support `add` for palette-node bindings first
+- support direct `connect` operations without auto-inserting conversion or
+  promotion nodes
 - validate one-shot add/connect and insert operations before mutation
 - apply through UE transactions, default-setting, and reconstruction paths
 

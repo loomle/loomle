@@ -1,6 +1,6 @@
 // Copyright 2026 Loomle contributors.
 
-#include "LglGraphResolver.h"
+#include "LglBlueprintGraphResolver.h"
 
 #include "Dom/JsonObject.h"
 #include "EdGraph/EdGraph.h"
@@ -119,12 +119,12 @@ UEdGraph* FindBlueprintGraphById(UBlueprint* Blueprint, const FString& Id)
 }
 }
 
-bool FLglGraphResolver::Resolve(
+bool FLglBlueprintGraphResolver::Resolve(
     const TSharedPtr<FJsonObject>& Target,
-    FLglResolvedGraph& OutGraph,
+    FLglBlueprintResolvedGraph& OutGraph,
     FLglObjectResult& OutError) const
 {
-    OutGraph = FLglResolvedGraph();
+    OutGraph = FLglBlueprintResolvedGraph();
 
     FString RawAssetPath;
     Target->TryGetStringField(TEXT("asset"), RawAssetPath);
