@@ -21,8 +21,10 @@ lgl.patch
 ```
 
 The current milestone registers `lgl.query` and `lgl.patch`. `lgl.query`
-performs live readback. `lgl.patch` starts with the shared patch boundary and
-mutation result envelope; domain edit operations must return clear
+performs live readback. `lgl.patch` starts with graph palette-node creation:
+`add` can consume a normalized `palette_node` binding, resolve the palette id
+through UE Action Menu, validate default pins, and create the node through UE's
+node-spawner path. Other graph edit operations must return clear
 `not_implemented` diagnostics until they share parse, resolve, validate, plan,
 and apply paths.
 
@@ -424,9 +426,10 @@ Milestone 5 adds Blueprint palette discovery:
 Milestone 6 adds Blueprint graph patch dry run and mutation:
 
 - support graph patch ops through one patch planning pipeline
-- resolve shortcut constructors and palette ids
+- resolve palette ids and shortcut constructors
+- support `add` for palette-node bindings first
 - validate one-shot add/connect and insert operations before mutation
-- apply through UE transactions and reconstruction paths
+- apply through UE transactions, default-setting, and reconstruction paths
 
 Asset, widget, Material, PCG, and other domains should plug into the same core
 after the Blueprint path proves the boundary.

@@ -7,6 +7,9 @@
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
 #include "EdGraph/EdGraphPin.h"
+#include "EdGraph/EdGraphSchema.h"
+#include "BlueprintActionMenuItem.h"
+#include "BlueprintNodeSpawner.h"
 #include "../../LoomleMutationResult.h"
 #include "../LglCapabilityValidator.h"
 #include "../LglDiagnostics.h"
@@ -752,6 +755,226 @@ TSharedPtr<FJsonValue> MakePatchDiagnostic(
     return MakeShared<FJsonValueObject>(Diagnostic);
 }
 
+bool TryExprToPinDefaultString(const TSharedPtr<FJsonValue>& Value, FString& OutString)
+{
+    OutString.Reset();
+    if (!Value.IsValid() || Value->IsNull())
+    {
+        return false;
+    }
+
+    FString StringValue;
+    if (Value->TryGetString(StringValue))
+    {
+        OutString = StringValue;
+        return true;
+    }
+
+    double NumberValue = 0.0;
+    if (Value->TryGetNumber(NumberValue))
+    {
+        OutString = FString::SanitizeFloat(NumberValue);
+        return true;
+    }
+
+    bool BoolValue = false;
+    if (Value->TryGetBool(BoolValue))
+    {
+        OutString = BoolValue ? TEXT("true") : TEXT("false");
+        return true;
+    }
+
+    const TSharedPtr<FJsonObject>* ObjectValue = nullptr;
+    if (Value->TryGetObject(ObjectValue) && ObjectValue != nullptr && (*ObjectValue).IsValid())
+    {
+        FString Kind;
+        FString Name;
+        if ((*ObjectValue)->TryGetStringField(TEXT("kind"), Kind)
+            && (Kind == TEXT("name") || Kind == TEXT("local") || Kind == TEXT("id"))
+            && (*ObjectValue)->TryGetStringField(Kind == TEXT("id") ? TEXT("id") : TEXT("name"), Name))
+        {
+            OutString = Name;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+FString ReadLocalBindingName(const TSharedPtr<FJsonObject>& Binding)
+{
+    const TSharedPtr<FJsonObject>* Target = nullptr;
+    if (!Binding.IsValid()
+        || !Binding->TryGetObjectField(TEXT("target"), Target)
+        || Target == nullptr
+        || !(*Target).IsValid())
+    {
+        return FString();
+    }
+
+    FString Kind;
+    FString Name;
+    if ((*Target)->TryGetStringField(TEXT("kind"), Kind)
+        && Kind == TEXT("local")
+        && (*Target)->TryGetStringField(TEXT("name"), Name))
+    {
+        return Name;
+    }
+    return FString();
+}
+
+TMap<FString, TSharedPtr<FJsonObject>> ReadPatchBindings(const FLglObjectRequest& Request)
+{
+    TMap<FString, TSharedPtr<FJsonObject>> Bindings;
+    const TArray<TSharedPtr<FJsonValue>>* BindingValues = nullptr;
+    if (!Request.Object.IsValid()
+        || !Request.Object->TryGetArrayField(TEXT("bindings"), BindingValues)
+        || BindingValues == nullptr)
+    {
+        return Bindings;
+    }
+
+    for (const TSharedPtr<FJsonValue>& BindingValue : *BindingValues)
+    {
+        const TSharedPtr<FJsonObject>* Binding = nullptr;
+        if (!BindingValue.IsValid()
+            || !BindingValue->TryGetObject(Binding)
+            || Binding == nullptr
+            || !(*Binding).IsValid())
+        {
+            continue;
+        }
+
+        const FString Name = ReadLocalBindingName(*Binding);
+        if (!Name.IsEmpty())
+        {
+            Bindings.Add(Name, *Binding);
+        }
+    }
+    return Bindings;
+}
+
+UEdGraphNode* TemplateNodeForPatchAction(
+    const TSharedPtr<FEdGraphSchemaAction>& Action,
+    const FLglResolvedGraph& ResolvedGraph)
+{
+    if (!Action.IsValid() || Action->GetTypeId() != FBlueprintActionMenuItem::StaticGetTypeId())
+    {
+        return nullptr;
+    }
+
+    const FBlueprintActionMenuItem* MenuItem = static_cast<const FBlueprintActionMenuItem*>(Action.Get());
+    const UBlueprintNodeSpawner* Spawner = MenuItem != nullptr ? MenuItem->GetRawAction() : nullptr;
+    UEdGraphNode* TemplateNode = Spawner != nullptr ? Spawner->GetTemplateNode(ResolvedGraph.Graph) : nullptr;
+    if (TemplateNode != nullptr && TemplateNode->Pins.Num() == 0)
+    {
+        TemplateNode->AllocateDefaultPins();
+    }
+    return TemplateNode;
+}
+
+UEdGraphPin* FindEditableInputPin(UEdGraphNode* Node, const FString& PinName)
+{
+    if (Node == nullptr)
+    {
+        return nullptr;
+    }
+    UEdGraphPin* Pin = Node->FindPin(*PinName);
+    return Pin != nullptr && Pin->Direction == EGPD_Input ? Pin : nullptr;
+}
+
+FVector2f NextPatchNodeLocation(const FLglResolvedGraph& ResolvedGraph)
+{
+    if (ResolvedGraph.Graph == nullptr || ResolvedGraph.Graph->Nodes.Num() == 0)
+    {
+        return FVector2f(0.0f, 0.0f);
+    }
+
+    float Right = 0.0f;
+    float Top = 0.0f;
+    bool bHasNode = false;
+    for (const UEdGraphNode* Node : ResolvedGraph.Graph->Nodes)
+    {
+        if (Node == nullptr)
+        {
+            continue;
+        }
+
+        const float Width = Node->NodeWidth > 0 ? static_cast<float>(Node->NodeWidth) : 240.0f;
+        Right = bHasNode ? FMath::Max(Right, static_cast<float>(Node->NodePosX) + Width) : static_cast<float>(Node->NodePosX) + Width;
+        Top = bHasNode ? FMath::Min(Top, static_cast<float>(Node->NodePosY)) : static_cast<float>(Node->NodePosY);
+        bHasNode = true;
+    }
+    return FVector2f(Right + 320.0f, Top);
+}
+
+struct FLglGraphAddPlan
+{
+    int32 Index = 0;
+    FString BindingName;
+    FString PaletteId;
+    TMap<FString, FString> Defaults;
+    TSharedPtr<FEdGraphSchemaAction> Action;
+    FString NodeId;
+};
+
+struct FLglGraphPatchPlanData
+{
+    TArray<FLglGraphAddPlan> Adds;
+    TArray<TSharedPtr<FJsonValue>> OpResults;
+    TArray<TSharedPtr<FJsonValue>> Diagnostics;
+    bool bValid = true;
+};
+
+TSharedPtr<FJsonObject> MakeGraphPatchOpResult(
+    int32 Index,
+    const FString& Operation,
+    bool bOk,
+    bool bChanged,
+    const FString& ErrorCode = FString(),
+    const FString& ErrorMessage = FString())
+{
+    return LoomleMutation::MakeOpResult(Index, Operation, bOk, bChanged, ErrorCode, ErrorMessage);
+}
+
+void AddFailedPatchOp(
+    FLglGraphPatchPlanData& Plan,
+    int32 Index,
+    const FString& Operation,
+    const FString& Code,
+    const FString& Message)
+{
+    Plan.bValid = false;
+    Plan.OpResults.Add(MakeShared<FJsonValueObject>(
+        MakeGraphPatchOpResult(Index, Operation, false, false, Code, Message)));
+    Plan.Diagnostics.Add(MakePatchDiagnostic(TEXT("error"), Code, Message, Index, Operation));
+}
+
+void AddValidPatchOp(
+    FLglGraphPatchPlanData& Plan,
+    int32 Index,
+    const FString& Operation,
+    const FString& BindingName,
+    const FString& PaletteId,
+    bool bChanged,
+    const FString& NodeIdValue = FString())
+{
+    TSharedPtr<FJsonObject> OpResult = MakeGraphPatchOpResult(Index, Operation, true, bChanged);
+    if (!BindingName.IsEmpty())
+    {
+        OpResult->SetStringField(TEXT("binding"), BindingName);
+    }
+    if (!PaletteId.IsEmpty())
+    {
+        OpResult->SetStringField(TEXT("palette"), PaletteId);
+    }
+    if (!NodeIdValue.IsEmpty())
+    {
+        OpResult->SetStringField(TEXT("nodeId"), NodeIdValue);
+    }
+    Plan.OpResults.Add(MakeShared<FJsonValueObject>(OpResult));
+}
+
 TSharedPtr<FJsonObject> BuildGraphPatchResolvedRefs(const FLglResolvedGraph& ResolvedGraph)
 {
     TSharedPtr<FJsonObject> ResolvedRefs = MakeShared<FJsonObject>();
@@ -771,30 +994,354 @@ TSharedPtr<FJsonObject> BuildGraphPatchResolvedRefs(const FLglResolvedGraph& Res
     return ResolvedRefs;
 }
 
-TSharedPtr<FJsonObject> BuildGraphPatchPlan(
-    const FString& AssetPath,
-    const TArray<TSharedPtr<FJsonValue>>& Ops,
-    const TSharedPtr<FJsonObject>& ResolvedRefs)
+void SetResolvedPatchNode(
+    const TSharedPtr<FJsonObject>& ResolvedRefs,
+    const FString& BindingName,
+    const FString& NodeIdValue)
 {
-    TArray<TSharedPtr<FJsonValue>> PlannedCommands;
-    PlannedCommands.Reserve(Ops.Num());
+    if (!ResolvedRefs.IsValid() || BindingName.IsEmpty() || NodeIdValue.IsEmpty())
+    {
+        return;
+    }
+
+    const TSharedPtr<FJsonObject>* Nodes = nullptr;
+    TSharedPtr<FJsonObject> NodesObject;
+    if (ResolvedRefs->TryGetObjectField(TEXT("nodes"), Nodes) && Nodes != nullptr && (*Nodes).IsValid())
+    {
+        NodesObject = *Nodes;
+    }
+    else
+    {
+        NodesObject = MakeShared<FJsonObject>();
+        ResolvedRefs->SetObjectField(TEXT("nodes"), NodesObject);
+    }
+
+    TSharedPtr<FJsonObject> NodeRef = MakeShared<FJsonObject>();
+    NodeRef->SetStringField(TEXT("id"), NodeIdValue);
+    NodesObject->SetObjectField(BindingName, NodeRef);
+}
+
+bool ReadPaletteNodeBinding(
+    const TSharedPtr<FJsonObject>& Binding,
+    FString& OutPaletteId,
+    TMap<FString, FString>& OutDefaults,
+    FString& OutErrorCode,
+    FString& OutErrorMessage)
+{
+    OutPaletteId.Reset();
+    OutDefaults.Reset();
+    OutErrorCode.Reset();
+    OutErrorMessage.Reset();
+
+    const TSharedPtr<FJsonObject>* Value = nullptr;
+    if (!Binding.IsValid()
+        || !Binding->TryGetObjectField(TEXT("value"), Value)
+        || Value == nullptr
+        || !(*Value).IsValid())
+    {
+        OutErrorCode = TEXT("language.invalid_object_shape");
+        OutErrorMessage = TEXT("Add operation binding is missing value object.");
+        return false;
+    }
+
+    FString CreationKind;
+    if (!(*Value)->TryGetStringField(TEXT("kind"), CreationKind))
+    {
+        OutErrorCode = TEXT("language.invalid_object_shape");
+        OutErrorMessage = TEXT("Add operation binding value is missing kind.");
+        return false;
+    }
+
+    if (CreationKind != TEXT("palette_node"))
+    {
+        OutErrorCode = TEXT("capability.not_implemented");
+        OutErrorMessage = FString::Printf(
+            TEXT("Graph add supports palette_node bindings first; %s is not implemented yet."),
+            *CreationKind);
+        return false;
+    }
+
+    if (!(*Value)->TryGetStringField(TEXT("palette"), OutPaletteId) || OutPaletteId.IsEmpty())
+    {
+        OutErrorCode = TEXT("language.invalid_object_shape");
+        OutErrorMessage = TEXT("Palette node binding is missing required string field palette.");
+        return false;
+    }
+
+    const TSharedPtr<FJsonObject>* Defaults = nullptr;
+    if ((*Value)->TryGetObjectField(TEXT("defaults"), Defaults) && Defaults != nullptr && (*Defaults).IsValid())
+    {
+        for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Defaults)->Values)
+        {
+            FString DefaultValue;
+            if (!TryExprToPinDefaultString(Pair.Value, DefaultValue))
+            {
+                OutErrorCode = TEXT("language.unsupported_value");
+                OutErrorMessage = FString::Printf(
+                    TEXT("Default value for pin %s cannot be converted to a Blueprint pin default string."),
+                    *Pair.Key);
+                return false;
+            }
+            OutDefaults.Add(Pair.Key, DefaultValue);
+        }
+    }
+
+    return true;
+}
+
+bool ValidatePatchDefaultPins(
+    const FLglGraphAddPlan& AddPlan,
+    const FLglResolvedGraph& ResolvedGraph,
+    FString& OutErrorCode,
+    FString& OutErrorMessage)
+{
+    OutErrorCode.Reset();
+    OutErrorMessage.Reset();
+    UEdGraphNode* TemplateNode = TemplateNodeForPatchAction(AddPlan.Action, ResolvedGraph);
+    if (TemplateNode == nullptr)
+    {
+        OutErrorCode = TEXT("resolution.palette_not_spawnable");
+        OutErrorMessage = FString::Printf(
+            TEXT("Palette entry %s is not a Blueprint node creation action."),
+            *AddPlan.PaletteId);
+        return false;
+    }
+
+    for (const TPair<FString, FString>& Default : AddPlan.Defaults)
+    {
+        if (FindEditableInputPin(TemplateNode, Default.Key) == nullptr)
+        {
+            OutErrorCode = TEXT("resolution.pin_not_found");
+            OutErrorMessage = FString::Printf(
+                TEXT("Palette node %s does not expose editable input pin %s."),
+                *AddPlan.PaletteId,
+                *Default.Key);
+            return false;
+        }
+    }
+    return true;
+}
+
+FLglGraphPatchPlanData BuildGraphPatchPlanData(
+    const FLglObjectRequest& Request,
+    const FLglResolvedGraph& ResolvedGraph,
+    const TArray<TSharedPtr<FJsonValue>>& Ops)
+{
+    FLglGraphPatchPlanData Plan;
+    const TMap<FString, TSharedPtr<FJsonObject>> Bindings = ReadPatchBindings(Request);
+    FLglGraphPaletteService PaletteService;
+
     for (int32 Index = 0; Index < Ops.Num(); ++Index)
     {
         const FString Kind = ReadPatchOpKind(Ops[Index]);
-        TSharedPtr<FJsonObject> Command = MakeShared<FJsonObject>();
-        Command->SetNumberField(TEXT("index"), Index);
-        Command->SetStringField(TEXT("op"), Kind.IsEmpty() ? TEXT("unknown") : Kind);
-        Command->SetBoolField(TEXT("valid"), false);
-        Command->SetBoolField(TEXT("changed"), false);
-        Command->SetStringField(TEXT("errorCode"), TEXT("capability.not_implemented"));
-        PlannedCommands.Add(MakeShared<FJsonValueObject>(Command));
+        const FString Operation = Kind.IsEmpty() ? TEXT("unknown") : Kind;
+
+        const TSharedPtr<FJsonObject>* Op = nullptr;
+        if (!Ops[Index].IsValid()
+            || !Ops[Index]->TryGetObject(Op)
+            || Op == nullptr
+            || !(*Op).IsValid())
+        {
+            AddFailedPatchOp(
+                Plan,
+                Index,
+                Operation,
+                TEXT("language.invalid_object_shape"),
+                TEXT("Graph patch operation must be an object."));
+            continue;
+        }
+
+        if (Kind != TEXT("add"))
+        {
+            AddFailedPatchOp(
+                Plan,
+                Index,
+                Operation,
+                TEXT("capability.not_implemented"),
+                FString::Printf(TEXT("Graph patch operation %s is not implemented in the LGL bridge yet."), *Operation));
+            continue;
+        }
+
+        if ((*Op)->HasField(TEXT("connect")))
+        {
+            AddFailedPatchOp(
+                Plan,
+                Index,
+                Operation,
+                TEXT("capability.not_implemented"),
+                TEXT("Graph add connect sugar is not implemented in the LGL bridge yet."));
+            continue;
+        }
+
+        FString BindingName;
+        if (!(*Op)->TryGetStringField(TEXT("binding"), BindingName) || BindingName.IsEmpty())
+        {
+            AddFailedPatchOp(
+                Plan,
+                Index,
+                Operation,
+                TEXT("language.invalid_object_shape"),
+                TEXT("Graph add operation is missing required string field binding."));
+            continue;
+        }
+
+        const TSharedPtr<FJsonObject>* Binding = Bindings.Find(BindingName);
+        if (Binding == nullptr || !(*Binding).IsValid())
+        {
+            AddFailedPatchOp(
+                Plan,
+                Index,
+                Operation,
+                TEXT("resolution.binding_not_found"),
+                FString::Printf(TEXT("Graph add binding %s was not found."), *BindingName));
+            continue;
+        }
+
+        FLglGraphAddPlan AddPlan;
+        AddPlan.Index = Index;
+        AddPlan.BindingName = BindingName;
+        FString ErrorCode;
+        FString ErrorMessage;
+        if (!ReadPaletteNodeBinding(*Binding, AddPlan.PaletteId, AddPlan.Defaults, ErrorCode, ErrorMessage))
+        {
+            AddFailedPatchOp(Plan, Index, Operation, ErrorCode, ErrorMessage);
+            continue;
+        }
+
+        FLglObjectResult PaletteError;
+        if (!PaletteService.ResolvePaletteAction(ResolvedGraph, AddPlan.PaletteId, AddPlan.Action, PaletteError))
+        {
+            FString Message = FString::Printf(TEXT("Palette entry %s was not found for this graph context."), *AddPlan.PaletteId);
+            if (PaletteError.Diagnostics.Num() > 0 && PaletteError.Diagnostics[0].IsValid())
+            {
+                PaletteError.Diagnostics[0]->TryGetStringField(TEXT("message"), Message);
+            }
+            AddFailedPatchOp(Plan, Index, Operation, TEXT("resolution.palette_not_found"), Message);
+            continue;
+        }
+
+        if (!ValidatePatchDefaultPins(AddPlan, ResolvedGraph, ErrorCode, ErrorMessage))
+        {
+            AddFailedPatchOp(Plan, Index, Operation, ErrorCode, ErrorMessage);
+            continue;
+        }
+
+        Plan.Adds.Add(AddPlan);
+        AddValidPatchOp(Plan, Index, Operation, BindingName, AddPlan.PaletteId, false);
     }
-    return LoomleMutation::BuildBatchPlan(
-        TEXT("lgl.graph.patch"),
-        AssetPath,
-        TEXT("patch"),
-        PlannedCommands,
-        ResolvedRefs);
+
+    return Plan;
+}
+
+bool ApplyGraphPatchPlan(
+    FLglGraphPatchPlanData& Plan,
+    const FLglResolvedGraph& ResolvedGraph,
+    const TSharedPtr<FJsonObject>& ResolvedRefs)
+{
+    if (!Plan.bValid || ResolvedGraph.Graph == nullptr)
+    {
+        return false;
+    }
+
+    TMap<int32, FString> NodeIdsByOpIndex;
+    FVector2f Location = NextPatchNodeLocation(ResolvedGraph);
+    for (FLglGraphAddPlan& AddPlan : Plan.Adds)
+    {
+        if (!AddPlan.Action.IsValid() || AddPlan.Action->GetTypeId() != FBlueprintActionMenuItem::StaticGetTypeId())
+        {
+            AddFailedPatchOp(
+                Plan,
+                AddPlan.Index,
+                TEXT("add"),
+                TEXT("resolution.palette_not_spawnable"),
+                FString::Printf(TEXT("Palette entry %s is not a Blueprint node creation action."), *AddPlan.PaletteId));
+            return false;
+        }
+
+        FBlueprintActionMenuItem* MenuItem = static_cast<FBlueprintActionMenuItem*>(AddPlan.Action.Get());
+        UEdGraphNode* NewNode = MenuItem->PerformAction(ResolvedGraph.Graph, nullptr, Location, false);
+        if (NewNode == nullptr)
+        {
+            AddFailedPatchOp(
+                Plan,
+                AddPlan.Index,
+                TEXT("add"),
+                TEXT("mutation.spawn_failed"),
+                FString::Printf(TEXT("Palette entry %s did not create a node."), *AddPlan.PaletteId));
+            return false;
+        }
+
+        for (const TPair<FString, FString>& Default : AddPlan.Defaults)
+        {
+            UEdGraphPin* Pin = FindEditableInputPin(NewNode, Default.Key);
+            if (Pin == nullptr)
+            {
+                AddFailedPatchOp(
+                    Plan,
+                    AddPlan.Index,
+                    TEXT("add"),
+                    TEXT("resolution.pin_not_found"),
+                    FString::Printf(TEXT("New node does not expose editable input pin %s."), *Default.Key));
+                return false;
+            }
+
+            if (const UEdGraphSchema* Schema = Pin->GetSchema())
+            {
+                Schema->TrySetDefaultValue(*Pin, Default.Value, true);
+            }
+            else
+            {
+                Pin->DefaultValue = Default.Value;
+            }
+        }
+
+        AddPlan.NodeId = NodeId(NewNode);
+        NodeIdsByOpIndex.Add(AddPlan.Index, AddPlan.NodeId);
+        SetResolvedPatchNode(ResolvedRefs, AddPlan.BindingName, AddPlan.NodeId);
+        Location.X += 320.0f;
+    }
+
+    TArray<TSharedPtr<FJsonValue>> AppliedOpResults;
+    AppliedOpResults.Reserve(Plan.OpResults.Num());
+    for (const TSharedPtr<FJsonValue>& OpResultValue : Plan.OpResults)
+    {
+        const TSharedPtr<FJsonObject>* OpResult = nullptr;
+        if (!OpResultValue.IsValid()
+            || !OpResultValue->TryGetObject(OpResult)
+            || OpResult == nullptr
+            || !(*OpResult).IsValid())
+        {
+            AppliedOpResults.Add(OpResultValue);
+            continue;
+        }
+
+        double IndexNumber = 0.0;
+        (*OpResult)->TryGetNumberField(TEXT("index"), IndexNumber);
+        const int32 Index = static_cast<int32>(IndexNumber);
+        FString Operation;
+        (*OpResult)->TryGetStringField(TEXT("op"), Operation);
+        FString BindingName;
+        (*OpResult)->TryGetStringField(TEXT("binding"), BindingName);
+        FString PaletteId;
+        (*OpResult)->TryGetStringField(TEXT("palette"), PaletteId);
+
+        TSharedPtr<FJsonObject> Applied = MakeGraphPatchOpResult(Index, Operation, true, true);
+        if (!BindingName.IsEmpty())
+        {
+            Applied->SetStringField(TEXT("binding"), BindingName);
+        }
+        if (!PaletteId.IsEmpty())
+        {
+            Applied->SetStringField(TEXT("palette"), PaletteId);
+        }
+        if (const FString* NodeIdValue = NodeIdsByOpIndex.Find(Index))
+        {
+            Applied->SetStringField(TEXT("nodeId"), *NodeIdValue);
+        }
+        AppliedOpResults.Add(MakeShared<FJsonValueObject>(Applied));
+    }
+    Plan.OpResults = AppliedOpResults;
+    return Plan.Diagnostics.IsEmpty();
 }
 
 FLglObjectResult InvalidTarget(const FString& Message, const FString& Suggestion)
@@ -899,35 +1446,37 @@ FLglObjectResult FLglGraphAdapter::Patch(const FLglObjectRequest& Request)
 
     const TArray<TSharedPtr<FJsonValue>> Ops = ReadPatchOps(Request);
     const TSharedPtr<FJsonObject> ResolvedRefs = BuildGraphPatchResolvedRefs(ResolvedGraph);
+    FLglGraphPatchPlanData PatchPlan = BuildGraphPatchPlanData(Request, ResolvedGraph, Ops);
+    bool bApplied = false;
+    if (PatchPlan.bValid && !bDryRun)
+    {
+        bApplied = ApplyGraphPatchPlan(PatchPlan, ResolvedGraph, ResolvedRefs);
+    }
 
     TSharedPtr<FJsonObject> Object = MakeShared<FJsonObject>();
     Object->SetStringField(TEXT("kind"), TEXT("mutation_result"));
     Object->SetArrayField(TEXT("ops"), Ops);
-    Object->SetObjectField(TEXT("planned"), BuildGraphPatchPlan(ResolvedGraph.AssetPath, Ops, ResolvedRefs));
+    Object->SetArrayField(TEXT("opResults"), PatchPlan.OpResults);
+    Object->SetObjectField(
+        TEXT("planned"),
+        LoomleMutation::BuildBatchPlanFromOpResults(
+            TEXT("lgl.graph.patch"),
+            ResolvedGraph.AssetPath,
+            TEXT("patch"),
+            Ops.Num(),
+            PatchPlan.OpResults,
+            ResolvedRefs));
     Object->SetObjectField(TEXT("resolvedRefs"), ResolvedRefs);
 
-    TArray<TSharedPtr<FJsonValue>> Diagnostics;
-    for (int32 Index = 0; Index < Ops.Num(); ++Index)
-    {
-        const FString Kind = ReadPatchOpKind(Ops[Index]);
-        Diagnostics.Add(MakePatchDiagnostic(
-            TEXT("error"),
-            TEXT("capability.not_implemented"),
-            FString::Printf(
-                TEXT("Graph patch operation %s is not implemented in the LGL bridge yet."),
-                Kind.IsEmpty() ? TEXT("unknown") : *Kind),
-            Index,
-            Kind.IsEmpty() ? TEXT("unknown") : Kind));
-    }
-    LoomleMutation::SetDiagnostics(Object, Diagnostics);
+    LoomleMutation::SetDiagnostics(Object, PatchPlan.Diagnostics);
     LoomleMutation::SetMutationEnvelope(
         Object,
         TEXT("lgl.graph.patch"),
         ResolvedGraph.AssetPath,
         TEXT("patch"),
         bDryRun,
-        false,
-        Diagnostics.IsEmpty());
+        bApplied,
+        PatchPlan.bValid && PatchPlan.Diagnostics.IsEmpty());
 
     FLglObjectResult Result;
     Result.Object = Object;

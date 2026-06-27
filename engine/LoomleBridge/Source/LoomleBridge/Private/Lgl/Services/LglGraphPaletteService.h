@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 
 class FJsonObject;
+struct FEdGraphSchemaAction;
 
 namespace Loomle::Lgl
 {
@@ -18,5 +19,11 @@ public:
     FLglObjectResult QueryPaletteEntries(
         const FLglObjectRequest& Request,
         const FLglResolvedGraph& ResolvedGraph) const;
+
+    bool ResolvePaletteAction(
+        const FLglResolvedGraph& ResolvedGraph,
+        const FString& PaletteId,
+        TSharedPtr<FEdGraphSchemaAction>& OutAction,
+        FLglObjectResult& OutError) const;
 };
 }

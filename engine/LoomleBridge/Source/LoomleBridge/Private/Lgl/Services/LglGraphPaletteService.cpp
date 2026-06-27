@@ -619,4 +619,52 @@ FLglObjectResult FLglGraphPaletteService::QueryPaletteEntries(
     Result.Object = Object;
     return Result;
 }
+
+bool FLglGraphPaletteService::ResolvePaletteAction(
+    const FLglResolvedGraph& ResolvedGraph,
+    const FString& PaletteId,
+    TSharedPtr<FEdGraphSchemaAction>& OutAction,
+    FLglObjectResult& OutError) const
+{
+    OutAction.Reset();
+    if (PaletteId.IsEmpty())
+    {
+        OutError = FLglResult::FromDiagnostic(
+            FLglDiagnostics::Error(
+                TEXT("language.invalid_object_shape"),
+                TEXT("Palette node creation is missing palette id."))
+                .Domain(TEXT("graph"))
+                .Operation(TEXT("add"))
+                .Path({TEXT("bindings"), TEXT("value"), TEXT("palette")})
+                .Suggestion(TEXT("Use node(palette: \"palette:...\") from a palette query result."))
+                .Build());
+        return false;
+    }
+
+    TArray<UEdGraphPin*> ContextPins;
+    FBlueprintActionMenuBuilder Builder;
+    BuildActionMenu(ResolvedGraph, ContextPins, Builder);
+
+    for (int32 Index = 0; Index < Builder.GetNumActions(); ++Index)
+    {
+        TSharedPtr<FEdGraphSchemaAction> Action = Builder.GetSchemaAction(Index);
+        if (PaletteActionId(Action, Index) == PaletteId)
+        {
+            OutAction = Action;
+            return true;
+        }
+    }
+
+    OutError = FLglResult::FromDiagnostic(
+        FLglDiagnostics::Error(
+            TEXT("resolution.palette_not_found"),
+            FString::Printf(TEXT("Palette entry %s was not found for this graph context."), *PaletteId))
+            .Domain(TEXT("graph"))
+            .Operation(TEXT("add"))
+            .Path({TEXT("bindings"), TEXT("value"), TEXT("palette")})
+            .Actual(PaletteId)
+            .Suggestion(TEXT("Run query graph find palette entry for this target and use a returned palette id."))
+            .Build());
+    return false;
+}
 }
