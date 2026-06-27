@@ -374,7 +374,6 @@ export interface SetTarget {
 export interface Add {
   kind: "add";
   binding: string;
-  connect?: Edge;
 }
 export interface Insert {
   kind: "insert";

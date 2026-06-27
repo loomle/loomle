@@ -326,7 +326,7 @@ Patch operations:
 | Set field | `set target = value` | same |
 | Add binding | `add name` | same |
 | Add binding inline | `add name = node(...)` | `name = node(...)` then `add name` |
-| Add and connect | `add name pin -> pin` | `add(name, connect: edge)` |
+| Add and connect | `add name pin -> pin` | `add name` then `connect pin -> pin` |
 | Connect pins | `connect pin -> pin` | `connect(pin, pin)` |
 | Disconnect edge | `disconnect pin -> pin` | `disconnect(pin, pin)` |
 | Disconnect pin | `disconnect pin` | same |
@@ -384,7 +384,6 @@ interface SetTarget {
 interface Add {
   kind: "add";
   binding: string;
-  connect?: Edge;
 }
 
 interface Connect {
@@ -424,8 +423,9 @@ interface Reconstruct {
 Operation notes:
 
 - `connect pin -> pin` and bare `pin -> pin` both normalize to `Connect`.
-- `add name pin -> pin` creates one binding plus one immediate edge. Use it
-  when adding a new node and attaching one edge.
+- `add name pin -> pin` is sugar for `add name` followed by `connect pin -> pin`.
+  Longer edge chains expand into one `add` op followed by multiple `connect`
+  ops. Normalized JSON never stores this as a nested `Add.connect` field.
 - `insert from -> node.input/output -> to` replaces an existing direct edge.
   `from` and `to` describe the old edge; `input` and `output` describe the
   inserted node pins.

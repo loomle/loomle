@@ -483,7 +483,7 @@ function validateOpReferences(
       if (!nodeFromBinding(op.binding, bindings)) {
         return diagnostic("unknown_node_binding", `No node binding exists for ${op.binding}.`);
       }
-      return op.connect ? validateEdgeNodes(graph, addedAliases, op.connect) : undefined;
+      return undefined;
     case "disconnect":
       if ("edge" in op && !hasEdge(graph, op.edge)) {
         return diagnostic("missing_edge", "Disconnect edge does not exist.");
@@ -589,9 +589,6 @@ function applyOp(
         return diagnostic("unknown_node_binding", `No node binding exists for ${op.binding}.`);
       }
       graph.nodes.push(node);
-      if (op.connect && !hasEdge(graph, op.connect)) {
-        graph.edges.push(op.connect);
-      }
       return undefined;
     }
     case "reconstruct":

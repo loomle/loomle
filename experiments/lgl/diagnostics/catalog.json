@@ -18,7 +18,6 @@
     { "code": "empty_document", "layer": "language", "defaultSeverity": "error", "title": "Empty document", "legacy": true },
     { "code": "graph_not_found", "layer": "resolution", "defaultSeverity": "error", "title": "Graph not found", "legacy": true },
     { "code": "invalid_add_binding", "layer": "language", "defaultSeverity": "error", "title": "Invalid add binding", "legacy": true },
-    { "code": "invalid_add_connect", "layer": "language", "defaultSeverity": "error", "title": "Invalid add connect", "legacy": true },
     { "code": "invalid_asset_binding", "layer": "language", "defaultSeverity": "error", "title": "Invalid asset binding", "legacy": true },
     { "code": "invalid_asset_find", "layer": "capability", "defaultSeverity": "error", "title": "Invalid asset find", "legacy": true },
     { "code": "invalid_asset_target", "layer": "capability", "defaultSeverity": "error", "title": "Invalid asset target", "legacy": true },

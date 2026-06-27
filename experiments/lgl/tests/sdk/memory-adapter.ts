@@ -262,7 +262,7 @@ assert.equal(
   ),
   true,
 );
-console.log("[PASS] memory adapter adds and connects in one op");
+console.log("[PASS] memory adapter lowers add-connect sugar into add and connect ops");
 
 const maintenancePatch = await lgl.patch(`${graphHeader}
 patch g

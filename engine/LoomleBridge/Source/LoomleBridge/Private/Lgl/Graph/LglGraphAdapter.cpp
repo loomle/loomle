@@ -1162,17 +1162,6 @@ FLglGraphPatchPlanData BuildGraphPatchPlanData(
             continue;
         }
 
-        if ((*Op)->HasField(TEXT("connect")))
-        {
-            AddFailedPatchOp(
-                Plan,
-                Index,
-                Operation,
-                TEXT("capability.not_implemented"),
-                TEXT("Graph add connect sugar is not implemented in the LGL bridge yet."));
-            continue;
-        }
-
         FString BindingName;
         if (!(*Op)->TryGetStringField(TEXT("binding"), BindingName) || BindingName.IsEmpty())
         {

@@ -195,9 +195,7 @@ function formatOp(op: GraphPatchOp): string {
     case "set":
       return `set ${op.target.object}.${op.target.field} = ${formatExpr(op.value)}`;
     case "add":
-      return op.connect
-        ? `add ${op.binding} ${formatPinRef(op.connect.from)} -> ${formatPinRef(op.connect.to)}`
-        : `add ${op.binding}`;
+      return `add ${op.binding}`;
     case "insert":
       return `insert ${formatPinRef(op.from)} -> ${formatPinRef(op.input)}/${op.output.pin} -> ${formatPinRef(op.to)}`;
     case "connect":

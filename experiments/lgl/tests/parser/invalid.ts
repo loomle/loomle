@@ -28,14 +28,6 @@ disconnect begin.Then -> delay.Exec/Completed -> print.Exec
     code: "invalid_disconnect",
   },
   {
-    name: "multi-edge add connect",
-    text: `${header}
-
-add delay begin.Then -> delay.Exec/Completed -> print.Exec
-`,
-    code: "invalid_add_connect",
-  },
-  {
     name: "legacy palette binding",
     text: `${header}
 
