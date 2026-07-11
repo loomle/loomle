@@ -248,6 +248,32 @@ the relevant domain feature sections.
 
 ## Query Text
 
+### Summary
+
+`summary` asks the adapter that owns a target for a compact orientation view:
+
+```lgl
+summary <target>
+```
+
+The language core defines only this request shape. The owning domain adapter
+decides which existing LGL objects best summarize that target. Different
+domains, and different target types within one domain, may return different
+kinds of objects. The core does not define entry points or any other universal
+summary content.
+
+A summary result is an ordered LGL document made from existing object statements
+and `#` comment statements. Adapters may use comments for counts or other
+agent-facing context. Objects and comments may be interleaved, and the formatter
+must preserve the adapter's order instead of regrouping statements by object
+type.
+
+Summary introduces no result constructor, section syntax, or summary-specific
+object type. `summary <target>` is a standalone statement and does not accept
+`find`, `where`, `with`, `order by`, or `page` clauses.
+
+### Local Queries
+
 Query text uses a shared multi-line shape:
 
 ```lgl

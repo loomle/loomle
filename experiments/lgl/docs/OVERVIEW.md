@@ -50,14 +50,27 @@ Query text asks a domain to find or expand information. Query results should be
 returned as object text:
 
 ```lgl
+summary g
+```
+
+`summary <target>` asks the owning domain adapter for a compact orientation
+view. Its result is an ordered LGL document made from existing object statements
+and `#` comments. The adapter owns the content and order; LGL does not define a
+summary-specific result object or require all domains to summarize the same
+concepts.
+
+Local queries use the shared query statement list:
+
+```lgl
 query g
 find palette entry "Print String"
 with pins
 page limit 50
 ```
 
-Each domain defines its default result shape, supported `find` forms, `where`
-fields, `with` expansions, ordering, and pagination behavior.
+Each domain defines its summary behavior, default local-query result shape,
+supported `find` forms, `where` fields, `with` expansions, ordering, and
+pagination behavior.
 
 ### Patch Text
 

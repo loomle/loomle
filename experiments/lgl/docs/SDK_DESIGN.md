@@ -4,8 +4,9 @@
 
 LGL is a TypeScript SDK for agent-facing UE text operations, not a public Graph
 IR project. The SDK owns parsing, validation, adapter dispatch, diagnostics,
-and result formatting. Callers use `query` and `patch` with LGL text. Palette
-discovery and creation binding are language features, not separate SDK methods.
+and result formatting. Callers submit `summary` and local-query text through
+`query`, and patch text through `patch`. Palette discovery and creation binding
+are language features, not separate SDK methods.
 
 Internal data structures are implementation details. The contract is the SDK
 API plus the LGL text it accepts and returns.
@@ -87,7 +88,7 @@ LGL text
   -> pure normalizer
   -> normalized domain JSON
   -> adapter or RPC
-  -> normalized result JSON
+  -> ordered normalized result JSON
   -> formatter
   -> LGL object text plus diagnostics
 ```
@@ -247,6 +248,13 @@ Counts, summaries, alias mappings, patch changes, and debug details should be
 expressed inside returned LGL text when useful. Pagination cursors are separate
 because they control the next query.
 
+The target result model is one globally ordered sequence of LGL statements.
+Existing object statements and `#` comment statements may be interleaved. The
+formatter must emit that sequence in order; it must not regroup the result into
+separate node, pin, edge, comment, member, or component sections. Adapters may
+build runtime indexes for validation and lookup, but those indexes are not a
+second serialized result model.
+
 ```ts
 type LglText = string;
 interface TextResult { text?: LglText; diagnostics: Diagnostic[]; page?: Page; }
@@ -259,6 +267,12 @@ Concrete normalized object types are domain-owned and schema-validated.
 `Graph` is one possible `ObjectResult.object`, alongside result objects such as
 `AssetResult`, `BlueprintResult`, `WidgetResult`, and `PaletteResult`; it is
 not a separate response envelope.
+
+The interfaces above describe the current implementation, whose domain objects
+still group data into arrays such as nodes, pins, and edges. That grouping does
+not satisfy the ordered-result contract. The exact replacement normalized JSON
+shape requires a separate design step; this document does not introduce one
+implicitly.
 
 A patch response can return a compact updated snippet around changed objects.
 Created aliases, resolved ids, changed links, and position changes should be
@@ -304,6 +318,8 @@ interface Adapter {
 
 Adapters own domain semantics:
 
+- summary content and ordering for their supported target types
+- placement of agent-facing comments among returned object statements
 - palette binding resolution
 - palette/action lookup where the domain exposes creation entries
 - creation paths

@@ -16,6 +16,7 @@ Each domain document should define:
 - object text
 - canonical text
 - accepted sugar and its canonical expansion
+- summary behavior for each supported target type
 - query text
 - patch text
 - palette entry behavior, when the domain exposes discoverable
@@ -27,6 +28,12 @@ Each domain document should define:
 The shared language core defines text kinds, bindings, constructors,
 references, arrays, inline object values, and statement lists. Domains define
 what those constructs mean for their UE area.
+
+For `summary <target>`, the owning adapter defines the useful orientation view.
+It chooses the existing LGL objects, comments, and statement order returned for
+that target. The shared core does not require every graph-like target to expose
+entry points, nodes, or any other common summary object. Summary content remains
+domain semantics, not shared language syntax.
 
 Domain docs should be the source of truth for the domain language. They should
 describe the intended syntax, object model, query behavior, patch behavior, and
@@ -79,6 +86,7 @@ Each domain should explicitly separate:
 
 Each domain that supports queries must define:
 
+- supported summary targets and the orientation each adapter returns
 - supported `find` forms
 - default result shape without `with`
 - supported `with` expansions
