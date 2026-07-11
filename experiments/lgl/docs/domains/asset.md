@@ -38,7 +38,7 @@ doorFrame = asset(path: "/Game/Blueprints/BP_DoorFrame.BP_DoorFrame", type: blue
 The returned bindings should be directly usable by other domains:
 
 ```lgl
-g = graph(domain: blueprint, asset: door, graph: EventGraph)
+g = graph(domain: blueprint, asset: door, id: "graph-guid", name: EventGraph, type: event_graph)
 ```
 
 ## Asset Objects
@@ -206,7 +206,7 @@ Asset bindings are reusable references:
 
 ```lgl
 door = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
-g = graph(domain: blueprint, asset: door, graph: EventGraph)
+g = graph(domain: blueprint, asset: door, id: "graph-guid", name: EventGraph, type: event_graph)
 ```
 
 Graph, widget, material, and PCG domains should not reimplement asset path

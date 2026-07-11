@@ -77,8 +77,8 @@ Domain docs:
   to normalized JSON.
 - `docs/domains/asset.md`: Asset domain for Asset Registry-backed search,
   resolve, registry tags, and asset result text.
-- `docs/domains/blueprint.md`: Blueprint domain for class contract, member
-  declarations, custom events, and component tree structure.
+- `docs/domains/blueprint.md`: Blueprint domain for class contract, variables,
+  dispatchers, graphs, component trees, timelines, and their reads.
 - `docs/domains/widget.md`: Widget domain for UMG tree constructors, tree
   queries, palette entries, and widget patching.
 
@@ -149,7 +149,9 @@ Blueprint examples currently cover:
 - query examples for nodes, paths, surrounding context, palette discovery, and
   detailed node output
 
-The examples use the implemented statement-list graph form:
+The examples still use the earlier implemented statement-list Graph identity.
+They must migrate to the documented `id`/`name`/`type` Graph object when the
+schema and parser are updated:
 
 ```txt
 bp = asset(path: "/Game/BP_LGLExample.BP_LGLExample", type: blueprint)

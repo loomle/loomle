@@ -4,24 +4,20 @@
 
 The blueprint domain describes Blueprint asset structure outside individual
 graph nodes and edges. It covers class contract, implemented interfaces, class
-defaults, member declarations, custom events, and SimpleConstructionScript
-components.
+defaults, variables, dispatchers, graphs, SimpleConstructionScript components,
+and timelines.
 
-Graph bodies still belong to the graph domain. A Blueprint function declaration
-may create or reference a function graph, but editing the function body's nodes
-and pins remains graph work.
+Function, macro, event, delegate-signature, interface-function, and construction
+script graphs are all graph objects. Their nodes, pins, and edges remain graph
+domain work.
 
-Some graph nodes reference Blueprint members or components. Variable getter/setter
-nodes, dispatcher nodes, and component-bound event nodes are graph nodes, but
-their targets are declared by this domain. The graph domain owns the node
-creation syntax; the blueprint domain owns the member and component identities
-those nodes reference.
+Some graph nodes reference Blueprint-owned variables, dispatchers, components,
+or timelines. The graph domain owns those nodes; the blueprint domain owns the
+referenced object identities.
 
-The TypeScript experiment implements `blueprint(...)` bindings, `query bp`,
-`find members`, `find components`, canonical Blueprint result text, schema
-validation, formatter roundtrip, patch normalization, and an in-memory
-Blueprint adapter. UE-backed class/member/component integration belongs to the
-UE-backed adapter.
+The TypeScript experiment still implements the earlier `members` array and
+`find members` model. That implementation does not match this design and must
+be replaced in a later schema/parser/formatter/adapter phase.
 
 ## UE Boundary
 
@@ -36,9 +32,13 @@ UE-backed adapter.
 - `DelegateSignatureGraphs`
 - `UbergraphPages`
 - `SimpleConstructionScript`
+- `Timelines`
 
-LGL should preserve those UE boundaries. It should not flatten Blueprint into a
-single graph model.
+The read model exposes six concrete objects: Blueprint, Variable, Dispatcher,
+Graph, Component, and Timeline. It does not introduce a common Blueprint
+`Member` object. Generated classes, generated variables, intermediate graphs,
+and compiled event graphs are derived state rather than additional authored
+objects.
 
 ## Basic Form
 
@@ -46,30 +46,33 @@ Blueprint object text is a statement list:
 
 ```lgl
 bpAsset = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
-door = blueprint(asset: bpAsset, parent: "/Script/Engine.Actor", namespace: "Game.Doors")
+door = blueprint(asset: bpAsset, type: normal, parent: "/Script/Engine.Actor")
 
 door.implements = ["/Script/MyGame.Damageable"]
 door.default.Health = 100.0
 
-door.Health = variable(type: float, default: 100.0, category: "Stats", replication: replicated)
-door.OpenDoor = function(inputs: [speed: float], outputs: [success: bool], pure: false)
-door.OnOpened = dispatcher(inputs: [instigator: Actor])
-door.OnDoorOpened = event(inputs: [instigator: Actor], replication: server, reliable: true)
+eventGraph = graph(domain: blueprint, asset: bpAsset, id: "event-graph-guid", name: EventGraph, type: event_graph)
+signatureGraph = graph(domain: blueprint, asset: bpAsset, id: "signature-graph-guid", name: OnOpened, type: delegate_signature)
 
-door.Root = component(class: "/Script/Engine.SceneComponent")
-Root.Mesh = component(class: "/Script/Engine.StaticMeshComponent", staticMesh: "/Game/Meshes/SM_Door.SM_Door")
-Root.Trigger = component(class: "/Script/Engine.BoxComponent", boxExtent: [100, 100, 200])
+door.Health = variable(id: "variable-guid", type: float, default: 100.0, category: "Stats", replication: replicated)
+door.OnOpened = dispatcher(id: "dispatcher-variable-guid", graph: @signature-graph-guid)
+
+door.Root = component(id: "root-component-guid", class: "/Script/Engine.SceneComponent")
+Root.Mesh = component(id: "mesh-component-guid", class: "/Script/Engine.StaticMeshComponent", staticMesh: "/Game/Meshes/SM_Door.SM_Door")
+
+door.OpenTimeline = timeline(id: "timeline-guid")
 ```
 
-Member declarations use `blueprint.member = ...`. Component tree declarations
-use the same `parent.child = ...` sugar as widget trees.
+`blueprint.name = ...` is ordinary binding-path syntax. It expresses owner and
+current name without creating a shared Member type. Component trees use the
+same `parent.child = ...` shape to express hierarchy.
 
 ## Blueprint Object
 
 | Object | Syntax | Example |
 | --- | --- | --- |
 | Blueprint asset | `name = asset(path: "...", type: blueprint)` | `bpAsset = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)` |
-| Blueprint binding | `name = blueprint(asset: ref, metadata...)` | `door = blueprint(asset: bpAsset, parent: "/Script/Engine.Actor")` |
+| Blueprint binding | `name = blueprint(asset: ref, type: symbol, metadata...)` | `door = blueprint(asset: bpAsset, type: normal, parent: "/Script/Engine.Actor")` |
 | Interface list | `blueprint.implements = [classPath, ...]` | `door.implements = ["/Script/MyGame.Damageable"]` |
 | Class default | `blueprint.default.property = value` | `door.default.Health = 100.0` |
 
@@ -83,6 +86,7 @@ interface Blueprint {
   kind: "blueprint";
   alias: string;
   asset: Ref;
+  type: Name;
   parent?: Ref;
   namespace?: string;
   category?: string;
@@ -90,10 +94,13 @@ interface Blueprint {
   deprecated?: boolean;
   interfaces?: Ref[];
   defaults?: Record<string, Value>;
-  members?: Member[];
-  components?: Component[];
 }
 ```
+
+`type` maps directly to `EBlueprintType`: `normal`, `const`, `macro_library`,
+`interface`, `level_script`, or `function_library`. The asset path is the
+Blueprint's exact current identity. UE does not expose a persistent Blueprint
+GUID, so LGL does not invent one.
 
 ## Class Contract
 
@@ -102,6 +109,7 @@ Class contract fields describe the generated Blueprint class:
 ```lgl
 door = blueprint(
   asset: bpAsset,
+  type: normal,
   parent: "/Script/Engine.Actor",
   namespace: "Game.Doors",
   category: "Doors",
@@ -126,103 +134,35 @@ door.default.Health = 100.0
 door.default.DisplayName = "Door"
 ```
 
+This existing three-part class-default statement is Blueprint-domain syntax,
+not a general MemberRef and not evidence of a Blueprint Member object.
+
 Variable declaration and variable default storage are related but not the same
-operation. The adapter must write them through the UE paths that actually own
-the data.
+UE storage path. LGL exposes one `default`; the adapter maps it to
+`FBPVariableDescription::DefaultValue` and/or the generated-class CDO as the
+current Blueprint state requires.
 
-## Members
+## Concrete Blueprint Objects
 
-Blueprint member declarations use member bindings:
+Blueprint reads return concrete objects directly in the ordered LGL document.
+There is no `Member`, `BlueprintMember`, `members[]`, or generic member result.
+The six concrete object types are Blueprint, Variable, Dispatcher, Graph,
+Component, and Timeline.
 
-| Member | Syntax | Example |
-| --- | --- | --- |
-| Variable | `bp.name = variable(args...)` | `door.Health = variable(type: float, default: 100.0)` |
-| Function | `bp.name = function(args...)` | `door.OpenDoor = function(inputs: [speed: float], outputs: [success: bool])` |
-| Macro | `bp.name = macro(args...)` | `door.TraceDoor = macro(inputs: [start: Vector], outputs: [hit: bool])` |
-| Dispatcher | `bp.name = dispatcher(args...)` | `door.OnOpened = dispatcher(inputs: [instigator: Actor])` |
-| Custom event | `bp.name = event(args...)` | `door.OnDoorOpened = event(inputs: [instigator: Actor])` |
-
-Member aliases are the UE member names. A member may also carry a stable UE id
-when UE exposes one, such as `guid` for variables or `graph` for function-like
-members.
-
-Normalized JSON:
-
-```ts
-type Member =
-  | Variable
-  | Function
-  | Macro
-  | Dispatcher
-  | Event;
-
-interface Variable {
-  kind: "variable";
-  name: string;
-  type: Ref | Name;
-  default?: Value;
-  category?: string;
-  replication?: Name;
-  exposeOnSpawn?: boolean;
-  private?: boolean;
-  metadata?: Record<string, Value>;
-  guid?: string;
-}
-
-interface Function {
-  kind: "function";
-  name: string;
-  inputs?: Parameter[];
-  outputs?: Parameter[];
-  pure?: boolean;
-  const?: boolean;
-  override?: boolean;
-  owner?: Ref;
-  graph?: Ref;
-  metadata?: Record<string, Value>;
-}
-
-interface Macro {
-  kind: "macro";
-  name: string;
-  inputs?: Parameter[];
-  outputs?: Parameter[];
-  graph?: Ref;
-  metadata?: Record<string, Value>;
-}
-
-interface Dispatcher {
-  kind: "dispatcher";
-  name: string;
-  inputs?: Parameter[];
-  graph?: Ref;
-  metadata?: Record<string, Value>;
-}
-
-interface Event {
-  kind: "event";
-  name: string;
-  inputs?: Parameter[];
-  replication?: Name;
-  reliable?: boolean;
-  graph?: Ref;
-  metadata?: Record<string, Value>;
-}
-
-interface Parameter {
-  name: string;
-  type: Ref | Name;
-  default?: Value;
-}
-```
+Every Blueprint-owned concrete object exposes one `id` mapped to its native UE
+GUID. Its binding path supplies owner and current name. Names are readable and
+searchable but are not cross-query identity.
 
 ### Variables
 
 Variables map to UE `FBPVariableDescription` entries and generated class
-properties:
+properties. Only variables authored in `UBlueprint::NewVariables` are returned;
+inherited, native, local, generated, and multicast-delegate declarations are
+not duplicate Variable objects.
 
 ```lgl
 door.Health = variable(
+  id: "variable-guid",
   type: float,
   default: 100.0,
   category: "Stats",
@@ -232,115 +172,174 @@ door.Health = variable(
 )
 ```
 
-The declaration contains type, flags, category, metadata, replication, and
-editor-facing exposure settings. Runtime default overrides may also appear as
-`door.default.Health` when the object text is describing CDO state.
+`id` maps to `FBPVariableDescription::VarGuid`. The declaration contains type,
+flags, category, metadata, replication, and editor-facing exposure settings.
+LGL exposes one default value even though UE may source or stage that value
+through both the variable description and the generated-class CDO.
 
-### Functions And Macros
-
-Functions and macros are declarations plus owned graphs:
-
-```lgl
-door.OpenDoor = function(inputs: [speed: float], outputs: [success: bool], pure: false, const: false)
-door.TraceDoor = macro(inputs: [start: Vector], outputs: [hit: bool])
+```ts
+interface Variable {
+  kind: "variable";
+  id: string;
+  owner: Ref;
+  name: string;
+  type: Ref | Name;
+  default?: Value;
+  category?: string;
+  replication?: Name;
+  exposeOnSpawn?: boolean;
+  private?: boolean;
+  metadata?: Record<string, Value>;
+}
 ```
 
-Signature editing belongs to the blueprint domain. Body editing belongs to the
-graph domain:
+### Graphs
+
+Blueprint functions and macros are Graph objects, not additional declaration
+objects. Event, function, macro, delegate-signature, interface-function, and
+construction-script semantics are expressed by the Graph `type`:
 
 ```lgl
-g = graph(domain: blueprint, asset: bpAsset, graph: OpenDoor)
+openDoor = graph(domain: blueprint, asset: bpAsset, id: "function-graph-guid", name: OpenDoor, type: function_graph)
+traceDoor = graph(domain: blueprint, asset: bpAsset, id: "macro-graph-guid", name: TraceDoor, type: macro_graph)
 ```
 
-Inherited override functions are not the same as user-created functions:
+`id` maps to `UEdGraph::GraphGuid`. Graph name is readable and searchable but is
+not identity. Function signatures, macro tunnels, overrides, custom events, and
+all other graph contents remain nodes and pins in the graph domain.
+
+Top-level graphs belong to the Blueprint asset. Nested graphs may additionally
+identify their owning graph or node when that relation exists in UE, without
+changing their Blueprint-plus-GraphGuid identity.
+
+Implemented interfaces remain a Blueprint relation:
 
 ```lgl
-door.GetBodyMesh = function(override: true, owner: "/Script/Oasium.OasiumAvatarBase")
+door.implements = ["/Script/MyGame.Damageable"]
 ```
 
-The adapter must resolve overrides through UE's override lookup path rather
-than creating a same-named user function graph.
+Graphs required by that interface are ordinary Graph objects with an
+interface-function type. LGL does not create an Interface object or an
+interface-specific ref constructor.
 
 ### Dispatchers
 
-Dispatchers are multicast delegate variables plus delegate signature graphs:
+An Event Dispatcher is one semantic object backed by a multicast-delegate
+`FBPVariableDescription` and a same-owned Delegate Signature Graph:
 
 ```lgl
-door.OnOpened = dispatcher(inputs: [instigator: Actor])
+signatureGraph = graph(domain: blueprint, asset: bpAsset, id: "signature-graph-guid", name: OnOpened, type: delegate_signature)
+door.OnOpened = dispatcher(id: "dispatcher-variable-guid", graph: @signature-graph-guid)
 ```
 
-LGL should expose them as dispatchers, not as ordinary variables, even though UE
-stores part of the state through member-variable machinery.
+Dispatcher `id` maps to the delegate variable's `VarGuid`. Its `graph` relation
+points to the associated Graph by GraphGuid. Signature parameters live in that
+Graph and are not copied into the Dispatcher object. Create, rename, and remove
+must update both UE objects atomically; a missing or mismatched half is an
+inconsistent Blueprint diagnostic, not a guessing opportunity.
 
-### Custom Events
+```ts
+interface Dispatcher {
+  kind: "dispatcher";
+  id: string;
+  owner: Ref;
+  name: string;
+  graph: IdRef;
+  metadata?: Record<string, Value>;
+}
+```
 
-Custom events are `UK2Node_CustomEvent` nodes in an ubergraph page, but their
-signature and replication contract are Blueprint member data:
+### Timelines
+
+Timeline is the only new concrete object constructor in this read design. It
+maps directly to `UTimelineTemplate`:
 
 ```lgl
-door.OnDoorOpened = event(inputs: [instigator: Actor], replication: server, reliable: true)
+door.OpenTimeline = timeline(
+  id: "timeline-guid",
+  length: 1.0,
+  loop: false,
+  autoplay: false,
+  replicated: false,
+  ignoreTimeDilation: false
+)
 ```
 
-Custom events support inputs, not return values. Graph placement and wiring are
-graph concerns.
+`id` maps to `UTimelineTemplate::TimelineGuid`. Event, float, vector, and linear
+color tracks are ordered Timeline details rather than Blueprint-level objects.
+Their text form remains deliberately unspecified until track editing is designed.
 
-Component-bound events are different from custom events. They are graph nodes
-bound to a component property and a multicast delegate property:
-
-```lgl
-add overlap = event(component: Trigger, event: OnComponentBeginOverlap)
+```ts
+interface Timeline {
+  kind: "timeline";
+  id: string;
+  owner: Ref;
+  name: string;
+  length?: number;
+  loop?: boolean;
+  autoplay?: boolean;
+  replicated?: boolean;
+  ignoreTimeDilation?: boolean;
+}
 ```
 
-The `Trigger` component is declared by the blueprint domain, but the `add`
-operation belongs to the graph domain because the result is a graph node.
-The adapter must resolve `Trigger` to a Blueprint component property and
-`OnComponentBeginOverlap` to a multicast delegate property on that component
-class.
+### Graph-Owned Nodes
+
+Custom events, override events, component-bound events, function entry/result
+nodes, macro tunnels, and Timeline nodes are Graph Nodes. They are not Blueprint
+objects and are not repeated in the Blueprint object model.
+
+Graph nodes may reference a Variable, Dispatcher, Component, or Timeline by its
+stable `@id`. Getter/setter nodes, dispatcher nodes, component-bound events, and
+Timeline nodes remain independently identified Nodes in their owning Graph.
 
 ## Component Tree
 
 Blueprint components map to UE `USimpleConstructionScript` and `USCS_Node`.
 They are not graph nodes.
 
-Component tree object text should use member-binding tree sugar:
+Component tree object text uses binding paths plus statement order:
 
 ```lgl
-door.Root = component(class: "/Script/Engine.SceneComponent")
-Root.Mesh = component(class: "/Script/Engine.StaticMeshComponent", staticMesh: "/Game/Meshes/SM_Door.SM_Door")
-Root.Trigger = component(class: "/Script/Engine.BoxComponent", boxExtent: [100, 100, 200])
+door.Root = component(id: "root-component-guid", class: "/Script/Engine.SceneComponent")
+Root.Mesh = component(id: "mesh-component-guid", class: "/Script/Engine.StaticMeshComponent", staticMesh: "/Game/Meshes/SM_Door.SM_Door")
+Root.Trigger = component(id: "trigger-component-guid", class: "/Script/Engine.BoxComponent", boxExtent: [100, 100, 200])
 ```
 
 Rules:
 
 1. `blueprint.name = component(...)` creates or reads a root SCS component.
 2. `parent.child = component(...)` creates or reads a child component.
-3. The child alias is the UE component variable name.
-4. Sibling order is the order of child component lines for that parent.
-5. Canonical text normalizes tree sugar to explicit `parent`; sibling order
-   remains the order of component statements in text.
-
-Canonical text:
-
-```lgl
-Root = component(owner: door, class: "/Script/Engine.SceneComponent", parent: null)
-Mesh = component(owner: door, class: "/Script/Engine.StaticMeshComponent", parent: Root, staticMesh: "/Game/Meshes/SM_Door.SM_Door")
-Trigger = component(owner: door, class: "/Script/Engine.BoxComponent", parent: Root, boxExtent: [100, 100, 200])
-```
+3. `id` maps to `USCS_Node::VariableGuid`.
+4. The child binding name is the current UE component variable name.
+5. Parent statements precede their children.
+6. Sibling order is the order of child component statements for that parent.
+7. Component-template properties are fields on the same Component object; LGL
+   does not emit every inherited class default.
 
 Normalized JSON:
 
 ```ts
 interface Component {
   kind: "component";
+  id: string;
+  owner: Ref;
+  name: string;
   alias: string;
   class: Ref;
-  parent?: string | null;
+  parent?: Ref | null;
   properties: Record<string, Value>;
 }
 ```
 
 Sibling order is derived from statement order for the same parent. LGL text
 does not require agents to write explicit order fields.
+
+`UBlueprint::ComponentTemplates` entries used by AddComponent mechanisms are
+not SCS Component Tree objects. Native or inherited components are not returned
+as if the current Blueprint owned them; an external-parent reference requires a
+separate design only when a concrete workflow needs it. LGL does not introduce
+a `component_property` object.
 
 Graph nodes may refer to component aliases from this tree:
 
@@ -351,20 +350,20 @@ add overlap = event(component: Trigger, event: OnComponentBeginOverlap)
 That reference is explicit. The graph adapter must not infer a component-bound
 event target from nearby lines or from a previous palette query.
 
-## Member-Backed Graph Nodes
+## Blueprint-Backed Graph Nodes
 
-Blueprint members commonly appear as graph nodes. LGL supports both editor-like
-paths:
+Blueprint-owned objects commonly appear as graph nodes. The current patch
+language supports both semantic construction and palette fallback:
 
-1. Semantic construction from the member or component.
+1. Semantic construction from a concrete Blueprint-owned object.
 2. Palette fallback construction from an exact Action Menu entry.
 
 Semantic construction:
 
 ```lgl
-add health = get(variable: Health)
-add setHealth = set(variable: Health)
-add overlap = event(component: Trigger, event: OnComponentBeginOverlap)
+add health = get(variable: @variable-guid)
+add setHealth = set(variable: @variable-guid)
+add overlap = event(component: @trigger-component-guid, event: OnComponentBeginOverlap)
 ```
 
 Palette fallback construction:
@@ -373,178 +372,72 @@ Palette fallback construction:
 add health = node(palette: "palette:blueprint:variable:get:Health")
 ```
 
-Both forms may create the same UE node class. The semantic form is preferred
-when the intent is a stable UE concept such as variable access or
-component-bound events. Palette remains available when the exact UE Action Menu
-choice matters or when no stable LGL constructor exists yet.
+Both forms may create the same UE node class. Their mutation syntax is not
+redesigned in this read-model phase; it must be reviewed separately before the
+existing constructors become part of the confirmed contract.
 
 ## Query
 
-Blueprint queries use the shared query shape:
+Blueprint reads have one orientation form and one exact-object form.
+
+Orientation uses the shared summary statement:
+
+```lgl
+summary door
+```
+
+The Blueprint adapter returns an ordered, compact directory of the Blueprint
+and its owned Variables, Dispatchers, Graphs, Components, and Timelines. It uses
+the concrete object text defined above plus comments; it does not return a
+summary object, section object, or generic Member item.
+
+Exact reads use the concrete object's stable id:
 
 ```lgl
 query door
-find members
-where kind = variable or kind = function
-with metadata, defaults
-order by name asc
+find @variable-guid
 ```
 
-Supported `find` forms:
+The adapter resolves the id across the concrete objects owned by that Blueprint
+and returns exactly one complete object. The returned constructor identifies
+whether it is a Variable, Dispatcher, Graph, Component, or Timeline; the caller
+does not repeat the type in the query.
 
-- `find class`
-- `find members ["text"]`
-- `find components ["text"]`
+Blueprint exact reads do not accept `where`, `with`, `order by`, or `page`.
+Object-specific detail expansions are unnecessary in the first design: an exact
+read returns the complete semantic object. Component reads include properties
+actually set on the component template rather than all inherited class defaults.
 
-Exact member and component lookup use structured filters:
+Timeline Track text is still deliberately undefined, so complete Timeline exact
+read cannot be implemented until that separate object-detail design is
+confirmed. The adapter must report that capability gap rather than omit Tracks
+while claiming a complete Timeline.
 
-```lgl
-find members
-where name = Health
+Zero matches return an unknown-object diagnostic. If invalid UE state produces
+more than one match, the adapter returns an ambiguity diagnostic rather than
+guessing from name or object type.
 
-find components
-where name = Trigger
-```
-
-Default result shapes:
-
-- `find class`: Blueprint binding, parent, settings summary, interfaces, and
-  explicit default overrides.
-- `find members`: member identity, kind, type/signature summary, and graph name
-  where relevant.
-- `find components`: component identity, class, parent, and order.
-
-`with metadata` expands metadata maps. `with defaults` expands default values.
-`with properties` expands component template properties. `with graphs` expands
-graph references for function-like members.
-
-Supported `where` fields:
-
-- `kind`
-- `name`
-- `type`
-- `class`
-- `parent`
-- `text`
-
-Supported `order by` keys:
-
-- `name`
-- `kind`
-- `order`
-
-Normalized JSON:
-
-```ts
-type Find =
-  | FindClass
-  | FindMembers
-  | FindComponents;
-
-interface FindClass {
-  kind: "class";
-}
-
-interface FindMembers {
-  kind: "members";
-  text?: string;
-}
-
-interface FindComponents {
-  kind: "components";
-  text?: string;
-}
-```
-
-Blueprint query text uses the shared `Query` envelope with `target.domain =
-"blueprint"` and `find = Find`. `where`, `with`, `orderBy`, and `page` use the
-shared query model from the language core. The blueprint domain validates
-allowed fields, expansions, sort keys, and pagination defaults.
+The normalized JSON representation of `find @id` is intentionally not specified
+in this document yet. It must be reviewed before schema work; this text contract
+does not silently introduce a new normalized `kind`.
 
 ## Patch
 
-Blueprint patch text is a statement list:
+This phase standardizes Blueprint reads only. The existing TypeScript experiment
+still exposes member-based patch bindings and `function(...)`, `macro(...)`, and
+event creation shortcuts. Those mutation forms are not confirmed by this read
+model and must be redesigned separately before this section becomes normative.
 
-```lgl
-patch door dry run
-
-set door.parent = "/Script/Engine.Character"
-add door.Health = variable(type: float, default: 100.0, category: "Stats")
-set door.Health.replication = repNotify
-rename door.Health to MaxHealth
-
-add door.OpenDoor = function(inputs: [speed: float], outputs: [success: bool])
-add door.GetBodyMesh = function(override: true, owner: "/Script/Oasium.OasiumAvatarBase")
-
-add door.Root = component(class: "/Script/Engine.SceneComponent")
-add Root.Trigger = component(class: "/Script/Engine.BoxComponent", boxExtent: [100, 100, 200])
-move Trigger after Mesh
-remove door.TraceDoor
-```
-
-Patch operation names should stay small:
-
-| Operation | Syntax | Example |
-| --- | --- | --- |
-| Set class/member field | `set target = value` | `set door.Health.replication = repNotify` |
-| Add member/component | `add binding` | `add door.Health = variable(type: float)` |
-| Rename member/component | `rename old to new` | `rename door.Health to MaxHealth` |
-| Move component | `move name before/after target` | `move Trigger after Mesh` |
-| Remove member/component | `remove target` | `remove door.TraceDoor` |
-
-UE-specific sub-operations remain encoded by the object constructor or target:
-`function(override: true)` is a different semantic path from
-`function(...)`.
-
-`add binding` uses the shared patch sugar from the language core. Its canonical
-form is a member or component binding followed by `add target`.
-
-Normalized JSON:
-
-```ts
-type PatchOp =
-  | Set
-  | Add
-  | Remove
-  | Rename
-  | Move;
-
-interface Set {
-  kind: "set";
-  target: FieldPath;
-  value: Expr;
-}
-
-interface Add {
-  kind: "add";
-  target: FieldPath;
-}
-
-interface Remove {
-  kind: "remove";
-  target: FieldPath;
-}
-```
-
-Blueprint patch text uses the shared `Patch` envelope with `target.domain =
-"blueprint"` and `ops = PatchOp[]`.
-
-The TypeScript LGL experiment implements `add`, `set`, `remove`, `rename`, and
-component `move` in the in-memory adapter. The UE-backed adapter must route the
-same operations through UE-owned Blueprint, member, and component edit paths.
-
-The adapter determines whether an operation target is a class field, member, or
-component, then routes through the corresponding UE-owned path.
+Removing the read-side Member abstraction does not implicitly approve or remove
+any patch constructor. Mutation design must start from the concrete Blueprint
+objects above and the corresponding UE edit paths.
 
 ## Adapter Boundary
 
 Pure LGL normalization may:
 
-- convert component tree sugar into explicit `parent` while preserving
-  component statement order
-- normalize member bindings into typed member objects
+- preserve concrete Blueprint object bindings and component statement order
 - normalize Blueprint query clauses into a structured query object
-- split patch text into class, member, and component operations
 
 Pure LGL normalization must not:
 

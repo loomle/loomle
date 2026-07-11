@@ -33,7 +33,7 @@ Object text describes UE objects, object fragments, or query results:
 
 ```lgl
 bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
-g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
 
 begin = node(graph: g, type: EventBeginPlay, id: "A001")
 print = node(graph: g, type: PrintString, id: "A002", InString: "Ready")

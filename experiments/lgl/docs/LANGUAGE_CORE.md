@@ -16,8 +16,8 @@ LGL is a line-oriented text language. A document is a sequence of statements:
 ```lgl
 # Name objects, then refer to them from later statements.
 bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
-g = graph(domain: blueprint, asset: bp, graph: EventGraph)
-print = node(graph: g, type: PrintString, InString: "Ready")
+g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
+print = node(graph: g, type: PrintString, id: "node-guid", InString: "Ready")
 ```
 
 Each statement should fit on one line whenever practical. Blank lines are
@@ -28,7 +28,7 @@ allowed. Indentation is visual only and does not create hierarchy.
 | Statement | Syntax | Example |
 | --- | --- | --- |
 | Comment | `# text` | `# Inspect a Blueprint event graph.` |
-| Binding | `target = Expression` | `g = graph(domain: blueprint, asset: bp, graph: EventGraph)` |
+| Binding | `target = Expression` | `g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)` |
 | Domain statement | domain-defined line | `query g` |
 | Sugar statement | domain-defined shorthand | `begin.Then -> print.Exec` |
 
@@ -39,11 +39,11 @@ binding target is usually a local identifier:
 delay = node(graph: g, type: Delay, id: "A002", Duration: 1.0)
 ```
 
-Domains may also allow member references as binding targets when the member is
-the object's stable identity. Graph pin object text uses this form:
+Domains may also allow member paths as binding targets when they compactly
+express document-local ownership. Graph pin object text uses this form:
 
 ```lgl
-delay.Duration = pin(type: float, direction: in, value: 1.0)
+delay.Duration = pin(id: "pin-guid", type: float, direction: in, value: 1.0)
 ```
 
 Domain statements are owned by a domain. The core language only requires them
@@ -67,9 +67,9 @@ type BindingValue =
 ```
 
 Local targets cover aliases such as `g` or `print`. Member targets cover
-domain-owned stable members such as `delay.Duration`, `door.Health`, or
-`stack.start`. Domains define valid member targets. Most bindings normalize to
-`Expr`; graph patch creation bindings may normalize to `NodeCreation`.
+document-local paths such as `delay.Duration`, `door.Health`, or `stack.start`.
+Domains define valid member targets. Most bindings normalize to `Expr`; graph
+patch creation bindings may normalize to `NodeCreation`.
 
 ## Expressions And Values
 
@@ -124,8 +124,8 @@ resolve what each name means.
 
 ## References
 
-References point at previously named values or objects. Member references are
-domain-owned:
+Local references point at previously named values or objects. Stable id
+references resolve existing target state. Member references are domain-owned:
 
 ```lgl
 begin.Then
@@ -135,11 +135,33 @@ delay.Duration
 In the graph domain, `begin.Then` refers to a pin on the node binding `begin`.
 Other domains may define their own member meanings.
 
+Local aliases and member paths exist only inside the current LGL document. They
+make ordered object text readable, but they are not stable identities and must
+not be carried into a later query or mutation.
+
+Existing objects expose their native `id`; aliases are document-local handles.
+A creation binding uses an alias before the native object exists. After
+creation, the adapter returns the created object with its actual `id`. Use
+aliases and member paths within one LGL document, and use `@id` across queries
+or later operations.
+
 Id references provide explicit stable ids when a domain needs them:
 
 ```lgl
 @A001
 ```
+
+`@id` is the common cross-query reference for concrete objects with a native UE
+identifier. Domains map the same public `id` field to their native identity,
+such as GraphGuid, VarGuid, VariableGuid, TimelineGuid, NodeGuid, or PinId. The
+query target and expected relationship provide owner and object-kind context;
+the ref itself does not repeat them.
+
+LGL does not define object-specific ref constructors such as `graph_ref`,
+`variable_ref`, `component_ref`, or `pin_ref`. A domain must return unknown or
+ambiguous rather than resolve an id by display name. Blueprint assets are the
+exception because UE exposes their current object path rather than a persistent
+Blueprint GUID.
 
 Normalized JSON:
 
@@ -150,8 +172,9 @@ type Ref =
   | { kind: "id"; id: string };
 ```
 
-Member references are two-segment core references. Domains may define richer
-refs when they need owners, paths, graph refs, or UE-specific identity.
+Member references remain two-segment, document-local paths. Stable cross-query
+identity uses `@id`; any richer public reference syntax requires a separate
+language-design decision.
 
 ## Constructors
 
@@ -159,7 +182,7 @@ Constructors create typed LGL objects:
 
 ```lgl
 asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
-graph(domain: blueprint, asset: bp, graph: EventGraph)
+graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
 node(graph: g, type: Delay, id: "A002", Duration: 1.0)
 ```
 
@@ -167,7 +190,7 @@ Constructor arguments are named because they are clear for agents, easy to
 validate, and safe to evolve:
 
 ```lgl
-g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
 ```
 
 Positional constructor arguments are not supported:

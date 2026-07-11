@@ -12,11 +12,11 @@ Graph object text is a statement list:
 
 ```lgl
 bp = asset(path: "/Game/BP_LGLExample.BP_LGLExample", type: blueprint)
-g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
 
 begin = node(graph: g, type: EventBeginPlay, id: "A001")
 print = node(graph: g, type: PrintString, id: "A003", InString: "Ready")
-print.InString = pin(type: string, direction: in, value: "Ready")
+print.InString = pin(id: "pin-guid", type: string, direction: in, value: "Ready")
 
 begin.Then -> print.Exec
 ```
@@ -30,9 +30,9 @@ self-contained.
 | Object | Syntax | Example |
 | --- | --- | --- |
 | Asset binding | `name = asset(path: "...", type: symbol)` | `bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)` |
-| Graph binding | `name = graph(domain: symbol, asset: ref, graph: name)` | `g = graph(domain: blueprint, asset: bp, graph: EventGraph)` |
+| Graph binding | `name = graph(domain: symbol, asset: ref, id: string, name: symbol, type: symbol)` | `g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)` |
 | Node object text | `name = node(graph: ref, type: symbol, id: string, fields...)` | `delay = node(graph: g, type: Delay, id: "A002", Duration: 1.0)` |
-| Pin object text | `node.pin = pin(type: symbol, direction: in/out, metadata...)` | `delay.Duration = pin(type: float, direction: in, value: 1.0)` |
+| Pin object text | `node.pin = pin(id: string, type: symbol, direction: in/out, metadata...)` | `delay.Duration = pin(id: "pin-guid", type: float, direction: in, value: 1.0)` |
 | Edge sugar | `pin -> pin` | `begin.Then -> print.Exec` |
 | Edge canonical | `edge(pin, pin)` | `edge(begin.Then, print.Exec)` |
 
@@ -41,37 +41,41 @@ from source position.
 
 ## Graph Identity
 
-Canonical graph identity uses an asset binding plus a graph binding:
+Canonical graph identity uses an asset binding plus one ordinary Graph object:
 
 ```lgl
 bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
-g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
 ```
 
-The normalized target keeps the existing public names:
+Graph follows the same object rule used across LGL: `id` is stable identity,
+`name` is current readable/searchable name, and `type` is exact domain-owned
+semantics. For Blueprint graphs, `id` maps to `UEdGraph::GraphGuid` and `type`
+distinguishes event, function, macro, delegate-signature, interface-function,
+construction-script, and other UE graph roles.
+
+Normalized object shape:
 
 ```ts
-interface Target {
+interface Graph {
+  kind: "graph";
+  alias: string;
   domain: string;
-  asset: string;
-  graph: GraphRef;
+  asset: Ref;
+  id: string;
+  name: string;
+  type: Name;
 }
-
-type GraphRef =
-  | { kind: "name"; name: string }
-  | { kind: "id"; id: string };
 ```
 
-Graph refs may be names or stable ids:
+The earlier `graph: EventGraph` / `graph: id(id: "...")` alternative identity
+is removed. It forced readers to choose either name or id and introduced a
+needless nested ref object. `query g` and `patch g` still use the local Graph
+binding; cross-query identity uses its returned `@id`.
 
-```lgl
-g = graph(domain: blueprint, asset: bp, graph: EventGraph)
-gById = graph(domain: blueprint, asset: bp, graph: id(id: "graph-id"))
-```
-
-`query g` and `patch g` normalize by resolving the local graph binding into
-this target object. The bridge receives the expanded target, not the local
-alias.
+The current schema and adapters still use the earlier Graph target shape. Their
+normalized replacement must be reviewed in the schema phase rather than
+inferred from this documentation.
 
 ## Nodes
 
@@ -88,13 +92,17 @@ Normalized JSON:
 ```ts
 interface Node {
   alias: string;
-  id?: string;
+  id: string;
   type: string;
   fields: Record<string, Expr>;
   at?: Point;
   size?: Point;
 }
 ```
+
+Following the core alias/id rule, returned existing nodes require `id`, mapped
+to `UEdGraphNode::NodeGuid`. Creation bindings use aliases before UE creates the
+node; the adapter returns the actual `id` after creation.
 
 `at` and `size` are returned only when the query asks for `with layout`.
 `at` maps to UE `NodePosX/NodePosY`. `size` maps to UE
@@ -106,9 +114,9 @@ size. LGL does not introduce a separate layout object.
 Pin object text uses member bindings and named metadata:
 
 ```lgl
-delay.Exec = pin(type: exec, direction: in)
-delay.Duration = pin(type: float, direction: in, value: 1.0)
-delay.Completed = pin(type: exec, direction: out)
+delay.Exec = pin(id: "exec-pin-guid", type: exec, direction: in)
+delay.Duration = pin(id: "duration-pin-guid", type: float, direction: in, value: 1.0)
+delay.Completed = pin(id: "completed-pin-guid", type: exec, direction: out)
 ```
 
 Normalized JSON:
@@ -116,6 +124,7 @@ Normalized JSON:
 ```ts
 interface Pin {
   node: string;
+  id: string;
   name: string;
   type: string;
   direction: "in" | "out";
@@ -123,6 +132,17 @@ interface Pin {
   anchor?: Point;
 }
 ```
+
+For an existing Graph Pin, `id` maps to `UEdGraphPin::PinId`. `PinName` remains
+readable local syntax, not cross-query identity. UE's optional `PersistentGuid`
+is not part of the first public model: it is not present on every pin, and LGL
+must not use it or a name to guess after reconstruction. If reconstruction
+changes PinId, the old `@id` becomes stale and the mutation result must return
+the new Pin objects.
+
+Following the same rule, creation and palette results may describe future pins
+without `id`, because no `UEdGraphPin::PinId` exists yet. After UE creates the
+node, returned Pin objects must include their actual `id`.
 
 `anchor` is reserved for live editor layout data. Plain asset readback should
 not estimate pin anchors because UE stores exact pin positions in Slate widget
@@ -152,6 +172,13 @@ edge(begin.Then, delay.Exec)
 edge(delay.Completed, print.Exec)
 ```
 
+Those paths use aliases and Pin names from the same LGL document. Cross-query
+reads and mutations use the Pin's own stable id:
+
+```lgl
+edge(@exec-output-pin-guid, @exec-input-pin-guid)
+```
+
 Normalized JSON:
 
 ```ts
@@ -160,10 +187,7 @@ interface Edge {
   to: PinRef;
 }
 
-interface PinRef {
-  node: string;
-  pin: string;
-}
+type PinRef = IdRef | MemberRef;
 ```
 
 Implicit node chains are invalid:
@@ -612,10 +636,10 @@ Stable shortcut constructors:
 Unmodeled or ambiguous concepts use `node(palette: "...")` until they have a
 stable shortcut constructor.
 
-Constructor arguments must be named. References use the lightest precise form:
-short member names for unambiguous Blueprint members, owned names such as
-`door.Health` for disambiguation, and UE object paths for native, plugin, or
-cross-asset references. Do not use positional forms:
+Constructor arguments must be named. References use aliases or binding paths
+only inside the current document, stable `@id` for existing concrete objects
+across queries, and UE object paths for native, plugin, or cross-asset
+references. Do not use positional forms:
 
 ```lgl
 delay = node(g, Delay, Duration: 1.0)

@@ -106,8 +106,8 @@ agent-facing behavior.
 - [`domains/asset.md`](domains/asset.md): asset discovery, resolution,
   registry metadata, and asset-level query/reference results.
 - [`domains/blueprint.md`](domains/blueprint.md): Blueprint class contract,
-  member declarations, custom events, component tree structure, and
-  class/member/component patching.
+  variables, dispatchers, graphs, component trees, timelines, and their
+  adapter-owned reads.
 - [`domains/widget.md`](domains/widget.md): modeled widget constructors, widget
   tree structure, slots, queries, and widget tree patching.
 

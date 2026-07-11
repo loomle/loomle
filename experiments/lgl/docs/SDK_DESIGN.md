@@ -72,8 +72,8 @@ The target text forms are documented here:
 - [`domains/graph.md`](domains/graph.md): graph objects, queries, patches, and
   creation entries.
 - [`domains/asset.md`](domains/asset.md): asset discovery and references.
-- [`domains/blueprint.md`](domains/blueprint.md): Blueprint class, member, and
-  component structure.
+- [`domains/blueprint.md`](domains/blueprint.md): Blueprint class, variable,
+  dispatcher, graph, component, and timeline structure.
 - [`domains/widget.md`](domains/widget.md): widget trees, slots, queries, and
   patches.
 
@@ -102,7 +102,7 @@ Parser:
 - report syntax errors
 
 Parser must not inspect domains, palette entries, schemas, widget classes,
-Blueprint members, pins, or UE state.
+Blueprint-owned objects, pins, or UE state.
 
 Normalizer:
 
@@ -112,7 +112,7 @@ Normalizer:
 - preserve source mapping for diagnostics where practical
 
 Normalizer must not consult palette databases, graph schemas, UMG metadata,
-Blueprint member tables, or UE state. It may rewrite only pure LGL syntax.
+Blueprint object tables, or UE state. It may rewrite only pure LGL syntax.
 
 Language-level validation belongs before adapter execution. The SDK should
 reject malformed language shapes once, not inside every domain adapter:
