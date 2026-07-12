@@ -651,9 +651,11 @@ Schema lists every Operation supported by the subject type. Instance reads mark
 current availability and give the UE reason when an Operation is unavailable.
 Outputs describe only ordinary objects the agent may need to reference later:
 zero outputs are omitted, fixed outputs use named roles, and variable outputs
-use an ordered keyed role such as `subpins.X`. Mirrored objects, reconstructed
-call sites, removed Edges, and other cascades are effects reported by preflight
-and mutation results rather than primary outputs.
+use an ordered keyed role such as `subpins.X`. A primary output may be newly
+created or may be an existing object that the Operation makes relevant or usable
+for subsequent statements. Mirrored objects, reconstructed call sites, removed
+Edges, and other cascades are effects reported by preflight and mutation results
+rather than primary outputs.
 
 Schema applies only to the primary subject. It does not recursively add schemas
 for expanded children such as Pins. Child objects require their own exact

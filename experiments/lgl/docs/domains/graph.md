@@ -1238,6 +1238,69 @@ nodes are not part of this table. They may change a function signature, mirror
 another node, or reconstruct call sites, so they belong to separate signature
 or cross-object Operations.
 
+#### Struct Pin Operations
+
+Struct splitting and recombination follow UE's existing `ParentPin` and
+`SubPins` hierarchy. They do not introduce recursive selector paths or implicit
+connection migration.
+
+`SplitStructPin()` targets the exact Struct Pin to split and creates only its
+direct children. Its keyed outputs use the direct native member identity that
+UE used to create each child, not a localized display name:
+
+```lgl
+invoke pin@vector-id SplitStructPin() as subpins.X: x, subpins.Z: z
+```
+
+Output order preserves the target Pin's UE `SubPins` order. The caller may bind
+only the children it needs; every created child still appears in the final
+ordered `GraphResult`. The existing parent keeps its `id`, becomes hidden, and
+precedes its children in Object Text.
+
+Nested Structs split one level at a time:
+
+```lgl
+invoke pin@transform-id SplitStructPin() as subpins.Location: location
+invoke location SplitStructPin() as subpins.X: x, subpins.Z: z
+```
+
+The second Operation's selectors are relative to `location`. One invocation
+never returns a synthetic recursive selector such as
+`subpins.Transform.Location.X`.
+
+`RecombineStructPin()` follows the UE editor action and targets one child Pin,
+not the parent. It recombines that child's direct parent, recursively removes
+the descendants under that parent, and exposes the still-existing parent as the
+fixed `parent` output:
+
+```lgl
+invoke pin@x-id RecombineStructPin() as parent: vector
+connect pin@source-id -> vector
+```
+
+The `parent` output is an existing Pin, not a newly created Pin. Every removed
+child alias or stable reference becomes invalid after the Operation. Nested
+Structs recombine one level at a time:
+
+```lgl
+invoke pin@x-id RecombineStructPin() as parent: location
+invoke location RecombineStructPin() as parent: transform
+```
+
+Availability preserves the owning K2 Schema rules. Split is unavailable when
+the target is connected, not connectable, a container, not a Struct, disabled
+by native metadata, or lacks the required make/break support. Recombine is
+available only on a child Pin when that child, all of its siblings, and all
+descendants are unconnected. The adapter returns the UE reason through schema;
+neither Operation disconnects or moves an Edge implicitly.
+
+UE projects parent defaults into child defaults during split. During recombine
+it has explicit native folding behavior for types including `FVector`,
+`FRotator`, `FVector2D`, and `FLinearColor`; other Struct behavior remains
+whatever the owning native path produces. LGL does not reinterpret, reorder, or
+normalize these defaults. The final `GraphResult` and effects report the actual
+native `DefaultValue` and Pin state.
+
 ## Patch Preflight
 
 Patch execution is ordered and all-or-nothing. A local alias has three states:
