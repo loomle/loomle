@@ -20,17 +20,88 @@ g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type
 print = node(graph: g, id: "node-guid", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")
 ```
 
-Each statement should fit on one line whenever practical. Blank lines are
-allowed. Indentation is visual only and does not create hierarchy.
+Short statements may stay on one line. Long statements may wrap according to
+the shared delimiter rule below. Blank lines are allowed. Indentation is visual
+only and does not create hierarchy.
+
+## Statement Boundaries And Line Wrapping
+
+Single-line and multi-line forms are the same LGL syntax. Line wrapping changes
+only presentation; it must not change parsing, normalized JSON, statement
+order, or execution.
+
+A newline ends the current statement only when delimiter depth is zero. Inside
+matched `(...)`, `[...]`, or `{...}`, a newline is ordinary whitespace:
+
+```lgl
+print = node(graph: g, id: "node-guid", type: "/Script/BlueprintGraph.K2Node_CallFunction")
+```
+
+is exactly equivalent to:
+
+```lgl
+print = node(
+  graph: g,
+  id: "node-guid",
+  type: "/Script/BlueprintGraph.K2Node_CallFunction"
+)
+```
+
+The rule applies uniformly to constructors, calls, arrays, inline objects,
+condition grouping, query text, Patch text, and returned Object Text. In
+particular:
+
+- delimiters must be balanced
+- indentation carries no meaning
+- no continuation backslash exists
+- existing comma requirements are unchanged by wrapping
+- a quoted string does not become a multi-line string because its surrounding
+  expression is wrapped
+- single-line and multi-line comments are independent depth-zero statements,
+  not content inserted inside a delimited expression
+- after the final delimiter closes, the next depth-zero newline ends the
+  statement
+
+Parsers may report an unclosed delimiter at its opening span rather than
+guessing where a wrapped statement was intended to end. Formatters may choose a
+single-line or multi-line layout, but both must normalize identically.
 
 ## Statements
 
 | Statement | Syntax | Example |
 | --- | --- | --- |
-| Comment | `# text` | `# Inspect a Blueprint event graph.` |
+| Single-line comment | `# text` | `# Inspect a Blueprint event graph.` |
+| Multi-line comment | `###` lines around text | see below |
 | Binding | `target = Expression` | `g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)` |
 | Domain statement | domain-defined line | `query g` |
 | Sugar statement | domain-defined shorthand | `begin.Then -> print.Exec` |
+
+Comments have one normalized model and two text forms. `# ` is the compact
+single-line form:
+
+```lgl
+# Inspect a Blueprint event graph.
+```
+
+An exact depth-zero line containing only `###` opens or closes the multi-line
+form:
+
+```lgl
+###
+schema
+
+fields:
+  NodeComment: FString; read, write
+###
+```
+
+The delimiters are not comment content. Text between them is preserved with its
+line breaks and blank lines. It is opaque comment text: LGL does not interpret
+indentation, Markdown, constructors, or references inside it. Multi-line
+comments do not nest, and a content line containing only `###` closes the
+comment. An unclosed multi-line comment is a syntax error at its opening
+delimiter. A formatter uses `# text` for a one-line `Comment.text` and the
+`###` form when `Comment.text` contains a newline.
 
 Bindings name objects or values so later statements can reference them. The
 binding target is usually a local identifier:
@@ -528,22 +599,67 @@ identity. `with schema` is not valid for summary results, collections, or
 ambiguous palette searches.
 
 The ordinary object or creation text remains the query result. The adapter adds
-`#` comments that describe the primary subject's usable fields: field name,
-native UE type text, readable/writable status, required/default behavior,
-source, and constraints when known. The result does not introduce `schema(...)`,
-`field(...)`, or another schema-specific object syntax.
+one immediately following multi-line Comment containing the primary subject's
+complete usable schema:
+
+- fields, with native UE type text, readable/writable status,
+  required/default behavior, source, and constraints when known
+- adapter-owned editing Operations, with named parameters, current
+  availability, primary outputs, a copyable `invoke` template, and UE source
+
+There is no separate `with operations` expansion. Operations are normally
+short enough that one `with schema` read should tell the agent everything it can
+read, write, reset, or invoke on the exact subject. The result does not
+introduce `schema(...)`, `field(...)`, `operation(...)`, or another
+schema-specific object syntax.
+
+The Comment uses a stable plain-text layout, not a nested LGL or Markdown
+grammar:
+
+```lgl
+###
+schema
+
+fields:
+  NodeComment: FString; read, write
+
+operations:
+  AddExecutionPin()
+    availability: available
+    output pin: one Pin
+    invoke: invoke node@sequence-id AddExecutionPin() as pin: next
+    UE action: FGraphEditorCommands::AddExecutionPin
+    native: UK2Node_ExecutionSequence::AddInputPin
+###
+```
+
+An Operation name is a stable PascalCase name owned by the adapter and grounded
+in UE editor semantics. Prefer an exact non-localized UE Editor Action identity;
+otherwise use the closest native interface behavior. Do not expose arbitrary
+C++ methods. The schema records the UE Action and native execution path so the
+public semantic name remains traceable even when a Node's implementation method
+has a misleading name or later changes.
+
+Schema lists every Operation supported by the subject type. Instance reads mark
+current availability and give the UE reason when an Operation is unavailable.
+Outputs describe only ordinary objects the agent may need to reference later:
+zero outputs are omitted, fixed outputs use named roles, and variable outputs
+use an ordered keyed role such as `subpins.X`. Mirrored objects, reconstructed
+call sites, removed Edges, and other cascades are effects reported by preflight
+and mutation results rather than primary outputs.
 
 Schema applies only to the primary subject. It does not recursively add schemas
 for expanded children such as Pins. Child objects require their own exact
 query. An adapter that cannot provide the requested schema returns a capability
 diagnostic rather than silently omitting it.
 
-For a creation entry, `with schema` describes accepted creation fields and
-constraints in the current domain context. A domain may expose an identity for
-the creation entry itself; that identity is not a future object id. The query
-does not invent Node, Pin, or other instance ids before UE creates them. After
-creation, the mutation result returns the real objects and ids, whose instance
-schema may be queried separately.
+For a creation entry, `with schema` describes accepted creation fields,
+constraints, and Operations determinable for the initial created state in the
+current domain context. A domain may expose an identity for the creation entry
+itself; that identity is not a future object id. The query does not invent Node,
+Pin, or other instance ids before UE creates them. After creation, the mutation
+result returns the real objects and ids, whose instance schema may differ and
+may be queried separately.
 
 The current TypeScript schema, parser, and adapters do not implement the
 `schema` expansion yet.
@@ -600,6 +716,35 @@ Object text describes state. Patch text always requires an explicit operation:
 a bare Graph Edge is object text and cannot mean `connect` merely because it
 appears inside a Patch.
 
+`invoke` is the shared Patch operation for adapter-owned object interfaces:
+
+```lgl
+invoke <target> <Operation>(named arguments) [as <selector>: <alias>, ...]
+```
+
+For example:
+
+```lgl
+invoke node@sequence-id AddExecutionPin() as pin: next
+invoke pin@vector-id SplitStructPin() as subpins.X: x, subpins.Z: z
+```
+
+The target is one typed stable reference or one already materialized local
+alias. `Operation` is copied exactly from the target's `with schema` result.
+Arguments use the existing named-argument and line-wrapping rules; when the
+argument list wraps, the closing `)` and optional `as` clause remain in the same
+statement. `invoke` is a statement, never an expression nested inside another
+call or binding.
+
+The optional `as` clause binds selected primary outputs for later statements in
+the same Patch. A selector is an exact adapter-provided role such as `pin` or a
+keyed-many selector such as `subpins.X`; LGL defines no universal `members` or
+`items` role. Fixed multi-output Operations expose multiple roles, for example
+`key` and `value`. The caller may omit outputs it does not need. Every alias is
+unique and becomes valid only after the `invoke` statement succeeds. It is then
+an ordinary object reference equivalent in operation position to a stable typed
+reference.
+
 Normalized JSON:
 
 ```ts
@@ -610,12 +755,25 @@ interface Patch {
   statements: PatchStatement[];
 }
 
-type PatchStatement = BindingStatement | PatchOp;
+type PatchStatement = BindingStatement | Invoke | PatchOp;
 
 interface BindingStatement {
   kind: "binding";
   alias: string;
   value: BindingValue;
+}
+
+interface Invoke {
+  kind: "invoke";
+  target: Ref;
+  operation: string;
+  args: Record<string, Expr>;
+  outputs: InvokeOutputBinding[];
+}
+
+interface InvokeOutputBinding {
+  selector: string;
+  alias: string;
 }
 ```
 
@@ -624,8 +782,13 @@ operations must not be regrouped into parallel arrays because binding lifetime,
 creation, member resolution, and execution all depend on that order. The
 `binding` value is a normalized JSON discriminator, not an LGL keyword.
 
-`PatchOp` is the closed schema union of domain operation payloads. Stable object
-references are typed in text and JSON: for example, `node@id` normalizes to
+`PatchOp` is the closed schema union of domain-specific operation payloads;
+`Invoke` is the shared operation shape above. Core normalization preserves
+output-binding order but does not decide whether the target supports the
+Operation, whether arguments are valid, or which UE API executes it. The owning
+adapter validates all of those against the same schema it returns to the agent.
+
+Stable object references are typed in text and JSON: for example, `node@id` normalizes to
 `{kind: "node", id}`, while a document alias remains a `LocalRef` and an alias
 member remains a `MemberRef`. A bare stable `@id` does not exist.
 
@@ -771,9 +934,12 @@ ordinary object; it does not introduce a second mutation-specific object or
 text format. Optional revision fields remain absent from a concrete tool's
 public response until that tool enforces them.
 
-`Comment.text` stores one non-empty line after the canonical `# ` prefix; it
-contains neither that prefix nor a newline. A formatter adds the prefix;
-comments are data in the ordered object, not an auxiliary comments array.
+`Comment.text` stores the content without text delimiters. A one-line value
+formats as `# text`; a value containing a newline formats between depth-zero
+`###` delimiter lines. The delimiters and a block's final line ending are not
+part of `text`. Comments are data in the ordered object, not an auxiliary
+comments array. Schema is one use of an ordinary multi-line Comment, not a new
+result statement type.
 
 A domain result that represents multiple LGL statements must serialize them in
 one `statements` array. Bindings, comments, and any domain-owned statement
@@ -795,7 +961,8 @@ should be changed.
 ## Core Rules
 
 1. LGL text is a statement list.
-2. One line should carry one complete statement whenever practical.
+2. A depth-zero newline ends a statement; newlines inside matched `()`, `[]`,
+   or `{}` are presentation-only whitespace.
 3. Structure comes from bindings, references, constructors, arrays, inline
    objects, and domain statements.
 4. `{}` is only an inline value object, never a structural block.
@@ -807,3 +974,7 @@ should be changed.
 10. Canonical text must lower to normalized JSON.
 11. The language core does not decide whether a symbol is a class, enum, asset,
    field, node type, or operation. Domains and adapters resolve those meanings.
+12. Comments normalize to ordered `Comment` objects. `# text` is the one-line
+    form and depth-zero `###` delimiter lines enclose the multi-line form.
+13. `invoke` is the shared Patch operation for schema-discovered object
+    Operations; domains and adapters own the available Operations and outputs.

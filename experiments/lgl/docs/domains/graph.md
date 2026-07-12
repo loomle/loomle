@@ -245,7 +245,7 @@ interface Edge {
   to: PinRef;
 }
 
-type PinRef = PinIdRef | MemberRef;
+type PinRef = PinIdRef | LocalRef | MemberRef;
 ```
 
 Implicit node chains are invalid:
@@ -388,12 +388,14 @@ find pin@pin-guid
 An exact Pin read returns the owning Node's compact identity and the complete
 target Pin. It does not return sibling Pins, linked Pins, or Edges.
 
-`with schema` adds shared schema comments for the one primary Node or Pin. Graph
-schema is instance-sensitive and may derive usable fields from LGL common
-fields, native UE fields, the live Node class, and the owning
-`UEdGraphSchema`. It identifies each field's source and does not reinterpret
-Pins as Node fields or recursively attach schema to returned Pins. `with
-layout` adds layout to the existing Node text in either exact form.
+`with schema` adds one shared multi-line schema Comment for the primary Node or
+Pin. Graph schema is instance-sensitive and may derive usable fields and
+Operations from LGL common fields, native UE fields, the live Node class, UE
+Editor Actions, and the owning `UEdGraphSchema`. It identifies every field and
+Operation source, current Operation availability, parameters, primary outputs,
+and a copyable `invoke` template. It does not reinterpret Pins as Node fields
+or recursively attach schema to returned Pins. `with layout` adds layout to the
+existing Node text in either exact form.
 
 ### Context
 
@@ -975,6 +977,7 @@ The complete Graph Patch operation set is:
 | Disconnect | `disconnect pin -> pin` | Remove exactly one existing Edge |
 | Break | `break pin` | Invoke UE Break All Pin Links for one Pin |
 | Insert | `insert pin -> name.input/output -> pin` | Atomically replace one existing Edge with a newly created Node |
+| Invoke | `invoke object Operation(args...) [as selector: alias, ...]` | Execute one schema-discovered UE object Operation |
 | Remove | `remove node` | Perform ordinary UE Delete Node behavior |
 | Move | `move node to (x, y)` or `move node by (dx, dy)` | Change LGL Graph layout |
 
@@ -1009,6 +1012,7 @@ interface GraphPatch {
 
 type GraphPatchStatement =
   | BindingStatement
+  | Invoke
   | Add
   | Set
   | Reset
@@ -1124,9 +1128,57 @@ layout coordinates, and never exposes `NodePosX` or `NodePosY` as ordinary
 fields.
 
 Graph Patch does not expose `reconstruct`. Normal edits invoke any required UE
-reconstruction internally. If a Node supports adding or removing optional Pins,
-that capability belongs to the Node's native interface schema; Graph Patch does
-not pretend that all dynamic Pins share one generic operation.
+reconstruction internally.
+
+### Object Interface Operations
+
+Node- and Pin-specific UE editor behavior uses the shared Core `invoke`
+operation rather than pretending that every Graph supports one generic Pin
+edit. The exact target must first be queried `with schema`; that same schema
+defines the PascalCase Operation name, named arguments, availability, primary
+outputs, output selectors, UE Action, and native execution path.
+
+```lgl
+query g
+find node@sequence-id
+with schema
+```
+
+The schema Comment may then guide a Patch directly:
+
+```lgl
+patch g
+invoke node@sequence-id AddExecutionPin() as pin: next
+connect next -> pin@target-id
+```
+
+Operations use UE editor semantics rather than blindly exposing implementation
+method names. For example, the Sequence editor action is
+`AddExecutionPin` even though its native Node method is named `AddInputPin`.
+Different Node types share an Operation name only when behavior, parameters,
+and output contracts agree.
+
+Primary outputs are ordinary Graph or owning-domain objects that later Patch
+statements may need to reference. Fixed multi-output Operations expose separate
+roles such as `key` and `value`. Variable output uses an ordered keyed role
+owned by the Operation; Struct splitting uses UE's Pin relationship terminology:
+
+```lgl
+invoke pin@vector-id SplitStructPin() as subpins.X: x, subpins.Z: z
+```
+
+There is no universal `members` or `items` selector. The caller may bind only
+the outputs it needs. Other created outputs still appear in the final ordered
+`GraphResult`. Mirrored Pins, reconstructed call sites, disconnected Edges, and
+cross-domain cascades are reported as effects rather than output aliases.
+
+An `invoke` target may be a stable Node or Pin reference, an `add`/`insert`
+alias after materialization, or an output alias from an earlier `invoke`.
+Output aliases become valid only after their statement. Unknown Operations,
+unavailable Operations, invalid arguments, unknown selectors, repeated aliases,
+and forward references invalidate the whole Patch. If output shape or native
+effects cannot be determined during preflight, those outputs cannot be used by
+later statements in the same Patch.
 
 ## Patch Preflight
 
@@ -1137,6 +1189,11 @@ first use, must be unique within the Patch, and must be consumed exactly once by
 operation; after materialization it is an ordinary object reference equivalent
 in operation position to a typed stable reference. Aliases are Patch-local and
 never enter returned object identity.
+
+An `invoke` output alias is materialized by the Operation itself rather than by
+a separate creation binding. It follows the same Patch-local lifetime after
+that statement and receives the actual object `id` in the successful mutation
+result.
 
 This permits a Patch to create Nodes and immediately use their generated Pins:
 
@@ -1157,10 +1214,13 @@ The adapter processes the ordered statements against one provisional state:
 1. Parse every statement without regrouping it.
 2. Resolve typed stable references and exact Palette Entry identities.
 3. Advance alias state in statement order and build provisional Nodes and Pins
-   when `add` or `insert` materializes a binding.
-4. Resolve later member references against those provisional objects.
-5. Validate field schema, UE Graph Schema behavior, deletion cascades, every
-   expected side effect, and the complete final plan.
+   when `add` or `insert` materializes a binding. Resolve and plan each `invoke`
+   against the same provisional state, then project its selected output aliases
+   into that state without mutating the live Graph.
+4. Resolve later local and member references against those provisional objects.
+5. Validate field schema, Operation schema and availability, UE Graph Schema
+   behavior, deletion cascades, every expected side effect, and the complete
+   final plan.
 6. Verify the live Graph still matches the state used for planning.
 7. Apply the plan as one mutation. Any apply failure restores the entire Patch,
    including created objects, removed Edges, field values, layout, and native
@@ -1233,10 +1293,11 @@ defaults exposed by UE template nodes, spawners, schemas, or other UE-owned
 metadata. Future Pins have no `id` because no `UEdGraphPin` exists yet.
 
 `with schema` describes accepted native creation fields, type text, access,
-required/default behavior, constraints, fixed values, and reconstruction
-behavior. It does not invent Node or Pin instance fields. After creation, the
-adapter returns the real Node and Pin ids, and instance schema may differ from
-creation schema.
+required/default behavior, constraints, fixed values, reconstruction behavior,
+and adapter-owned Operations determinable for the Node's initial created state.
+It does not invent Node or Pin instance fields or ids. After creation, the
+adapter returns the real Node and Pin ids, and current availability, keyed
+outputs, or other instance schema may differ from the creation schema.
 
 Pin context uses `from pin` or `to pin` on `palette entries`. The returned
 Palette Entry identity incorporates the resolved Graph and Pin context, so
