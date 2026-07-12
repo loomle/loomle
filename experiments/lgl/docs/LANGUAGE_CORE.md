@@ -698,6 +698,12 @@ interface Property {
 creation identities, and `PaletteEntry` for action, palette, or template ids.
 Domains define which forms they return and how patch text consumes them.
 
+This grouped `PaletteResult` is not a universal result requirement. A migrated
+domain may return creation bindings inside its ordinary ordered domain result.
+The Graph domain does exactly that: Graph Palette queries return
+`GraphResult.statements` and do not use `ShortcutEntry`, `ClassEntry`, or a
+separate Graph `PaletteResult`.
+
 ## Results And Diagnostics
 
 Bridge-facing results use normalized JSON plus diagnostics. SDK results format

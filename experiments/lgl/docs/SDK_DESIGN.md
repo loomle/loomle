@@ -285,11 +285,12 @@ interface SchemaResult { schema: unknown; diagnostics: Diagnostic[]; }
 SDK shape. `MutationObjectResult` and `MutationTextResult` are the target
 mutation extensions on their respective sides. Concrete normalized object
 types are domain-owned and schema-validated.
-`Graph` is one possible `ObjectResult.object`, alongside result objects such as
-`AssetResult`, `BlueprintResult`, `WidgetResult`, and `PaletteResult`; it is
-not a separate response envelope. Mutation adds execution information while
-retaining the same object-to-text conversion. Query and mutation output
-therefore share one LGL object/text model.
+`GraphResult` is one possible `ObjectResult.object`, alongside result objects
+such as `ClassResult`, `AssetResult`, `BlueprintResult`, and `WidgetResult`; it
+is not a separate response envelope. Graph Palette discovery uses that same
+ordered `GraphResult`, not a second Graph-specific `PaletteResult`. Mutation
+adds execution information while retaining the same object-to-text conversion.
+Query and mutation output therefore share one LGL object/text model.
 
 The base `ObjectResult` and `TextResult` describe the current implementation.
 The mutation extensions and ordered statement model are target contracts: the
@@ -298,9 +299,9 @@ fields yet. Current domain objects also group data into arrays such as nodes,
 pins, and edges. Migrated domain results instead own one `statements` array
 containing a closed union of existing normalized statements and `Comment`. The
 array is the only serialized reading order; formatters must not regroup it.
-`ClassResult` is the first concrete result to use this contract. Existing
-grouped result types remain an implementation gap until their domains are
-migrated deliberately.
+`ClassResult` and `GraphResult` are the first concrete results to use this
+contract. Existing grouped result types remain an implementation gap until
+their domains are migrated deliberately.
 
 A patch response can return a compact updated snippet around changed objects.
 Created aliases, resolved ids, changed links, and position changes should be

@@ -63,28 +63,19 @@ semantics. For Blueprint graphs, `id` maps to `UEdGraph::GraphGuid` and `type`
 distinguishes event, function, macro, delegate-signature, interface-function,
 construction-script, and other UE graph roles.
 
-Normalized object shape:
-
-```ts
-interface Graph {
-  kind: "graph";
-  alias: string;
-  domain: string;
-  asset: Ref;
-  id: string;
-  name: string;
-  type: Name;
-}
-```
+The normalized form remains the shared `Binding` shape. Its value is a
+`graph(...)` `Call`; there is no separate nested Graph object or Graph ref
+constructor. The exact binding and request target shapes are defined under
+[Normalized JSON](#normalized-json).
 
 The earlier `graph: EventGraph` / `graph: id(id: "...")` alternative identity
 is removed. It forced readers to choose either name or id and introduced a
 needless nested ref object. `query g` and `patch g` still use the local Graph
 binding; cross-query identity uses its returned `@id`.
 
-The current schema and adapters still use the earlier Graph target shape. Their
-normalized replacement must be reviewed in the schema phase rather than
-inferred from this documentation.
+The current schema and adapters still use the earlier Graph target shape. The
+replacement below is the target contract for the later schema, parser,
+formatter, and adapter migration.
 
 ## Nodes
 
@@ -345,6 +336,17 @@ and `id`. Without explicit sorting, enumeration preserves UE Graph Node order;
 text search preserves adapter relevance order. Omitting search text and `where`
 enumerates all Nodes through the ordinary cursor pagination contract.
 
+Node filter capabilities are closed:
+
+| Field | Value | Operators |
+| --- | --- | --- |
+| `type` | string | `=`, `!=` |
+| `id` | string | `=`, `!=` |
+| `NodeComment` | string | `=`, `!=`, `~=` |
+
+`not`, `and`, `or`, and parentheses may combine those conditions. Ordered
+comparison operators and `~=` on `type` or `id` are unsupported.
+
 `with layout` adds `at` and `size` to every returned existing Node. It never
 adds Pins, Edges, or schema to a Node search result.
 
@@ -479,10 +481,426 @@ adapter's interleaved reading order. `with layout` has one meaning across Graph
 queries: add stored position and size to every returned existing Node. It is not
 valid for Palette Entries because no Node exists yet.
 
-The normalized JSON replacement for these primary operations is intentionally
-not specified here. It must be reviewed separately rather than inferred by
-adding new result kinds. The current Graph query implementation does not yet
-match this design and does not support `with schema`.
+The normalized request and ordered result contract is defined below. It adds no
+Graph result constructor to LGL text. The current Graph query implementation
+does not yet match this design and does not support `with schema`.
+
+## Normalized JSON
+
+### Target And Requests
+
+A Graph target carries enough information to reconstruct the complete Asset and
+Graph bindings without UE state:
+
+```ts
+interface GraphTarget {
+  domain: string;
+  asset: string;
+  id: string;
+  name: string;
+  type: string;
+}
+```
+
+`domain` is the owning Graph adapter domain, such as `blueprint`, `material`, or
+`pcg`; it is not the literal string `graph`. `asset` is the canonical owning
+asset Path. Only `domain + asset + id` participate in stable Graph resolution.
+`name` and `type` preserve the current Graph binding text for the pure formatter
+and must not be used as fallback identity when `id` fails. The formatter emits
+`domain` as the owning Asset type and emits `domain`, `name`, and `type` as the
+unquoted symbols required by the two bindings. Their schema values therefore
+must satisfy the same lexical contract as an LGL `Name`; a formatter must not
+quote, sanitize, or guess an invalid symbol.
+
+For example, normalization resolves the local `bp` and `g` aliases in:
+
+```lgl
+bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
+g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
+```
+
+to:
+
+```json
+{
+  "domain": "blueprint",
+  "asset": "/Game/BP_Door.BP_Door",
+  "id": "graph-guid",
+  "name": "EventGraph",
+  "type": "event_graph"
+}
+```
+
+Summary keeps the shared standalone request shape:
+
+```ts
+interface GraphSummary extends Summary {
+  target: GraphTarget;
+}
+```
+
+```json
+{
+  "kind": "summary",
+  "target": {
+    "domain": "blueprint",
+    "asset": "/Game/BP_Door.BP_Door",
+    "id": "graph-guid",
+    "name": "EventGraph",
+    "type": "event_graph"
+  }
+}
+```
+
+The seven confirmed local operations form one closed union:
+
+```ts
+type PositiveInteger = number; // JSON Schema: integer, minimum: 1
+
+type GraphQueryOperation =
+  | {kind: "nodes"; text?: string}
+  | {kind: "find_by_id"; id: string}
+  | {kind: "context"; id: string; depth?: PositiveInteger}
+  | {
+      kind: "exec_flow";
+      direction: "from" | "to";
+      id: string;
+      depth?: PositiveInteger;
+    }
+  | {
+      kind: "data_flow";
+      direction: "from" | "to";
+      id: string;
+      depth?: PositiveInteger;
+    }
+  | {
+      kind: "palette_entries";
+      text?: string;
+      pinContext?: PalettePinContext;
+    }
+  | {kind: "palette_entry"; id: string};
+
+interface PalettePinContext {
+  direction: "from" | "to";
+  pin: IdRef;
+}
+
+interface GraphQuery extends Query {
+  target: GraphTarget;
+  operation: GraphQueryOperation;
+}
+```
+
+| LGL primary operation | Normalized operation |
+| --- | --- |
+| `nodes ["text"]` | `{kind: "nodes", text?}` |
+| `find @id` | `{kind: "find_by_id", id}` |
+| `context @id [depth N]` | `{kind: "context", id, depth?}` |
+| `exec flow from|to @id [depth N]` | `{kind: "exec_flow", direction, id, depth?}` |
+| `data flow from|to @id [depth N]` | `{kind: "data_flow", direction, id, depth?}` |
+| `palette entries ["text"] [from|to pin]` | `{kind: "palette_entries", text?, pinContext?}` |
+| `palette @id` | `{kind: "palette_entry", id}` |
+
+The `@` marker is LGL text and is not stored inside an operation's `id` string.
+A document-local Pin member used as Palette context must resolve to an existing
+Pin binding with an `id`; normalization sends that stable `IdRef`, not the local
+alias. Omitted traversal `depth` remains omitted in JSON and the adapter applies
+the documented default of one.
+
+For example:
+
+```lgl
+query g
+exec flow from @node-guid depth 5
+with layout
+```
+
+normalizes to:
+
+```json
+{
+  "kind": "query",
+  "target": {
+    "domain": "blueprint",
+    "asset": "/Game/BP_Door.BP_Door",
+    "id": "graph-guid",
+    "name": "EventGraph",
+    "type": "event_graph"
+  },
+  "operation": {
+    "kind": "exec_flow",
+    "direction": "from",
+    "id": "node-guid",
+    "depth": 5
+  },
+  "with": ["layout"]
+}
+```
+
+Palette Pin context remains explicit:
+
+```json
+{
+  "kind": "palette_entries",
+  "text": "Branch",
+  "pinContext": {
+    "direction": "from",
+    "pin": {"kind": "id", "id": "exec-output-pin-id"}
+  }
+}
+```
+
+The shared `where`, `with`, `orderBy`, and `page` fields retain their core JSON
+shapes. Capability validation applies the operation matrix above after
+structural validation. Unsupported combinations are diagnostics rather than
+ignored fields. `find @id` may resolve only a Node or Pin in the bound Graph;
+unknown or ambiguous ids are diagnostics.
+
+### Ordered Results
+
+Graph Summary, existing-object queries, traversal queries, and Palette queries
+all return one ordered Graph object model:
+
+```ts
+interface GraphResult {
+  kind: "graph_result";
+  statements: GraphResultStatement[];
+}
+
+type GraphResultStatement =
+  | GraphAssetBinding
+  | GraphBinding
+  | GraphNodeBinding
+  | GraphPinBinding
+  | GraphPaletteBinding
+  | GraphResultEdge
+  | Comment;
+
+interface GraphAssetBinding {
+  target: LocalRef;
+  value: {
+    kind: "call";
+    callee: "asset";
+    args: {path: string; type: Name};
+  };
+}
+
+interface GraphBinding {
+  target: LocalRef;
+  value: {
+    kind: "call";
+    callee: "graph";
+    args: {
+      domain: Name;
+      asset: LocalRef;
+      id: string;
+      name: Name;
+      type: Name;
+    };
+  };
+}
+
+interface GraphNodeBinding {
+  target: LocalRef;
+  value: {
+    kind: "call";
+    callee: "node";
+    args: GraphNodeCallArgs;
+  };
+}
+
+interface GraphNodeCallArgs {
+  graph: LocalRef;
+  id: string;
+  type: string;
+  at?: GraphPoint;
+  size?: GraphPoint;
+}
+
+type GraphPoint = [number, number]; // JSON Schema: two integer items
+
+interface GraphPinBinding {
+  target: MemberRef;
+  value: {
+    kind: "call";
+    callee: "pin";
+    args: GraphPinCallArgs;
+  };
+}
+
+interface GraphPinCallArgs {
+  id?: string;
+  type: string;
+  direction: GraphPinDirection;
+}
+
+interface GraphPinDirection {
+  kind: "name";
+  name: "in" | "out";
+}
+
+interface GraphPaletteBinding {
+  target: LocalRef;
+  value: PaletteNodeCreation;
+}
+
+interface GraphResultEdge {
+  from: MemberRef;
+  to: MemberRef;
+}
+
+interface GraphObjectResult extends Result {
+  object?: GraphResult;
+}
+```
+
+These are constrained uses of the existing `Binding`, `LocalRef`, `MemberRef`,
+`Call`, `Expr`, `PaletteNodeCreation`, `Edge`, and `Comment` primitives. They do
+not add `graph_result(...)`, Palette Entry, schema, context, flow, or other
+Agent-facing result objects. `GraphResultEdge` is the result-only specialization
+of `Edge`: because both returned Pins are already bound in the same document,
+the ordered result uses readable member references. General Edge text and later
+mutations may still use stable `IdRef` values.
+
+`GraphNodeCallArgs` and `GraphPinCallArgs` may also contain the native fields
+defined in the Node and Pin sections. Every such additional key maps to one
+`Expr`; omitted fields are absent from JSON and never serialize as `undefined`.
+
+One context result can therefore preserve objects, comments, Pins, and Edges in
+one sequence:
+
+```json
+{
+  "kind": "graph_result",
+  "statements": [
+    {
+      "target": {"kind": "local", "name": "bp"},
+      "value": {
+        "kind": "call",
+        "callee": "asset",
+        "args": {
+          "path": "/Game/BP_Door.BP_Door",
+          "type": {"kind": "name", "name": "blueprint"}
+        }
+      }
+    },
+    {
+      "target": {"kind": "local", "name": "g"},
+      "value": {
+        "kind": "call",
+        "callee": "graph",
+        "args": {
+          "domain": {"kind": "name", "name": "blueprint"},
+          "asset": {"kind": "local", "name": "bp"},
+          "id": "graph-guid",
+          "name": {"kind": "name", "name": "EventGraph"},
+          "type": {"kind": "name", "name": "event_graph"}
+        }
+      }
+    },
+    {
+      "target": {"kind": "local", "name": "begin"},
+      "value": {
+        "kind": "call",
+        "callee": "node",
+        "args": {
+          "graph": {"kind": "local", "name": "g"},
+          "id": "begin-node-guid",
+          "type": "/Script/BlueprintGraph.K2Node_Event"
+        }
+      }
+    },
+    {"kind": "comment", "text": "Event BeginPlay"},
+    {
+      "target": {"kind": "member", "object": "begin", "member": "then"},
+      "value": {
+        "kind": "call",
+        "callee": "pin",
+        "args": {
+          "id": "then-pin-guid",
+          "type": "<FEdGraphPinType native text>",
+          "direction": {"kind": "name", "name": "out"}
+        }
+      }
+    },
+    {
+      "target": {"kind": "local", "name": "print"},
+      "value": {
+        "kind": "call",
+        "callee": "node",
+        "args": {
+          "graph": {"kind": "local", "name": "g"},
+          "id": "print-node-guid",
+          "type": "/Script/BlueprintGraph.K2Node_CallFunction"
+        }
+      }
+    },
+    {
+      "target": {"kind": "member", "object": "print", "member": "execute"},
+      "value": {
+        "kind": "call",
+        "callee": "pin",
+        "args": {
+          "id": "execute-pin-guid",
+          "type": "<FEdGraphPinType native text>",
+          "direction": {"kind": "name", "name": "in"}
+        }
+      }
+    },
+    {
+      "from": {"kind": "member", "object": "begin", "member": "then"},
+      "to": {"kind": "member", "object": "print", "member": "execute"}
+    }
+  ]
+}
+```
+
+Graph Palette results use the same `GraphResult`. A Palette Entry is the
+already-confirmed creation binding:
+
+```json
+{
+  "target": {"kind": "local", "name": "PrintString"},
+  "value": {"kind": "palette_node", "palette": "P_PrintString"}
+}
+```
+
+An exact Palette Entry may follow it with `GraphPinBinding` statements whose
+`pin(...)` Calls omit `id`, because those future Pins do not exist yet. Every
+Pin belonging to an existing Node must include its actual `id`. Graph does not
+return the old grouped `PaletteResult.entries` model.
+
+Every `GraphResult` obeys one self-contained ordering contract:
+
+1. Exactly one Asset binding appears first.
+2. Exactly one Graph binding immediately follows and references that Asset.
+3. A Node or Palette binding precedes every Pin that uses its alias.
+4. A split parent Pin precedes its child Pins.
+5. An Edge follows both endpoint Pin bindings.
+6. Every local alias is unique, and every member target is bound at most once.
+7. One or more comments describing a statement form one contiguous run
+   immediately after it.
+8. Apart from those reference dependencies, adapter reading order is preserved.
+
+The formatter walks `statements` once and never regroups them into Asset, Node,
+Pin, Edge, Palette, or comment arrays. It may use existing Edge sugar only when
+doing so preserves the exact sequence; a Comment or any other statement is a
+hard boundary. Pagination remains in the shared `Result.page` envelope rather
+than becoming LGL object text.
+
+Summary and `nodes` use Asset, Graph, Node, and Comment statements. Exact Node
+or Pin reads may add Pin statements. `context`, `exec flow`, and `data flow` may
+also add Edges. Palette search uses Palette bindings and comments; exact Palette
+reads may add future Pins. Cross-Graph navigation remains an immediately
+following Comment and never inserts a second Graph binding or a cross-Graph
+Edge.
+
+The current schema still stores Graph data in grouped `nodes`, `pins`, and
+`edges` arrays, uses the old nested Graph target and Pin ref shapes, and exposes
+a separate grouped `PaletteResult`. The current parser and formatter also drop
+comments or regroup statements. Those are explicit implementation gaps for the
+later schema/parser/formatter migration. Nothing in this query/result contract
+makes the non-normative Patch sketch below normative.
 
 ## Patch
 
@@ -727,10 +1145,14 @@ Palette Entry identity incorporates the resolved Graph and Pin context, so
 | `contextSensitive` | `where contextSensitive = false` | `MakeContextMenu(..., bIsContextSensitive, ...)` |
 
 `contextSensitive = true` is the default and should usually be omitted.
+`component` accepts one exact LGL `Name`; `contextSensitive` accepts a boolean.
+Both fields support only `=` and `!=`, plus the shared logical composition
+operators. Other Palette filter fields and ordered comparisons are unsupported.
 Explicit Palette ordering supports `name`, `category`, and Palette Entry `id`;
 without `order by`, the adapter preserves UE Action Menu ranking.
 `page limit` defaults to 50. The search text after `palette entries` may be
-omitted when `from`, `to`, or `where` provides enough context.
+omitted. With no text, Pin context, or `where`, the operation enumerates the
+current context-sensitive Palette through the same cursor pagination contract.
 
 Palette result examples:
 
