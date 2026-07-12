@@ -16,7 +16,7 @@ API plus the LGL text it accepts and returns.
 ```ts
 interface Lgl {
   query(text: LglText): Promise<TextResult>;
-  patch(text: LglText): Promise<TextResult>;
+  patch(text: LglText): Promise<MutationTextResult>;
   schema(): Promise<SchemaResult>;
 }
 
@@ -74,6 +74,8 @@ The target text forms are documented here:
 - [`domains/asset.md`](domains/asset.md): asset discovery and references.
 - [`domains/blueprint.md`](domains/blueprint.md): Blueprint class, variable,
   dispatcher, graph, component, and timeline structure.
+- [`domains/class.md`](domains/class.md): Class Reflection, effective Defaults,
+  Class queries, and Defaults patches.
 - [`domains/widget.md`](domains/widget.md): widget trees, slots, queries, and
   patches.
 
@@ -261,20 +263,44 @@ second serialized result model.
 type LglText = string;
 interface TextResult { text?: LglText; diagnostics: Diagnostic[]; page?: Page; }
 interface ObjectResult { object?: LglObject; diagnostics: Diagnostic[]; page?: Page; }
+interface MutationFields {
+  isError: boolean;
+  dryRun: boolean;
+  valid: boolean;
+  applied: boolean;
+  assetPath?: string;
+  operation: string;
+  resolvedRefs?: unknown;
+  planned?: unknown;
+  diff?: unknown;
+  previousRevision?: string;
+  newRevision?: string;
+}
+interface MutationObjectResult extends ObjectResult, MutationFields {}
+interface MutationTextResult extends TextResult, MutationFields {}
 interface SchemaResult { schema: unknown; diagnostics: Diagnostic[]; }
 ```
 
-`ObjectResult` is the adapter/RPC shape. `TextResult` is the public SDK shape.
-Concrete normalized object types are domain-owned and schema-validated.
+`ObjectResult` is the base adapter/RPC shape. `TextResult` is the base public
+SDK shape. `MutationObjectResult` and `MutationTextResult` are the target
+mutation extensions on their respective sides. Concrete normalized object
+types are domain-owned and schema-validated.
 `Graph` is one possible `ObjectResult.object`, alongside result objects such as
 `AssetResult`, `BlueprintResult`, `WidgetResult`, and `PaletteResult`; it is
-not a separate response envelope.
+not a separate response envelope. Mutation adds execution information while
+retaining the same object-to-text conversion. Query and mutation output
+therefore share one LGL object/text model.
 
-The interfaces above describe the current implementation, whose domain objects
-still group data into arrays such as nodes, pins, and edges. That grouping does
-not satisfy the ordered-result contract. The exact replacement normalized JSON
-shape requires a separate design step; this document does not introduce one
-implicitly.
+The base `ObjectResult` and `TextResult` describe the current implementation.
+The mutation extensions and ordered statement model are target contracts: the
+current `Adapter.patch` and public SDK result do not expose those additional
+fields yet. Current domain objects also group data into arrays such as nodes,
+pins, and edges. Migrated domain results instead own one `statements` array
+containing a closed union of existing normalized statements and `Comment`. The
+array is the only serialized reading order; formatters must not regroup it.
+`ClassResult` is the first concrete result to use this contract. Existing
+grouped result types remain an implementation gap until their domains are
+migrated deliberately.
 
 A patch response can return a compact updated snippet around changed objects.
 Created aliases, resolved ids, changed links, and position changes should be
@@ -319,9 +345,13 @@ with pins
 interface Adapter {
   domain: string;
   query(object: Query): Promise<ObjectResult>;
-  patch?(object: Patch): Promise<ObjectResult>;
+  patch?(object: Patch): Promise<MutationObjectResult>;
 }
 ```
+
+The current implementation still returns `ObjectResult` from `patch`; it must
+migrate to the target signature only when the mutation fields are actually
+produced and schema-validated.
 
 Adapters own domain semantics:
 

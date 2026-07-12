@@ -500,6 +500,335 @@ Structured mutation results follow the shared Mutation Dry Run Contract. The
 domain does not add a Defaults-specific result, diff, or revision syntax, and
 must not expose revision controls until the Bridge enforces them.
 
+## Normalized JSON
+
+### Target And Requests
+
+The Class target is its canonical UObject Path. A document-local binding is
+required in LGL text, but its alias is not sent as identity:
+
+```ts
+interface ClassTarget {
+  domain: "class";
+  path: string;
+}
+```
+
+For example, this binding uses the shared `Binding`, `LocalRef`, and `Call`
+shapes:
+
+```json
+{
+  "target": {"kind": "local", "name": "doorClass"},
+  "value": {
+    "kind": "call",
+    "callee": "class",
+    "args": {"path": "/Game/BP_Door.BP_Door_C"}
+  }
+}
+```
+
+When that binding is used by a read or Patch, normalization resolves it to:
+
+```json
+{"domain": "class", "path": "/Game/BP_Door.BP_Door_C"}
+```
+
+Summary retains its shared standalone request shape:
+
+```ts
+interface ClassSummary extends Summary {
+  target: ClassTarget;
+}
+```
+
+```json
+{
+  "kind": "summary",
+  "target": {"domain": "class", "path": "/Game/BP_Door.BP_Door_C"}
+}
+```
+
+The six local Class operations use the shared required `Query.operation` field:
+
+```ts
+type ClassQueryOperation =
+  | {kind: "properties"; text?: string}
+  | {kind: "property"; name: string}
+  | {kind: "functions"; text?: string}
+  | {kind: "function"; name: string}
+  | {kind: "defaults"; text?: string}
+  | {kind: "default"; name: string};
+
+interface ClassQuery extends Query {
+  target: ClassTarget;
+  operation: ClassQueryOperation;
+}
+```
+
+An exact schema query normalizes without retaining the local alias:
+
+```json
+{
+  "kind": "query",
+  "target": {
+    "domain": "class",
+    "path": "/Game/BP_Door.BP_Door_C"
+  },
+  "operation": {"kind": "default", "name": "Health"},
+  "with": ["schema"]
+}
+```
+
+The confirmed override filter reuses the shared Condition shape:
+
+```json
+{
+  "kind": "query",
+  "target": {
+    "domain": "class",
+    "path": "/Game/BP_Door.BP_Door_C"
+  },
+  "operation": {"kind": "defaults", "text": "health"},
+  "where": {
+    "kind": "eq",
+    "field": {"path": ["overridden"]},
+    "value": true
+  },
+  "page": {"limit": 50}
+}
+```
+
+Capability validation enforces the text contract after structural validation:
+`schema` is allowed only on singular exact operations; `where` is allowed only
+as `overridden = true` on `defaults`; `page` is allowed only on plural
+operations; and Class operations do not accept `orderBy`. Unsupported
+combinations are diagnostics, not ignored fields.
+
+### Defaults Patch
+
+Class Defaults reuse the shared Patch envelope. Their target path is a narrow
+one-segment specialization of the shared `FieldPath`, relative to the already
+resolved Class. It cannot introduce a nested value path:
+
+```ts
+interface ClassPropertyPath {
+  path: [string];
+}
+
+type ClassPatchOp =
+  | {kind: "set"; target: ClassPropertyPath; value: string}
+  | {kind: "reset"; target: ClassPropertyPath};
+
+interface ClassPatch extends Patch {
+  target: ClassTarget;
+  bindings: [];
+  ops: ClassPatchOp[];
+}
+```
+
+The owner alias in `set doorClass.Health` is checked against the Patch target
+while parsing and then removed from the operation payload:
+
+```json
+{
+  "kind": "patch",
+  "target": {
+    "domain": "class",
+    "path": "/Game/BP_Door.BP_Door_C"
+  },
+  "dryRun": false,
+  "bindings": [],
+  "ops": [
+    {
+      "kind": "set",
+      "target": {"path": ["Health"]},
+      "value": "150.000000"
+    },
+    {
+      "kind": "reset",
+      "target": {"path": ["NetUpdateFrequency"]}
+    }
+  ]
+}
+```
+
+`value` is always the complete native UE text string, not a translated JSON
+number, boolean, Struct, container, or object. The first Class Defaults Patch
+has no creation bindings, so `bindings` must be empty. The Bridge resolves each
+current local Property name to its exact `FFieldPath` during preflight.
+
+### Ordered Results
+
+Query and mutation return the same Class object model:
+
+```ts
+interface ClassResult {
+  kind: "class_result";
+  statements: ClassResultStatement[];
+}
+
+interface ClassBinding {
+  target: LocalRef;
+  value: {
+    kind: "call";
+    callee: "class";
+    args: ClassCallArgs;
+  };
+}
+
+interface ClassCallArgs {
+  path: string;
+  type: string;
+  [nativeField: string]: Expr;
+}
+
+interface PropertyBinding {
+  target: LocalRef;
+  value: {
+    kind: "call";
+    callee: "property";
+    args: PropertyCallArgs;
+  };
+}
+
+interface PropertyCallArgs {
+  path: string;
+  type: string;
+  [nativeField: string]: Expr;
+}
+
+interface FunctionBinding {
+  target: LocalRef;
+  value: {
+    kind: "call";
+    callee: "function";
+    args: FunctionCallArgs;
+  };
+}
+
+interface FunctionCallArgs {
+  path: string;
+  type: string;
+  [nativeField: string]: Expr;
+}
+
+interface DefaultValueBinding {
+  target: MemberRef;
+  value: string;
+}
+
+type ClassResultStatement =
+  | ClassBinding
+  | PropertyBinding
+  | FunctionBinding
+  | DefaultValueBinding
+  | Comment;
+
+interface ClassObjectResult extends Result {
+  object?: ClassResult;
+}
+
+interface ClassMutationResult extends MutationResult {
+  object?: ClassResult;
+}
+```
+
+These closed variants are constrained uses of the shared `LocalRef`,
+`MemberRef`, `Call`, `Expr`, and comment primitives:
+
+- `ClassBinding`: local target plus `class(path: ..., nativeFields...)` Call.
+- `PropertyBinding`: local target plus `property(path: ..., type: ...,
+  nativeFields...)` Call.
+- `FunctionBinding`: local target plus `function(path: ..., type: ...,
+  nativeFields...)` Call.
+- `DefaultValueBinding`: member target plus one native value string.
+- `Comment`: `{kind: "comment", text: string}` containing one non-empty line
+  without the `# ` prefix.
+
+One exact Default result is therefore one ordered JSON sequence:
+
+```json
+{
+  "kind": "class_result",
+  "statements": [
+    {
+      "target": {"kind": "local", "name": "doorClass"},
+      "value": {
+        "kind": "call",
+        "callee": "class",
+        "args": {
+          "path": "/Game/BP_Door.BP_Door_C",
+          "type": "/Script/Engine.BlueprintGeneratedClass"
+        }
+      }
+    },
+    {
+      "target": {"kind": "local", "name": "health"},
+      "value": {
+        "kind": "call",
+        "callee": "property",
+        "args": {
+          "path": "/Script/Game.DoorBase:Health",
+          "type": "FloatProperty"
+        }
+      }
+    },
+    {
+      "target": {
+        "kind": "member",
+        "object": "doorClass",
+        "member": "Health"
+      },
+      "value": "150.000000"
+    },
+    {"kind": "comment", "text": "value: local override"},
+    {"kind": "comment", "text": "source: /Game/BP_Door.BP_Door"}
+  ]
+}
+```
+
+The `statements` array is the only serialized reading order. Summary count
+comments, Function Parameter Properties, category comments, ordinary and
+Sparse Defaults, schema comments, and Patch-order refreshed values all remain
+interleaved. Class results never add parallel `classes`, `properties`,
+`functions`, `defaults`, or `comments` arrays.
+
+Every `ClassResult` is a self-contained LGL document. It contains exactly one
+Class binding, which must precede any statement that uses the Class alias, and
+every other referenced alias must likewise be bound earlier in the same array.
+An exact `default`
+result must place the matching Property binding before its Default value
+binding. A plural `defaults` result may omit per-Property bindings to remain
+compact, but it still begins with the required Class binding. A Patch result
+uses one Class binding followed by one Property/value/comment group per
+affected operation in Patch order.
+
+Mutation responses put this same `ClassResult` in the ordinary `object` field.
+The shared `MutationResult` extends the normal Result with execution fields such
+as `dryRun`, `valid`, `applied`, `planned`, and `diff`; it does not wrap or
+replace the Class object. Consequently the same formatter produces query,
+successful mutation, no-op, and dry-run LGL text.
+
+### Round Trip Rules
+
+Normalized JSON round-trips to canonical LGL semantics, not original lexical
+spelling. Whitespace, blank lines, the caller's local alias, and constructor
+argument order are not identity. A formatter chooses deterministic aliases and
+canonical field order, then uses those aliases consistently throughout the
+document. Named native fields retain their exact names and values.
+
+Statement order and comment placement are semantic and must round-trip exactly.
+The formatter must walk `statements` once without regrouping. The current core
+text parser discards comments. The current schema also lacks standalone
+`Summary`, `ClassTarget`, `ClassResult`, `Comment`, Class query and Patch
+operations, and the extended `MutationResult`; current parsers and formatters
+still use the old find-centric and grouped-array models. All are explicit
+implementation gaps for the later schema/parser/formatter migration.
+
+These JSON shapes introduce no `class_result(...)`, CDO object, Default object,
+Sparse object, nested value path, or other Agent-facing LGL syntax.
+
 ## Adapter And Mutation Boundary
 
 The adapter may resolve Class, Function, and Property Paths; walk effective
@@ -514,7 +843,6 @@ Blueprint-owned declaration edits belong to their authored Blueprint or Graph
 objects. Native declarations and native ordinary defaults require source-code
 editing and recompiling.
 
-The normalized JSON representation of Class, Property, Function, Defaults
-query, and Defaults Patch operations is intentionally not specified yet. It
-must be reviewed before schema or Bridge work; this text design does not
-silently introduce normalized operation kinds.
+The current TypeScript schema, parser, formatter, fixtures, and adapters do not
+implement this Class contract yet. They must migrate only after this documented
+target is accepted; Bridge implementation remains a later phase.

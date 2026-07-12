@@ -318,6 +318,19 @@ Summary introduces no result constructor, section syntax, or summary-specific
 object type. `summary <target>` is a standalone statement and does not accept
 `find`, `where`, `with`, `order by`, or `page` clauses.
 
+Normalized JSON preserves that standalone meaning:
+
+```ts
+interface Summary {
+  kind: "summary";
+  target: Target;
+}
+```
+
+The parser resolves the required target binding into its canonical `Target`.
+The document-local alias is not target identity and need not cross the RPC
+boundary.
+
 ### Local Queries
 
 Query text uses a shared multi-line envelope around one domain-owned primary
@@ -414,11 +427,37 @@ Supported condition operators:
 Condition precedence follows the usual SQL subset: parentheses first, then
 `not`, then `and`, then `or`.
 
-The normalized JSON shape for domain-owned primary operations is intentionally
-not specified yet. It must be reviewed separately before the bridge contract
-changes; the text design does not silently introduce a new operation `kind` or
-generic collection object. Shared condition, ordering, and pagination value
-shapes remain:
+Normalized JSON uses one explicit primary-operation field. The shared envelope
+does not interpret domain operations, but it guarantees that every local query
+has exactly one:
+
+```ts
+interface Query {
+  kind: "query";
+  target: Target;
+  operation: {kind: string};
+  where?: Condition;
+  with?: string[];
+  orderBy?: OrderBy[];
+  page?: Page;
+}
+```
+
+The interface above shows only the shared envelope. The actual JSON Schema
+replaces `operation: {kind: string}` with a closed union assembled from the
+operation types defined by implemented domains, and replaces `with: string[]`
+with the shared `schema` literal plus the closed set of domain details. Every
+operation has a readable snake_case `kind` and only its own arguments. Plural
+operations normally carry optional `text`; singular operations carry `name`;
+stable-id operations carry `id`. Relationship operations define their own
+fields.
+
+The old normalized `find` property represented the earlier find-centric text
+model and is not part of the target contract. `find @id` becomes an ordinary
+operation such as `{kind: "find_by_id", id: "..."}`; other primary operations
+must not be forced through a field named `find`.
+
+Shared condition, ordering, and pagination value shapes remain:
 
 ```ts
 type Condition =
@@ -448,6 +487,10 @@ interface Page {
 Domain documents define their primary operations, supported `where` fields,
 `with` items, ordering keys, and pagination defaults. `~=` lowers to
 `contains`; domains decide its exact match behavior.
+
+The current TypeScript schema, parser, and adapters still use the old `find`
+field. They must migrate to `operation` domain by domain; target documentation
+must not preserve the old shape merely for implementation compatibility.
 
 ### Object Schema Expansion
 
@@ -671,6 +714,25 @@ interface Result {
   };
 }
 
+interface MutationResult extends Result {
+  isError: boolean;
+  dryRun: boolean;
+  valid: boolean;
+  applied: boolean;
+  assetPath?: string;
+  operation: string;
+  resolvedRefs?: unknown;
+  planned?: unknown;
+  diff?: unknown;
+  previousRevision?: string;
+  newRevision?: string;
+}
+
+interface Comment {
+  kind: "comment";
+  text: string;
+}
+
 interface Diagnostic {
   severity: "error" | "warning" | "info";
   code: string;
@@ -685,6 +747,28 @@ interface SourceSpan {
   length?: number;
 }
 ```
+
+Queries and mutations use the same `object: LglObject` content model and the
+same LGL formatter. `MutationResult` only adds execution state around that
+ordinary object; it does not introduce a second mutation-specific object or
+text format. Optional revision fields remain absent from a concrete tool's
+public response until that tool enforces them.
+
+`Comment.text` stores one non-empty line after the canonical `# ` prefix; it
+contains neither that prefix nor a newline. A formatter adds the prefix;
+comments are data in the ordered object, not an auxiliary comments array.
+
+A domain result that represents multiple LGL statements must serialize them in
+one `statements` array. Bindings, comments, and any domain-owned statement
+shapes are interleaved in exact formatter order. It must not serialize parallel
+arrays such as `nodes`, `pins`, `properties`, `defaults`, and `comments` and
+then ask the formatter to reconstruct reading order. Each domain defines its
+closed statement union; the class domain's first concrete model is defined in
+[`domains/class.md`](domains/class.md).
+
+The ordered result container is normalized JSON only. It does not add
+`document(...)`, `result(...)`, section syntax, or any other LGL text form.
+Blank lines are canonical formatting and are not result statements.
 
 `page.next` is opaque. Agents should pass it back through `page after` without
 parsing it. Diagnostics should be teachable: they should name the failed

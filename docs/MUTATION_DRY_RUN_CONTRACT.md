@@ -39,8 +39,16 @@ apply logic.
 
 ## Result Shape
 
+For an LGL-backed mutation surface, its mutation result extends the ordinary
+LGL result. Query and mutation responses use the same optional
+`object: LglObject`, the same diagnostics, and the same formatter; mutation adds
+execution fields around that object. The LGL adapter must not return a second
+mutation-only object or text model. This requirement does not force non-LGL
+tools to adopt an LGL object or formatter.
+
 Mutation results should use the same core fields where applicable:
 
+- `object` for LGL-backed mutation surfaces
 - `isError`
 - `dryRun`
 - `applied`
