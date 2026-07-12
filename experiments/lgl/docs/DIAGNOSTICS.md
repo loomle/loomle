@@ -144,7 +144,7 @@ Example:
   "domain": "blueprint",
   "path": ["target", "asset"],
   "ref": "/Game/BP_Door.BP_Door",
-  "suggestion": "Run query asset with find assets \"BP_Door\" to discover the asset path."
+  "suggestion": "Run query asset with assets \"BP_Door\" to discover the asset path."
 }
 ```
 
@@ -302,9 +302,10 @@ objects, and it should emit this shared shape.
 
 ## Domain Rules
 
-Each domain document defines the domain's supported `find` kinds, `where`
-fields, details, order keys, pagination support, patch operations, and common
-resolution or validation failures.
+Each domain document defines its supported primary operations, `where` fields,
+details, order keys, pagination support, patch operations, and common resolution
+or validation failures. `find` is reserved for stable-id resolution rather than
+domain search kinds.
 
 Domain diagnostics should make the next query or patch obvious. For example,
 missing assets should suggest an asset query, ambiguous nodes should return

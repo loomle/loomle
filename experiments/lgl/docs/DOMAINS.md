@@ -87,12 +87,23 @@ Each domain should explicitly separate:
 Each domain that supports queries must define:
 
 - supported summary targets and the orientation each adapter returns
-- supported `find` forms
+- supported plural collection, singular exact-name, and stable-id forms
 - default result shape without `with`
 - supported `with` expansions
+- how `with schema` discovers fields for an exact instance or creation entry
 - supported `where` fields and operators
 - supported `order by` keys
 - pagination behavior and defaults
+
+`with schema` has shared language semantics, but adapters own the discovered
+content. They derive it from their real edit surface, UE Reflection, Graph
+Schema, spawners, template objects, or other UE-owned metadata. A schema should
+describe only fields the adapter can faithfully read or write, identify LGL
+common, adapter-modeled, native, and relationship-backed sources when relevant,
+and remain valid for the exact subject and context that produced it.
+
+Adapters return schema guidance as comments around ordinary object or creation
+text. They must not define domain-specific schema result objects.
 
 For currently implemented domains, the normalized JSON section should describe
 the current schema and explicitly call out any implementation gap that affects
@@ -101,16 +112,18 @@ agent-facing behavior.
 ## Current Domains
 
 - [`domains/graph.md`](domains/graph.md): graph objects, nodes, pins, edges,
-  graph queries, graph patches, shortcut constructors, and palette fallback
-  creation.
+  graph queries, graph patches, and Palette-backed creation.
 - [`domains/asset.md`](domains/asset.md): asset discovery, resolution,
   registry metadata, and asset-level query/reference results.
 - [`domains/blueprint.md`](domains/blueprint.md): Blueprint class contract,
   variables, dispatchers, graphs, component trees, timelines, and their
   adapter-owned reads.
+- [`domains/class.md`](domains/class.md): Class Reflection identity, hierarchy,
+  Properties, Functions, Parameters, Metadata, and source provenance.
 - [`domains/widget.md`](domains/widget.md): modeled widget constructors, widget
   tree structure, slots, queries, and widget tree patching.
 
 The TypeScript experiment includes parser, formatter, schema, and in-memory
-adapter coverage for graph, asset, Blueprint, and widget. UE-backed adapters
-remain separate bridge work.
+adapter coverage for graph, asset, Blueprint, and widget, but some implemented
+query text still reflects the earlier `find`-centric design. Class Reflection
+and UE-backed adapters remain separate implementation work.

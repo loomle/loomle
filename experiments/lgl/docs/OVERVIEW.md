@@ -35,10 +35,10 @@ Object text describes UE objects, object fragments, or query results:
 bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
 g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
 
-begin = node(graph: g, type: EventBeginPlay, id: "A001")
-print = node(graph: g, type: PrintString, id: "A002", InString: "Ready")
+begin = node(graph: g, id: "A001", type: "/Script/BlueprintGraph.K2Node_Event")
+print = node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")
 
-begin.Then -> print.Exec
+begin.then -> print.execute
 ```
 
 Object text is used for snapshots, snippets, search results, palette creation
@@ -63,14 +63,24 @@ Local queries use the shared query statement list:
 
 ```lgl
 query g
-find palette entry "Print String"
-with pins
+palette entries "Print String"
 page limit 50
 ```
 
-Each domain defines its summary behavior, default local-query result shape,
-supported `find` forms, `where` fields, `with` expansions, ordering, and
-pagination behavior.
+Local reads share one small mental model:
+
+```lgl
+summary <target>
+<objects> ["text"]
+<object> <name>
+find @id
+```
+
+Plural object operations enumerate or search, singular object operations
+resolve a current local name inside the bound target, and `find` is reserved
+for exact stable-id reads. Each domain defines which forms its UE objects
+actually support, plus its result shape, `where` fields, `with` expansions,
+ordering, and pagination behavior.
 
 ### Patch Text
 
@@ -78,9 +88,9 @@ Patch text asks a domain to mutate an object:
 
 ```lgl
 patch g
-print = node(graph: g, type: PrintString, InString: "Ready")
+print = node(palette: "P_PrintString")
 add print
-connect begin.Then -> print.Exec
+connect begin.then -> print.execute
 ```
 
 Patch text may contain bindings, domain operations, and sugar statements. Patch
@@ -98,27 +108,25 @@ object text:
 
 ```lgl
 query g
-find palette entry "Print String"
-with pins
+palette entries "Print String"
 
-PrintString = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString")
-PrintString.Exec = pin(type: exec, direction: in)
-PrintString.InString = pin(type: string, direction: in)
-PrintString.Then = pin(type: exec, direction: out)
+PrintString = node(palette: "P_PrintString")
+PrintString.execute = pin(type: "<FEdGraphPinType native text>", direction: in)
+PrintString.InString = pin(type: "<FEdGraphPinType native text>", direction: in, DefaultValue: "<native default text>")
+PrintString.then = pin(type: "<FEdGraphPinType native text>", direction: out)
 ```
 
 Patch text can then use the stable palette id directly:
 
 ```lgl
 patch g
-print = node(palette: "palette:blueprint:function:/Script/Engine.KismetSystemLibrary.PrintString", InString: "Ready")
+print = node(palette: "P_PrintString")
 add print
 ```
 
-Domains may also define shortcut constructors for stable common creation intents.
-Shortcut constructors and palette ids are both palette entry mechanisms:
-constructors are compact modeled forms, while palette ids are the explicit
-fallback for unmodeled, plugin-defined, or otherwise editor-discovered entries.
+The Graph domain uses this single Palette-backed creation path for all UE and
+plugin Nodes. It does not maintain a parallel catalog of shortcut constructors.
+Other domains own their creation models independently.
 
 ## Text And JSON Forms
 
@@ -143,12 +151,15 @@ Domains own UE-specific meaning. A domain defines its object text, query text,
 patch text, normalized JSON, diagnostics, and examples.
 
 - Graph: graph identity, node text, pin text, edge/path text, graph queries,
-  graph patches, shortcut node creation, and palette fallback creation.
+  graph patches, and Palette-backed node creation.
 - Asset: asset discovery, asset identity, Asset Registry metadata, and asset
   query/reference results. Asset mutation is a later asset-tools concern.
 - Blueprint: Blueprint class contract, variables, functions, dispatchers,
   custom events, components, class/member/component patches, and
   component-bound event references used by graph creation.
+- Class: UClass Reflection identity and hierarchy, effective Properties and
+  Functions, Parameters, Metadata, and source provenance. CDO state is a later
+  design.
 - Widget: widget tree structure, modeled widget constructors, slots, widget
   properties, widget queries, and widget tree patches.
 
@@ -166,6 +177,7 @@ language categories.
 - [`domains/graph.md`](domains/graph.md): graph domain design.
 - [`domains/asset.md`](domains/asset.md): asset domain design.
 - [`domains/blueprint.md`](domains/blueprint.md): Blueprint domain design.
+- [`domains/class.md`](domains/class.md): Class Reflection domain design.
 - [`domains/widget.md`](domains/widget.md): widget domain design.
 
 Some bridge implementation documents still describe earlier spike plans. Treat

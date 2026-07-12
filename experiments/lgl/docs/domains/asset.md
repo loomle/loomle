@@ -10,10 +10,10 @@ initialized UE process. It should not load assets by default. Search should
 return canonical asset identities and lightweight registry metadata that agents
 can feed into later LGL queries or patches.
 
-The TypeScript experiment implements `query asset`, `find assets`, canonical
-asset result bindings, schema validation, formatter roundtrip, and an
-in-memory asset adapter. UE Asset Registry integration belongs to the UE-backed
-adapter.
+The TypeScript experiment still implements the earlier `find assets` text and
+JSON shape. The language design below uses `assets`; parser, schema, formatter,
+and in-memory adapter migration remains implementation work. UE Asset Registry
+integration belongs to the UE-backed adapter.
 
 ## Basic Form
 
@@ -21,7 +21,7 @@ Asset query text is a statement list:
 
 ```lgl
 query asset
-find assets "door"
+assets "door"
 where root = "/Game" and type = blueprint
 with registryTags
 order by score desc, path asc
@@ -87,7 +87,7 @@ Asset query syntax:
 
 ```lgl
 query asset
-find assets ["text"]
+assets ["text"]
 where <condition>
 with <item>, <item>
 order by <key> asc|desc, <key> asc|desc
@@ -95,7 +95,7 @@ page limit <number>
 page after "cursor"
 ```
 
-The quoted text after `find assets` is the primary asset search text. It should
+The quoted text after `assets` is the primary asset search text. It should
 perform deterministic contains-style search over asset name, object path, class,
 type, and selected registry tags. Exact structured filtering belongs in `where`.
 
@@ -124,19 +124,11 @@ Asset query has no `select` clause. The default result includes identity,
 path, type, domains, and loaded state. `with registryTags` expands Asset
 Registry tags.
 
-Normalized JSON:
-
-```ts
-interface FindAssets {
-  kind: "assets";
-  text?: string;
-}
-```
-
-Asset query text uses the shared `Query` envelope with `target.domain =
-"asset"` and `find = FindAssets`. `where`, `with`, `orderBy`, and `page` use
-the shared query model from the language core. The asset domain validates
-allowed fields, expansions, sort keys, and pagination defaults.
+The normalized JSON representation of the `assets` primary operation is not
+specified yet. It must be reviewed with the shared query contract rather than
+silently reusing the experiment's earlier `find = FindAssets` field. The asset
+domain still owns allowed fields, expansions, sort keys, and pagination
+defaults.
 
 ## Results
 

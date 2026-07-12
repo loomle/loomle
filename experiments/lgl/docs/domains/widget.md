@@ -164,7 +164,7 @@ Widget queries use the shared query shape:
 
 ```lgl
 query menu
-find widgets "Start"
+widgets "Start"
 where type = Button
 order by name asc
 page limit 10
@@ -174,9 +174,9 @@ Widget query syntax:
 
 ```lgl
 query <widget>
-find tree
-find widgets ["text"]
-find palette entry ["text"]
+tree
+widgets ["text"]
+palette entries ["text"]
 where <condition>
 with <item>, <item>
 order by <key> asc|desc, <key> asc|desc
@@ -184,11 +184,11 @@ page limit <number>
 page after "cursor"
 ```
 
-For `find widgets`, the quoted text is the primary search text over widget name,
+For `widgets`, the quoted text is the primary search text over widget name,
 class/type, and relevant display text. Use `where` for structured filters such
 as `type = Button`.
 
-For `find palette entry`, the quoted text is the primary search text over
+For `palette entries`, the quoted text is the primary search text over
 entry name, class path, palette id, label, and category. It returns creation
 entries that can be copied directly into patch text. Use `with defaults` to
 include common creation arguments and `with properties` to include writable
@@ -197,54 +197,33 @@ property metadata.
 Exact widget lookup and parent-child queries use structured filters:
 
 ```lgl
-find widgets
+widgets
 where name = start
 
-find widgets
+widgets
 where parent = stack
 ```
 
 The default widget query result includes widget identity, class/type, name, and
-parent. `find tree` returns the tree in editor order. Slot and event expansion
+parent. `tree` returns the tree in editor order. Slot and event expansion
 are separate query expansions outside the TypeScript adapter surface.
 
-Normalized JSON:
-
-```ts
-type Find =
-  | FindTree
-  | FindWidgets
-  | FindPaletteEntry;
-
-interface FindTree {
-  kind: "tree";
-}
-
-interface FindWidgets {
-  kind: "widgets";
-  text?: string;
-}
-
-interface FindPaletteEntry {
-  kind: "palette_entry";
-  text?: string;
-}
-```
-
-Widget query text uses the shared `Query` envelope with `target.domain =
-"widget"` and `find = Find`. `where`, `with`, `orderBy`, and `page` use the
-shared query model from the language core. The widget domain validates allowed
-fields, expansions, sort keys, and pagination defaults.
+The normalized JSON representation of `tree`, `widgets`, and `palette entries`
+is not specified yet. It must be reviewed with the shared query contract rather
+than silently reusing the experiment's earlier `find = Find` field. The widget
+domain still owns allowed fields, expansions, sort keys, and pagination
+defaults. The current TypeScript experiment has not migrated to this text
+design.
 
 ## Palette
 
 Widget palette queries discover creation forms for widget patching. They use
-the same `find palette entry` shape as other domains, but results prefer the
+the shared `palette entries` operation, but results prefer the
 most direct creation text rather than forcing every entry through a palette id.
 
 ```lgl
 query menu
-find palette entry "Button"
+palette entries "Button"
 with defaults
 page limit 10
 ```

@@ -17,7 +17,7 @@ LGL is a line-oriented text language. A document is a sequence of statements:
 # Name objects, then refer to them from later statements.
 bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
 g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
-print = node(graph: g, type: PrintString, id: "node-guid", InString: "Ready")
+print = node(graph: g, id: "node-guid", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")
 ```
 
 Each statement should fit on one line whenever practical. Blank lines are
@@ -36,14 +36,14 @@ Bindings name objects or values so later statements can reference them. The
 binding target is usually a local identifier:
 
 ```lgl
-delay = node(graph: g, type: Delay, id: "A002", Duration: 1.0)
+delay = node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_Delay")
 ```
 
 Domains may also allow member paths as binding targets when they compactly
 express document-local ownership. Graph pin object text uses this form:
 
 ```lgl
-delay.Duration = pin(id: "pin-guid", type: float, direction: in, value: 1.0)
+delay.Duration = pin(id: "pin-guid", type: "<FEdGraphPinType native text>", direction: in, DefaultValue: "1.0")
 ```
 
 Domain statements are owned by a domain. The core language only requires them
@@ -75,7 +75,7 @@ patch creation bindings may normalize to `NodeCreation`.
 
 | Expression | Syntax | Example |
 | --- | --- | --- |
-| Constructor | `Name(arg: value)` | `node(graph: g, type: Delay)` |
+| Constructor | `Name(arg: value)` | `node(graph: g, type: "/Script/BlueprintGraph.K2Node_Delay")` |
 | Reference | `name` | `g` |
 | Member reference | `name.member` | `begin.Then` |
 | Id reference | `@id` | `@A001` |
@@ -153,15 +153,15 @@ Id references provide explicit stable ids when a domain needs them:
 
 `@id` is the common cross-query reference for concrete objects with a native UE
 identifier. Domains map the same public `id` field to their native identity,
-such as GraphGuid, VarGuid, VariableGuid, TimelineGuid, NodeGuid, or PinId. The
-query target and expected relationship provide owner and object-kind context;
-the ref itself does not repeat them.
+such as BlueprintGuid, GraphGuid, VarGuid, VariableGuid, TimelineGuid,
+NodeGuid, or PinId. The query target and expected relationship provide owner
+and object-kind context; the ref itself does not repeat them.
 
 LGL does not define object-specific ref constructors such as `graph_ref`,
 `variable_ref`, `component_ref`, or `pin_ref`. A domain must return unknown or
-ambiguous rather than resolve an id by display name. Blueprint assets are the
-exception because UE exposes their current object path rather than a persistent
-Blueprint GUID.
+ambiguous rather than resolve an id by display name. A Blueprint Asset Path is
+its current load location; the Blueprint object's stable `id` maps to its
+persisted `BlueprintGuid`.
 
 Normalized JSON:
 
@@ -183,7 +183,7 @@ Constructors create typed LGL objects:
 ```lgl
 asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
 graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
-node(graph: g, type: Delay, id: "A002", Duration: 1.0)
+node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_Delay")
 ```
 
 Constructor arguments are named because they are clear for agents, easy to
@@ -198,6 +198,29 @@ Positional constructor arguments are not supported:
 ```lgl
 g = graph(blueprint, bp, EventGraph)
 ```
+
+## UE Native Type Text
+
+LGL does not define or translate a separate UE value type system. When a
+domain-owned `type` field describes a UE value type, it carries the canonical,
+parseable native type text of the UE system that owns the object. For example,
+reflected Properties, Blueprint variables, and graph Pins may use different
+UE-native type representations because UE itself stores and validates them
+through different structures.
+
+The owning adapter selects the native codec, preserves every required native
+type detail, and validates the text through UE. Query results must return type
+text that can be copied back into a compatible create or edit operation.
+
+LGL must not replace native type text with friendly aliases or LGL-specific
+constructors such as translated object, container, Struct, or Enum types. It
+must not use localized editor display labels as type identity. The language
+core preserves the native type literal; it does not interpret, normalize, or
+maintain a second JSON or AST representation of the type.
+
+Other domain fields may also be named `type`, such as an asset type, Graph
+role, or Node type. Those are domain-owned categories and are not UE value type
+expressions.
 
 ## Arrays And Objects
 
@@ -297,20 +320,39 @@ object type. `summary <target>` is a standalone statement and does not accept
 
 ### Local Queries
 
-Query text uses a shared multi-line shape:
+Query text uses a shared multi-line envelope around one domain-owned primary
+operation:
 
 ```lgl
 query <target>
-find ...
-where <condition>
-with <item>, <item>
-order by <key> asc|desc, <key> asc|desc
-page limit <number>
-page after "cursor"
+<primary operation>
+<allowed clauses>
 ```
 
-Query text is clause-per-line. Do not combine `query`, `find`, `where`, `with`,
-`order by`, or `page` on one line. Object text may prefer compact single-line
+Local reads follow one small, reusable model:
+
+```lgl
+summary <target>
+<objects> ["text"]
+<object> <name>
+find @id
+```
+
+The plural object form enumerates or searches one domain-owned collection. The
+singular object form resolves one exact object by its current local name inside
+the bound target. `find` has one meaning only: resolve one existing object by a
+stable id without requiring the caller to repeat its object kind. A domain
+supports only the forms that match its UE objects; for example, Class
+Reflection has no universal id and Graph Nodes have no reliable local name.
+
+Domains may also define clear relationship operations such as Graph `context`,
+`exec flow`, `data flow`, `palette entries`, and `palette @id`. Every query
+contains exactly one primary operation. That operation explicitly defines
+whether `where`, `with`, `order by`, `page`, or operation-local arguments such
+as `depth` are legal.
+
+Query text is clause-per-line. Do not combine `query`, its primary operation,
+or trailing clauses on one line. Object text may prefer compact single-line
 statements, but query text should keep its structure visible.
 
 Query syntax summaries use literal words for required keywords, `<name>` for
@@ -320,37 +362,39 @@ literal.
 | Clause | Purpose | Example |
 | --- | --- | --- |
 | `query` | target domain or bound object | `query asset`, `query g` |
-| `find` | domain-defined result kind and optional primary search text | `find assets "door"`, `find palette entry "Print String"` |
+| primary operation | choose one domain-defined read | `assets "door"`, `context @node-id depth 2` |
 | `where` | structured filter expression | `where type = blueprint and not loaded` |
 | `with` | expand beyond the domain default result | `with registryTags`, `with pins, defaults, layout` |
 | `order by` | deterministic result ordering | `order by score desc, path asc` |
 | `page limit` | maximum result count | `page limit 50` |
 | `page after` | continue after a returned cursor | `page after "cursor"` |
 
-There is no `select` clause. Each domain defines its default result shape.
-`with` only requests additional expansion beyond that default.
+There is no `select` clause. Each primary operation defines its default result
+shape and allowed expansions. Unsupported clauses are errors rather than
+ignored generic options.
 
-The quoted text after `find` is the primary search text. `where` is for
-structured filters:
+The optional quoted text after a plural collection operation is its primary
+search text. `where` is for structured filters:
 
 ```lgl
-find assets "door"
+assets "door"
 where root = "/Game" and type = blueprint
 
-find nodes "Print"
-where type = PrintString
+nodes "Print"
+where type = "/Script/BlueprintGraph.K2Node_CallFunction"
 ```
 
 Field-level fuzzy conditions are allowed for advanced filters, but primary
-search text belongs on `find`. Domains may define find-form local arguments,
-such as graph pin-context arguments `from <pin>` and `to <pin>`.
+search text belongs on the plural collection operation. Domains may define
+operation-local arguments, such as graph palette pin-context arguments `from
+<pin>` and `to <pin>`.
 
 Condition expressions use a small SQL-like subset:
 
 ```lgl
 where type = blueprint
 where root = "/Game" and type = blueprint
-where comment ~= "debug"
+where NodeComment ~= "debug"
 where not loaded
 ```
 
@@ -370,19 +414,13 @@ Supported condition operators:
 Condition precedence follows the usual SQL subset: parentheses first, then
 `not`, then `and`, then `or`.
 
-Normalized JSON:
+The normalized JSON shape for domain-owned primary operations is intentionally
+not specified yet. It must be reviewed separately before the bridge contract
+changes; the text design does not silently introduce a new operation `kind` or
+generic collection object. Shared condition, ordering, and pagination value
+shapes remain:
 
 ```ts
-interface Query {
-  kind: "query";
-  target: Target;
-  find?: Find;
-  where?: Condition;
-  with?: Detail[];
-  orderBy?: OrderBy[];
-  page?: Page;
-}
-
 type Condition =
   | { kind: "eq"; field: FieldPath; value: Expr }
   | { kind: "ne"; field: FieldPath; value: Expr }
@@ -407,9 +445,54 @@ interface Page {
 }
 ```
 
-Domain documents define `find` payloads, supported `where` fields, `with`
-items, ordering keys, and pagination defaults. `~=` lowers to `contains`;
-domains decide its exact match behavior.
+Domain documents define their primary operations, supported `where` fields,
+`with` items, ordering keys, and pagination defaults. `~=` lowers to
+`contains`; domains decide its exact match behavior.
+
+### Object Schema Expansion
+
+`schema` is the shared object-discovery expansion:
+
+```lgl
+query target
+find @id
+with schema
+```
+
+An exact name operation may request the same expansion:
+
+```lgl
+query actorClass
+property Health
+with schema
+```
+
+The subject must resolve to exactly one existing object or one exact creation
+entry. Existing objects use either a stable `@id` or a domain-owned singular
+name operation; creation entries use the owning domain's exact palette
+identity. `with schema` is not valid for summary results, collections, or
+ambiguous palette searches.
+
+The ordinary object or creation text remains the query result. The adapter adds
+`#` comments that describe the primary subject's usable fields: field name,
+native UE type text, readable/writable status, required/default behavior,
+source, and constraints when known. The result does not introduce `schema(...)`,
+`field(...)`, or another schema-specific object syntax.
+
+Schema applies only to the primary subject. It does not recursively add schemas
+for expanded children such as Pins. Child objects require their own exact
+query. An adapter that cannot provide the requested schema returns a capability
+diagnostic rather than silently omitting it.
+
+For a creation entry, `with schema` describes accepted creation fields and
+constraints in the current domain context. A domain may expose an identity for
+the creation entry itself; that identity is not a future object id. The query
+does not invent Node, Pin, or other instance ids before UE creates them. After
+creation, the mutation result returns the real objects and ids, whose instance
+schema may be queried separately.
+
+The current TypeScript schema, parser, and adapters do not implement the
+`schema` expansion yet.
 
 Pagination is cursor-based. If `page limit` is omitted, domains normally use
 50. If `page after` is omitted, the query returns the first page. Results with
@@ -417,13 +500,11 @@ more data return an opaque cursor that agents pass back unchanged:
 
 ```lgl
 query g
-find palette entry "Print String"
-with pins
+palette entries "Print String"
 page limit 50
 
 query g
-find palette entry "Print String"
-with pins
+palette entries "Print String"
 page limit 50
 page after "cursor-from-previous-result"
 ```
@@ -447,22 +528,22 @@ widget tree edits. Bindings make later operations precise:
 
 ```lgl
 patch g
-print = node(graph: g, type: PrintString, InString: "Ready")
+print = node(palette: "P_PrintString")
 add print
-connect begin.Then -> print.Exec
+connect begin.then -> print.execute
 ```
 
 `add <binding>` is shared patch sugar for creating a binding and adding it in
 one line:
 
 ```lgl
-add print = node(graph: g, type: PrintString, InString: "Ready")
+add print = node(palette: "P_PrintString")
 ```
 
 Canonical text splits it into a binding plus an add operation:
 
 ```lgl
-print = node(graph: g, type: PrintString, InString: "Ready")
+print = node(palette: "P_PrintString")
 add print
 ```
 
@@ -501,10 +582,10 @@ through the real path, then stop before applying changes.
 Creation discovery is a query result pattern for domains that need stable ways
 to create new objects, such as graph nodes or widget tree entries.
 
-Agent-facing query text uses domain find forms such as:
+Agent-facing query text uses domain creation-discovery operations such as:
 
 ```lgl
-find palette entry "Button"
+palette entries "Button"
 with defaults, properties
 ```
 

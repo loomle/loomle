@@ -117,8 +117,10 @@ Blueprint object tables, or UE state. It may rewrite only pure LGL syntax.
 Language-level validation belongs before adapter execution. The SDK should
 reject malformed language shapes once, not inside every domain adapter:
 
-- query clauses normalize to valid `Query` objects
-- `find`, when present, is an object with `kind`
+- query clauses normalize to valid `Query` objects once the revised primary
+  operation JSON contract is separately reviewed
+- `find` text accepts only an exact stable `@id`; collection search belongs to
+  domain plural operations such as `assets`, `nodes`, or `functions`
 - `where` is a valid recursive `Condition` tree
 - `with` is a detail string list
 - `order by` is a list of order entries with keys and directions
@@ -128,9 +130,9 @@ reject malformed language shapes once, not inside every domain adapter:
   are structurally valid
 
 The SDK language layer must not reject a request merely because a domain does
-not support a language-valid `find` kind, `where` field, detail expansion,
-order key, pagination mode, or patch operation. Those are capability errors and
-belong to adapters.
+not support a language-valid primary operation, `where` field, detail
+expansion, order key, pagination mode, or patch operation. Those are capability
+errors and belong to adapters.
 
 Adapter/resolver:
 
@@ -290,17 +292,22 @@ Examples:
 
 - `unknown_palette_id`: use a `Name = node(palette: "entry-id")`
   creation template from a palette query result.
-- `ambiguous_palette_query`: refine the `find palette entry` query before patching.
+- `ambiguous_palette_query`: refine the `palette entries` query before patching.
 - `unknown_pin`: query the graph node or palette entry with pins:
 
 ```lgl
 query g
-find nodes
-where name = print
-with pins
+find @node-id
 
 query g
-find palette entry "Print String"
+palette entries "Print String"
+```
+
+Then inspect one exact creation entry:
+
+```lgl
+query g
+palette @palette-id
 with pins
 ```
 
@@ -320,6 +327,8 @@ Adapters own domain semantics:
 
 - summary content and ordering for their supported target types
 - placement of agent-facing comments among returned object statements
+- object-schema discovery for one exact instance or creation entry requested
+  through the shared `with schema` expansion
 - palette binding resolution
 - palette/action lookup where the domain exposes creation entries
 - creation paths
@@ -328,6 +337,13 @@ Adapters own domain semantics:
 - query execution
 - mutation validation, change computation, dry-run, and apply
 - mapping native errors into LGL diagnostics
+
+Schema discovery keeps ordinary object or creation text as the result and adds
+agent-facing comments. Adapters derive the field catalog from the surface they
+can actually execute plus UE-owned Reflection, Graph Schema, spawners, template
+objects, or equivalent metadata. They must reject ambiguous, collection-wide,
+recursive, or unsupported schema expansion with capability diagnostics rather
+than inventing a schema result object.
 
 ## Dry Run
 
