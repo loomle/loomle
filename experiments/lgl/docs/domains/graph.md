@@ -1301,6 +1301,98 @@ whatever the owning native path produces. LGL does not reinterpret, reorder, or
 normalize these defaults. The final `GraphResult` and effects report the actual
 native `DefaultValue` and Pin state.
 
+#### Function And Event Signature Operations
+
+LGL does not add Function Signature or Parameter objects. An editable Blueprint
+Function is already a `function_graph`; its Function Entry and Function Result
+Nodes own the native `UserDefinedPins`, and the resulting parameters remain
+ordinary Pins.
+
+Parameter creation targets the semantic owner because no parameter Pin exists
+yet. An editable Function Graph exposes:
+
+```lgl
+invoke graph@function-id AddInputParameter(
+  name: Damage,
+  type: "<FEdGraphPinType native text>"
+) as pin: damage
+
+invoke graph@function-id AddOutputParameter(
+  name: WasApplied,
+  type: "<FEdGraphPinType native text>"
+) as pin: wasApplied, result: returnNode
+```
+
+Both arguments are required. `name` is an exact requested `FName`; the adapter
+returns a collision diagnostic rather than silently accepting a UE-generated
+suffix. `type` is the complete native `FEdGraphPinType` text. LGL uses the
+signature meaning of input and output: an input parameter becomes an Output Pin
+on Function Entry, while an output parameter becomes an Input Pin on every
+Function Result.
+
+`AddInputParameter` returns the final Entry Pin. `AddOutputParameter` returns
+the final parameter Pin on the primary Result Node selected by UE and that
+Result Node as `result`. If no Result Node exists, the native path creates one,
+places it relative to Function Entry, and connects execution when UE permits.
+Pins created on other Result Nodes and any automatic Node or Edge changes are
+effects and remain visible in the final ordered `GraphResult`.
+
+A Custom Event has no dedicated Function Graph, so its Node is the semantic
+creation target:
+
+```lgl
+invoke node@custom-event-id AddParameter(
+  name: Damage,
+  type: "<FEdGraphPinType native text>"
+) as pin: damage
+```
+
+Custom Event parameters have signature-input meaning and become physical
+Output Pins. The Operation is unavailable when the Event is inherited,
+otherwise non-editable, or rejects the requested native Pin type.
+
+After creation, an existing parameter is addressed by its exact Pin identity.
+Signature-aware schema exposes the native fields whose edits UE can propagate:
+
+```lgl
+set pin@damage-id.PinName = BaseDamage
+set pin@damage-id.type = "<FEdGraphPinType native text>"
+set pin@damage-id.DefaultValue = "10.0"
+reset pin@damage-id.DefaultValue
+```
+
+These remain ordinary `set` and `reset` operations, not separate rename,
+change-type, or change-default Operations. Writability is instance-sensitive:
+the same fields may be read-only on generated, inherited, or ordinary Pins.
+The adapter must use the owning editable-node and K2 Schema paths rather than
+writing `UEdGraphPin` memory directly. A type change may reset a now-invalid
+default exactly as UE does.
+
+Deletion and ordering are structural parameter actions on an existing Pin:
+
+```lgl
+invoke pin@damage-id RemoveParameter()
+invoke pin@damage-id MoveParameterBefore(anchor: pin@instigator-id)
+invoke pin@damage-id MoveParameterAfter(anchor: pin@context-id)
+```
+
+An input parameter has one authored Entry Pin. An output parameter may have one
+physical Pin on each Result Node; targeting any corresponding Result Pin
+applies the edit by native parameter identity to every Result Node. `anchor`
+must belong to the same signature side of the same Function or Event. Relative
+ordering avoids unstable numeric indices and preserves the native
+`UserDefinedPins` order. Removed Pins and their aliases or stable references
+become invalid after the statement.
+
+Every signature mutation is one atomic native propagation. It may reconstruct
+Entry, Result, Custom Event, CallFunction, getter, delegate, or CreateDelegate
+Nodes; create a Result Node; change Pin ids; preserve or orphan connections;
+recompile the Blueprint skeleton; and notify other loaded Blueprints. These are
+effects, not additional primary outputs. Output aliases must resolve the final
+post-reconstruction objects and ids, never the temporary Pins created before
+propagation. Unloaded assets retain UE's normal dependency and later-load
+behavior; LGL does not claim that the native editor path eagerly rewrites them.
+
 ## Patch Preflight
 
 Patch execution is ordered and all-or-nothing. A local alias has three states:

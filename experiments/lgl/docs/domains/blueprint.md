@@ -243,6 +243,13 @@ does not include `Nodes`, `Pins`, `Edges`, or `SubGraphs`; Graph body inspection
 belongs to the graph domain. Function signatures, macro tunnels, overrides,
 custom events, and all other graph contents therefore remain Nodes and Pins.
 
+For an editable `function_graph`, the Graph is also the semantic target for
+creating input or output parameters. UE stores the authored signature in its
+Function Entry and Function Result `UserDefinedPins`, and those Pins remain the
+returned state and identity. LGL does not add a Function Signature or Parameter
+object merely to hide that storage. Existing parameter edits continue to target
+their exact Pins; the graph adapter owns the required signature propagation.
+
 Top-level graphs belong to the Blueprint asset. Nested graphs may additionally
 identify their owning graph or node when that relation exists in UE, without
 changing their Blueprint-plus-GraphGuid identity.
