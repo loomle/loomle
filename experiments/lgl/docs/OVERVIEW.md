@@ -73,12 +73,12 @@ Local reads share one small mental model:
 summary <target>
 <objects> ["text"]
 <object> <name>
-find @id
+find <object>@<id>
 ```
 
 Plural object operations enumerate or search, singular object operations
 resolve a current local name inside the bound target, and `find` is reserved
-for exact stable-id reads. Each domain defines which forms its UE objects
+for exact typed stable-id reads. Each domain defines which forms its UE objects
 actually support, plus its result shape, `where` fields, `with` expansions,
 ordering, and pagination behavior.
 

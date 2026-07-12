@@ -44,8 +44,8 @@ owner-qualified `FFieldPath`:
 
 Blueprint-authored Properties and Functions may also be traceable to a
 `VarGuid`, `GraphGuid`, or `NodeGuid`. Those are source provenance, not
-universal Reflection ids. The class domain therefore does not support `find
-@id`.
+universal Reflection ids. The class domain therefore does not support
+`find <object>@<id>`.
 
 ## Class Object
 

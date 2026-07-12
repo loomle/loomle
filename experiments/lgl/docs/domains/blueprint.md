@@ -57,7 +57,7 @@ door = blueprint(
   BlueprintNamespace: "Game.Doors",
   BlueprintCategory: "Doors",
   ImplementedInterfaces: [
-    {Interface: "/Script/MyGame.Damageable", Graphs: [@damageable-graph-guid]}
+    {Interface: "/Script/MyGame.Damageable", Graphs: [graph@damageable-graph-guid]}
   ]
 )
 
@@ -87,7 +87,7 @@ UE text. They are not returned literally and do not introduce LGL syntax.
 | --- | --- | --- |
 | Blueprint asset | `name = asset(path: "...", type: blueprint)` | `bpAsset = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)` |
 | Blueprint binding | `name = blueprint(asset: ref, id: string, type: nativeEnum, nativeFields...)` | `door = blueprint(asset: bpAsset, id: "blueprint-guid", type: BPTYPE_Normal, ParentClass: "/Script/Engine.Actor")` |
-| Implemented interfaces | native `ImplementedInterfaces` field | `ImplementedInterfaces: [{Interface: "/Script/MyGame.Damageable", Graphs: [@graph-guid]}]` |
+| Implemented interfaces | native `ImplementedInterfaces` field | `ImplementedInterfaces: [{Interface: "/Script/MyGame.Damageable", Graphs: [graph@graph-guid]}]` |
 
 `blueprint(...)` identifies one Blueprint asset as a class-like editing target.
 It is not a graph and it is not a replacement for `asset(...)`.
@@ -141,16 +141,16 @@ Implemented interfaces preserve the native `FBPInterfaceDescription` shape:
 ImplementedInterfaces: [
   {
     Interface: "/Script/MyGame.Damageable",
-    Graphs: [@take-damage-graph-guid]
+    Graphs: [graph@take-damage-graph-guid]
   },
   {
     Interface: "/Script/MyGame.Interactable",
-    Graphs: [@interact-graph-guid, @can-interact-graph-guid]
+    Graphs: [graph@interact-graph-guid, graph@can-interact-graph-guid]
   }
 ]
 ```
 
-`Interface` is the Interface Class Path. `Graphs` contains stable Graph `@id`
+`Interface` is the Interface Class Path. `Graphs` contains stable `graph@id`
 references and preserves UE order; the Graph objects remain separate. This
 replaces the lossy `blueprint.implements` translation. Only interfaces directly
 declared by this Blueprint appear here; inherited effective interfaces belong
@@ -251,7 +251,7 @@ Implemented interfaces remain native Blueprint Class Contract data:
 
 ```lgl
 ImplementedInterfaces: [
-  {Interface: "/Script/MyGame.Damageable", Graphs: [@damageable-graph-guid]}
+  {Interface: "/Script/MyGame.Damageable", Graphs: [graph@damageable-graph-guid]}
 ]
 ```
 
@@ -329,8 +329,9 @@ nodes, macro tunnels, and Timeline nodes are Graph Nodes. They are not Blueprint
 objects and are not repeated in the Blueprint object model.
 
 Graph nodes may reference a Variable, Dispatcher, Component, or Timeline by its
-stable `@id`. Getter/setter nodes, dispatcher nodes, component-bound events, and
-Timeline nodes remain independently identified Nodes in their owning Graph.
+typed stable reference, such as `variable@id` or `component@id`.
+Getter/setter nodes, dispatcher nodes, component-bound events, and Timeline
+nodes remain independently identified Nodes in their owning Graph.
 
 ## Component Tree
 
@@ -487,20 +488,19 @@ same-named kinds. Name lookup returns zero-match or ambiguity diagnostics
 rather than falling back to another kind. Names are convenient current
 locators, not rename-stable identity.
 
-Stable-id lookup remains the kind-independent exact form:
+Stable-id lookup uses the exact returned object kind:
 
 ```lgl
 query door
-find @blueprint-guid
+find blueprint@blueprint-guid
 
 query door
-find @variable-guid
+find variable@variable-guid
 ```
 
-The adapter resolves the id across the Blueprint itself and its owned concrete
-objects, then selects exactly one complete primary object. The returned
-constructor identifies whether it is a Blueprint, Variable, Dispatcher, Graph,
-Component, or Timeline; the caller does not repeat the type in the query.
+The adapter resolves the typed id inside the Blueprint and selects exactly one
+complete primary object. The object word must match the kind returned by the
+earlier query; the adapter does not search other kinds or infer one from the id.
 Required navigation context may follow that object: a Component includes its
 shortest ancestor chain, and a Dispatcher includes its compact same-named
 Signature Graph identity. This context does not expand a Graph body or other
@@ -512,7 +512,7 @@ object:
 
 ```lgl
 query door
-find @variable-guid
+find variable@variable-guid
 with schema
 ```
 
@@ -536,10 +536,10 @@ more than one match, the adapter returns an ambiguity diagnostic rather than
 guessing from name or object type.
 
 The normalized JSON representation of Blueprint collection, exact-name, and
-`find @id` operations is intentionally not specified in this document yet. It
-must be reviewed before schema work; this text contract does not silently
-introduce new normalized `kind` values. The current experiment also does not
-implement this query model or `with schema`.
+typed `find <object>@<id>` operations is intentionally not specified in this
+document yet. It must be reviewed before schema work; this text contract does
+not silently introduce new normalized `kind` values. The current experiment
+also does not implement this query model or `with schema`.
 
 ## Patch
 

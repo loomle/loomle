@@ -121,8 +121,9 @@ reject malformed language shapes once, not inside every domain adapter:
 
 - query clauses normalize to valid `Query` objects once the revised primary
   operation JSON contract is separately reviewed
-- `find` text accepts only an exact stable `@id`; collection search belongs to
-  domain plural operations such as `assets`, `nodes`, or `functions`
+- `find` text accepts only an exact typed stable reference such as `node@id`;
+  collection search belongs to domain plural operations such as `assets`,
+  `nodes`, or `functions`
 - `where` is a valid recursive `Condition` tree
 - `with` is a detail string list
 - `order by` is a list of order entries with keys and directions
@@ -324,7 +325,7 @@ Examples:
 
 ```lgl
 query g
-find @node-id
+find node@node-id
 
 query g
 palette entries "Print String"

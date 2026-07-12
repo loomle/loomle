@@ -78,7 +78,7 @@ patch creation bindings may normalize to `NodeCreation`.
 | Constructor | `Name(arg: value)` | `node(graph: g, type: "/Script/BlueprintGraph.K2Node_Delay")` |
 | Reference | `name` | `g` |
 | Member reference | `name.member` | `begin.Then` |
-| Id reference | `@id` | `@A001` |
+| Stable reference | `object@id` | `node@A001` |
 | String | `"text"` | `"Ready"` |
 | Number | number literal | `1.0` |
 | Boolean | `true`, `false` | `enabled: true` |
@@ -142,20 +142,22 @@ not be carried into a later query or mutation.
 Existing objects expose their native `id`; aliases are document-local handles.
 A creation binding uses an alias before the native object exists. After
 creation, the adapter returns the created object with its actual `id`. Use
-aliases and member paths within one LGL document, and use `@id` across queries
-or later operations.
+aliases and member paths within one LGL document, and use a typed stable
+reference across queries or later operations.
 
-Id references provide explicit stable ids when a domain needs them:
+Stable references always state the object kind before `@`:
 
 ```lgl
-@A001
+node@A001
+pin@P001
+graph@G001
 ```
 
-`@id` is the common cross-query reference for concrete objects with a native UE
-identifier. Domains map the same public `id` field to their native identity,
-such as BlueprintGuid, GraphGuid, VarGuid, VariableGuid, TimelineGuid,
-NodeGuid, or PinId. The query target and expected relationship provide owner
-and object-kind context; the ref itself does not repeat them.
+`object@id` is the common cross-query reference for concrete objects with a
+native UE identifier. A bare `@id` is invalid. Domains map the public `id` field
+to native identity such as BlueprintGuid, GraphGuid, VarGuid, VariableGuid,
+TimelineGuid, NodeGuid, or PinId. The object word is part of the reference and
+must match the returned object kind; an adapter never guesses it from context.
 
 LGL does not define object-specific ref constructors such as `graph_ref`,
 `variable_ref`, `component_ref`, or `pin_ref`. A domain must return unknown or
@@ -169,12 +171,19 @@ Normalized JSON:
 type Ref =
   | { kind: "local"; name: string }
   | { kind: "member"; object: string; member: string }
-  | { kind: "id"; id: string };
+  | StableRef;
+
+interface StableRef {
+  kind: string;
+  id: string;
+}
 ```
 
-Member references remain two-segment, document-local paths. Stable cross-query
-identity uses `@id`; any richer public reference syntax requires a separate
-language-design decision.
+The actual schema replaces `kind: string` with the closed object words supported
+by its domains. For example, Graph uses `node`, `pin`, and `graph`. This `kind`
+is the LGL object kind, not the object's native UE `type` field. Member
+references remain two-segment, document-local paths in normalized JSON; a
+domain operation may then select one native field from the referenced object.
 
 ## Constructors
 
@@ -348,15 +357,16 @@ Local reads follow one small, reusable model:
 summary <target>
 <objects> ["text"]
 <object> <name>
-find @id
+find <object>@<id>
 ```
 
 The plural object form enumerates or searches one domain-owned collection. The
 singular object form resolves one exact object by its current local name inside
 the bound target. `find` has one meaning only: resolve one existing object by a
-stable id without requiring the caller to repeat its object kind. A domain
-supports only the forms that match its UE objects; for example, Class
-Reflection has no universal id and Graph Nodes have no reliable local name.
+typed stable id. Stable references always include their object word, such as
+`node@id`, `pin@id`, or `graph@id`; bare `@id` is invalid. A domain supports
+only the forms that match its UE objects; for example, Class Reflection has no
+universal id and Graph Nodes have no reliable local name.
 
 Domains may also define clear relationship operations such as Graph `context`,
 `exec flow`, `data flow`, `palette entries`, and `palette @id`. Every query
@@ -375,7 +385,7 @@ literal.
 | Clause | Purpose | Example |
 | --- | --- | --- |
 | `query` | target domain or bound object | `query asset`, `query g` |
-| primary operation | choose one domain-defined read | `assets "door"`, `context @node-id depth 2` |
+| primary operation | choose one domain-defined read | `assets "door"`, `context node@node-id depth 2` |
 | `where` | structured filter expression | `where type = blueprint and not loaded` |
 | `with` | expand beyond the domain default result | `with registryTags`, `with pins, defaults, layout` |
 | `order by` | deterministic result ordering | `order by score desc, path asc` |
@@ -449,13 +459,14 @@ operation types defined by implemented domains, and replaces `with: string[]`
 with the shared `schema` literal plus the closed set of domain details. Every
 operation has a readable snake_case `kind` and only its own arguments. Plural
 operations normally carry optional `text`; singular operations carry `name`;
-stable-id operations carry `id`. Relationship operations define their own
-fields.
+stable-id operations carry a typed reference. Relationship operations define
+their own fields.
 
 The old normalized `find` property represented the earlier find-centric text
-model and is not part of the target contract. `find @id` becomes an ordinary
-operation such as `{kind: "find_by_id", id: "..."}`; other primary operations
-must not be forced through a field named `find`.
+model and is not part of the target contract. `find node@id` becomes an
+ordinary operation such as
+`{kind: "find_by_id", target: {kind: "node", id: "..."}}`; other primary
+operations must not be forced through a field named `find`.
 
 Shared condition, ordering, and pagination value shapes remain:
 
@@ -498,7 +509,7 @@ must not preserve the old shape merely for implementation compatibility.
 
 ```lgl
 query target
-find @id
+find node@id
 with schema
 ```
 
@@ -511,8 +522,8 @@ with schema
 ```
 
 The subject must resolve to exactly one existing object or one exact creation
-entry. Existing objects use either a stable `@id` or a domain-owned singular
-name operation; creation entries use the owning domain's exact palette
+entry. Existing objects use either a typed stable reference or a domain-owned
+singular name operation; creation entries use the owning domain's exact palette
 identity. `with schema` is not valid for summary results, collections, or
 ambiguous palette searches.
 
@@ -563,7 +574,6 @@ Patch text is a statement list:
 patch target
 binding = constructor(arg: value)
 operation ...
-sugar statement
 ```
 
 Domains own operations such as `add`, `set`, `reset`, `connect`, `insert`,
@@ -576,28 +586,19 @@ precise:
 patch g
 print = node(palette: "P_PrintString")
 add print
-connect begin.then -> print.execute
+connect pin@begin-then-id -> print.execute
 ```
 
-`add <binding>` is shared patch sugar for creating a binding and adding it in
-one line:
+Each binding occupies one complete line. It declares an unmaterialized alias;
+the owning domain defines which operation creates it. Inline binding forms such
+as `add print = node(...)` are invalid. A domain may define operation-local
+sugar, but it must lower to ordinary ordered statements before validation. For
+example, Graph `add print pin@source-id -> print.execute` lowers to `add print`
+followed by `connect(pin@source-id, print.execute)`.
 
-```lgl
-add print = node(palette: "P_PrintString")
-```
-
-Canonical text splits it into a binding plus an add operation:
-
-```lgl
-print = node(palette: "P_PrintString")
-add print
-```
-
-The normalized JSON still contains one binding and one add operation. Domains
-own what `add` means for the bound target.
-
-Patch sugar follows the same sugar text to canonical text to normalized JSON
-pipeline described above.
+Object text describes state. Patch text always requires an explicit operation:
+a bare Graph Edge is object text and cannot mean `connect` merely because it
+appears inside a Patch.
 
 Normalized JSON:
 
@@ -606,22 +607,32 @@ interface Patch {
   kind: "patch";
   target: Target;
   dryRun: boolean;
-  bindings: Binding[];
-  ops: PatchOp[];
+  statements: PatchStatement[];
+}
+
+type PatchStatement = BindingStatement | PatchOp;
+
+interface BindingStatement {
+  kind: "binding";
+  alias: string;
+  value: BindingValue;
 }
 ```
 
-Patch operation payloads are domain-owned. The shared envelope only defines the
-target, dry-run flag, bindings, and ordered operation list. Shared sugar lowers
-before domain validation:
+The single `statements` array preserves exact source order. Bindings and
+operations must not be regrouped into parallel arrays because binding lifetime,
+creation, member resolution, and execution all depend on that order. The
+`binding` value is a normalized JSON discriminator, not an LGL keyword.
 
-```txt
-add <binding> -> <binding> + domain add operation
-```
+`PatchOp` is the closed schema union of domain operation payloads. Stable object
+references are typed in text and JSON: for example, `node@id` normalizes to
+`{kind: "node", id}`, while a document alias remains a `LocalRef` and an alias
+member remains a `MemberRef`. A bare stable `@id` does not exist.
 
-`PatchOp` is the schema union of domain operation payloads. Dry run is a
-mutation mode, not a separate language: parse, resolve, validate, and plan
-through the real path, then stop before applying changes.
+Dry run is a mutation mode, not a separate language: parse, resolve, validate,
+and plan through the real path, then stop before applying changes. Every Patch
+is ordered and atomic; a failed validation applies nothing, and an apply failure
+must restore the entire Patch rather than return partial success.
 
 ## Creation Results
 

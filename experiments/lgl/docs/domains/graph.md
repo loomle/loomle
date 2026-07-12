@@ -71,7 +71,7 @@ constructor. The exact binding and request target shapes are defined under
 The earlier `graph: EventGraph` / `graph: id(id: "...")` alternative identity
 is removed. It forced readers to choose either name or id and introduced a
 needless nested ref object. `query g` and `patch g` still use the local Graph
-binding; cross-query identity uses its returned `@id`.
+binding; cross-query identity uses its returned `graph@id`.
 
 The current schema and adapters still use the earlier Graph target shape. The
 replacement below is the target contract for the later schema, parser,
@@ -159,16 +159,17 @@ Persisted Pin state retains native field names when present or non-default:
 `bHidden`, `bNotConnectable`, `bDefaultValueIsReadOnly`,
 `bDefaultValueIsIgnored`, `bAdvancedView`, `bDeprecated`, `bOrphanedPin`,
 `PinFriendlyName`, `PersistentGuid`, and `ReferencePassThroughConnection`.
-Pin references use the target Pin's `@id`. `PersistentGuid` is auxiliary UE
-reconstruction data, not public identity, and is never accepted by `find @id`.
+Pin references use the target Pin's typed `pin@id`. `PersistentGuid` is
+auxiliary UE reconstruction data, not public identity, and is never accepted
+by `find pin@id`.
 
 Split Pins remain separate Pin objects:
 
 ```lgl
 node.Vector = pin(id: "vector-pin-guid", type: "<FVector PinType native text>", direction: in, bHidden: true)
-node.X = pin(id: "x-pin-guid", type: "<float PinType native text>", direction: in, ParentPin: @vector-pin-guid)
-node.Y = pin(id: "y-pin-guid", type: "<float PinType native text>", direction: in, ParentPin: @vector-pin-guid)
-node.Z = pin(id: "z-pin-guid", type: "<float PinType native text>", direction: in, ParentPin: @vector-pin-guid)
+node.X = pin(id: "x-pin-guid", type: "<float PinType native text>", direction: in, ParentPin: pin@vector-pin-guid)
+node.Y = pin(id: "y-pin-guid", type: "<float PinType native text>", direction: in, ParentPin: pin@vector-pin-guid)
+node.Z = pin(id: "z-pin-guid", type: "<float PinType native text>", direction: in, ParentPin: pin@vector-pin-guid)
 ```
 
 The parent precedes its children, and child statement order preserves UE
@@ -218,18 +219,33 @@ it no `id` or `type`. Local paths use Node and Pin aliases from the same LGL
 document. Cross-query reads and mutations use Pin ids:
 
 ```lgl
-edge(@exec-output-pin-guid, @exec-input-pin-guid)
+edge(pin@exec-output-pin-guid, pin@exec-input-pin-guid)
 ```
 
 Normalized JSON:
 
 ```ts
+interface NodeIdRef {
+  kind: "node";
+  id: string;
+}
+
+interface PinIdRef {
+  kind: "pin";
+  id: string;
+}
+
+interface GraphIdRef {
+  kind: "graph";
+  id: string;
+}
+
 interface Edge {
   from: PinRef;
   to: PinRef;
 }
 
-type PinRef = IdRef | MemberRef;
+type PinRef = PinIdRef | MemberRef;
 ```
 
 Implicit node chains are invalid:
@@ -282,16 +298,16 @@ query <graph>
 nodes ["text"]
 
 query <graph>
-find @id
+find node@id|pin@id
 
 query <graph>
-context @id [depth <positive-integer>]
+context node@id|pin@id [depth <positive-integer>]
 
 query <graph>
-exec flow from|to @id [depth <positive-integer>]
+exec flow from|to node@id|pin@id [depth <positive-integer>]
 
 query <graph>
-data flow from|to @id [depth <positive-integer>]
+data flow from|to node@id|pin@id [depth <positive-integer>]
 
 query <graph>
 palette entries ["text"] [from|to <pin>]
@@ -305,7 +321,7 @@ Each primary operation owns its allowed clauses and expansions:
 | Primary operation | `where` | `order by` / `page` | `depth` | `with` |
 | --- | --- | --- | --- | --- |
 | `nodes` | yes | yes | no | `layout` |
-| `find @id` | no | no | no | `schema`, `layout` |
+| `find node@id\|pin@id` | no | no | no | `schema`, `layout` |
 | `context` | no | no | yes | `layout` |
 | `exec flow` | no | no | yes | `layout` |
 | `data flow` | no | no | yes | `layout` |
@@ -352,11 +368,11 @@ adds Pins, Edges, or schema to a Node search result.
 
 ### Exact Node And Pin Reads
 
-Stable ids provide exact reads without repeating an object kind:
+Stable ids provide exact reads through a typed object reference:
 
 ```lgl
 query g
-find @node-guid
+find node@node-guid
 ```
 
 An exact Node read returns the complete Node and all of its current Pins,
@@ -366,7 +382,7 @@ there is no `with pins` or `with defaults` expansion for an exact Node.
 
 ```lgl
 query g
-find @pin-guid
+find pin@pin-guid
 ```
 
 An exact Pin read returns the owning Node's compact identity and the complete
@@ -385,7 +401,7 @@ layout` adds layout to the existing Node text in either exact form.
 
 ```lgl
 query g
-context @node-guid depth 3
+context node@node-guid depth 3
 ```
 
 Depth counts crossed Graph Edges. The target is depth zero, adjacent Nodes are
@@ -410,10 +426,10 @@ Blueprint Graph adapters expose directed execution traversal:
 
 ```lgl
 query g
-exec flow from @node-guid depth 5
+exec flow from node@node-guid depth 5
 
 query g
-exec flow to @node-guid depth 5
+exec flow to node@node-guid depth 5
 ```
 
 `from` follows every Exec output; `to` follows every Exec input in reverse.
@@ -445,10 +461,10 @@ Blueprint Graph adapters expose directed non-Exec data traversal:
 
 ```lgl
 query g
-data flow to @node-guid depth 3
+data flow to node@node-guid depth 3
 
 query g
-data flow from @node-guid depth 3
+data flow from node@node-guid depth 3
 ```
 
 `to` traces upstream producers by following every non-Exec input and recursively
@@ -559,18 +575,18 @@ type PositiveInteger = number; // JSON Schema: integer, minimum: 1
 
 type GraphQueryOperation =
   | {kind: "nodes"; text?: string}
-  | {kind: "find_by_id"; id: string}
-  | {kind: "context"; id: string; depth?: PositiveInteger}
+  | {kind: "find_by_id"; target: GraphSubjectRef}
+  | {kind: "context"; target: GraphSubjectRef; depth?: PositiveInteger}
   | {
       kind: "exec_flow";
       direction: "from" | "to";
-      id: string;
+      target: GraphSubjectRef;
       depth?: PositiveInteger;
     }
   | {
       kind: "data_flow";
       direction: "from" | "to";
-      id: string;
+      target: GraphSubjectRef;
       depth?: PositiveInteger;
     }
   | {
@@ -580,9 +596,11 @@ type GraphQueryOperation =
     }
   | {kind: "palette_entry"; id: string};
 
+type GraphSubjectRef = NodeIdRef | PinIdRef;
+
 interface PalettePinContext {
   direction: "from" | "to";
-  pin: IdRef;
+  pin: PinIdRef;
 }
 
 interface GraphQuery extends Query {
@@ -594,24 +612,25 @@ interface GraphQuery extends Query {
 | LGL primary operation | Normalized operation |
 | --- | --- |
 | `nodes ["text"]` | `{kind: "nodes", text?}` |
-| `find @id` | `{kind: "find_by_id", id}` |
-| `context @id [depth N]` | `{kind: "context", id, depth?}` |
-| `exec flow from|to @id [depth N]` | `{kind: "exec_flow", direction, id, depth?}` |
-| `data flow from|to @id [depth N]` | `{kind: "data_flow", direction, id, depth?}` |
+| `find node@id\|pin@id` | `{kind: "find_by_id", target}` |
+| `context node@id\|pin@id [depth N]` | `{kind: "context", target, depth?}` |
+| `exec flow from\|to node@id\|pin@id [depth N]` | `{kind: "exec_flow", direction, target, depth?}` |
+| `data flow from\|to node@id\|pin@id [depth N]` | `{kind: "data_flow", direction, target, depth?}` |
 | `palette entries ["text"] [from|to pin]` | `{kind: "palette_entries", text?, pinContext?}` |
 | `palette @id` | `{kind: "palette_entry", id}` |
 
-The `@` marker is LGL text and is not stored inside an operation's `id` string.
-A document-local Pin member used as Palette context must resolve to an existing
-Pin binding with an `id`; normalization sends that stable `IdRef`, not the local
-alias. Omitted traversal `depth` remains omitted in JSON and the adapter applies
-the documented default of one.
+The object word before `@` is required LGL text and becomes the normalized
+reference `kind`; the `@` marker itself is not stored in `id`. A document-local
+Pin member used as Palette context must resolve to an existing Pin binding with
+an `id`; normalization sends that stable `PinIdRef`, not the local alias.
+Omitted traversal `depth` remains omitted in JSON and the adapter applies the
+documented default of one.
 
 For example:
 
 ```lgl
 query g
-exec flow from @node-guid depth 5
+exec flow from node@node-guid depth 5
 with layout
 ```
 
@@ -630,7 +649,10 @@ normalizes to:
   "operation": {
     "kind": "exec_flow",
     "direction": "from",
-    "id": "node-guid",
+    "target": {
+      "kind": "node",
+      "id": "node-guid"
+    },
     "depth": 5
   },
   "with": ["layout"]
@@ -645,7 +667,7 @@ Palette Pin context remains explicit:
   "text": "Branch",
   "pinContext": {
     "direction": "from",
-    "pin": {"kind": "id", "id": "exec-output-pin-id"}
+    "pin": {"kind": "pin", "id": "exec-output-pin-id"}
   }
 }
 ```
@@ -653,7 +675,8 @@ Palette Pin context remains explicit:
 The shared `where`, `with`, `orderBy`, and `page` fields retain their core JSON
 shapes. Capability validation applies the operation matrix above after
 structural validation. Unsupported combinations are diagnostics rather than
-ignored fields. `find @id` may resolve only a Node or Pin in the bound Graph;
+ignored fields. `find node@id` or `find pin@id` may resolve only that typed
+object in the bound Graph;
 unknown or ambiguous ids are diagnostics.
 
 ### Ordered Results
@@ -760,7 +783,7 @@ not add `graph_result(...)`, Palette Entry, schema, context, flow, or other
 Agent-facing result objects. `GraphResultEdge` is the result-only specialization
 of `Edge`: because both returned Pins are already bound in the same document,
 the ordered result uses readable member references. General Edge text and later
-mutations may still use stable `IdRef` values.
+mutations may still use stable `PinIdRef` values.
 
 `GraphNodeCallArgs` and `GraphPinCallArgs` may also contain the native fields
 defined in the Node and Pin sections. Every such additional key maps to one
@@ -899,93 +922,128 @@ The current schema still stores Graph data in grouped `nodes`, `pins`, and
 `edges` arrays, uses the old nested Graph target and Pin ref shapes, and exposes
 a separate grouped `PaletteResult`. The current parser and formatter also drop
 comments or regroup statements. Those are explicit implementation gaps for the
-later schema/parser/formatter migration. Nothing in this query/result contract
-makes the non-normative Patch sketch below normative.
+later schema/parser/formatter migration. The Patch contract below is likewise
+normative documentation for that later migration, not a description of the
+current implementation.
 
 ## Patch
 
-This section is the earlier mutation sketch and is not normative under the
-confirmed Node and Pin read model. In particular, Pin names must not be
-flattened into `node(...)` creation fields. Graph mutation will be redesigned
-after Class design rather than inferred from these examples.
+Graph Patch is an ordered statement list. Object text describes existing
+objects and relationships; Patch text always uses an explicit operation to
+request a mutation. A bare Edge such as `pin@a -> pin@b` is therefore invalid
+inside a Patch.
 
-Graph patch is a statement list:
+Bindings declare document-local aliases for objects that do not exist yet. A
+binding occupies one complete line and does not mutate UE by itself:
 
 ```lgl
 patch g dry run
 
 delay = node(palette: "P_Delay")
-health = node(palette: "P_GetHealth")
-overlap = node(palette: "P_ComponentBeginOverlap")
 
-add delay
-add health
-add overlap
-add delay begin.Then -> delay.Exec
-insert begin.Then -> delay.Exec/Completed -> print.Exec
-set print.InString = "Game Started"
-move print to (640, 0)
+insert pin@old-output -> delay.execute/then -> pin@old-input
+set delay.Duration.DefaultValue = "1.0"
+move delay to (640, 0)
 ```
 
-Patch operations:
+Existing objects always use typed stable references. A bare `@id` is invalid:
 
-| Operation | Sugar | Canonical |
+```lgl
+node@node-id
+pin@pin-id
+graph@graph-id
+```
+
+Typed stable references and materialized aliases occupy the same operation
+positions:
+
+```lgl
+set node@node-id.NodeComment = "Deal damage"
+set delay.NodeComment = "Wait briefly"
+connect pin@output-id -> delay.execute
+```
+
+The complete Graph Patch operation set is:
+
+| Operation | LGL text | Meaning |
 | --- | --- | --- |
-| Set field | `set target = value` | same |
-| Add binding | `add name` | same |
-| Add binding inline | `add name = node(...)` | `name = node(...)` then `add name` |
-| Add and connect | `add name pin -> pin` | `add name` then `connect pin -> pin` |
-| Connect pins | `connect pin -> pin` | `connect(pin, pin)` |
-| Disconnect edge | `disconnect pin -> pin` | `disconnect(pin, pin)` |
-| Disconnect pin | `disconnect pin` | same |
-| Insert node | `insert pin -> node.input/output -> pin` | `insert(node, from: pin, to: pin, input: pin, output: pin)` |
-| Remove node | `remove name` | same |
-| Move node | `move name to (x, y)` | same |
-| Reconstruct node | `reconstruct name preserve links` | same |
+| Add | `add name` | Create the bound Node and its UE-generated base Pins |
+| Add and connect | `add name pin -> pin` | Lower to `add name` followed by one `connect` involving the new Node |
+| Set | `set object.field = value` | Write one schema-approved native field |
+| Reset | `reset object.field` | Invoke the field's schema-approved native reset behavior |
+| Connect | `connect pin -> pin` | Ask the owning UE Graph Schema to create one connection |
+| Disconnect | `disconnect pin -> pin` | Remove exactly one existing Edge |
+| Break | `break pin` | Invoke UE Break All Pin Links for one Pin |
+| Insert | `insert pin -> name.input/output -> pin` | Atomically replace one existing Edge with a newly created Node |
+| Remove | `remove node` | Perform ordinary UE Delete Node behavior |
+| Move | `move node to (x, y)` or `move node by (dx, dy)` | Change LGL Graph layout |
 
-Palette-id creation templates used in a patch should come from
-`palette entries` followed by `palette @id`; see Palette for exact creation
-details.
+`add` may contain no Edge or one Edge on either side of the new Node:
 
-`add name = node(...)` uses the shared patch sugar from the language core. Its
-canonical form is a graph node binding followed by `add name`.
+```lgl
+add delay
+add delay pin@source-id -> delay.execute
+add delay delay.then -> pin@target-id
+```
+
+The single-Edge forms lower to two ordered canonical statements, `add` then
+`connect`. Every such Edge must involve the new alias. `add` never accepts two
+sides; two-sided replacement is exactly the role of `insert`. There is no
+`add_and_connect` normalized operation and no inline `add name = node(...)`
+form.
+
+Palette-backed bindings must come from `palette entries` followed by the exact
+Palette read. Palette creation creates the Node and all base Pins UE normally
+creates; Patch text does not copy future Pin declarations from the Palette
+result and cannot construct a raw `pin(...)`.
 
 Normalized JSON:
 
 ```ts
-interface Patch {
+interface GraphPatch {
   kind: "patch";
-  target: Target;
+  target: GraphTarget;
   dryRun: boolean;
-  bindings: Binding[];
-  ops: GraphPatchOp[];
+  statements: GraphPatchStatement[];
 }
 
-interface Binding {
-  target: BindingTarget;
-  value: BindingValue;
-}
-
-type BindingValue = Expr | NodeCreation;
-
-type GraphPatchOp =
-  | Set
+type GraphPatchStatement =
+  | BindingStatement
   | Add
+  | Set
+  | Reset
   | Connect
   | Disconnect
+  | Break
   | Insert
   | Remove
-  | Move
-  | Reconstruct;
+  | Move;
+
+interface BindingStatement {
+  kind: "binding";
+  alias: string;
+  value: PaletteNodeCreation;
+}
+
+type NodeRef = NodeIdRef | LocalRef;
+
+type GraphObjectRef =
+  | NodeIdRef
+  | PinIdRef
+  | GraphIdRef
+  | LocalRef
+  | MemberRef;
 
 interface Set {
   kind: "set";
-  target: SetTarget;
+  target: GraphObjectRef;
+  field: string;
   value: Expr;
 }
 
-interface SetTarget {
-  object: string;
+interface Reset {
+  kind: "reset";
+  target: GraphObjectRef;
   field: string;
 }
 
@@ -999,52 +1057,88 @@ interface Connect {
   edge: Edge;
 }
 
-interface Insert {
-  kind: "insert";
-  node: string;
-  from: PinRef;
-  to: PinRef;
-  input: PinRef;
-  output: PinRef;
+interface Disconnect {
+  kind: "disconnect";
+  edge: Edge;
 }
 
-type Disconnect =
-  | { kind: "disconnect"; edge: Edge; pin?: never }
-  | { kind: "disconnect"; pin: PinRef; edge?: never };
+interface Break {
+  kind: "break";
+  pin: PinRef;
+}
+
+interface Insert {
+  kind: "insert";
+  binding: string;
+  edge: Edge;
+  input: MemberRef;
+  output: MemberRef;
+}
 
 interface Remove {
   kind: "remove";
-  node: string;
+  node: NodeRef;
 }
 
 type Move =
-  | { kind: "move"; node: string; mode: "to"; at: Point }
-  | { kind: "move"; node: string; mode: "by"; delta: Point };
-
-interface Reconstruct {
-  kind: "reconstruct";
-  node: string;
-  preserveLinks: boolean;
-}
+  | { kind: "move"; node: NodeRef; mode: "to"; at: Point }
+  | { kind: "move"; node: NodeRef; mode: "by"; delta: Point };
 ```
 
-Operation notes:
+The normalized `statements` array preserves exact source order. A binding line
+normalizes in place as `{kind: "binding", alias, value}`; bindings and
+operations are never regrouped into parallel arrays. The public binding text
+remains `name = node(...)`; `binding` is only the normalized JSON statement
+kind, not an LGL keyword.
 
-- `connect pin -> pin` and bare `pin -> pin` both normalize to `Connect`.
-- `add name pin -> pin` is sugar for `add name` followed by `connect pin -> pin`.
-  Longer edge chains expand into one `add` op followed by multiple `connect`
-  ops. Normalized JSON never stores this as a nested `Add.connect` field.
-- `insert from -> node.input/output -> to` replaces an existing direct edge.
-  `from` and `to` describe the old edge; `input` and `output` describe the
-  inserted node pins.
-- `disconnect pin` removes all links from that pin. The adapter expands and
-  validates the affected edges against the live graph.
+The last component of `set object.field` or `reset object.field` is the exact
+native field name. The preceding text must resolve to one object. For example,
+`delay.Duration.DefaultValue` targets the `delay.Duration` Pin and its
+`DefaultValue` field. Arbitrary deep field paths are unsupported; structured UE
+values are read and written as their native text. `with schema` defines which
+fields are readable, writable, or resettable. Identity and structural fields
+such as `id`, `type`, `graph`, and Pin direction are not ordinary writable
+fields. Setting the current value or resetting an already-reset field is a
+successful no-op and must not dirty the asset.
+
+`connect` delegates compatibility, break-others behavior, conversion-node
+creation, and type promotion to the owning UE Graph Schema. Preflight and the
+mutation result must report every resulting Node, Pin, and Edge change.
+`disconnect` removes only its exact Edge; `break` removes every Edge attached to
+one Pin and reports the complete affected set. No replace or conversion mode is
+added to LGL.
+
+`insert pin@from -> name.input/output -> pin@to` consumes the binding inferred
+from the two member references. Both members must belong to the same
+unmaterialized alias. The old `from -> to` Edge must exist. In one atomic
+operation the adapter creates the Node, resolves its UE-generated Pins, removes
+the old Edge, and creates `from -> input` plus `output -> to`. Insert rejects
+additional conversion, promotion, or unrelated link breaks; any failure leaves
+the old Edge intact and removes the new Node.
+
+`remove` accepts only a Node reference and follows ordinary UE deletion,
+including all incident Edges, deletion restrictions, and native cross-domain
+cascades. It is not Shift Delete and does not reconnect neighbors. Dynamic Pin
+removal is not Graph `remove`. `move` accepts only a Node, uses integer Graph
+layout coordinates, and never exposes `NodePosX` or `NodePosY` as ordinary
+fields.
+
+Graph Patch does not expose `reconstruct`. Normal edits invoke any required UE
+reconstruction internally. If a Node supports adding or removing optional Pins,
+that capability belongs to the Node's native interface schema; Graph Patch does
+not pretend that all dynamic Pins share one generic operation.
 
 ## Patch Preflight
 
-Patch execution must resolve the whole patch before applying mutations. This
-allows a patch to create nodes and immediately connect to their pins in one
-request:
+Patch execution is ordered and all-or-nothing. A local alias has three states:
+unbound, bound but unmaterialized, and materialized. A binding must precede its
+first use, must be unique within the Patch, and must be consumed exactly once by
+`add` or `insert`. Before materialization it may appear only in the consuming
+operation; after materialization it is an ordinary object reference equivalent
+in operation position to a typed stable reference. Aliases are Patch-local and
+never enter returned object identity.
+
+This permits a Patch to create Nodes and immediately use their generated Pins:
 
 ```lgl
 patch g
@@ -1054,18 +1148,28 @@ print1 = node(palette: "P_PrintString")
 
 add delay1
 add print1
-connect begin.Then -> delay1.Exec
-connect delay1.Completed -> print1.Exec
+connect pin@begin-then-id -> delay1.execute
+connect delay1.then -> print1.execute
 ```
 
-The adapter should process graph patches in phases:
+The adapter processes the ordered statements against one provisional state:
 
-1. Parse bindings and operations.
-2. Resolve Palette Entry identities.
-3. Build provisional nodes and pins for newly added aliases.
-4. Resolve all pin references against existing graph pins plus provisional pins.
-5. Validate connections and graph-state-dependent operations.
-6. Apply mutations only after validation succeeds.
+1. Parse every statement without regrouping it.
+2. Resolve typed stable references and exact Palette Entry identities.
+3. Advance alias state in statement order and build provisional Nodes and Pins
+   when `add` or `insert` materializes a binding.
+4. Resolve later member references against those provisional objects.
+5. Validate field schema, UE Graph Schema behavior, deletion cascades, every
+   expected side effect, and the complete final plan.
+6. Verify the live Graph still matches the state used for planning.
+7. Apply the plan as one mutation. Any apply failure restores the entire Patch,
+   including created objects, removed Edges, field values, layout, and native
+   cascades.
+
+Unknown ids, forward alias references, unused bindings, repeated creation,
+repeated deletion, and stale Palette identities are validation errors. An
+operation that makes no change remains valid; a Patch containing only no-ops
+does not dirty the asset.
 
 Static pins should be discovered through palette entry details, not through a
 mutation dry run:
@@ -1076,17 +1180,18 @@ palette @P_Delay
 with pins
 ```
 
-`dry run` follows the same validation path through phase 5 and stops before
-mutation. Its primary job is to validate the whole patch. It should not become
-the main query surface for static pin discovery.
+`dry run` follows the same parse, resolve, and validation path and stops before
+step 7 applies the plan. It returns the real current `GraphResult` as `object`;
+provisional objects and planned changes belong to the mutation envelope's plan
+or diff, not to a fake applied Graph. Success after apply returns the same ordered
+`GraphResult` object model used by queries, containing the actual final Node,
+Pin, Edge, field, and layout state. The mutation envelope adds execution state;
+Graph Patch does not define a second mutation-only LGL object format.
 
-Dynamic pins must be determined before validation. Native creation fields or
-node-local edits discovered through the exact Palette Entry schema must carry
-the necessary information.
-
-If the bridge cannot derive a node's pins precisely, it should reject the
-one-shot connection with an error that names the missing pin-detail requirement.
-It should not silently guess pin names.
+If the adapter cannot preflight an operation's exact native effects or derive a
+required generated Pin precisely, it rejects the Patch with a diagnostic that
+names the missing capability. It never guesses a Pin name, performs an
+unreported side effect, or returns partial success.
 
 ## Palette
 
@@ -1139,8 +1244,8 @@ Palette Entry identity incorporates the resolved Graph and Pin context, so
 
 | Filter | Example | UE mapping |
 | --- | --- | --- |
-| `from pin` | `palette entries "Branch" from @exec-output-pin-id` | `FBlueprintActionContext.Pins` |
-| `to pin` | `palette entries "Less Equal" to @data-input-pin-id` | `FBlueprintActionContext.Pins` |
+| `from pin` | `palette entries "Branch" from pin@exec-output-pin-id` | `FBlueprintActionContext.Pins` |
+| `to pin` | `palette entries "Less Equal" to pin@data-input-pin-id` | `FBlueprintActionContext.Pins` |
 | `component` | `where component = Trigger` | `FBlueprintActionContext.SelectedObjects` component property |
 | `contextSensitive` | `where contextSensitive = false` | `MakeContextMenu(..., bIsContextSensitive, ...)` |
 
@@ -1185,12 +1290,12 @@ delay = node(palette: "P_Delay")
 add delay
 ```
 
-The Palette identity is confirmed, but mutation design must still decide how
-native Node fields and future Pin defaults are supplied in a patch. It must not
-flatten Pin aliases into `node(...)`. References use aliases inside the current
-document, stable `@id` for existing objects across queries, and UE object paths
-where UE itself requires them. Do not guess a Node class or use positional
-forms:
+The Palette identity is the complete creation value. Node creation does not
+flatten future Pin aliases or defaults into `node(...)`; a Patch creates the
+Node first and then uses `set` on the generated Pin when needed. References use
+aliases inside the current document, typed stable references for existing
+objects across queries, and UE object paths where UE itself requires them. Do
+not guess a Node class or use positional forms:
 
 ```lgl
 delay = node(g, "/Script/BlueprintGraph.K2Node_Delay")
