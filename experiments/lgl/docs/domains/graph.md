@@ -1155,8 +1155,10 @@ connect next -> pin@target-id
 Operations use UE editor semantics rather than blindly exposing implementation
 method names. For example, the Sequence editor action is
 `AddExecutionPin` even though its native Node method is named `AddInputPin`.
-Different Node types share an Operation name only when behavior, parameters,
-and output contracts agree.
+Operation lookup is local to the exact Node or Pin schema. Two target types may
+therefore expose the same UE Action or native interface name with different
+parameters, outputs, or effects. The agent must follow the schema returned for
+the target rather than treating an Operation name as a global Graph interface.
 
 Primary outputs are ordinary Graph or owning-domain objects that later Patch
 statements may need to reference. Fixed multi-output Operations expose separate
@@ -1179,6 +1181,62 @@ unavailable Operations, invalid arguments, unknown selectors, repeated aliases,
 and forward references invalidate the whole Patch. If output shape or native
 effects cannot be determined during preflight, those outputs cannot be used by
 later statements in the same Patch.
+
+#### Dynamic Pin Operations
+
+Dynamic Pins do not share one generic Graph operation. The adapter exposes the
+UE editor action on the object that owns its selection context: creation is
+normally a Node Operation, while insertion or removal of one exact Pin is a Pin
+Operation. Select's `RemoveOptionPin` remains a Node Operation because UE removes
+the last option rather than a selected option Pin.
+
+The initial Blueprint Graph mapping is:
+
+| Target | Operation | Primary outputs |
+| --- | --- | --- |
+| Sequence or MultiGate Node | `AddExecutionPin()` | `pin` |
+| Sequence Pin | `InsertExecutionPinBefore()` | `pin` |
+| Sequence Pin | `InsertExecutionPinAfter()` | `pin` |
+| Removable Sequence or Switch Pin | `RemoveExecutionPin()` | none |
+| Switch Node | `AddExecutionPin()` | `pin` |
+| Select Node | `AddOptionPin()` | `pin` |
+| Select Node | `RemoveOptionPin()` | none |
+| Make Array Node | `AddArrayElementPin()` | `pin` |
+| Array element Pin | `RemoveArrayElementPin()` | none |
+| Make Set Node | `AddSetElementPin()` | `pin` |
+| Set element Pin | `RemoveSetElementPin()` | none |
+| Make Map Node | `AddKeyValuePair()` | `key`, `value` |
+| Map key or value Pin | `RemoveKeyValuePair()` | none |
+| Commutative or promotable operator Node | `AddInputPin()` | `pin` |
+| Removable operator input Pin | `RemoveInputPin()` | none |
+| DoOnce MultiInput Node | `AddInputPin()` | `input`, `output` |
+| Removable DoOnce MultiInput input Pin | `RemoveInputPin()` | none |
+
+For example, Make Map creates a native key/value pair in one action:
+
+```lgl
+invoke node@map-id AddKeyValuePair() as key: newKey, value: newValue
+```
+
+`DoOnce MultiInput` demonstrates why Operation names are target-local. Its
+native `AddInputPin` action creates both corresponding execution Pins:
+
+```lgl
+invoke node@do-once-id AddInputPin() as input: bIn, output: bOut
+invoke pin@b-in-id RemoveInputPin()
+```
+
+Only a removable input Pin exposes the second Operation; an output Pin does
+not. The native removal path directly accepts the selected input Pin, updates
+the node's additional-input count, renames Pins, and structurally recompiles the
+Blueprint. The adapter must execute and inspect that native path. It must report
+the actual removed or renamed Pins and disconnected Edges as effects rather
+than promise a synthetic symmetric pair deletion.
+
+User-defined Pins on Function Entry, Function Result, Custom Event, and Tunnel
+nodes are not part of this table. They may change a function signature, mirror
+another node, or reconstruct call sites, so they belong to separate signature
+or cross-object Operations.
 
 ## Patch Preflight
 

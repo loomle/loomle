@@ -640,6 +640,13 @@ C++ methods. The schema records the UE Action and native execution path so the
 public semantic name remains traceable even when a Node's implementation method
 has a misleading name or later changes.
 
+An Operation name is resolved inside the exact target object's schema, not in a
+global Operation namespace. Reusing a UE Action or native interface name across
+object types does not imply identical parameters, outputs, or effects. The
+agent must use the contract and copyable template returned for that target by
+`with schema`; it must not infer one target's contract from another target that
+happens to expose the same name.
+
 Schema lists every Operation supported by the subject type. Instance reads mark
 current availability and give the UE reason when an Operation is unavailable.
 Outputs describe only ordinary objects the agent may need to reference later:
@@ -734,7 +741,8 @@ alias. `Operation` is copied exactly from the target's `with schema` result.
 Arguments use the existing named-argument and line-wrapping rules; when the
 argument list wraps, the closing `)` and optional `as` clause remain in the same
 statement. `invoke` is a statement, never an expression nested inside another
-call or binding.
+call or binding. Operation lookup is target-local; the same Operation name may
+have a different schema on a different target type.
 
 The optional `as` clause binds selected primary outputs for later statements in
 the same Patch. A selector is an exact adapter-provided role such as `pin` or a
