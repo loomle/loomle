@@ -523,8 +523,11 @@ operation ...
 sugar statement
 ```
 
-Domains own operations such as `add`, `set`, `connect`, `insert`, `move`, or
-widget tree edits. Bindings make later operations precise:
+Domains own operations such as `add`, `set`, `reset`, `connect`, `insert`,
+`move`, or widget tree edits. An operation exists only where its domain defines
+an exact meaning; for example, Class Defaults use `reset` to remove a local
+default override and resume inheritance. Bindings make later operations
+precise:
 
 ```lgl
 patch g

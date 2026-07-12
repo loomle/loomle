@@ -119,11 +119,12 @@ agent-facing behavior.
   variables, dispatchers, graphs, component trees, timelines, and their
   adapter-owned reads.
 - [`domains/class.md`](domains/class.md): Class Reflection identity, hierarchy,
-  Properties, Functions, Parameters, Metadata, and source provenance.
+  Properties, Functions, Parameters, Metadata, effective Class Defaults, and
+  Blueprint-backed Defaults patches.
 - [`domains/widget.md`](domains/widget.md): modeled widget constructors, widget
   tree structure, slots, queries, and widget tree patching.
 
 The TypeScript experiment includes parser, formatter, schema, and in-memory
 adapter coverage for graph, asset, Blueprint, and widget, but some implemented
-query text still reflects the earlier `find`-centric design. Class Reflection
+query text still reflects the earlier `find`-centric design. The Class domain
 and UE-backed adapters remain separate implementation work.

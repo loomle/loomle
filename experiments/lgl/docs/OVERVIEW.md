@@ -158,8 +158,8 @@ patch text, normalized JSON, diagnostics, and examples.
   custom events, components, class/member/component patches, and
   component-bound event references used by graph creation.
 - Class: UClass Reflection identity and hierarchy, effective Properties and
-  Functions, Parameters, Metadata, and source provenance. CDO state is a later
-  design.
+  Functions, Parameters, Metadata, source provenance, effective Class
+  Defaults, and Blueprint-backed Defaults patches.
 - Widget: widget tree structure, modeled widget constructors, slots, widget
   properties, widget queries, and widget tree patches.
 
@@ -177,7 +177,8 @@ language categories.
 - [`domains/graph.md`](domains/graph.md): graph domain design.
 - [`domains/asset.md`](domains/asset.md): asset domain design.
 - [`domains/blueprint.md`](domains/blueprint.md): Blueprint domain design.
-- [`domains/class.md`](domains/class.md): Class Reflection domain design.
+- [`domains/class.md`](domains/class.md): Class domain design, including
+  Reflection and Class Defaults.
 - [`domains/widget.md`](domains/widget.md): widget domain design.
 
 Some bridge implementation documents still describe earlier spike plans. Treat

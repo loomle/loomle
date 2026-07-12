@@ -5,8 +5,8 @@
 The blueprint domain describes Blueprint asset structure outside individual
 graph nodes and edges. It covers class contract, implemented interfaces, class
 options, variables, dispatchers, graphs, SimpleConstructionScript components,
-and timelines. Effective Class Default Object state belongs to the later CDO
-design and is not defined here.
+and timelines. Effective Class Default Object state belongs to the class
+domain and is not duplicated here.
 
 Function, macro, event, delegate-signature, interface-function, and construction
 script graphs are all graph objects. Their nodes, pins, and edges remain graph
@@ -65,7 +65,7 @@ eventGraph = graph(domain: blueprint, asset: bpAsset, id: "event-graph-guid", na
 signatureGraph = graph(domain: blueprint, asset: bpAsset, id: "signature-graph-guid", name: OnOpened, type: delegate_signature)
 damageableGraph = graph(domain: blueprint, asset: bpAsset, id: "damageable-graph-guid", name: TakeDamage, type: interface_function)
 
-door.Health = variable(id: "variable-guid", type: "<FEdGraphPinType native text>", Category: "Stats", DefaultValue: "100.0")
+door.Health = variable(id: "variable-guid", type: "<FEdGraphPinType native text>", Category: "Stats")
 door.OnOpened = dispatcher(id: "dispatcher-variable-guid", type: "<FEdGraphPinType native text>")
 
 door.Root = component(id: "root-component-guid", type: "/Script/Engine.SceneComponent")
@@ -162,14 +162,20 @@ errors are diagnostic comments. `SkeletonGeneratedClass`, transient compile
 state, internal versioning, editor-session state, generated collections, and
 caches are not authored Class Contract fields.
 
-`ComponentClassOverrides` and `InheritableComponentHandler` are deferred to the
-CDO/default-subobject design. They are not flattened into Class Contract fields
-or silently omitted from a claimed complete defaults model.
+`ComponentClassOverrides` and `InheritableComponentHandler` belong to
+Component Template resolution. They are not flattened into Class Contract or
+Class Defaults fields.
 
-Variable declaration and CDO storage remain distinct. A Variable preserves
-`FBPVariableDescription::DefaultValue`; effective Class defaults will be
-defined by the separate CDO design. The old `blueprint.default` statement is
-not part of the confirmed language.
+Variable declaration and CDO storage remain distinct.
+`FBPVariableDescription::DefaultValue` is compiler staging text used during
+structural changes such as creation, rename, or type migration. Full Blueprint
+compilation imports it into the generated Class Default Object and normally
+clears it. It is therefore not the durable source of an effective Variable
+default and must not be returned as one. A non-empty staging value may be
+preserved under its native field name when it actually exists, with schema
+comments identifying its transient compiler role. Effective values are read
+and edited through Class Defaults. The old `blueprint.default` statement is not
+part of the confirmed language.
 
 ## Concrete Blueprint Objects
 
@@ -198,8 +204,7 @@ door.Health = variable(
   Category: "Stats",
   PropertyFlags: "<EPropertyFlags native text>",
   RepNotifyFunc: None,
-  MetaDataArray: "<FBPVariableMetaDataEntry array native text>",
-  DefaultValue: "100.0"
+  MetaDataArray: "<FBPVariableMetaDataEntry array native text>"
 )
 ```
 
@@ -207,8 +212,10 @@ The binding name maps to `FBPVariableDescription::VarName`, `id` maps to
 `VarGuid`, and `type` contains the canonical native text of `VarType`. The
 remaining authored declaration fields retain their UE names and native values:
 `FriendlyName`, `Category`, `PropertyFlags`, `RepNotifyFunc`, `MetaDataArray`,
-and `DefaultValue`. LGL does not translate those fields into `default`,
-`private`, `exposeOnSpawn`, `replication`, or `metadata`.
+and other durable `FBPVariableDescription` state. LGL does not translate those
+fields into `default`, `private`, `exposeOnSpawn`, `replication`, or
+`metadata`. `DefaultValue` is returned only when UE currently carries non-empty
+compiler staging text; it is never presented as the effective default.
 
 Fields equal to defined UE defaults may be omitted from a compact exact read.
 `with schema` reports all fields available on the resolved Variable, including
@@ -565,5 +572,5 @@ Pure LGL normalization must not:
 
 The adapter or bridge owns those UE-dependent responsibilities and must use UE
 APIs such as `FBlueprintEditorUtils`, `USimpleConstructionScript`, `USCS_Node`,
-and `UK2Node_CustomEvent`. Generated Class and CDO access belongs to the later
-Class Reflection and CDO designs.
+and `UK2Node_CustomEvent`. Generated Class and CDO access belongs to the Class
+Reflection and Class Defaults designs.
