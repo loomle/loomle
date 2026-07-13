@@ -154,19 +154,22 @@ They must migrate to the documented `id`/`name`/`type` Graph object when the
 schema and parser are updated:
 
 ```txt
-bp = asset(path: "/Game/BP_LGLExample.BP_LGLExample", type: blueprint)
-g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+bp = asset(path: "/Game/BP_LGLExample.BP_LGLExample", type: "/Script/Engine.Blueprint")
+g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 
-begin = node(graph: g, type: EventBeginPlay, id: "7A9D", at: [0, 0], size: [180, 80])
-delay = node(graph: g, type: Delay, id: "81EF", Duration: 1.0, at: [320, 0], size: [200, 100])
-print = node(graph: g, type: PrintString, id: "C2B0", InString: "Ready", at: [640, 0], size: [220, 120])
+begin = node(graph: g, type: "/Script/BlueprintGraph.K2Node_Event", id: "7A9D", at: [0, 0], size: [180, 80])
+delay = node(graph: g, type: "/Script/BlueprintGraph.K2Node_CallFunction", id: "81EF", FunctionReference: "<FMemberReference native text>", at: [320, 0], size: [200, 100])
+print = node(graph: g, type: "/Script/BlueprintGraph.K2Node_CallFunction", id: "C2B0", FunctionReference: "<FMemberReference native text>", at: [640, 0], size: [220, 120])
+
+delay.Duration = pin(id: "duration-pin-guid", type: "<FEdGraphPinType native text>", direction: in, DefaultValue: "1.0")
+print.InString = pin(id: "string-pin-guid", type: "<FEdGraphPinType native text>", direction: in, DefaultValue: "Ready")
 
 begin.Then -> delay.Exec/Completed -> print.Exec
 ```
 
-Compact `graph` examples are readback snapshots and do not include palette
-creation entries. Patch examples use stable palette entry ids or shortcut
-constructors when they create new nodes.
+Compact `graph` examples are readback snapshots and do not include Palette
+creation entries. Patch examples use stable Palette Entry ids when they create
+new nodes.
 
 Layout readback appears as named node and pin fields such as `at: [x, y]`,
 `size: [w, h]`, and `anchor: [x, y]`. Patch layout mutation is currently

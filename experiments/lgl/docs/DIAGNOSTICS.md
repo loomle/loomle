@@ -158,8 +158,8 @@ Ambiguity should include compact candidates:
   "domain": "blueprint",
   "ref": "Print",
   "matches": [
-    { "alias": "printReady", "id": "A001", "type": "PrintString" },
-    { "alias": "printError", "id": "A002", "type": "PrintString" }
+    { "alias": "printReady", "id": "A001", "type": "/Script/BlueprintGraph.K2Node_CallFunction" },
+    { "alias": "printError", "id": "A002", "type": "/Script/BlueprintGraph.K2Node_CallFunction" }
   ],
   "suggestion": "Use id or a more specific where clause."
 }

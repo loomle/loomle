@@ -16,7 +16,7 @@ through UMG WidgetTree APIs.
 Widget tree text is a statement list:
 
 ```lgl
-menuAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: widget)
+menuAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: "/Script/UMGEditor.WidgetBlueprint")
 menu = widget(asset: menuAsset, root: mainCanvas)
 
 mainCanvas = CanvasPanel()
@@ -44,7 +44,7 @@ Structural `{}` blocks are not used.
 
 | Object | Syntax | Example |
 | --- | --- | --- |
-| Widget asset | `name = asset(path: "...", type: widget)` | `menuAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: widget)` |
+| Widget asset | `name = asset(path: "...", type: nativeClassPath)` | `menuAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: "/Script/UMGEditor.WidgetBlueprint")` |
 | Widget document | `name = widget(asset: ref, root: ref)` | `menu = widget(asset: menuAsset, root: mainCanvas)` |
 | Root widget | `name = WidgetType(props...)` | `mainCanvas = CanvasPanel()` |
 | Child widget | `parent.child = WidgetType(props...)` | `stack.start = Button(text: "Start")` |
@@ -62,7 +62,7 @@ VerticalBox([title, start])
 Prefer:
 
 ```lgl
-menuAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: widget)
+menuAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: "/Script/UMGEditor.WidgetBlueprint")
 menu = widget(asset: menuAsset, root: mainCanvas)
 ```
 
@@ -248,14 +248,14 @@ the returned creation entries. Property metadata is descriptive; patch text
 still writes properties as constructor arguments or `set widget.property = ...`.
 
 ```lgl
-Button.text = property(type: string, default: "", writable: true)
+Button.text = property(type: "TextProperty", default: "", writable: true)
 ```
 
 `with defaults, properties` may be combined:
 
 ```lgl
 Button = Button(text: "")
-Button.text = property(type: string, default: "", writable: true)
+Button.text = property(type: "TextProperty", default: "", writable: true)
 ```
 
 Use a stable widget constructor when the entry maps to a common native UMG

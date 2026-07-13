@@ -48,7 +48,7 @@ objects.
 Blueprint object text is a statement list:
 
 ```lgl
-bpAsset = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
+bpAsset = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
 door = blueprint(
   asset: bpAsset,
   id: "blueprint-guid",
@@ -61,9 +61,12 @@ door = blueprint(
   ]
 )
 
-eventGraph = graph(domain: blueprint, asset: bpAsset, id: "event-graph-guid", name: EventGraph, type: event_graph)
-signatureGraph = graph(domain: blueprint, asset: bpAsset, id: "signature-graph-guid", name: OnOpened, type: delegate_signature)
-damageableGraph = graph(domain: blueprint, asset: bpAsset, id: "damageable-graph-guid", name: TakeDamage, type: interface_function)
+eventGraph = graph(domain: blueprint, asset: bpAsset, id: "event-graph-guid", name: EventGraph, type: GT_Ubergraph)
+# UBlueprint::UbergraphPages
+signatureGraph = graph(domain: blueprint, asset: bpAsset, id: "signature-graph-guid", name: OnOpened, type: GT_Function)
+# UBlueprint::DelegateSignatureGraphs
+damageableGraph = graph(domain: blueprint, asset: bpAsset, id: "damageable-graph-guid", name: TakeDamage, type: GT_Function)
+# FBPInterfaceDescription::Graphs
 
 door.Health = variable(id: "variable-guid", type: "<FEdGraphPinType native text>", Category: "Stats")
 door.OnOpened = dispatcher(id: "dispatcher-variable-guid", type: "<FEdGraphPinType native text>")
@@ -85,7 +88,7 @@ UE text. They are not returned literally and do not introduce LGL syntax.
 
 | Object | Syntax | Example |
 | --- | --- | --- |
-| Blueprint asset | `name = asset(path: "...", type: blueprint)` | `bpAsset = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)` |
+| Blueprint asset | `name = asset(path: "...", type: nativeClassPath)` | `bpAsset = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")` |
 | Blueprint binding | `name = blueprint(asset: ref, id: string, type: nativeEnum, nativeFields...)` | `door = blueprint(asset: bpAsset, id: "blueprint-guid", type: BPTYPE_Normal, ParentClass: "/Script/Engine.Actor")` |
 | Implemented interfaces | native `ImplementedInterfaces` field | `ImplementedInterfaces: [{Interface: "/Script/MyGame.Damageable", Graphs: [graph@graph-guid]}]` |
 
@@ -224,19 +227,31 @@ their native type, access, and default behavior.
 ### Graphs
 
 Blueprint functions and macros are Graph objects, not additional declaration
-objects. Event, function, macro, delegate-signature, interface-function, and
-construction-script semantics are expressed by the Graph `type`:
+objects. Graph `type` is the exact native `EGraphType` reported by the Graph's
+Schema; it does not encode the Graph's lifecycle role:
 
 ```lgl
-openDoor = graph(domain: blueprint, asset: bpAsset, id: "function-graph-guid", name: OpenDoor, type: function_graph)
-traceDoor = graph(domain: blueprint, asset: bpAsset, id: "macro-graph-guid", name: TraceDoor, type: macro_graph)
+openDoor = graph(domain: blueprint, asset: bpAsset, id: "function-graph-guid", name: OpenDoor, type: GT_Function)
+# UBlueprint::FunctionGraphs
+traceDoor = graph(domain: blueprint, asset: bpAsset, id: "macro-graph-guid", name: TraceDoor, type: GT_Macro)
+# UBlueprint::MacroGraphs
 ```
 
 `id` maps to `UEdGraph::GraphGuid`. Graph name is readable and searchable but is
-not identity. `domain`, `asset`, `id`, `name`, and the Graph-role `type` are LGL
-common structure. Relevant authored `UEdGraph` fields retain their UE names and
-native values, including `Schema`, `bEditable`, `bAllowDeletion`,
+not identity. `domain`, `asset`, `id`, and `name` are LGL common structure;
+`type` preserves the native `EGraphType` text such as `GT_Function`,
+`GT_Ubergraph`, or `GT_Macro`. Relevant authored `UEdGraph` fields retain their
+UE names and native values, including `Schema`, `bEditable`, `bAllowDeletion`,
 `bAllowRenaming`, and `InterfaceGuid`.
+
+UE ownership and references determine the role: `FunctionGraphs`,
+`MacroGraphs`, `UbergraphPages`, `DelegateSignatureGraphs`, and
+`FBPInterfaceDescription::Graphs` are distinct native owners. Override state
+comes from the Function Entry reference to the parent `UFunction`.
+Construction Script and Collapsed Graph roles likewise come from native
+ownership and flags. LGL does not add a second role enum. Consequently an
+ordinary Function Graph, Dispatcher Signature Graph, and Interface Graph may
+all correctly return `type: GT_Function`.
 
 A Blueprint Graph read is a compact Graph identity and native description. It
 does not include `Nodes`, `Pins`, `Edges`, or `SubGraphs`; Graph body inspection
@@ -244,9 +259,9 @@ belongs to the graph domain. Function signatures, macro tunnels, overrides,
 custom events, and all other graph contents therefore remain Nodes and Pins.
 
 For an editable signature-bearing Graph, the Graph is also the semantic target
-for creating input or output parameters. A `function_graph` stores that authored
-signature in Function Entry and Function Result `UserDefinedPins`; a
-`macro_graph` or nested Collapsed Graph uses its Entry and Exit Tunnel Pins.
+for creating input or output parameters. A Function Graph stores that authored
+signature in Function Entry and Function Result `UserDefinedPins`; a Macro
+Graph or nested Collapsed Graph uses its Entry and Exit Tunnel Pins.
 Those Pins remain the returned state and identity. LGL does not add a Function
 Signature, Graph Boundary, or Parameter object merely to hide that storage.
 Existing parameter edits continue to target their exact authoritative Pins;
@@ -265,9 +280,10 @@ ImplementedInterfaces: [
 ]
 ```
 
-Graphs required by that interface are ordinary Graph objects with an
-interface-function type. LGL does not create an Interface object or an
-interface-specific ref constructor.
+Graphs required by that interface are ordinary Graph objects owned by
+`FBPInterfaceDescription::Graphs`; their native Graph type remains
+`GT_Function`. LGL does not create an Interface object, an interface-specific
+type, or an interface-specific ref constructor.
 
 ### Dispatchers
 
@@ -280,7 +296,8 @@ door.OnOpened = dispatcher(
   type: "<multicast-delegate FEdGraphPinType native text>",
   Category: "Events"
 )
-signatureGraph = graph(domain: blueprint, asset: bpAsset, id: "signature-graph-guid", name: OnOpened, type: delegate_signature)
+signatureGraph = graph(domain: blueprint, asset: bpAsset, id: "signature-graph-guid", name: OnOpened, type: GT_Function)
+# UBlueprint::DelegateSignatureGraphs
 ```
 
 The Dispatcher binding, `id`, `type`, and remaining declaration fields use the

@@ -11,8 +11,8 @@ and Palette-backed node creation.
 Graph object text is a statement list:
 
 ```lgl
-bp = asset(path: "/Game/BP_LGLExample.BP_LGLExample", type: blueprint)
-g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
+bp = asset(path: "/Game/BP_LGLExample.BP_LGLExample", type: "/Script/Engine.Blueprint")
+g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 
 begin = node(graph: g, id: "A001", type: "/Script/BlueprintGraph.K2Node_Event")
 # Event BeginPlay
@@ -38,9 +38,9 @@ UE text. They are not returned literally and do not introduce LGL syntax.
 
 | Object | Syntax | Example |
 | --- | --- | --- |
-| Asset binding | `name = asset(path: "...", type: symbol)` | `bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)` |
-| Graph binding | `name = graph(domain: symbol, asset: ref, id: string, name: symbol, type: symbol)` | `g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)` |
-| Node object text | `name = node(graph: ref, id: string, type: classPath, nativeFields...)` | `delay = node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_Delay")` |
+| Asset binding | `name = asset(path: "...", type: nativeClassPath)` | `bp = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")` |
+| Graph binding | `name = graph(domain: symbol, asset: ref, id: string, name: symbol, type: nativeEnum)` | `g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)` |
+| Node object text | `name = node(graph: ref, id: string, type: classPath, nativeFields...)` | `delay = node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")` |
 | Pin object text | `node.pin = pin(id: string, type: nativeTypeText, direction: in/out, nativeFields...)` | `delay.Duration = pin(id: "pin-guid", type: "<FEdGraphPinType native text>", direction: in, DefaultValue: "1.0")` |
 | Edge sugar | `pin -> pin` | `begin.then -> print.execute` |
 | Edge canonical | `edge(pin, pin)` | `edge(begin.then, print.execute)` |
@@ -53,15 +53,21 @@ from source position.
 Canonical graph identity uses an asset binding plus one ordinary Graph object:
 
 ```lgl
-bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
-g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
+bp = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
+g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 ```
 
 Graph follows the same object rule used across LGL: `id` is stable identity,
-`name` is current readable/searchable name, and `type` is exact domain-owned
-semantics. For Blueprint graphs, `id` maps to `UEdGraph::GraphGuid` and `type`
-distinguishes event, function, macro, delegate-signature, interface-function,
-construction-script, and other UE graph roles.
+`name` is current readable/searchable name, and `type` is exact native UE text.
+For Blueprint graphs, `id` maps to `UEdGraph::GraphGuid` and `type` is the
+native `EGraphType` returned by the Graph's Schema, such as `GT_Function`,
+`GT_Ubergraph`, or `GT_Macro`.
+
+Graph `type` does not distinguish lifecycle roles that UE itself does not put
+in `EGraphType`. Function, Dispatcher Signature, Interface, Override,
+Construction Script, and Collapsed Graph roles come from native ownership,
+references, and flags. The owning domain may explain those relationships in
+adjacent comments; it must not translate them into an LGL type enum.
 
 The normalized form remains the shared `Binding` shape. Its value is a
 `graph(...)` `Call`; there is no separate nested Graph object or Graph ref
@@ -438,7 +444,7 @@ exec flow to node@node-guid depth 5
 Depth counts crossed Exec Edges and defaults to one. Branches are preserved,
 cycles are visited once by stable id, and UE Pin and link order is retained.
 The adapter uses the owning Graph Schema to identify Exec Pins rather than
-guessing from display names or LGL type text.
+guessing from display names or serialized Pin fields.
 
 A Node target uses all matching Exec Pins. A Pin target must be an Exec output
 for `from` or an Exec input for `to`; a type or direction mismatch is an error.
@@ -521,20 +527,23 @@ interface GraphTarget {
 ```
 
 `domain` is the owning Graph adapter domain, such as `blueprint`, `material`, or
-`pcg`; it is not the literal string `graph`. `asset` is the canonical owning
-asset Path. Only `domain + asset + id` participate in stable Graph resolution.
-`name` and `type` preserve the current Graph binding text for the pure formatter
-and must not be used as fallback identity when `id` fails. The formatter emits
-`domain` as the owning Asset type and emits `domain`, `name`, and `type` as the
-unquoted symbols required by the two bindings. Their schema values therefore
-must satisfy the same lexical contract as an LGL `Name`; a formatter must not
-quote, sanitize, or guess an invalid symbol.
+`pcg`; it is not the literal string `graph` and is not a native type. `asset` is
+the canonical owning Asset Path. Only `domain + asset + id` participate in
+stable Graph resolution. `name` and `type` preserve the current Graph binding
+text for the pure formatter and must not be used as fallback identity when
+`id` fails. `type` is the normalized native Graph type value, not an LGL role.
+
+`GraphTarget` intentionally does not duplicate Asset Class Path. When a pure
+formatter must reconstruct a request header from this target alone, it emits
+the sufficient minimal Asset binding `asset(path: "...")`; it never infers
+Asset `type` from `domain`. Ordered object results may carry the native Asset
+type in their Asset statement when the adapter actually returned it.
 
 For example, normalization resolves the local `bp` and `g` aliases in:
 
 ```lgl
-bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
-g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
+bp = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
+g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 ```
 
 to:
@@ -545,7 +554,7 @@ to:
   "asset": "/Game/BP_Door.BP_Door",
   "id": "graph-guid",
   "name": "EventGraph",
-  "type": "event_graph"
+  "type": "GT_Ubergraph"
 }
 ```
 
@@ -565,7 +574,7 @@ interface GraphSummary extends Summary {
     "asset": "/Game/BP_Door.BP_Door",
     "id": "graph-guid",
     "name": "EventGraph",
-    "type": "event_graph"
+    "type": "GT_Ubergraph"
   }
 }
 ```
@@ -646,7 +655,7 @@ normalizes to:
     "asset": "/Game/BP_Door.BP_Door",
     "id": "graph-guid",
     "name": "EventGraph",
-    "type": "event_graph"
+    "type": "GT_Ubergraph"
   },
   "operation": {
     "kind": "exec_flow",
@@ -706,7 +715,7 @@ interface GraphAssetBinding {
   value: {
     kind: "call";
     callee: "asset";
-    args: {path: string; type: Name};
+    args: {path: string; type?: string};
   };
 }
 
@@ -805,7 +814,7 @@ one sequence:
         "callee": "asset",
         "args": {
           "path": "/Game/BP_Door.BP_Door",
-          "type": {"kind": "name", "name": "blueprint"}
+          "type": "/Script/Engine.Blueprint"
         }
       }
     },
@@ -819,7 +828,7 @@ one sequence:
           "asset": {"kind": "local", "name": "bp"},
           "id": "graph-guid",
           "name": {"kind": "name", "name": "EventGraph"},
-          "type": {"kind": "name", "name": "event_graph"}
+          "type": {"kind": "name", "name": "GT_Ubergraph"}
         }
       }
     },
@@ -1304,9 +1313,9 @@ native `DefaultValue` and Pin state.
 #### Function And Event Signature Operations
 
 LGL does not add Function Signature or Parameter objects. An editable Blueprint
-Function is already a `function_graph`; its Function Entry and Function Result
-Nodes own the native `UserDefinedPins`, and the resulting parameters remain
-ordinary Pins.
+Function is a Graph owned by `UBlueprint::FunctionGraphs`; its native type is
+`GT_Function`. Its Function Entry and Function Result Nodes own the native
+`UserDefinedPins`, and the resulting parameters remain ordinary Pins.
 
 Parameter creation targets the semantic owner because no parameter Pin exists
 yet. An editable Function Graph exposes:
@@ -1396,10 +1405,13 @@ behavior; LGL does not claim that the native editor path eagerly rewrites them.
 #### Dispatcher Signature Operations
 
 An Event Dispatcher is one Blueprint object backed by a multicast-delegate
-Variable and a same-owned, same-named `delegate_signature` Graph. The compact
-Dispatcher read supplies that Graph identity as navigation context. Existing
-signature editing targets the Graph; Dispatcher creation, rename, and deletion
-remain Blueprint asset operations because they must update both backing objects.
+Variable and a same-owned, same-named Graph in
+`UBlueprint::DelegateSignatureGraphs`. That Graph still has native
+`type: GT_Function`; its ownership supplies the Dispatcher Signature role. The
+compact Dispatcher read supplies its Graph identity as navigation context.
+Existing signature editing targets the Graph; Dispatcher creation, rename, and
+deletion remain Blueprint asset operations because they must update both
+backing objects.
 
 A valid Dispatcher Signature Graph has exactly one editable Function Entry and
 no Function Result. It supports semantic input parameters only:
@@ -1701,7 +1713,7 @@ Node object text and node creation use different fields:
 
 | Use | Field | Example |
 | --- | --- | --- |
-| Existing node object text | `type` | `node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_Delay")` |
+| Existing node object text | `type` | `node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")` |
 | Palette creation identity | `palette` | `node(palette: "P_Delay")` |
 
 All Graph Node creation uses an exact Palette Entry returned by UE-aware
@@ -1720,7 +1732,7 @@ objects across queries, and UE object paths where UE itself requires them. Do
 not guess a Node class or use positional forms:
 
 ```lgl
-delay = node(g, "/Script/BlueprintGraph.K2Node_Delay")
+delay = node(g, "/Script/BlueprintGraph.K2Node_CallFunction")
 ```
 
 The existing normalized creation shape now has only its Palette-backed branch:

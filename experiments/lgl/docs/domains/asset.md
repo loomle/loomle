@@ -22,7 +22,7 @@ Asset query text is a statement list:
 ```lgl
 query asset
 assets "door"
-where root = "/Game" and type = blueprint
+where root = "/Game" and type = "/Script/Engine.Blueprint"
 with registryTags
 order by score desc, path asc
 page limit 10
@@ -31,38 +31,40 @@ page limit 10
 Asset results are LGL object statements:
 
 ```lgl
-door = asset(path: "/Game/Blueprints/BP_Door.BP_Door", type: blueprint, class: "/Script/Engine.Blueprint", domains: [asset, blueprint], loaded: false)
-doorFrame = asset(path: "/Game/Blueprints/BP_DoorFrame.BP_DoorFrame", type: blueprint, class: "/Script/Engine.Blueprint", domains: [asset, blueprint], loaded: false)
+door = asset(path: "/Game/Blueprints/BP_Door.BP_Door", type: "/Script/Engine.Blueprint", domains: [asset, blueprint], loaded: false)
+doorFrame = asset(path: "/Game/Blueprints/BP_DoorFrame.BP_DoorFrame", type: "/Script/Engine.Blueprint", domains: [asset, blueprint], loaded: false)
 ```
 
 The returned bindings should be directly usable by other domains:
 
 ```lgl
-g = graph(domain: blueprint, asset: door, id: "graph-guid", name: EventGraph, type: event_graph)
+g = graph(domain: blueprint, asset: door, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 ```
 
 ## Asset Objects
 
 | Object | Syntax | Example |
 | --- | --- | --- |
-| Asset binding | `name = asset(path: "...", type: symbol, metadata...)` | `door = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)` |
+| Asset binding | `name = asset(path: "...", type: nativeClassPath, metadata...)` | `door = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")` |
 | Registry tags | `registryTags: {key: value}` | `registryTags: {ParentClass: "/Script/Engine.Actor"}` |
 | Domain list | `domains: [symbol, symbol]` | `domains: [asset, blueprint]` |
 | Loaded flag | `loaded: boolean` | `loaded: false` |
 
-`path` is the canonical object path. Other named arguments are lightweight
-metadata from Asset Registry or deterministic Loomle classification.
+`path` is the canonical object path. `type` is exactly
+`FAssetData::AssetClassPath`; LGL does not translate it into an asset category.
+Other named arguments are lightweight Registry metadata or deterministic LGL
+adapter routing information.
 
 Asset identity should stay explicit. Avoid positional asset constructors:
 
 ```lgl
-asset("/Game/BP_Door.BP_Door", blueprint, false)
+asset("/Game/BP_Door.BP_Door", "/Script/Engine.Blueprint", false)
 ```
 
 Use named arguments:
 
 ```lgl
-door = asset(path: "/Game/BP_Door.BP_Door", type: blueprint, loaded: false)
+door = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint", loaded: false)
 ```
 
 Normalized JSON:
@@ -73,7 +75,6 @@ interface Asset {
   alias: string;
   path: string;
   type?: string;
-  class?: string;
   domains?: string[];
   loaded?: boolean;
   registryTags?: Record<string, Value>;
@@ -96,8 +97,9 @@ page after "cursor"
 ```
 
 The quoted text after `assets` is the primary asset search text. It should
-perform deterministic contains-style search over asset name, object path, class,
-type, and selected registry tags. Exact structured filtering belongs in `where`.
+perform deterministic contains-style search over asset name, object path,
+native Asset Class Path, and selected registry tags. Exact structured filtering
+belongs in `where`.
 
 Field-level `~=` may still be used for advanced structured filters, but it is
 not the normal way to express the main asset search text.
@@ -105,8 +107,7 @@ not the normal way to express the main asset search text.
 Supported `where` fields:
 
 - `root`: package path root such as `/Game`
-- `type`: LGL asset type such as `blueprint`, `material`, `widget`, or `pcg`
-- `class`: UE class path when the caller needs exact UE class filtering
+- `type`: exact native `FAssetData::AssetClassPath`
 - `name`: asset name
 - `path`: object path
 - `registryTag.<key>`: Asset Registry tag filtering
@@ -118,7 +119,6 @@ Supported `order by` keys:
 - `name`
 - `path`
 - `type`
-- `class`
 
 Asset query has no `select` clause. The default result includes identity,
 path, type, domains, and loaded state. `with registryTags` expands Asset
@@ -135,8 +135,8 @@ defaults.
 Asset search returns canonical asset bindings:
 
 ```lgl
-door = asset(path: "/Game/Blueprints/BP_Door.BP_Door", type: blueprint, domains: [asset, blueprint], score: 98)
-doorFrame = asset(path: "/Game/Blueprints/BP_DoorFrame.BP_DoorFrame", type: blueprint, domains: [asset, blueprint], score: 81)
+door = asset(path: "/Game/Blueprints/BP_Door.BP_Door", type: "/Script/Engine.Blueprint", domains: [asset, blueprint], score: 98)
+doorFrame = asset(path: "/Game/Blueprints/BP_DoorFrame.BP_DoorFrame", type: "/Script/Engine.Blueprint", domains: [asset, blueprint], score: 81)
 ```
 
 Results should be deterministic. A default ranking policy can prefer:
@@ -146,7 +146,7 @@ Results should be deterministic. A default ranking policy can prefer:
 3. asset name prefix
 4. asset name contains
 5. path segment contains
-6. class, type, or registry tag match
+6. native Asset Class Path or registry tag match
 
 Results should not load assets by default. Loading belongs to explicit adapter
 behavior outside default search.
@@ -170,7 +170,7 @@ They are lightweight key/value metadata exposed through `FAssetData`.
 Example:
 
 ```lgl
-door = asset(path: "/Game/BP_Door.BP_Door", type: blueprint, registryTags: {ParentClass: "/Script/Engine.Actor"})
+door = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint", registryTags: {ParentClass: "/Script/Engine.Actor"})
 ```
 
 `{}` is allowed here because it is an inline value object. It is not a
@@ -197,8 +197,8 @@ without copying Content Browser's UI search language as the main interface.
 Asset bindings are reusable references:
 
 ```lgl
-door = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
-g = graph(domain: blueprint, asset: door, id: "graph-guid", name: EventGraph, type: event_graph)
+door = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
+g = graph(domain: blueprint, asset: door, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 ```
 
 Graph, widget, material, and PCG domains should not reimplement asset path

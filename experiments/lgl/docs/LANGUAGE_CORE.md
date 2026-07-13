@@ -15,8 +15,8 @@ LGL is a line-oriented text language. A document is a sequence of statements:
 
 ```lgl
 # Name objects, then refer to them from later statements.
-bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
-g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
+bp = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
+g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 print = node(graph: g, id: "node-guid", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")
 ```
 
@@ -72,7 +72,7 @@ single-line or multi-line layout, but both must normalize identically.
 | --- | --- | --- |
 | Single-line comment | `# text` | `# Inspect a Blueprint event graph.` |
 | Multi-line comment | `###` lines around text | see below |
-| Binding | `target = Expression` | `g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)` |
+| Binding | `target = Expression` | `g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)` |
 | Domain statement | domain-defined line | `query g` |
 | Sugar statement | domain-defined shorthand | `begin.Then -> print.Exec` |
 
@@ -107,7 +107,7 @@ Bindings name objects or values so later statements can reference them. The
 binding target is usually a local identifier:
 
 ```lgl
-delay = node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_Delay")
+delay = node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")
 ```
 
 Domains may also allow member paths as binding targets when they compactly
@@ -146,7 +146,7 @@ patch creation bindings may normalize to `NodeCreation`.
 
 | Expression | Syntax | Example |
 | --- | --- | --- |
-| Constructor | `Name(arg: value)` | `node(graph: g, type: "/Script/BlueprintGraph.K2Node_Delay")` |
+| Constructor | `Name(arg: value)` | `node(graph: g, type: "/Script/BlueprintGraph.K2Node_CallFunction")` |
 | Reference | `name` | `g` |
 | Member reference | `name.member` | `begin.Then` |
 | Stable reference | `object@id` | `node@A001` |
@@ -258,19 +258,19 @@ domain operation may then select one native field from the referenced object.
 
 ## Constructors
 
-Constructors create typed LGL objects:
+Constructors describe LGL objects:
 
 ```lgl
-asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
-graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
-node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_Delay")
+asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
+graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
+node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")
 ```
 
 Constructor arguments are named because they are clear for agents, easy to
 validate, and safe to evolve:
 
 ```lgl
-g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
+g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 ```
 
 Positional constructor arguments are not supported:
@@ -281,26 +281,38 @@ g = graph(blueprint, bp, EventGraph)
 
 ## UE Native Type Text
 
-LGL does not define or translate a separate UE value type system. When a
-domain-owned `type` field describes a UE value type, it carries the canonical,
-parseable native type text of the UE system that owns the object. For example,
-reflected Properties, Blueprint variables, and graph Pins may use different
-UE-native type representations because UE itself stores and validates them
-through different structures.
+LGL never defines or translates its own type system. Every field named `type`
+carries the canonical native UE text supplied by the UE system that owns that
+object. It is not a friendly label, an LGL category, or a closed LGL enum.
 
-The owning adapter selects the native codec, preserves every required native
-type detail, and validates the text through UE. Query results must return type
-text that can be copied back into a compatible create or edit operation.
+The native source varies because UE itself uses different representations:
 
-LGL must not replace native type text with friendly aliases or LGL-specific
-constructors such as translated object, container, Struct, or Enum types. It
-must not use localized editor display labels as type identity. The language
-core preserves the native type literal; it does not interpret, normalize, or
-maintain a second JSON or AST representation of the type.
+- Asset `type` is `FAssetData::AssetClassPath`, such as
+  `"/Script/Engine.Blueprint"`.
+- Blueprint `type` is native `EBlueprintType` text, such as `BPTYPE_Normal`.
+- Graph `type` is native `EGraphType` text returned by its Schema, such as
+  `GT_Function`, `GT_Ubergraph`, or `GT_Macro`.
+- Node, Component, Timeline, and similar UObject `type` fields use their exact
+  native Class Path.
+- Pin and Blueprint Variable `type` fields use canonical
+  `FEdGraphPinType` text.
+- Reflected Property `type` fields use the owning `FProperty` native text.
 
-Other domain fields may also be named `type`, such as an asset type, Graph
-role, or Node type. Those are domain-owned categories and are not UE value type
-expressions.
+The owning adapter selects the native source and codec, preserves every
+required detail, and validates the text through UE. Query results must return
+type text that can be copied back into a compatible create or edit operation.
+LGL must not replace it with friendly asset, Graph, Node, value, container,
+Struct, or Enum aliases. It must not use localized editor labels as type
+identity.
+
+Native enum tokens may use ordinary unquoted Name syntax. Paths and structured
+native text use strings. Normalized JSON uses those ordinary `Name` or string
+values and preserves the native text without semantic remapping; there is no
+type-specific AST or JSON model.
+
+The LGL object word or normalized `kind` remains structural syntax such as
+`asset`, `graph`, `node`, or `pin`. `domain` and `domains` remain adapter
+routing information. None of these fields are substitutes for native `type`.
 
 ## Arrays And Objects
 
@@ -321,7 +333,7 @@ Braces are not structural blocks:
 
 ```lgl
 asset "/Game/BP_Door.BP_Door" {
-  type: blueprint
+  type: "/Script/Engine.Blueprint"
 }
 ```
 
@@ -457,7 +469,7 @@ literal.
 | --- | --- | --- |
 | `query` | target domain or bound object | `query asset`, `query g` |
 | primary operation | choose one domain-defined read | `assets "door"`, `context node@node-id depth 2` |
-| `where` | structured filter expression | `where type = blueprint and not loaded` |
+| `where` | structured filter expression | `where type = "/Script/Engine.Blueprint" and not loaded` |
 | `with` | expand beyond the domain default result | `with registryTags`, `with pins, defaults, layout` |
 | `order by` | deterministic result ordering | `order by score desc, path asc` |
 | `page limit` | maximum result count | `page limit 50` |
@@ -472,7 +484,7 @@ search text. `where` is for structured filters:
 
 ```lgl
 assets "door"
-where root = "/Game" and type = blueprint
+where root = "/Game" and type = "/Script/Engine.Blueprint"
 
 nodes "Print"
 where type = "/Script/BlueprintGraph.K2Node_CallFunction"
@@ -486,8 +498,8 @@ operation-local arguments, such as graph palette pin-context arguments `from
 Condition expressions use a small SQL-like subset:
 
 ```lgl
-where type = blueprint
-where root = "/Game" and type = blueprint
+where type = "/Script/Engine.Blueprint"
+where root = "/Game" and type = "/Script/Engine.Blueprint"
 where NodeComment ~= "debug"
 where not loaded
 ```

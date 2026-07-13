@@ -32,8 +32,8 @@ LGL has three agent-facing text kinds.
 Object text describes UE objects, object fragments, or query results:
 
 ```lgl
-bp = asset(path: "/Game/BP_Door.BP_Door", type: blueprint)
-g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: event_graph)
+bp = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
+g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 
 begin = node(graph: g, id: "A001", type: "/Script/BlueprintGraph.K2Node_Event")
 print = node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")
