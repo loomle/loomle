@@ -250,21 +250,50 @@ interface StableRef {
 }
 ```
 
-The actual schema replaces `kind: string` with the closed object words supported
-by its domains. For example, Graph uses `node`, `pin`, and `graph`. This `kind`
-is the LGL object kind, not the object's native UE `type` field. Member
-references remain two-segment, document-local paths in normalized JSON; a
-domain operation may then select one native field from the referenced object.
+Each adapter schema defines the object words it supports. For example, Graph
+may use `node`, `pin`, and `graph`. The word before `@` selects that schema's
+identity namespace; it is not a native UE `type` and is not inferred from one.
+Member references remain two-segment, document-local paths in normalized JSON;
+a domain operation may then select one native field from the referenced object.
 
 ## Constructors
 
-Constructors describe LGL objects:
+The Core parses every `Name(named: arguments)` expression through the same
+generic Call syntax. It does not reserve `asset`, `graph`, `node`, `pin`,
+`variable`, or other domain object names as built-in business constructs.
+
+Each domain adapter may define a small set of object constructors that make its
+ordered text explicit and compact:
 
 ```lgl
 asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
 graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")
 ```
+
+A domain constructor is an object-shape label comparable to a schema
+discriminator in JSON. It may identify the object's field schema, identity
+namespace, ownership shape, and text layout. It must not translate native UE
+`type`, encode a UE business role, or decide an operation merely from its name.
+For example, `graph(...)` identifies Graph-shaped object text; it does not mean
+Function Graph, Event Graph, or Dispatcher Signature Graph.
+
+A constructor expression has no mutation side effect. It may describe an
+existing object returned by a query or bind an unmaterialized object inside a
+Patch. A separate ordered Operation such as `add` performs creation when the
+resolved adapter schema permits it:
+
+```lgl
+door.Health = variable(type: "<FEdGraphPinType native text>")
+add door.Health
+```
+
+The same domain constructor is used for readback and mutation bindings. A
+domain should define one only when it materially clarifies an independently
+addressable object, its identity space, or its structural relationships. It
+must not add one constructor per native Class, type value, editor label, or
+object role. Every public constructor remains part of the documented domain
+contract; adapters cannot introduce one silently.
 
 Constructor arguments are named because they are clear for agents, easy to
 validate, and safe to evolve:
@@ -310,9 +339,9 @@ native text use strings. Normalized JSON uses those ordinary `Name` or string
 values and preserves the native text without semantic remapping; there is no
 type-specific AST or JSON model.
 
-The LGL object word or normalized `kind` remains structural syntax such as
-`asset`, `graph`, `node`, or `pin`. `domain` and `domains` remain adapter
-routing information. None of these fields are substitutes for native `type`.
+The adapter-defined object word or normalized discriminator remains structural
+information such as `asset`, `graph`, `node`, or `pin`. `domain` and `domains`
+remain adapter routing information. None of them substitute for native `type`.
 
 ## Arrays And Objects
 

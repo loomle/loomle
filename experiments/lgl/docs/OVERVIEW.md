@@ -23,6 +23,29 @@ Patch | Palette`. `Graph`, `Asset`, `Blueprint`, and `Widget` are domains.
 `Palette` is the global creation-discovery concept inside domains, not a
 top-level LGL text kind.
 
+## Domain Object Constructors
+
+The Core has one generic named-call form. Domains define small constructor
+vocabularies such as `graph(...)`, `node(...)`, or `pin(...)` to make their
+object text compact and unambiguous. These names select an adapter-owned object
+shape and identity namespace; they are not UE types or LGL translations of UE
+roles.
+
+Every `type` field remains exact native UE text. A constructor expression only
+describes or binds an object and has no side effect. In Patch text, a separate
+Operation such as `add` materializes an uncreated binding:
+
+```lgl
+patch door
+door.Health = variable(type: "<FEdGraphPinType native text>")
+add door.Health
+```
+
+Query results and Patch bindings use the same domain constructors. A domain
+adds one only when the object has a useful independent schema, identity space,
+or structural relationship; it does not add constructors for every UE Class,
+type value, editor label, or object role.
+
 ## Text Kinds
 
 LGL has three agent-facing text kinds.
