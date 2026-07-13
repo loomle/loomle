@@ -2,467 +2,345 @@
 
 ## Scope
 
-The widget domain describes UMG WidgetBlueprint trees in LGL. It is the domain
-closest to OpenUI-style component construction because widget trees are
-naturally hierarchical and component-like.
+The Widget domain describes the authored `UWidget` objects inside a
+`UWidgetBlueprint::WidgetTree`. It does not introduce a parallel Widget
+document object or translate Widget Classes and properties into LGL-specific
+types.
 
-The TypeScript LGL experiment implements widget object readback, widget query
-normalization, patch normalization, formatting, schema validation, and an
-in-memory widget adapter. The UE-backed adapter routes the same object model
-through UMG WidgetTree APIs.
+This document is the normative LGL design. The current TypeScript experiment
+and UE-backed Widget adapter predate it and remain implementation gaps. Bridge
+work is intentionally deferred until the LGL documents are complete.
 
-## Basic Form
+## UE Object Boundary
 
-Widget tree text is a statement list:
+The domain maps UE objects directly:
 
-```lgl
-menuAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: "/Script/UMGEditor.WidgetBlueprint")
-menu = widget(asset: menuAsset, root: mainCanvas)
+| UE concept | LGL representation |
+| --- | --- |
+| `UWidgetBlueprint` | the existing `blueprint(...)` object shape |
+| owned `UWidgetTree` | the Blueprint's tree relationship, not another object binding |
+| one authored `UWidget` | `widget(...)` |
+| `FWidgetTemplate` | one Palette creation capability |
 
-mainCanvas = CanvasPanel()
-mainCanvas.stack = VerticalBox()
-stack.title = TextBlock(text: "Main Menu", fontSize: 32)
-stack.start = Button(text: "Start")
-stack.quit = Button(text: "Quit")
-```
+`UWidgetBlueprint` already owns its `UWidgetTree`. LGL therefore has no
+`widget(asset: ..., root: ...)` wrapper. The `tree` query is a view of that
+owned relationship, not a constructor or result object.
 
-The widget document declares the root alias with `root: mainCanvas`. The root
-widget itself is a normal binding; it does not have to be named `root`.
+Every authored Widget uses the same neutral object shape. Native Classes do not
+become constructors such as `Button()`, `CanvasPanel()`, or `TextBlock()`.
+Existing objects return the exact UE Class path in `type`, and native properties
+retain their exact UE names and values.
 
-Hierarchy is expressed by member binding targets:
+## Object Text
 
-```lgl
-parent.child = WidgetType(...)
-```
-
-The parent is the left-side prefix. The child alias is the left-side member.
-Sibling order is the order of child binding lines for the same parent.
-
-Structural `{}` blocks are not used.
-
-## Widget Objects
-
-| Object | Syntax | Example |
-| --- | --- | --- |
-| Widget asset | `name = asset(path: "...", type: nativeClassPath)` | `menuAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: "/Script/UMGEditor.WidgetBlueprint")` |
-| Widget document | `name = widget(asset: ref, root: ref)` | `menu = widget(asset: menuAsset, root: mainCanvas)` |
-| Root widget | `name = WidgetType(props...)` | `mainCanvas = CanvasPanel()` |
-| Child widget | `parent.child = WidgetType(props...)` | `stack.start = Button(text: "Start")` |
-| Slot metadata | `slot: value` | `stack.start = Button(text: "Start", slot: fill)` |
-
-Widget asset identity uses the asset domain and named arguments. Widget
-constructors also use named arguments. Avoid positional forms:
+A complete tree result begins with its Asset and Blueprint context, then emits
+the root and descendants in editor order:
 
 ```lgl
-widget("/Game/UI/WBP_Menu.WBP_Menu")
-Button("Start")
-VerticalBox([title, start])
+menuAsset = asset(
+  path: "/Game/UI/WBP_Menu.WBP_Menu",
+  type: "/Script/UMGEditor.WidgetBlueprint"
+)
+
+menu = blueprint(
+  asset: menuAsset,
+  id: "blueprint-guid",
+  type: BPTYPE_Normal,
+  ParentClass: "/Script/UMG.UserWidget"
+)
+
+mainCanvas = widget(
+  id: "canvas-guid",
+  type: "/Script/UMG.CanvasPanel"
+)
+
+mainCanvas.stack = widget(
+  id: "stack-guid",
+  type: "/Script/UMG.VerticalBox"
+)
+
+stack.title = widget(
+  id: "title-guid",
+  type: "/Script/UMG.TextBlock",
+  Text: "<FText native text>"
+)
 ```
 
-Prefer:
+The unique top-level Widget binding is `UWidgetTree::RootWidget`. It needs no
+duplicate `root` argument. An empty WidgetTree has no Widget bindings.
+
+Panel hierarchy uses member binding targets:
 
 ```lgl
-menuAsset = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: "/Script/UMGEditor.WidgetBlueprint")
-menu = widget(asset: menuAsset, root: mainCanvas)
+parent.child = widget(...)
 ```
 
-Normalized JSON:
+The parent alias must already exist. The member name is the child's current UE
+object name and introduces its document-local alias for later bindings. Sibling
+order is the order of child binding statements under the same parent. A parent
+always precedes its descendants. Structural braces, `children` arrays, and a
+translated `parent` constructor argument are unnecessary.
 
-```ts
-interface Document {
-  alias: string;
-  asset: string;
-  root: string;
-  widgets: Node[];
-}
+Every source Widget's `id` maps to its entry in
+`UWidgetBlueprint::WidgetVariableNameToGuidMap`. UE preserves that GUID through
+`OnVariableRenamed`, so later requests use `widget@id` rather than a current
+name. Query-result aliases remain document-local.
 
-interface Node {
-  alias: string;
-  class: string;
-  parent?: string;
-  properties?: Record<string, Value>;
-}
-```
+Native Widget properties are flattened onto the `widget(...)` Call only when
+they are part of the requested object state. LGL does not rename `Text` to
+`text`, split native `Font` data into `fontSize`, or invent friendly Widget
+property types. `with schema` discovers the exact readable, writable, and
+resettable fields for the resolved Widget Class.
 
-Sibling order is derived from statement order for each parent. LGL text does
-not require agents to write explicit order fields.
+Normalized JSON uses the shared ordered `Binding` and ordinary `Call`. It has
+no Widget-specific Document or Node expression:
 
-## Tree Sugar
-
-Child bindings are widget tree sugar:
-
-```lgl
-mainCanvas.stack = VerticalBox()
-stack.title = TextBlock(text: "Main Menu", fontSize: 32)
-stack.start = Button(text: "Start")
-stack.quit = Button(text: "Quit")
-```
-
-This normalizes to canonical widget node text with explicit `parent`. Sibling
-order remains the order of widget statements in text:
-
-```lgl
-stack = VerticalBox(parent: mainCanvas)
-title = TextBlock(parent: stack, text: "Main Menu", fontSize: 32)
-start = Button(parent: stack, text: "Start")
-quit = Button(parent: stack, text: "Quit")
-```
-
-Rules:
-
-1. `parent.child = WidgetType(...)` defines `child` as the alias.
-2. The parent must be a previously declared widget alias.
-3. Sibling order is the order of child binding lines for that parent.
-4. Duplicate child aliases under the same document are invalid.
-5. The root widget is declared by `widget(..., root: alias)` and may use any
-   alias name.
-
-Canonical text uses `parent` and preserves statement order. Normalized JSON
-should not need a separate `children` array; child lists can be derived from
-parent plus order.
-
-Widget query results should prefer editor-order tree sugar. The format is
-flat, streamable, and close to the hierarchy shown in the UMG editor.
-
-## Slots
-
-Slot data belongs to the relationship between a parent container and a child.
-The exact syntax must follow UMG slot semantics.
-
-Simple slot metadata may appear on the child constructor:
-
-```lgl
-stack.start = Button(text: "Start", slot: fill)
-```
-
-Richer slot data should use an inline object value:
-
-```lgl
-mainCanvas.stack = VerticalBox(slot: {anchors: fill, padding: [16, 12, 16, 12]})
-```
-
-Slot sugar must normalize to explicit slot data attached to the child node
-before normalized JSON.
-
-Normalized JSON:
-
-```ts
-interface Slot {
-  parent: string;
-  child: string;
-  properties: Record<string, Value>;
+```json
+{
+  "target": {"kind": "member", "object": "mainCanvas", "member": "stack"},
+  "value": {
+    "kind": "call",
+    "callee": "widget",
+    "args": {
+      "id": "stack-guid",
+      "type": "/Script/UMG.VerticalBox"
+    }
+  }
 }
 ```
-
-Slot data is relationship metadata. It is stored on the child node for compact
-transport, but the adapter must apply it through the UMG slot object owned by
-the parent-child relationship.
 
 ## Query
 
-Widget queries use the shared query shape:
+Widget reads use the shared summary, collection, exact-name, stable-id, and
+Palette model:
+
+```lgl
+summary menu
+
+query menu
+tree
+
+query menu
+widgets ["text"]
+
+query menu
+widget <name>
+
+query menu
+find widget@id
+
+query menu
+palette entries ["text"]
+
+query menu
+palette @id
+```
+
+`menu` resolves a `UWidgetBlueprint`, not an artificial Widget document. Each
+query has exactly one primary operation.
+
+`tree` returns the Asset and Blueprint context followed by the complete authored
+Widget hierarchy. `widgets` enumerates or searches compact Widget identities;
+its search text covers current name, native `type`, and relevant native
+descriptive fields. Structured filtering uses native values:
 
 ```lgl
 query menu
 widgets "Start"
-where type = Button
+where type = "/Script/UMG.Button"
 order by name asc
-page limit 10
+page limit 50
 ```
 
-Widget query syntax:
+`widget <name>` resolves one current Widget name inside the bound WidgetTree.
+`find widget@id` resolves one stable Widget GUID. Exact reads accept
+`with schema`; collection search does not recursively expand schemas:
 
 ```lgl
-query <widget>
-tree
-widgets ["text"]
-palette entries ["text"]
-where <condition>
-with <item>, <item>
-order by <key> asc|desc, <key> asc|desc
-page limit <number>
-page after "cursor"
+query menu
+find widget@title-guid
+with schema
 ```
 
-For `widgets`, the quoted text is the primary search text over widget name,
-class/type, and relevant display text. Use `where` for structured filters such
-as `type = Button`.
+The exact result includes the shortest ancestor chain needed to make its member
+binding unambiguous. Zero matches return an unknown-object diagnostic, and
+invalid duplicate identity or name state returns an ambiguity diagnostic rather
+than guessing.
 
-For `palette entries`, the quoted text is the primary search text over
-entry name, class path, palette id, label, and category. It returns creation
-entries that can be copied directly into patch text. Use `with defaults` to
-include common creation arguments and `with properties` to include writable
-property metadata.
+`summary menu` is owned by the Widget adapter. It returns the compact Blueprint
+context and enough root/count comments to orient the agent without expanding
+the whole tree or introducing a summary-specific object.
 
-Exact widget lookup and parent-child queries use structured filters:
-
-```lgl
-widgets
-where name = start
-
-widgets
-where parent = stack
-```
-
-The default widget query result includes widget identity, class/type, name, and
-parent. `tree` returns the tree in editor order. Slot and event expansion
-are separate query expansions outside the TypeScript adapter surface.
-
-The normalized JSON representation of `tree`, `widgets`, and `palette entries`
-is not specified yet. It must be reviewed with the shared query contract rather
-than silently reusing the experiment's earlier `find = Find` field. The widget
-domain still owns allowed fields, expansions, sort keys, and pagination
-defaults. The current TypeScript experiment has not migrated to this text
-design.
+The normalized JSON kinds for these Widget query operations still require a
+separate schema review. This text contract does not silently reuse the
+experiment's earlier Widget query payloads.
 
 ## Palette
 
-Widget palette queries discover creation forms for widget patching. They use
-the shared `palette entries` operation, but results prefer the
-most direct creation text rather than forcing every entry through a palette id.
+Every Widget created directly by `add` starts from the Palette of the bound
+WidgetBlueprint:
 
 ```lgl
 query menu
 palette entries "Button"
-with defaults
-page limit 10
+
+Button = widget(palette: "P_Button")
 ```
 
-Default results stay compact:
+An exact read returns the same copyable creation binding and may add its schema
+as structured comments:
 
 ```lgl
-Button = Button()
-TextBlock = TextBlock()
+query menu
+palette @P_Button
+with schema
+
+Button = widget(palette: "P_Button")
 ```
 
-`with defaults` includes common writable creation arguments that are useful
-immediately in patch text:
+All Widget Palette entries use `widget(...)`. Native Widget Classes, loaded or
+unloaded WidgetBlueprint assets, image-asset templates, and plugin templates do
+not produce separate Class constructors or a `widget(class: ...)` branch. The
+opaque Palette id selects the exact `FWidgetTemplate` creation capability.
 
-```lgl
-Button = Button(text: "")
-TextBlock = TextBlock(text: "", fontSize: 24)
-```
+The Palette call does not repeat `type` when the selected capability already
+fixes the created Class. `with schema` reports the resulting native `type`,
+current context constraints, native defaults, editable fields, and initially
+available Operations. Properties are edited after creation through ordinary
+ordered `set` statements rather than friendly constructor arguments.
 
-`with properties` asks the adapter to include writable property metadata for
-the returned creation entries. Property metadata is descriptive; patch text
-still writes properties as constructor arguments or `set widget.property = ...`.
+`FWidgetTemplate::Create` may create one Widget or a native subtree. The Palette
+binding names its primary returned Widget. Any descendants produced by that
+same template are native effects, not additional direct `add` inputs. The
+mutation result returns the complete materialized subtree in ordinary ordered
+Widget Object Text with real Widget ids.
 
-```lgl
-Button.text = property(type: "TextProperty", default: "", writable: true)
-```
+At `add`, the adapter resolves the Palette id again and validates at least:
 
-`with defaults, properties` may be combined:
+1. The exact template is still available in the target WidgetBlueprint context.
+2. Its Widget Class is usable and not abstract, deprecated, hidden, or excluded
+   by project Palette settings.
+3. A User Widget does not introduce a circular WidgetBlueprint reference.
+4. The requested Widget name is valid and unused.
+5. The selected parent can accept the created primary Widget.
 
-```lgl
-Button = Button(text: "")
-Button.text = property(type: "TextProperty", default: "", writable: true)
-```
+A Palette capability id is not a future Widget id and is not persisted in
+materialized Widget Object Text. Display labels, Class display names, and menu
+positions are never used as execution identity.
 
-Use a stable widget constructor when the entry maps to a common native UMG
-widget with clear semantics:
+Palette results are ordinary ordered bindings with ordinary `Call` values.
+Widget defines no `PaletteResult`, `ShortcutEntry`, `ClassEntry`, or
+Widget-specific creation expression.
 
-```lgl
-Button = Button()
-CanvasPanel = CanvasPanel()
-VerticalBox = VerticalBox()
-```
+## Patch
 
-Use `widget(class: "...")` for project widgets, user widgets, and other entries
-where a UE widget class path is the complete creation identity:
+Widget Patch uses the shared lifecycle operations. Bindings and operations are
+separate ordered statements.
 
-```lgl
-InventorySlot = widget(class: "/Game/UI/WBP_InventorySlot.WBP_InventorySlot_C")
-```
-
-Use `widget(palette: "...")` only as a fallback for plugin or template entries
-that cannot be represented safely as a constructor or class path:
-
-```lgl
-PluginFancy = widget(palette: "widget.palette:...")
-```
-
-Patch text consumes the returned creation form directly:
+Creating the root Widget uses a local binding:
 
 ```lgl
 patch menu
 
-add mainCanvas.stack = VerticalBox()
-add stack.title = TextBlock(text: "Main Menu")
-add stack.start = Button(text: "Start")
-add stack.slot = widget(class: "/Game/UI/WBP_InventorySlot.WBP_InventorySlot_C")
-add stack.fancy = widget(palette: "widget.palette:...")
+mainCanvas = widget(palette: "P_CanvasPanel")
+add mainCanvas
 ```
 
-Widget palette is class-driven. Common native widgets return constructor
-entries such as `Button()` and `TextBlock()`. User widgets and WidgetBlueprint
-assets return `widget(class: "...")`. Special templates that cannot be
-represented by constructor or class path return `widget(palette: "...")`.
+For Widget Patch, direct `add` of a local Widget binding means set it as the
+WidgetTree root. It is valid only when no root currently exists.
 
-The UE-backed adapter should model the UMG editor palette, including native
-`UWidget` classes, user widget classes, unloaded WidgetBlueprint assets from
-the Asset Registry, hidden/deprecated/editor-only filtering, and project
-palette settings.
-
-`with defaults` is intentionally small. It should return common writable
-creation arguments that make immediate patch authoring easier. `with
-properties` returns property metadata for discoverability. Neither expansion
-should expose events or slot schema; those belong to separate `with events` and
-`with slots` expansions.
-
-The adapter must validate palette entries against UE state before returning or
-executing them:
-
-1. The class or template resolves for the target WidgetBlueprint context.
-2. The class is not abstract, deprecated, hidden, or editor-only when the target
-   WidgetBlueprint disallows editor widgets.
-3. The class is not the same WidgetBlueprint class currently being edited.
-4. Asset Registry entries that are not loaded still provide enough metadata to
-   produce a stable `widget(class: "...")` result, or they fall back to
-   `widget(palette: "...")`.
-5. Parent compatibility and slot validity are checked during patch validation
-   and apply, because they depend on the actual `add parent.child = ...`
-   target.
-
-Normalized JSON:
-
-```ts
-interface PaletteResult {
-  kind: "palette_result";
-  target: Target;
-  entries: CreationEntry[];
-}
-
-type CreationEntry =
-  | ShortcutEntry
-  | ClassEntry
-  | PaletteEntry;
-
-interface ShortcutEntry {
-  name: string;
-  constructor: Call;
-  defaults?: Record<string, Expr>;
-  properties?: Property[];
-}
-
-interface ClassEntry {
-  name: string;
-  class: string;
-  label?: string;
-  category?: string;
-  defaults?: Record<string, Expr>;
-  properties?: Property[];
-}
-
-interface PaletteEntry {
-  name: string;
-  palette: PaletteSourceRef;
-  label?: string;
-  category?: string;
-  defaults?: Record<string, Expr>;
-  properties?: Property[];
-}
-
-interface Property {
-  name: string;
-  type: string;
-  default?: Expr;
-  writable?: boolean;
-  category?: string;
-}
-```
-
-## Patch
-
-Widget patch text is a statement list:
+Creating a child uses a member binding whose owner is the parent Widget:
 
 ```lgl
-patch menu dry run
+patch menu
 
-add stack.help = Button(text: "Help")
-set title.text = "Main Menu"
-move help after start
-remove quit
+stack.start = widget(palette: "P_Button")
+add stack.start
+set stack.start.Text = "<FText native text>"
 ```
 
-Patch operation names should stay close to UE widget tree operations:
+The adapter materializes the Palette template in the target `UWidgetTree`, uses
+the binding member as the exact requested Widget name, attaches the Widget
+through the resolved parent, creates the native Panel Slot when applicable, and
+registers every created source Widget through the WidgetBlueprint GUID path.
 
-| Operation | Syntax | Example |
-| --- | --- | --- |
-| Add widget | `add parent.child` or `add parent.child = WidgetType(...)` | `add stack.help = Button(text: "Help")` |
-| Set property | `set target = value` | `set title.text = "Main Menu"` |
-| Move widget | `move child before/after sibling` | `move help after start` |
-| Remove widget | `remove name` | `remove quit` |
-
-`add parent.child = WidgetType(...)` uses the shared patch sugar from the
-language core. Its canonical form is a child widget binding followed by
-`add parent.child`:
+Existing objects use typed stable references across requests:
 
 ```lgl
-stack.help = Button(text: "Help")
-add stack.help
+set widget@title-guid.Text = "<FText native text>"
+reset widget@title-guid.Text
+move widget@help-guid after widget@start-guid
+remove widget@quit-guid
 ```
 
-The TypeScript LGL experiment implements `add`, `set`, `move`, and `remove` in the
-in-memory widget adapter. The UE-backed adapter must route the same operations
-through UMG WidgetTree APIs and slot/property edit paths.
+The confirmed Widget lifecycle surface is:
 
-Normalized JSON:
+| Operation | Meaning |
+| --- | --- |
+| `add binding` | create one Palette-backed root or child Widget |
+| `set widget.field = value` | write one schema-approved native Widget field |
+| `reset widget.field` | restore one field through its schema-approved native reset path |
+| `move widget before|after widget` | reorder siblings under the same parent |
+| `remove widget` | remove one authored Widget subtree through native editor behavior |
+| `invoke widget Operation(...)` | execute a specialized operation returned by that Widget's schema |
 
-```ts
-type PatchOp =
-  | Add
-  | Set
-  | Move
-  | Remove;
+There is no inline `add parent.child = widget(...)` form. A failed validation
+applies nothing, and all mutation results use the same ordered Widget Object
+Text as queries plus the shared mutation diagnostics and effects.
 
-interface Add {
-  kind: "add";
-  target: FieldPath;
-}
+## Slot Boundary
 
-interface Set {
-  kind: "set";
-  target: FieldPath;
-  value: Expr;
-}
+Panel Slots and Named Slots are deliberately not defined in this revision.
+They are different UE relationships:
 
-interface Move {
-  kind: "move";
-  target: FieldPath;
-  relativeTo: FieldPath;
-  position: "before" | "after";
-}
+- a `UPanelSlot` is a class-sensitive UObject created by a `UPanelWidget`
+  parent-child relationship;
+- a Named Slot is owned through `INamedSlotInterface` and its content has no
+  `UPanelSlot` parent.
 
-interface Remove {
-  kind: "remove";
-  target: FieldPath;
-}
-```
+The previous generic `slot:` value lost the Slot Class and could not represent
+Named Slot ownership without ambiguity. LGL therefore defines no `slot:` sugar,
+`with slots` expansion, or Named Slot binding rule until that relationship is
+reviewed separately against UE source.
 
-Widget patch text uses the shared `Patch` envelope with `target.domain =
-"widget"` and `ops = PatchOp[]`.
+Ordinary Panel hierarchy remains valid. If a requested read or mutation needs a
+Slot relationship that the current contract cannot express losslessly, the
+adapter returns an unsupported-capability diagnostic rather than flattening or
+guessing it.
 
-The adapter resolves targets to WidgetTree instances and applies operations
-through UMG WidgetTree APIs.
+## UE Mapping
+
+The adapter follows UE's native ownership and editor paths:
+
+- `UBaseWidgetBlueprint::WidgetTree` owns the authored tree.
+- `UWidgetTree::RootWidget` is the unique root.
+- `FWidgetTemplate::Create(UWidgetTree*)` is the Palette creation path and may
+  preserve template-specific initialization.
+- `UWidgetBlueprint::WidgetVariableNameToGuidMap` supplies Widget `id` values;
+  `OnVariableAdded`, `OnVariableRenamed`, and `OnVariableRemoved` maintain them.
+- `UWidgetTree::RemoveWidget`, parent `UPanelWidget` operations, and the Widget
+  editor utilities own structural mutation behavior.
+
+The adapter must not replace an exact `FWidgetTemplate` with a guessed Class and
+raw `ConstructWidget`, silently suffix requested names, synthesize missing ids
+during a read, or collapse Panel Slot and Named Slot relationships into one
+field.
 
 ## Adapter Boundary
 
 Pure LGL normalization may:
 
-- convert `parent.child = WidgetType(...)` sugar into explicit `parent` while
-  preserving widget statement order
-- convert slot sugar into explicit slot data
-- normalize widget query clauses into a structured query object
-- normalize widget palette creation bindings into constructor, class, or
-  palette creation records
+- parse every `widget(...)` value as an ordinary `Call`;
+- preserve local and member binding targets and exact statement order;
+- normalize typed `widget@id` references and shared query or Patch clauses.
 
 Pure LGL normalization must not:
 
-- load WidgetBlueprint assets
-- validate UMG classes
-- validate property names or types
-- decide whether a widget can be parented under a container
-- compile WidgetBlueprints
-- bind events to graph functions
+- resolve a WidgetBlueprint, WidgetTree, Widget, Palette capability, or Class;
+- choose a constructor name from a native Class;
+- validate Widget property names, values, parent compatibility, or capacity;
+- infer a root, Panel Slot, or Named Slot relationship not present in the
+  ordered document;
+- compile the WidgetBlueprint or bind Widget events to Graph Nodes.
 
-The adapter or bridge owns those UE-dependent responsibilities.
+Those UE-dependent responsibilities belong to the Widget adapter and Bridge.
