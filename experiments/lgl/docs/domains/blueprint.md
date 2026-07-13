@@ -559,9 +559,9 @@ also does not implement this query model or `with schema`.
 
 Blueprint Patch uses the shared Core lifecycle operations for its concrete
 objects. It does not turn UE editor utility names into parallel `invoke`
-Operations. This section currently confirms Variable lifecycle only;
-Dispatcher, Graph, Component, and Timeline lifecycle remain to be reviewed
-against their own native UE paths.
+Operations. This section currently confirms Variable and Dispatcher lifecycle;
+Graph, Component, and Timeline lifecycle remain to be reviewed against their
+own native UE paths.
 
 ### Variable Lifecycle
 
@@ -686,6 +686,117 @@ Variable therefore exposes no lifecycle `invoke` Operations. Its closed
 mutation surface is binding plus `add`, field `set` and `reset`, collection
 `move`, and `remove`.
 
+### Dispatcher Lifecycle
+
+A Dispatcher is one first-class lifecycle object with two required UE backing
+objects: a multicast-delegate `FBPVariableDescription` and a same-owned,
+same-named Delegate Signature Graph. Every lifecycle operation validates and
+updates that pair atomically.
+
+Creation uses an unmaterialized member-path binding followed by `add`:
+
+```lgl
+patch door
+
+door.OnOpened = dispatcher()
+
+add door.OnOpened
+```
+
+The binding owner selects the Blueprint and the binding member supplies the
+exact name for both backing objects. `dispatcher()` needs no `type` argument:
+the constructor already fixes the Variable to UE's multicast-delegate Pin type.
+The adapter follows the native Event Dispatcher creation path: create the
+member Variable, create the Signature Graph and its default terminator Nodes,
+make its Function Entry signature-editable, add the required function and
+Property flags, register the Graph in `DelegateSignatureGraphs`, and
+structurally recompile the Blueprint. Failure at any point rolls back both
+objects and the rest of the Patch.
+
+Dispatcher creation is unavailable for Blueprint Interface, Macro Library, and
+Function Library assets, matching the native editor action. The requested name
+must be valid and unused by both the Blueprint declaration namespace and its
+Graph objects. `FBlueprintEditorUtils::CreateNewGraph` can otherwise rename an
+existing same-named Graph out of the way; LGL preflight returns a conflict
+instead and never permits that implicit repair.
+
+The mutation result uses the same ordered object text as an exact Dispatcher
+read: the materialized Dispatcher is followed immediately by its compact
+Signature Graph identity. The caller therefore receives both the Dispatcher's
+stable Variable `id` and the Signature Graph's `graph@id` without another
+query. This does not add a `graph` field to Dispatcher or another Patch output
+syntax.
+
+Existing Dispatcher declaration fields use shared `set` and `reset`:
+
+```lgl
+set dispatcher@dispatcher-id.VarName = OnClosed
+set dispatcher@dispatcher-id.Category = Events
+```
+
+`VarName` routes through `FBlueprintEditorUtils::RenameMemberVariable` and must
+atomically rename the backing Variable and Signature Graph, update same-context
+Dispatcher Nodes and dependent Variable references, and structurally recompile
+every affected loaded Blueprint. Preflight validates the destination Variable
+and Graph namespaces before either half changes and applies the same child
+Blueprint collision policy as Variable rename.
+
+Dispatcher `id` and `type` are read-only. Changing `type` would convert only the
+backing Variable and orphan the Signature Graph, so it is not a supported
+conversion. Required multicast-delegate Property flags likewise cannot be
+cleared. Remaining native declaration fields are writable or resettable only
+as reported by the exact Dispatcher's `with schema` result.
+
+Dispatcher authored order uses the shared `move` operation:
+
+```lgl
+move dispatcher@opened-id before dispatcher@closed-id
+move dispatcher@opened-id after dispatcher@damaged-id
+```
+
+Both Dispatchers must belong to the same Blueprint and Dispatcher collection.
+The adapter routes the reorder through the native member-variable ordering path
+without allowing a cross-section Variable anchor.
+
+Deletion uses the shared lifecycle operation:
+
+```lgl
+remove dispatcher@dispatcher-id
+```
+
+The native editor removes the backing member Variable and Signature Graph as
+one user action, but it does not delete every `UK2Node_BaseMCDelegate` usage
+that will become invalid. LGL neither leaves those errors silently nor expands
+`remove dispatcher` into non-native deletion of unrelated Graph Nodes. If any
+resolvable Dispatcher usage Node would remain invalid, preflight returns a
+conflict and identifies those Nodes. The caller explicitly removes the usages
+through their owning Graph Patch, then retries Dispatcher removal.
+
+Once unused, removal atomically follows
+`FBlueprintEditorUtils::RemoveMemberVariable` and
+`FBlueprintEditorUtils::RemoveGraph`, including the normal Graph deletion
+cleanup and structural compile. If the backing Variable or Signature Graph is
+missing, duplicated, differently named, or otherwise mismatched, the adapter
+returns an inconsistent-Blueprint diagnostic and changes neither half.
+
+Dispatcher signature parameters remain authoritative Pins on the returned
+Signature Graph. Editing them stays in a following Graph Patch and reuses the
+confirmed signature Operations:
+
+```lgl
+patch graph@signature-graph-id
+invoke graph@signature-graph-id AddInputParameter(
+  name: Damage,
+  type: "<FEdGraphPinType native text>"
+)
+```
+
+LGL does not add a cross-domain Patch form merely to combine Dispatcher
+creation and signature editing. Dispatcher therefore exposes no lifecycle
+`invoke` Operations: binding plus `add`, field `set` and `reset`, collection
+`move`, and `remove` own its declaration lifecycle; Graph `invoke` owns only
+its signature contents.
+
 ## Adapter Boundary
 
 Pure LGL normalization may:
@@ -701,6 +812,8 @@ Pure LGL normalization must not:
 - validate UE pin types
 - validate Variable names or inherited and child Blueprint collisions
 - determine Variable edit cascades or affected Blueprint assets
+- validate Dispatcher backing-object consistency, availability, or usage Nodes
+- determine Dispatcher rename, removal, and dependent-Blueprint effects
 - validate function override eligibility
 - synthesize inherited override signatures
 - validate component attachment legality
