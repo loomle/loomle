@@ -494,6 +494,38 @@ name, type, and relevant native descriptive fields. Collection results contain
 compact concrete object identities rather than full Graph bodies, component
 templates, Timeline tracks, or schemas.
 
+Palette enumerates the creation capabilities valid for the bound Blueprint:
+
+```lgl
+query door
+palette entries "Variable"
+
+query door
+palette @P_BlueprintVariable
+with schema
+```
+
+The result is ordinary ordered Blueprint Object Text whose binding value is the
+complete constructor `Call` to copy into a Patch:
+
+```lgl
+Variable = variable(
+  palette: "P_BlueprintVariable",
+  type: "<FEdGraphPinType native text>"
+)
+
+Dispatcher = dispatcher(palette: "P_BlueprintDispatcher")
+```
+
+The constructor name and argument shape are returned data rather than a
+creation vocabulary the agent must memorize. The exact Palette read with
+`with schema` describes required parameters and context constraints through
+structured comments. A Patch may reuse a previously returned Palette id, but
+`add` re-resolves it in the current Blueprint context. This section currently
+confirms Variable and Dispatcher entries; other Blueprint lifecycle objects
+must follow the same Palette rule after their native creation paths are
+reviewed.
+
 Singular operations resolve one object by its current local name inside the
 bound Blueprint:
 
@@ -589,6 +621,7 @@ an unmaterialized member-path binding followed by `add`:
 patch door
 
 door.Health = variable(
+  palette: "P_BlueprintVariable",
   type: "<FEdGraphPinType native text>"
 )
 
@@ -596,16 +629,18 @@ add door.Health
 ```
 
 The binding owner selects the Blueprint and the binding member supplies the
-exact requested `FBPVariableDescription::VarName`. `type` supplies
-`FBPVariableDescription::VarType`. The member path is an ordinary creation-time
-alias, not a `Member` object. After `add`, it is materialized and may be used by
-later ordered statements in the same Patch. The mutation result returns the UE
-generated `VarGuid` as the Variable's stable `id`; later requests use
-`variable@id`.
+exact requested `FBPVariableDescription::VarName`. `palette` selects the exact
+parameterized Blueprint Variable creation capability returned by Palette, and
+`type` supplies `FBPVariableDescription::VarType`. The member path is an
+ordinary creation-time alias, not a `Member` object. After `add`, it is
+materialized and may be used by later ordered statements in the same Patch.
+The mutation result returns the UE-generated `VarGuid` as the Variable's stable
+`id`; later requests use `variable@id`.
 
-The Variable constructor accepts only the required `type`. It does not accept
-`id`, which UE generates, or duplicate writable declaration fields. Those use
-ordinary ordered `set` statements after materialization:
+The Palette-returned Variable constructor accepts the required `palette` and
+`type`. It does not accept `id`, which UE generates, or duplicate writable
+declaration fields. Those use ordinary ordered `set` statements after
+materialization:
 
 ```lgl
 set door.Health.Category = Stats
@@ -715,20 +750,21 @@ Creation uses an unmaterialized member-path binding followed by `add`:
 ```lgl
 patch door
 
-door.OnOpened = dispatcher()
+door.OnOpened = dispatcher(palette: "P_BlueprintDispatcher")
 
 add door.OnOpened
 ```
 
 The binding owner selects the Blueprint and the binding member supplies the
-exact name for both backing objects. `dispatcher()` needs no `type` argument:
-the constructor already fixes the Variable to UE's multicast-delegate Pin type.
-The adapter follows the native Event Dispatcher creation path: create the
-member Variable, create the Signature Graph and its default terminator Nodes,
-make its Function Entry signature-editable, add the required function and
-Property flags, register the Graph in `DelegateSignatureGraphs`, and
-structurally recompile the Blueprint. Failure at any point rolls back both
-objects and the rest of the Patch.
+exact name for both backing objects. `palette` selects the native composite
+Event Dispatcher creation capability. The returned call needs no `type`
+argument because that capability fixes the backing Variable to UE's
+multicast-delegate Pin type. The adapter follows the native Event Dispatcher
+creation path: create the member Variable, create the Signature Graph and its
+default terminator Nodes, make its Function Entry signature-editable, add the
+required function and Property flags, register the Graph in
+`DelegateSignatureGraphs`, and structurally recompile the Blueprint. Failure at
+any point rolls back both objects and the rest of the Patch.
 
 Dispatcher creation is unavailable for Blueprint Interface, Macro Library, and
 Function Library assets, matching the native editor action. The requested name

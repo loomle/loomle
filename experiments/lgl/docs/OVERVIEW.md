@@ -25,26 +25,31 @@ top-level LGL text kind.
 
 ## Domain Object Constructors
 
-The Core has one generic named-call form. Domains define small constructor
-vocabularies such as `graph(...)`, `node(...)`, or `pin(...)` to make their
-object text compact and unambiguous. These names select an adapter-owned object
+The Core has one generic named-call form and no predeclared constructor
+vocabulary. Adapters return calls such as `graph(...)`, `node(...)`, or
+`pin(...)` in ordered Object Text. Their names select an adapter-owned object
 shape and identity namespace; they are not UE types or LGL translations of UE
 roles.
 
 Every `type` field remains exact native UE text. A constructor expression only
-describes or binds an object and has no side effect. In Patch text, a separate
-Operation such as `add` materializes an uncreated binding:
+describes or binds an object and has no side effect. Palette returns every
+constructor accepted by direct `add`, including its exact creation-capability
+id and required parameters. In Patch text, `add` materializes that binding:
 
 ```lgl
 patch door
-door.Health = variable(type: "<FEdGraphPinType native text>")
+door.Health = variable(
+  palette: "P_BlueprintVariable",
+  type: "<FEdGraphPinType native text>"
+)
 add door.Health
 ```
 
-Query results and Patch bindings use the same domain constructors. A domain
-adds one only when the object has a useful independent schema, identity space,
-or structural relationship; it does not add constructors for every UE Class,
-type value, editor label, or object role.
+Query results and Patch bindings use the same object-shape constructors. The
+agent copies their names and argument shapes from adapter output rather than
+guessing them. A constructor name never replaces a UE Class, type value, editor
+label, or object role. Creation-only `palette` is omitted from materialized
+object state.
 
 ## Text Kinds
 
@@ -121,9 +126,9 @@ execution resolves and validates the whole patch before applying mutations.
 
 ## Palette
 
-Palette is not a top-level text kind. It is the global creation-discovery
-concept: domains expose palette queries that return stable creation entries
-that can be copied into patch text.
+Palette is not a top-level text kind. It is the global creation-capability
+catalog: every binding created directly by `add` starts from a Palette result
+that can be copied into Patch text.
 
 Agents should not create new UE content by guessing display names, node classes,
 or editor menu text. A domain can expose a palette query that returns copyable
@@ -147,9 +152,12 @@ print = node(palette: "P_PrintString")
 add print
 ```
 
-The Graph domain uses this single Palette-backed creation path for all UE and
-plugin Nodes. It does not maintain a parallel catalog of shortcut constructors.
-Other domains own their creation models independently.
+The same rule applies across domains. Palette may wrap a native action,
+template, factory, or parameterized adapter capability, but the returned value
+is always an ordinary constructor `Call` containing `palette`. Core defines no
+parallel shortcut, class, or domain-constructor catalog. `add` revalidates the
+entry in its current target context. Objects created as outputs or native
+effects of `invoke` or another lifecycle action are not separate direct adds.
 
 ## Text And JSON Forms
 

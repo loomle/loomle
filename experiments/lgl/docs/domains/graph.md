@@ -775,7 +775,7 @@ interface GraphPinDirection {
 
 interface GraphPaletteBinding {
   target: LocalRef;
-  value: PaletteNodeCreation;
+  value: Call;
 }
 
 interface GraphResultEdge {
@@ -789,7 +789,7 @@ interface GraphObjectResult extends Result {
 ```
 
 These are constrained uses of the existing `Binding`, `LocalRef`, `MemberRef`,
-`Call`, `Expr`, `PaletteNodeCreation`, `Edge`, and `Comment` primitives. They do
+`Call`, `Expr`, `Edge`, and `Comment` primitives. They do
 not add `graph_result(...)`, Palette Entry, schema, context, flow, or other
 Agent-facing result objects. `GraphResultEdge` is the result-only specialization
 of `Edge`: because both returned Pins are already bound in the same document,
@@ -895,11 +895,19 @@ already-confirmed creation binding:
 ```json
 {
   "target": {"kind": "local", "name": "PrintString"},
-  "value": {"kind": "palette_node", "palette": "P_PrintString"}
+  "value": {
+    "kind": "call",
+    "callee": "node",
+    "args": {"palette": "P_PrintString"}
+  }
 }
 ```
 
-An exact Palette Entry may follow it with `GraphPinBinding` statements whose
+The constructor call and its arguments are returned by the Graph adapter; Core
+does not predeclare `node` or a Palette-specific expression kind. The adapter
+validates that the call's `palette` argument resolves to a Node creation
+capability in the bound Graph. An exact Palette Entry may follow it with
+`GraphPinBinding` statements whose
 `pin(...)` Calls omit `id`, because those future Pins do not exist yet. Every
 Pin belonging to an existing Node must include its actual `id`. Graph does not
 return the old grouped `PaletteResult.entries` model.
@@ -1004,10 +1012,13 @@ sides; two-sided replacement is exactly the role of `insert`. There is no
 `add_and_connect` normalized operation and no inline `add name = node(...)`
 form.
 
-Palette-backed bindings must come from `palette entries` followed by the exact
-Palette read. Palette creation creates the Node and all base Pins UE normally
-creates; Patch text does not copy future Pin declarations from the Palette
-result and cannot construct a raw `pin(...)`.
+Palette-backed bindings are copied from a `palette entries` or exact
+`palette @id` result. An exact read is needed when the agent wants schema,
+defaults, or future Pin details, but it is not a mandatory extra step before
+every Patch. `add` always re-resolves and revalidates the Palette id in the
+current Graph context. Palette creation creates the Node and all base Pins UE
+normally creates; Patch text does not copy future Pin declarations from the
+Palette result and cannot construct a raw `pin(...)`.
 
 Normalized JSON:
 
@@ -1035,7 +1046,7 @@ type GraphPatchStatement =
 interface BindingStatement {
   kind: "binding";
   alias: string;
-  value: PaletteNodeCreation;
+  value: Call;
 }
 
 type NodeRef = NodeIdRef | LocalRef;
@@ -1735,16 +1746,20 @@ not guess a Node class or use positional forms:
 delay = node(g, "/Script/BlueprintGraph.K2Node_CallFunction")
 ```
 
-The existing normalized creation shape now has only its Palette-backed branch:
+The creation binding normalizes as the same ordinary `Call` used everywhere
+else:
 
-```ts
-type NodeCreation = PaletteNodeCreation;
-
-interface PaletteNodeCreation {
-  kind: "palette_node";
-  palette: string;
+```json
+{
+  "kind": "call",
+  "callee": "node",
+  "args": {"palette": "P_Delay"}
 }
 ```
+
+The Graph adapter obtains both the callee and argument contract from its
+Palette result and validates the resolved capability. Core does not define a
+`NodeCreation`, `PaletteNodeCreation`, or `palette_node` alternative.
 
 ## Adapter Boundary
 

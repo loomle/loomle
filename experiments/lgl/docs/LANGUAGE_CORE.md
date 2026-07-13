@@ -132,15 +132,14 @@ type BindingTarget =
   | { kind: "local"; name: string }
   | { kind: "member"; object: string; member: string };
 
-type BindingValue =
-  | Expr
-  | NodeCreation;
+type BindingValue = Expr;
 ```
 
 Local targets cover aliases such as `g` or `print`. Member targets cover
 document-local paths such as `delay.Duration`, `door.Health`, or `stack.start`.
-Domains define valid member targets. Most bindings normalize to `Expr`; graph
-patch creation bindings may normalize to `NodeCreation`.
+Domains define valid member targets. Every binding value normalizes through the
+same `Expr` union. A constructor used for creation remains an ordinary `Call`;
+Core does not give it a second creation-only expression type.
 
 ## Expressions And Values
 
@@ -259,11 +258,9 @@ a domain operation may then select one native field from the referenced object.
 ## Constructors
 
 The Core parses every `Name(named: arguments)` expression through the same
-generic Call syntax. It does not reserve `asset`, `graph`, `node`, `pin`,
-`variable`, or other domain object names as built-in business constructs.
-
-Each domain adapter may define a small set of object constructors that make its
-ordered text explicit and compact:
+generic `Call` syntax. It neither reserves nor predeclares a constructor
+vocabulary. Names such as `asset`, `graph`, `node`, `pin`, and `variable` are
+data returned by adapters in Object Text, not built-in business constructs:
 
 ```lgl
 asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
@@ -271,7 +268,7 @@ graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT
 node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")
 ```
 
-A domain constructor is an object-shape label comparable to a schema
+A returned constructor name is an object-shape label comparable to a schema
 discriminator in JSON. It may identify the object's field schema, identity
 namespace, ownership shape, and text layout. It must not translate native UE
 `type`, encode a UE business role, or decide an operation merely from its name.
@@ -280,20 +277,30 @@ Function Graph, Event Graph, or Dispatcher Signature Graph.
 
 A constructor expression has no mutation side effect. It may describe an
 existing object returned by a query or bind an unmaterialized object inside a
-Patch. A separate ordered Operation such as `add` performs creation when the
-resolved adapter schema permits it:
+Patch. Every constructor accepted by direct `add` is discovered through
+Palette. The Palette Entry returns the complete copyable `Call`, including its
+creation-capability `palette` id and any required parameters. A separate
+ordered `add` performs creation:
 
 ```lgl
-door.Health = variable(type: "<FEdGraphPinType native text>")
+door.Health = variable(
+  palette: "P_BlueprintVariable",
+  type: "<FEdGraphPinType native text>"
+)
 add door.Health
 ```
 
-The same domain constructor is used for readback and mutation bindings. A
-domain should define one only when it materially clarifies an independently
-addressable object, its identity space, or its structural relationships. It
-must not add one constructor per native Class, type value, editor label, or
-object role. Every public constructor remains part of the documented domain
-contract; adapters cannot introduce one silently.
+The agent copies the constructor name and argument shape returned by the
+adapter; it does not guess them from a UE Class, type value, editor label, or
+object role. The same object-shape constructor is used for materialized
+readback and creation bindings, while creation-only arguments such as `palette`
+are absent from materialized object state. The Palette query need not occur in
+the same request as the Patch, but `add` always resolves and revalidates the
+Palette Entry in the current target context before applying anything.
+
+Creation performed by `invoke`, or native subordinate effects such as default
+Graph Nodes, generated Pins, and Dispatcher Signature Graphs, is not a second
+direct `add` and therefore does not require another Palette Entry.
 
 Constructor arguments are named because they are clear for agents, easy to
 validate, and safe to evolve:
@@ -785,6 +792,11 @@ connect pin@begin-then-id -> print.execute
 
 Each binding occupies one complete line. It declares an unmaterialized local or
 member-path alias; the owning domain defines which `add` form materializes it.
+Every binding passed directly to `add` must contain the `palette` identity of an
+exact creation capability returned by Palette. Missing, stale, or context-
+invalid Palette identities fail validation. Core still treats the binding value
+as an ordinary `Call`; the adapter owns capability resolution and argument
+validation.
 Inline binding forms such as `add print = node(...)` are invalid. A domain may
 define operation-local sugar, but it must lower to ordinary ordered statements
 before validation. For example, Graph
@@ -877,86 +889,64 @@ and plan through the real path, then stop before applying changes. Every Patch
 is ordered and atomic; a failed validation applies nothing, and an apply failure
 must restore the entire Patch rather than return partial success.
 
-## Creation Results
+## Creation Discovery
 
-Creation discovery is a query result pattern for domains that need stable ways
-to create new objects, such as graph nodes or widget tree entries.
-
-Agent-facing query text uses domain creation-discovery operations such as:
-
-```lgl
-palette entries "Button"
-with defaults, properties
-```
-
-The returned object text should be directly copyable into patch text whenever
-possible:
+Palette is the universal discovery path for every object created directly by a
+binding followed by `add`. Each domain exposes Palette in the target context
+through the existing plural search and exact-id operations:
 
 ```lgl
-Button = Button(text: "")
-InventorySlot = widget(class: "/Game/UI/WBP_InventorySlot.WBP_InventorySlot_C")
-PluginFancy = widget(palette: "widget.palette:plugin-fancy")
+query door
+palette entries "Variable"
+
+query door
+palette @P_BlueprintVariable
+with schema
 ```
 
-Normalized JSON:
+A Palette result is ordinary ordered Object Text. Each entry contains a binding
+whose value is the complete constructor `Call` the agent may copy into Patch
+text. The adapter chooses the constructor name, the `palette` identity, and the
+argument shape:
 
-```ts
-interface PaletteResult {
-  kind: "palette_result";
-  target: Target;
-  entries: CreationEntry[];
-}
+```lgl
+Variable = variable(
+  palette: "P_BlueprintVariable",
+  type: "<FEdGraphPinType native text>"
+)
 
-type CreationEntry =
-  | ShortcutEntry
-  | ClassEntry
-  | PaletteEntry;
+PrintString = node(palette: "P_PrintString")
+```
 
-interface ShortcutEntry {
-  name: string;
-  constructor: Call;
-  defaults?: Record<string, Expr>;
-  properties?: Property[];
-  pins?: Pin[];
-}
+`with schema` adds the accepted fields, native type text, constraints, and
+initially available Operations through the shared structured comment contract.
+Domain-owned child previews such as future Graph Pins may follow the creation
+binding in the same ordered Object Text. They are descriptive output, not more
+objects the Patch must create directly.
 
-interface ClassEntry {
-  name: string;
-  class: string;
-  label?: string;
-  category?: string;
-  defaults?: Record<string, Expr>;
-  properties?: Property[];
-}
+There is no closed `ShortcutEntry | ClassEntry | PaletteEntry` union and no
+separate grouped `PaletteResult`. A Palette creation binding normalizes exactly
+like any other binding, with an ordinary `Call` value:
 
-interface PaletteEntry {
-  name: string;
-  palette: PaletteSourceRef;
-  label?: string;
-  category?: string;
-  defaults?: Record<string, Expr>;
-  properties?: Property[];
-  pins?: Pin[];
-}
-
-interface Property {
-  name: string;
-  type: string;
-  default?: Expr;
-  writable?: boolean;
-  category?: string;
+```json
+{
+  "target": {"kind": "local", "name": "Variable"},
+  "value": {
+    "kind": "call",
+    "callee": "variable",
+    "args": {
+      "palette": "P_BlueprintVariable",
+      "type": "<FEdGraphPinType native text>"
+    }
+  }
 }
 ```
 
-`ShortcutEntry` is for semantic constructors, `ClassEntry` for class-path
-creation identities, and `PaletteEntry` for action, palette, or template ids.
-Domains define which forms they return and how patch text consumes them.
-
-This grouped `PaletteResult` is not a universal result requirement. A migrated
-domain may return creation bindings inside its ordinary ordered domain result.
-The Graph domain does exactly that: Graph Palette queries return
-`GraphResult.statements` and do not use `ShortcutEntry`, `ClassEntry`, or a
-separate Graph `PaletteResult`.
+The `palette` value identifies a creation capability in one adapter context. It
+is not the stable id of the future UE object and is not persisted as materialized
+object state. At `add`, the adapter resolves it again, validates the current
+context and all arguments against the same entry schema, then returns the real
+created object and native id through the domain's ordinary ordered Object Text.
 
 ## Results And Diagnostics
 
