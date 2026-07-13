@@ -557,14 +557,134 @@ also does not implement this query model or `with schema`.
 
 ## Patch
 
-This phase standardizes Blueprint reads only. The existing TypeScript experiment
-still exposes member-based patch bindings and graph creation shortcuts. Those
-forms do not match this design and must be replaced by concrete Blueprint
-objects and exact Palette Entry creation before this section becomes normative.
+Blueprint Patch uses the shared Core lifecycle operations for its concrete
+objects. It does not turn UE editor utility names into parallel `invoke`
+Operations. This section currently confirms Variable lifecycle only;
+Dispatcher, Graph, Component, and Timeline lifecycle remain to be reviewed
+against their own native UE paths.
 
-Removing the read-side Member abstraction does not implicitly approve or remove
-any patch constructor. Mutation design must start from the concrete Blueprint
-objects above and the corresponding UE edit paths.
+### Variable Lifecycle
+
+A Blueprint-authored Variable is a first-class lifecycle object. Creation uses
+an unmaterialized member-path binding followed by `add`:
+
+```lgl
+patch door
+
+door.Health = variable(
+  type: "<FEdGraphPinType native text>"
+)
+
+add door.Health
+```
+
+The binding owner selects the Blueprint and the binding member supplies the
+exact requested `FBPVariableDescription::VarName`. `type` supplies
+`FBPVariableDescription::VarType`. The member path is an ordinary creation-time
+alias, not a `Member` object. After `add`, it is materialized and may be used by
+later ordered statements in the same Patch. The mutation result returns the UE
+generated `VarGuid` as the Variable's stable `id`; later requests use
+`variable@id`.
+
+The Variable constructor accepts only the required `type`. It does not accept
+`id`, which UE generates, or duplicate writable declaration fields. Those use
+ordinary ordered `set` statements after materialization:
+
+```lgl
+set door.Health.Category = Stats
+set door.Health.FriendlyName = "Player Health"
+```
+
+The whole Patch is atomic, so this separation does not expose a partially
+configured Variable. Creation uses the exact requested name and returns a
+conflict rather than silently applying `FindUniqueKismetName` or another suffix.
+The adapter calls the native `FBlueprintEditorUtils::AddMemberVariable` path,
+which creates the GUID and native initial `FriendlyName`, flags, category,
+type-specific metadata, and structurally recompiles the Blueprint.
+
+The constructor does not expose `DefaultValue`. That field is compiler staging
+text in `FBPVariableDescription`, not the effective Variable default. Effective
+defaults remain Class Defaults and are edited through the Class domain after
+the generated Property exists. A future cross-domain compound-operation design
+may make that multi-step workflow atomic without redefining Variable
+`DefaultValue`.
+
+Existing Variable declarations use shared `set` and `reset`:
+
+```lgl
+set variable@variable-id.VarName = MaxHealth
+set variable@variable-id.type = "<FEdGraphPinType native text>"
+set variable@variable-id.Category = Stats
+set variable@variable-id.PropertyFlags = "<EPropertyFlags native text>"
+set variable@variable-id.RepNotifyFunc = OnRep_MaxHealth
+reset variable@variable-id.RepNotifyFunc
+```
+
+`VarName` routes through `FBlueprintEditorUtils::RenameMemberVariable`; the
+adapter must not mutate the description field directly. Compact result text
+continues to express the current name through the Variable binding path rather
+than duplicating `VarName` as a constructor field. `type` routes through
+`FBlueprintEditorUtils::ChangeMemberVariableType`. `id` is read-only. Every
+other native field is writable or resettable only when the exact Variable's
+`with schema` result says so; `reset` is not a blanket assignment of an empty
+value.
+
+UE's native rename path opens a confirmation dialog and clears
+`RepNotifyFunc` when the Variable has an associated RepNotify function. LGL
+does neither implicitly. Such a rename fails preflight until the caller makes
+the loss explicit and orders it before the rename:
+
+```lgl
+reset variable@variable-id.RepNotifyFunc
+set variable@variable-id.VarName = MaxHealth
+```
+
+An explicit `set ...type` authorizes the native consequences of changing the
+Variable type; there is no `force` or confirmation syntax. Preflight and the
+mutation result must report all determinable effects, including reconstruction
+of referencing Variable Nodes in the Blueprint and loaded child Blueprints,
+broken incompatible Edges, Boolean `FriendlyName` adjustment, and clearing
+replication state that UE does not permit for Map or Set types. All affected
+loaded Blueprints participate in the same atomic Patch.
+
+Variable display order is authored order in `UBlueprint::NewVariables`. It uses
+the shared `move` operation rather than target-local Operations:
+
+```lgl
+move variable@health-id before variable@armor-id
+move variable@health-id after variable@stamina-id
+```
+
+The Variable and anchor must belong to the same Blueprint. The adapter routes
+these forms through `MoveVariableBeforeVariable` and
+`MoveVariableAfterVariable` and performs the required structural compile.
+
+Deletion uses the shared lifecycle operation:
+
+```lgl
+remove variable@variable-id
+```
+
+The adapter routes it through `FBlueprintEditorUtils::RemoveMemberVariable`.
+Native deletion removes the `FBPVariableDescription`, all getter and setter
+Nodes referencing that Variable and their incident Edges, relevant Field
+Notify metadata, and structurally recompiles the Blueprint. Explicit `remove`
+is the deletion authorization; LGL adds no `force` argument. Preflight must
+enumerate these determinable effects, and any failure leaves the entire Patch
+unchanged.
+
+`AddMemberVariable` and `RenameMemberVariable` normally call
+`ValidateBlueprintChildVariables`, which can silently rename a conflicting
+child Blueprint Variable, Component, Timeline, or Function Graph. LGL treats
+that repair as an undeclared cross-object mutation. Preflight must resolve the
+relevant child Blueprints and return a conflict before apply whenever add or
+rename would trigger such a repair. The caller must explicitly resolve the
+child collision and retry; the adapter must not let behavior depend on which
+child assets happened to be loaded.
+
+Variable therefore exposes no lifecycle `invoke` Operations. Its closed
+mutation surface is binding plus `add`, field `set` and `reset`, collection
+`move`, and `remove`.
 
 ## Adapter Boundary
 
@@ -572,12 +692,15 @@ Pure LGL normalization may:
 
 - preserve concrete Blueprint object bindings and component statement order
 - normalize Blueprint query clauses into a structured query object
+- normalize confirmed Variable bindings and common Patch operation forms
 
 Pure LGL normalization must not:
 
 - resolve parent classes or interface classes
 - decide whether a class can be a Blueprint parent
 - validate UE pin types
+- validate Variable names or inherited and child Blueprint collisions
+- determine Variable edit cascades or affected Blueprint assets
 - validate function override eligibility
 - synthesize inherited override signatures
 - validate component attachment legality

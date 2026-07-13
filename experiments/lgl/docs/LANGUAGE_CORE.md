@@ -701,11 +701,39 @@ binding = constructor(arg: value)
 operation ...
 ```
 
-Domains own operations such as `add`, `set`, `reset`, `connect`, `insert`,
-`move`, or widget tree edits. An operation exists only where its domain defines
-an exact meaning; for example, Class Defaults use `reset` to remove a local
-default override and resume inheritance. Bindings make later operations
-precise:
+Core reserves six common Patch operations whose intent remains stable across
+domains:
+
+| Operation | Common intent |
+| --- | --- |
+| `add` | Materialize one declared binding as a domain-owned lifecycle object |
+| `remove` | Delete one domain-owned lifecycle object |
+| `set` | Write one schema-approved field |
+| `reset` | Restore one field through its schema-approved native reset behavior |
+| `move` | Change one object's layout position or authored collection order |
+| `invoke` | Execute one target-local Operation discovered through `with schema` |
+
+The common operation name does not bypass the domain adapter. Each domain
+defines the exact supported object kinds, operand forms, constraints, native UE
+path, cascades, and result. `move`, for example, may support `to` and `by` for
+Graph layout while an authored collection supports `before` and `after`.
+
+Domains may additionally define operations that depend on their own model.
+Graph owns `connect`, `disconnect`, `break`, and `insert` because their meanings
+require Pins, Edges, Nodes, and a Graph Schema. Those are not Core lifecycle
+operations merely because Graph was the first Patch domain.
+
+A domain must not expose two equivalent ways to perform the same mutation. If
+an object is a declared lifecycle object, ordinary creation and deletion use
+`add` and `remove`, not target-local `Add...`, `Delete`, or `Remove` Operations.
+`invoke` remains appropriate for specialized subordinate behavior that is not
+valid for the object kind in general, such as removing one editable signature
+Parameter Pin through `RemoveParameter()`; this does not make arbitrary Pins
+valid `remove` targets.
+
+An operation exists only where its domain defines an exact meaning. For
+example, Class Defaults use `reset` to remove a local default override and
+resume inheritance. Bindings make later operations precise:
 
 ```lgl
 patch g
@@ -714,12 +742,13 @@ add print
 connect pin@begin-then-id -> print.execute
 ```
 
-Each binding occupies one complete line. It declares an unmaterialized alias;
-the owning domain defines which operation creates it. Inline binding forms such
-as `add print = node(...)` are invalid. A domain may define operation-local
-sugar, but it must lower to ordinary ordered statements before validation. For
-example, Graph `add print pin@source-id -> print.execute` lowers to `add print`
-followed by `connect(pin@source-id, print.execute)`.
+Each binding occupies one complete line. It declares an unmaterialized local or
+member-path alias; the owning domain defines which `add` form materializes it.
+Inline binding forms such as `add print = node(...)` are invalid. A domain may
+define operation-local sugar, but it must lower to ordinary ordered statements
+before validation. For example, Graph
+`add print pin@source-id -> print.execute` lowers to `add print` followed by
+`connect(pin@source-id, print.execute)`.
 
 Object text describes state. Patch text always requires an explicit operation:
 a bare Graph Edge is object text and cannot mean `connect` merely because it
@@ -769,7 +798,7 @@ type PatchStatement = BindingStatement | Invoke | PatchOp;
 
 interface BindingStatement {
   kind: "binding";
-  alias: string;
+  target: BindingTarget;
   value: BindingValue;
 }
 
