@@ -1393,6 +1393,101 @@ post-reconstruction objects and ids, never the temporary Pins created before
 propagation. Unloaded assets retain UE's normal dependency and later-load
 behavior; LGL does not claim that the native editor path eagerly rewrites them.
 
+#### Macro And Collapsed Graph Boundary Operations
+
+Macro and Collapsed Graph boundaries reuse the Function signature operations;
+LGL does not add a Graph Boundary, Port, or Tunnel Parameter object. The common
+model is adapter-internal: an editable Graph owns one semantic input/output
+signature, while its authoritative state remains ordinary Tunnel Pins.
+
+The UE topology differs by Graph kind:
+
+| Graph | Authoritative Pins | Derived Pins |
+| --- | --- | --- |
+| Macro Graph | Entry and Exit Tunnel Pins | zero or more Macro Instance Pins |
+| Collapsed Graph | inner Entry and Exit Tunnel Pins | the outer Composite Node Pins |
+
+A Macro input exists only as an Output Pin on its Entry Tunnel; a Macro output
+exists only as an Input Pin on its Exit Tunnel. Entry and Exit do not mirror one
+another. A Macro Instance gathers both Tunnel sets and creates complementary
+instance Pins. A Collapsed Graph instead mirrors each inner Tunnel Pin onto its
+single outer Composite Node.
+
+Creation targets the Graph because the authoritative Pin does not exist yet:
+
+```lgl
+invoke graph@macro-id AddInputParameter(
+  name: Target,
+  type: "<FEdGraphPinType native text>"
+) as pin: target
+
+invoke graph@macro-id AddOutputParameter(
+  name: Result,
+  type: "<FEdGraphPinType native text>"
+) as pin: result
+```
+
+Both Operations return the final authoritative Tunnel Pin. Unlike Function
+output creation, they have no `result` Node output. Composite and Macro Instance
+Pins belong to other Node or Graph contexts and are reported as effects rather
+than aliases usable by later statements in the current Patch.
+
+`name` and `type` follow the same exact creation contract as Function
+parameters. Name uniqueness spans both Entry and Exit Tunnel Pins. The adapter
+returns a collision diagnostic rather than accepting UE's generated numeric
+suffix. Semantic input and output determine the physical direction:
+
+| Semantic side | Authoritative Tunnel Pin | Composite or Macro Instance Pin |
+| --- | --- | --- |
+| input | Entry Output Pin | Input Pin |
+| output | Exit Input Pin | Output Pin |
+
+After creation, the authoritative Tunnel Pin uses the shared signature-aware
+field and Operation contract:
+
+```lgl
+set pin@target-id.PinName = NewTarget
+set pin@target-id.type = "<FEdGraphPinType native text>"
+set pin@target-id.DefaultValue = "None"
+reset pin@target-id.DefaultValue
+
+invoke pin@target-id RemoveParameter()
+invoke pin@target-id MoveParameterBefore(anchor: pin@context-id)
+invoke pin@target-id MoveParameterAfter(anchor: pin@context-id)
+```
+
+The anchor must be on the same semantic side of the same Graph. Outer Composite
+Pins and Macro Instance Pins are derived: their structural fields are read-only
+and their schemas do not expose signature mutation Operations. In particular,
+a resolved type on one wildcard Macro Instance Pin never writes back to the
+authored wildcard Tunnel Pin.
+
+Macro propagation reconstructs every matching loaded Macro Instance, including
+instances in other loaded Blueprints. Collapsed Graph propagation reconstructs
+its one outer Composite Node. Mirrored Pin creation or removal, inferred type
+changes, renamed Pins, orphaned or preserved Edges, affected Graphs, and affected
+assets are effects. Unloaded assets retain UE's normal dependency and later-load
+behavior.
+
+The adapter must use the complete K2 parameter-change path after editing
+`UserDefinedPins`. Calling `CreatePinFromUserDefinition`, removing a raw Pin, or
+reconstructing only the local Tunnel is insufficient: those lower-level paths
+do not own complete Macro Instance or Composite propagation. Output aliases are
+resolved only after native reconstruction finishes.
+
+Preflight validates the boundary before planning any edit. The Graph must have
+exactly one editable Entry Tunnel and one editable Exit Tunnel with legal
+directions. A Collapsed Graph's two inner Tunnels must point to the same outer
+Composite. A Macro Instance is never an authoritative signature target. Broken
+or ambiguous topology returns an inconsistency diagnostic rather than choosing
+a Tunnel by position or display name.
+
+A Macro signature mutation may affect objects in several loaded assets. They
+remain one atomic Patch effect set: preflight must identify every loaded object
+the native propagation will touch, and apply failure must restore all of them.
+This does not add a multi-target Patch syntax; the direct target remains the
+authoritative Macro Graph.
+
 ## Patch Preflight
 
 Patch execution is ordered and all-or-nothing. A local alias has three states:
