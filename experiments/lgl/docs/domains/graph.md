@@ -1393,6 +1393,59 @@ post-reconstruction objects and ids, never the temporary Pins created before
 propagation. Unloaded assets retain UE's normal dependency and later-load
 behavior; LGL does not claim that the native editor path eagerly rewrites them.
 
+#### Dispatcher Signature Operations
+
+An Event Dispatcher is one Blueprint object backed by a multicast-delegate
+Variable and a same-owned, same-named `delegate_signature` Graph. The compact
+Dispatcher read supplies that Graph identity as navigation context. Existing
+signature editing targets the Graph; Dispatcher creation, rename, and deletion
+remain Blueprint asset operations because they must update both backing objects.
+
+A valid Dispatcher Signature Graph has exactly one editable Function Entry and
+no Function Result. It supports semantic input parameters only:
+
+```lgl
+invoke graph@signature-graph-id AddInputParameter(
+  name: Damage,
+  type: "<FEdGraphPinType native text>"
+) as pin: damage
+```
+
+The Operation returns the final Function Entry Output Pin. Its exact-name,
+native-type, field-write, removal, and ordering contracts are the shared
+signature contracts above. `AddOutputParameter` is absent from this Graph's
+schema rather than exposed as a permanently unavailable Operation: Dispatcher
+signatures have no output-parameter capability.
+
+The native editor also exposes one whole-signature replacement action:
+
+```lgl
+invoke graph@signature-graph-id CopySignatureFrom(
+  function: "/Script/MyGame.DamageSource:OnDamage"
+)
+```
+
+`CopySignatureFrom` is an adapter-owned Operation, not Patch sugar. It resolves
+the exact UFunction in the Dispatcher property's allowed Class scope, requires
+UE delegate compatibility, rejects Functions with any output parameter,
+removes every old user-defined Pin, and recreates input Pins in native Function
+declaration order. It has no primary outputs; the final ordered `GraphResult`
+contains the complete replacement signature. Every old parameter alias and
+stable Pin reference becomes invalid after the statement.
+
+Signature propagation reconstructs matching loaded multicast-delegate Nodes,
+including bind, unbind, call, clear, and assign forms; linked Custom Events on
+bind Nodes; and CreateDelegate Nodes. Changed or orphaned Pins and Edges,
+recompiled Blueprint state, and affected loaded assets are effects. Output
+aliases from `AddInputParameter` resolve only after this propagation completes.
+
+Preflight verifies the authored Dispatcher Variable by its stable id, its
+multicast-delegate native type, exactly one same-owned and same-named Signature
+Graph, exactly one editable Function Entry, and the absence of Result Nodes or
+output parameters. Generated Reflection properties are not an alternative
+authored source. Missing, duplicated, or mismatched halves produce an
+inconsistency diagnostic rather than name-based repair.
+
 #### Macro And Collapsed Graph Boundary Operations
 
 Macro and Collapsed Graph boundaries reuse the Function signature operations;

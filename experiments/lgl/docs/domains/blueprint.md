@@ -290,9 +290,13 @@ Dispatcher with its same-named Graph in `DelegateSignatureGraphs`.
 
 An exact Dispatcher read places that compact Signature Graph identity directly
 after the Dispatcher as required navigation context, without returning the
-Graph body. Signature parameters remain Pins in that Graph. Create, rename, and
-remove must update both UE objects atomically; a missing or mismatched half is
-an inconsistent Blueprint diagnostic, not a guessing opportunity.
+Graph body. The Signature Graph is the editing target for existing signature
+parameters, which remain Pins on its Function Entry. It supports input
+parameters only; Dispatcher call arguments are not Function outputs. Create,
+rename, and remove of the Dispatcher itself must update both the Variable and
+Graph atomically and belong to Blueprint asset Patch design. A missing,
+duplicated, or mismatched half is an inconsistent Blueprint diagnostic, not a
+guessing opportunity.
 
 ### Timelines
 
