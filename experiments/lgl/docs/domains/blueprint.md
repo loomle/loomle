@@ -379,8 +379,11 @@ Root.Trigger = component(id: "trigger-component-guid", type: "/Script/Engine.Box
 
 Rules:
 
-1. `blueprint.name = component(...)` creates or reads a root SCS component.
-2. `parent.child = component(...)` creates or reads a child component.
+1. In materialized Object Text, `blueprint.name = component(...)` describes a
+   top-level SCS Component in the Blueprint Actor context. This includes the
+   Scene Root and actor-level non-Scene Components.
+2. `parent.child = component(...)` describes an attached child Scene
+   Component. Patch creation still uses a local binding followed by `add`.
 3. `id` maps to `USCS_Node::VariableGuid`.
 4. `type` maps to `USCS_Node::ComponentClass` as its native class path.
 5. The child binding name maps to `USCS_Node::InternalVariableName`.
@@ -393,7 +396,9 @@ Rules:
    its binding path unambiguous.
 
 Sibling order is derived from statement order for the same parent. LGL text
-does not require agents to write explicit order fields or a `ChildNodes` array.
+does not require agents to write explicit order fields or a `ChildNodes` array,
+and this readable order does not imply that UE exposes a corresponding reorder
+operation.
 
 Meaningful native `USCS_Node` fields retain their UE names and values, including
 `CategoryName`, `AttachToName`, `ParentComponentOrVariableName`,
@@ -402,6 +407,12 @@ Meaningful native `USCS_Node` fields retain their UE names and values, including
 and derived `CookedComponentInstancingData` are not repeated. The
 `ComponentTemplate` pointer is not returned because its editable properties are
 already fields on the Component.
+
+Relationship-derived parent fields are read-only. `AttachToName` and other
+native fields are writable only when the exact Component's `with schema`
+result reports a native edit path; returning a field does not by itself make it
+writable. Parent-child structure is edited through Component lifecycle
+operations rather than by assigning cached SCS relationship fields.
 
 If a native `USCS_Node` field and a component-template property have the same
 name, the adapter reports an ambiguity instead of inventing a path syntax.
@@ -613,8 +624,8 @@ Blueprint Patch uses the shared Core lifecycle operations for its concrete
 objects. Ordinary lifecycle does not turn UE editor utility names into parallel
 `invoke` Operations. Target-local `invoke` remains reserved for native compound
 behavior whose primary meaning is not direct object lifecycle. This section
-currently confirms Graph, Variable, and Dispatcher lifecycle; Component and
-Timeline lifecycle remain to be reviewed against their own native UE paths.
+currently confirms Graph, Variable, Dispatcher, and Component lifecycle;
+Timeline lifecycle remains to be reviewed against its native UE path.
 
 ### Graph Lifecycle
 
@@ -1013,14 +1024,195 @@ creation and signature editing. Dispatcher therefore exposes no lifecycle
 `move`, and `remove` own its declaration lifecycle; Graph `invoke` owns only
 its signature contents.
 
+### Component Lifecycle
+
+A Blueprint-authored Component is one first-class lifecycle object backed by a
+`USCS_Node` and its Component Template. This lifecycle covers only SCS
+Components owned by the bound Blueprint. Native, inherited, instanced, and
+Child Actor subtree Components remain outside this ownership boundary and are
+never presented as directly editable local Components.
+
+Every direct Component creation capability comes from the Blueprint Palette:
+
+```lgl
+query door
+palette entries "Static Mesh Component"
+
+query door
+palette @P_StaticMeshComponent
+with schema
+```
+
+The exact Palette result is an ordinary Component constructor binding:
+
+```lgl
+StaticMeshComponent = component(palette: "P_StaticMeshComponent")
+```
+
+The opaque Palette id fixes the native `UActorComponent` Class and may also fix
+an asset-backed initialization path discovered through
+`FComponentAssetBrokerage`. The constructor does not repeat `type` or invent a
+separate Component-kind value. `with schema` reports the resulting native
+Class path, whether the Component is a Scene Component, valid placement,
+initial fields, and available lifecycle Operations.
+
+Creation keeps the local alias separate from placement:
+
+```lgl
+patch door
+
+Mesh = component(palette: "P_StaticMeshComponent")
+add Mesh to component@root-guid
+
+Audio = component(palette: "P_AudioComponent")
+add Audio
+```
+
+The local alias supplies the exact requested Component variable name. The
+adapter validates that name before mutation, then folds native
+`AddNewSubobject` creation and `RenameComponentMemberVariable` into the same
+atomic transaction. UE may otherwise generate a unique suffix or rename a
+colliding child-Blueprint declaration; LGL treats either implicit repair as a
+preflight conflict.
+
+`add binding to component@parent-id` requires both objects to be compatible
+Scene Components in the same Blueprint. It attaches through UE's native SCS
+path. If the explicit parent is invalid, LGL rejects the operation instead of
+accepting `FindParentForNewSubobject` fallback to another Scene Root.
+
+Bare `add binding` creates from the Blueprint Actor context. A non-Scene
+Component remains actor-level. A Scene Component attaches to UE's current
+default attach or Scene Root Component, or becomes a top-level SCS Component
+when no attachable Scene Root exists. The result always returns the actual
+materialized binding path. Component creation has no `before` or `after` form.
+
+Existing declaration and Component Template fields use shared `set` and
+`reset`:
+
+```lgl
+set component@mesh-guid.name = DoorMesh
+set component@mesh-guid.StaticMesh = "/Game/Meshes/SM_Door.SM_Door"
+reset component@mesh-guid.StaticMesh
+```
+
+The common `name` field maps to `USCS_Node::InternalVariableName` and routes
+through `FBlueprintEditorUtils::RenameComponentMemberVariable`. Native rename
+updates same-Blueprint variable references and dependent inheritable Component
+Templates while preserving `VariableGuid`. A collision, invalid exact name,
+or undeclared child-Blueprint rename fails preflight.
+
+Component `id` and `type` are read-only. SCS parent fields are derived
+relationship state and cannot be assigned to move a Component. Other returned
+SCS and Component Template fields are writable or resettable only as reported
+by the exact Component's schema and must use their native edit path.
+
+LGL exposes no SCS Component class conversion. UE's
+`ChangeSubobjectClass` path applies only to supported native Component Class
+overrides and does not change an ordinary SCS Component. That inherited/native
+override model requires its own object design rather than a misleading
+`set component.type`.
+
+An existing Scene Component changes parent through shared `move`:
+
+```lgl
+move component@trigger-guid to component@root-guid
+```
+
+The adapter validates `CanReparent`, same-Blueprint ownership, cycle safety,
+`CanAttachAsChild`, Mobility, Editor-only state, and the remaining native
+attachment rules, then routes the edit through `ReparentSubobjects`. It uses a
+deterministic preview Actor context for UE's world-to-relative transform
+conversion and native propagation to instances. If that context cannot be
+resolved, the operation returns a capability diagnostic instead of editing SCS
+arrays directly. Moving to the current parent is a no-op.
+
+Component `move` has no `before`, `after`, actor-level destination, `detach`,
+`attach`, or `reparent` alias. UE exposes readable `USCS_Node::ChildNodes`
+order, but its Component editor does not expose a stable authored sibling
+reorder path. Detaching a Scene Component in the editor means reattaching it to
+the current Scene Root, which is already expressed by an explicit
+`move component to component@root-id`.
+
+Promoting an existing Scene Component to Actor Root is native compound behavior
+discovered through that Component's schema:
+
+```lgl
+invoke component@mesh-guid MakeNewSceneRoot()
+```
+
+The operation follows `USubobjectDataSubsystem::MakeNewSceneRoot`: it validates
+that the current Root is replaceable, clears the new Root's attachment socket,
+resets its relative location and rotation through UE's path, promotes it, and
+reattaches the old Root below it. Replacing a local Default Scene Root removes
+or hides that default node as UE requires. All hierarchy and transform changes
+are returned as mutation effects. LGL introduces no writable `Root` field and
+does not overload ordinary `move` with this behavior.
+
+Deletion uses shared `remove`:
+
+```lgl
+remove component@mesh-guid
+```
+
+Preflight requires native `CanDelete`. Application follows
+`DeleteSubobjects` and `USimpleConstructionScript::RemoveNodeAndPromoteChildren`:
+only the target Component is deleted. For a non-root target, UE moves its
+children directly to the removed node's parent at the removed position. For an
+SCS Root target, UE may promote one compatible child to the Root set and move
+the remaining children below it before validating the Scene Root set. LGL does
+not reinterpret either path as subtree deletion; the complete planned
+hierarchy change appears in dry run and mutation effects.
+
+UE removes variable getter and setter Nodes for the deleted Component, and LGL
+reports those native deletions. UE does not remove Component Bound Event Nodes
+that become invalid. If any such usage is resolvable, LGL preflight returns a
+conflict and identifies the Nodes so the caller can remove them explicitly in
+their owning Graph Patch before retrying Component removal. Direct removal of
+Default Scene Root is unavailable; replacement uses `MakeNewSceneRoot()`.
+
+Native single-Component duplication remains a target-local Operation:
+
+```lgl
+invoke component@mesh-guid Duplicate() as component: copy
+```
+
+It follows `DuplicateSubobjects` for exactly one target, copies the Component
+Template state, creates a new name and `VariableGuid`, and attaches the result
+under the corresponding native parent. It does not implicitly duplicate the
+source's descendants. The output alias names the returned Component and may be
+renamed by a following `set copy.name = ...` statement. Availability follows
+native `CanDuplicate` and requires a representable destination.
+
+Duplicate is an effect of an existing object's native Operation, not a second
+direct constructor path; direct creation still requires Palette. `Cut`,
+`Copy`, and `Paste` remain editor clipboard commands rather than LGL Patch
+operations.
+
+The complete current Component lifecycle surface is:
+
+| Operation | Meaning |
+| --- | --- |
+| `add binding [to component]` | create one Palette-backed SCS Component |
+| `set component.field = value` | rename or write one schema-approved native field |
+| `reset component.field` | restore one field through its schema-approved native reset path |
+| `move component to component` | reattach one existing owned Scene Component |
+| `remove component` | delete one Component through native child-promotion behavior |
+| `invoke component MakeNewSceneRoot()` | promote one existing Scene Component through UE's root replacement path |
+| `invoke component Duplicate()` | duplicate one existing Component through UE's native template-copy path |
+
+All creation, rename, reparent, root replacement, deletion, and duplication
+paths structurally modify the Blueprint and report affected Component
+Templates, Graph Nodes, child Blueprints, and instances when determinable.
+They do not imply a full Blueprint compile.
+
 ## Adapter Boundary
 
 Pure LGL normalization may:
 
 - preserve concrete Blueprint object bindings and component statement order
 - normalize Blueprint query clauses into a structured query object
-- normalize confirmed Graph and Variable bindings and common Patch operation
-  forms
+- normalize confirmed Graph, Variable, Dispatcher, and Component bindings and
+  common Patch operation forms
 
 Pure LGL normalization must not:
 
@@ -1037,9 +1229,14 @@ Pure LGL normalization must not:
 - resolve whether `ImplementFunction` produces an Event Node or Function Graph
 - validate Dispatcher backing-object consistency, availability, or usage Nodes
 - determine Dispatcher rename, removal, and dependent-Blueprint effects
+- resolve Component Palette Classes or asset-backed creation capabilities
+- validate Component names, placement, attachment, root replacement,
+  deletion, duplication, or affected child Blueprints and Graph Nodes
+- resolve the preview Actor context required for native Component reparenting
+- determine Component child-promotion, transform, template, or instance
+  effects
 - validate function override eligibility
 - synthesize inherited override signatures
-- validate component attachment legality
 - inspect or mutate SCS component templates
 - compile Blueprints
 
