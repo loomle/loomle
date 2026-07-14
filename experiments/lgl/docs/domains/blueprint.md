@@ -516,6 +516,8 @@ Variable = variable(
 )
 
 Dispatcher = dispatcher(palette: "P_BlueprintDispatcher")
+
+FunctionGraph = graph(palette: "P_FunctionGraph")
 ```
 
 The constructor name and argument shape are returned data rather than a
@@ -523,9 +525,9 @@ creation vocabulary the agent must memorize. The exact Palette read with
 `with schema` describes required parameters and context constraints through
 structured comments. A Patch may reuse a previously returned Palette id, but
 `add` re-resolves it in the current Blueprint context. This section currently
-confirms Variable and Dispatcher entries; other Blueprint lifecycle objects
-must follow the same Palette rule after their native creation paths are
-reviewed.
+confirms Variable, Dispatcher, and directly created Graph entries. Component
+and Timeline lifecycle objects must follow the same Palette rule after their
+native creation paths are reviewed.
 
 Singular operations resolve one object by its current local name inside the
 bound Blueprint:
@@ -608,10 +610,168 @@ also does not implement this query model or `with schema`.
 ## Patch
 
 Blueprint Patch uses the shared Core lifecycle operations for its concrete
-objects. It does not turn UE editor utility names into parallel `invoke`
-Operations. This section currently confirms Variable and Dispatcher lifecycle;
-Graph, Component, and Timeline lifecycle remain to be reviewed against their
-own native UE paths.
+objects. Ordinary lifecycle does not turn UE editor utility names into parallel
+`invoke` Operations. Target-local `invoke` remains reserved for native compound
+behavior whose primary meaning is not direct object lifecycle. This section
+currently confirms Graph, Variable, and Dispatcher lifecycle; Component and
+Timeline lifecycle remain to be reviewed against their own native UE paths.
+
+### Graph Lifecycle
+
+A directly authored top-level Graph is a first-class lifecycle object. Every
+creation capability comes from the Palette of the bound Blueprint:
+
+```lgl
+query door
+palette entries "Function Graph"
+
+query door
+palette @P_FunctionGraph
+with schema
+
+FunctionGraph = graph(palette: "P_FunctionGraph")
+```
+
+The opaque Palette id fixes the native Graph Class, Schema, ownership
+collection, and creation path. The constructor therefore does not repeat
+`type`, `Schema`, or a separate lifecycle-role value. `with schema` reports the
+resulting native `type`, ownership, generated default Nodes, name constraints,
+Blueprint capability constraints, and available lifecycle operations through
+comments around the ordinary constructor binding.
+
+Creation uses a local alias followed by shared `add`:
+
+```lgl
+patch door
+
+OpenDoor = graph(palette: "P_FunctionGraph")
+add OpenDoor
+```
+
+The local alias supplies the exact requested Graph name. `add` re-resolves the
+Palette capability in the bound Blueprint and materializes exactly one Graph.
+The first confirmed K2 capabilities follow their distinct native paths:
+
+- Function Graph uses `CreateNewGraph` followed by `AddFunctionGraph`; the
+  Schema creates its Function Entry and Result Nodes and applies the native
+  function flags.
+- Macro Graph uses `CreateNewGraph` followed by `AddMacroGraph`; the Schema
+  creates its tunnel terminators and applies Macro Library public state where
+  required.
+- Event Graph uses `CreateNewGraph` followed by `AddUbergraphPage`; it creates
+  the page but does not invent an Event Node.
+
+The Palette is capability-driven rather than restricted to these three labels.
+Blueprint subclasses and domain adapters may return other direct native Graph
+creation capabilities when their real editor path is available. Availability
+comes from the resolved Blueprint's native `SupportsFunctions`,
+`SupportsMacros`, `SupportsEventGraphs`, and domain hooks rather than a fixed
+LGL list. LGL does not infer the path from `EGraphType`: Function, Interface,
+Override, and Dispatcher Signature Graphs may all report `GT_Function` while
+having different owners and lifecycle rules.
+
+Creation requires a valid unused name. `CreateNewGraph` can otherwise rename an
+existing same-named object out of the way, and the editor commonly generates a
+unique suffix. LGL permits neither implicit behavior: preflight returns a name
+conflict and changes nothing. Function creation also invokes child-Blueprint
+validation in UE. If that validation would silently rename a child Variable,
+Component, Timeline, or override Graph, LGL returns a conflict until the caller
+resolves it explicitly.
+
+Success returns the materialized compact Graph identity in ordinary Blueprint
+Object Text, including its generated `graph@id`, current name, native `type`,
+`Schema`, and ownership comment. Generated default Nodes and other native
+effects belong to the mutation effects or comments; the Blueprint result does
+not expand the new Graph body. The returned `graph@id` is immediately usable as
+a following Graph query or Patch target.
+
+Existing Graph rename uses the common `name` field rather than an invented UE
+field:
+
+```lgl
+set graph@graph-id.name = OpenDoorInternal
+```
+
+The adapter requires native rename permission and routes the operation through
+`FBlueprintEditorUtils::RenameGraph`. It must update Function Entry and Result
+references, local-variable scopes, dependent call Nodes, child override Graphs,
+and other UE-maintained references. A collision or an undeclared child repair
+fails preflight. All determinable affected Graphs, Nodes, and Blueprint assets
+participate in the same atomic Patch and appear in the mutation effects.
+
+Graph ordering uses shared `move` only where UE exposes authored ordering:
+
+```lgl
+move graph@open-id before graph@close-id
+move graph@open-id after graph@initialize-id
+```
+
+The Graph and anchor must belong to the same Blueprint and the same native
+collection. The adapter routes Function Graph and Macro Graph ordering through
+`MoveGraphBeforeOtherGraph`. Event, Interface, Dispatcher Signature,
+Construction Script, nested, and other non-reorderable Graphs reject `move`
+with a capability diagnostic rather than directly rearranging an internal
+array.
+
+Deletion uses shared `remove` for a directly owned deletable Graph:
+
+```lgl
+remove graph@graph-id
+```
+
+Preflight checks the Graph's real owner, role, `bAllowDeletion`, and Schema.
+Application gives `UEdGraphSchema::TryDeleteGraph` the first opportunity to
+perform domain-specific deletion, then follows
+`FBlueprintEditorUtils::RemoveGraph` when the Schema does not handle it. Native
+effects such as removal of Macro Instance Nodes, nested Graphs, Timeline Nodes,
+delegate refreshes, and incident Edges must be planned and reported.
+Construction Script, Interface Graph, Dispatcher Signature Graph, and nested
+Graph ownership reject direct Blueprint Graph removal and identify the owning
+operation instead.
+
+Deleting a user-authored Function Graph that is still called would follow UE's
+confirmation path and may leave invalid call Nodes. LGL does not reproduce an
+interactive confirmation or add `force`: preflight returns a conflict and
+identifies the usage Nodes so the caller can remove or replace them explicitly.
+Deleting an override Function Graph is allowed when resolution proves that the
+parent Function remains the effective implementation. Macro deletion follows
+UE's native removal of its Macro Instance Nodes and reports those deletions.
+
+Not every Graph is directly created or owned by this lifecycle:
+
+- Override implementation is the native compound `ImplementFunction` behavior.
+  UE may create an Override Event Node in an existing Event Graph or a Function
+  Graph, so it is a Blueprint `invoke`, not `add graph`:
+
+  ```lgl
+  invoke blueprint@blueprint-id ImplementFunction(
+    function: "/Script/Engine.Actor:ReceiveAnyDamage"
+  )
+  ```
+
+  The exact Function Path identifies the effective reflected Function. The
+  operation returns the actual created or existing Node or Graph and is a no-op
+  when that exact implementation already exists.
+- Interface Graphs are effects of implementing or removing an Interface and
+  remain owned by that Blueprint compound behavior.
+- Dispatcher Signature Graphs remain effects of Dispatcher lifecycle.
+- Construction Script is editor-maintained Blueprint structure. Its Graph body
+  is editable when UE permits, but it has no direct create, rename, move, or
+  remove capability.
+- Collapsed and other nested Graphs remain effects of their owning Node or Graph
+  transformation rather than top-level Blueprint Graph creation.
+
+`Schema`, `bEditable`, `bAllowDeletion`, `bAllowRenaming`, and `InterfaceGuid`
+describe native Graph state but are not ordinary writable fields. `id` and
+`type` remain read-only common fields. Exact `with schema` output reports those
+permissions and the operations available on the resolved Graph; callers cannot
+enable a lifecycle operation by setting an internal flag.
+
+All confirmed Graph lifecycle paths call UE's structural-modification path,
+which regenerates the Skeleton Class, notifies observers, and marks the package
+dirty. This is not a full Blueprint compile. Graph mutation results must report
+the resulting compile state honestly; the separate Blueprint compile and
+diagnostic policy remains to be designed.
 
 ### Variable Lifecycle
 
@@ -653,7 +813,8 @@ configured Variable. Creation uses the exact requested name and returns a
 conflict rather than silently applying `FindUniqueKismetName` or another suffix.
 The adapter calls the native `FBlueprintEditorUtils::AddMemberVariable` path,
 which creates the GUID and native initial `FriendlyName`, flags, category,
-type-specific metadata, and structurally recompiles the Blueprint.
+type-specific metadata, then marks the Blueprint structurally modified. That
+regenerates the Skeleton Class but is not a full Blueprint compile.
 
 The constructor does not expose `DefaultValue`. That field is compiler staging
 text in `FBPVariableDescription`, not the effective Variable default. Effective
@@ -710,7 +871,8 @@ move variable@health-id after variable@stamina-id
 
 The Variable and anchor must belong to the same Blueprint. The adapter routes
 these forms through `MoveVariableBeforeVariable` and
-`MoveVariableAfterVariable` and performs the required structural compile.
+`MoveVariableAfterVariable` and performs the required structural-modification
+path.
 
 Deletion uses the shared lifecycle operation:
 
@@ -721,10 +883,10 @@ remove variable@variable-id
 The adapter routes it through `FBlueprintEditorUtils::RemoveMemberVariable`.
 Native deletion removes the `FBPVariableDescription`, all getter and setter
 Nodes referencing that Variable and their incident Edges, relevant Field
-Notify metadata, and structurally recompiles the Blueprint. Explicit `remove`
-is the deletion authorization; LGL adds no `force` argument. Preflight must
-enumerate these determinable effects, and any failure leaves the entire Patch
-unchanged.
+Notify metadata, and marks the Blueprint structurally modified. Explicit
+`remove` is the deletion authorization; LGL adds no `force` argument. Preflight
+must enumerate these determinable effects, and any failure leaves the entire
+Patch unchanged.
 
 `AddMemberVariable` and `RenameMemberVariable` normally call
 `ValidateBlueprintChildVariables`, which can silently rename a conflicting
@@ -764,8 +926,8 @@ multicast-delegate Pin type. The adapter follows the native Event Dispatcher
 creation path: create the member Variable, create the Signature Graph and its
 default terminator Nodes, make its Function Entry signature-editable, add the
 required function and Property flags, register the Graph in
-`DelegateSignatureGraphs`, and structurally recompile the Blueprint. Failure at
-any point rolls back both objects and the rest of the Patch.
+`DelegateSignatureGraphs`, and mark the Blueprint structurally modified.
+Failure at any point rolls back both objects and the rest of the Patch.
 
 Dispatcher creation is unavailable for Blueprint Interface, Macro Library, and
 Function Library assets, matching the native editor action. The requested name
@@ -790,7 +952,7 @@ set dispatcher@dispatcher-id.Category = Events
 
 `VarName` routes through `FBlueprintEditorUtils::RenameMemberVariable` and must
 atomically rename the backing Variable and Signature Graph, update same-context
-Dispatcher Nodes and dependent Variable references, and structurally recompile
+Dispatcher Nodes and dependent Variable references, and structurally modify
 every affected loaded Blueprint. Preflight validates the destination Variable
 and Graph namespaces before either half changes and applies the same child
 Blueprint collision policy as Variable rename.
@@ -829,7 +991,7 @@ through their owning Graph Patch, then retries Dispatcher removal.
 Once unused, removal atomically follows
 `FBlueprintEditorUtils::RemoveMemberVariable` and
 `FBlueprintEditorUtils::RemoveGraph`, including the normal Graph deletion
-cleanup and structural compile. If the backing Variable or Signature Graph is
+cleanup and structural-modification path. If the backing Variable or Signature Graph is
 missing, duplicated, differently named, or otherwise mismatched, the adapter
 returns an inconsistent-Blueprint diagnostic and changes neither half.
 
@@ -857,7 +1019,8 @@ Pure LGL normalization may:
 
 - preserve concrete Blueprint object bindings and component statement order
 - normalize Blueprint query clauses into a structured query object
-- normalize confirmed Variable bindings and common Patch operation forms
+- normalize confirmed Graph and Variable bindings and common Patch operation
+  forms
 
 Pure LGL normalization must not:
 
@@ -866,6 +1029,12 @@ Pure LGL normalization must not:
 - validate UE pin types
 - validate Variable names or inherited and child Blueprint collisions
 - determine Variable edit cascades or affected Blueprint assets
+- decide which Graph creation capabilities the resolved Blueprint supports
+- infer Graph lifecycle role from `EGraphType`
+- validate Graph names, ownership, lifecycle permissions, or child-Blueprint
+  collisions
+- determine Graph creation, rename, reorder, removal, or override effects
+- resolve whether `ImplementFunction` produces an Event Node or Function Graph
 - validate Dispatcher backing-object consistency, availability, or usage Nodes
 - determine Dispatcher rename, removal, and dependent-Blueprint effects
 - validate function override eligibility
