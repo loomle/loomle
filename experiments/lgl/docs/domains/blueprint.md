@@ -139,6 +139,9 @@ Persisted authored options retain their exact UE names. Supported fields include
 `BlueprintNamespace`, `BlueprintCategory`, `HideCategories`,
 `ImportedNamespaces`, and `CategorySorting`. Fields equal to defined UE
 defaults may be omitted; `with schema` reports all usable fields.
+`ParentClass` is an authored field even though changing it requires UE's full
+Blueprint reparent workflow. Its mutation contract is defined below rather
+than translated into a separate lifecycle Operation.
 
 Implemented interfaces preserve the native `FBPInterfaceDescription` shape:
 
@@ -676,8 +679,90 @@ Blueprint Patch uses the shared Core lifecycle operations for its concrete
 objects. Ordinary lifecycle does not turn UE editor utility names into parallel
 `invoke` Operations. Target-local `invoke` remains reserved for native compound
 behavior whose primary meaning is not direct object lifecycle. This section
-confirms Graph, Variable, Dispatcher, and Component lifecycle plus the
-Blueprint-specific compound state of Timeline Nodes.
+confirms Blueprint Class Contract mutation, Graph, Variable, Dispatcher, and
+Component lifecycle plus the Blueprint-specific compound state of Timeline
+Nodes.
+
+### Class Contract Mutation
+
+`ParentClass` remains an ordinary writable Blueprint field:
+
+```lgl
+patch door
+
+set blueprint@blueprint-guid.ParentClass = "/Script/Engine.Actor"
+```
+
+The value is the exact native Class Path. A native Class uses a path such as
+`/Script/Engine.Actor`; a Blueprint parent uses its Generated Class Path, such
+as `/Game/Framework/BP_BaseActor.BP_BaseActor_C`, not the Blueprint Asset Path.
+Setting the current parent again is a no-op.
+
+Exact `with schema` output marks `ParentClass` as read and write, but not reset.
+UE declares it as `TSubclassOf<UObject>` with `NoResetToDefault`, so LGL does
+not invent a reset value. There is no parallel `Reparent` Operation and no
+`force` or confirmation syntax. The explicit `set` authorizes the native
+consequences of changing the authored parent.
+
+Preflight resolves the Class and applies the same semantic restrictions used
+by UE's reparent picker and Blueprint compiler mappings. It rejects at least:
+
+- Interface and Function Library Blueprints, for which the editor does not
+  expose reparenting
+- unresolved, deprecated, newer-version, Interface, or non-Blueprint-base
+  parent Classes
+- the Blueprint's own Generated Class and any descendant that would create an
+  inheritance cycle
+- a Class requiring a different `UBlueprint` or
+  `UBlueprintGeneratedClass` family
+- a Class outside the resolved Blueprint's native `GetReparentingRules`
+- family violations such as leaving the Actor, Anim Instance, Actor Component,
+  or Level Script Actor hierarchy; Level Script reparenting remains native-only
+
+`FKismetEditorUtilities::CanCreateBlueprintOfClass` is only one part of this
+validation. It is not sufficient by itself to establish a legal reparent.
+
+Application routes the field write through one adapter-owned reparent path
+equivalent to the Blueprint editor action:
+
+1. Begin one transaction and modify the Blueprint, its
+   `USimpleConstructionScript`, and owned `USCS_Node` objects.
+2. Gather old default Namespace imports, assign `ParentClass`, then preserve
+   imports that cease to be defaults as explicit imports.
+3. Ensure the Blueprint is current, including Construction Script, SCS root,
+   parent-call, event, and Interface conformance.
+4. Reconstruct all Nodes, mark the Blueprint modified, and prepare generated
+   Sparse Class Data for the new parent.
+5. Fully compile with UE's reparent flags
+   `UseDeltaSerializationDuringReinstancing` and
+   `SkipNewVariableDefaultsDetection`.
+6. Ensure the Blueprint is current again against the newly generated Class.
+
+The adapter must plan and report every determinable native effect. Important
+effects include:
+
+- a directly declared Interface already implemented by the new parent becoming
+  inherited, with its implementation Graphs promoted to ordinary override
+  Function Graphs
+- parent Function Call Nodes being rebound to the authoritative new parent or
+  removed when no matching parent Function exists
+- invalid override Event Nodes being rebound or converted to Custom Events
+- Default Scene Root and inherited Component attachment changes
+- Node reconstruction, including changed Pins and broken or remapped Edges
+- Class Default state being rebased onto the new parent, including loss of
+  authored values for Properties that do not exist in the new hierarchy
+
+Dry run resolves the same target, validates the same rules, and reports those
+determinable effects without mutating or compiling the Blueprint. It does not
+claim that a later full compile is guaranteed to succeed.
+
+UE keeps the new `ParentClass` when the full compile completes with Blueprint
+warnings or errors. LGL preserves that behavior: the mutation remains applied,
+the returned ordinary Blueprint object contains the new `ParentClass`, and its
+compile state and messages follow as comments. A compile diagnostic is
+resulting Blueprint state rather than a partially applied Patch. Failure of the
+adapter execution itself, or inability to complete a consistent reparent,
+remains an apply failure and restores the whole Patch.
 
 ### Graph Lifecycle
 
@@ -1518,6 +1603,7 @@ Pure LGL normalization may:
 
 - preserve concrete Blueprint object bindings and component statement order
 - normalize Blueprint query clauses into a structured query object
+- normalize `set blueprint.ParentClass` as an ordinary field write
 - normalize confirmed Graph, Variable, Dispatcher, and Component bindings and
   common Patch operation forms
 - preserve Timeline Node native fields and `invoke` text without interpreting
@@ -1527,6 +1613,8 @@ Pure LGL normalization must not:
 
 - resolve parent classes or interface classes
 - decide whether a class can be a Blueprint parent
+- validate Blueprint family and reparenting rules or determine reparent
+  cascades and compile results
 - validate UE pin types
 - validate Variable names or inherited and child Blueprint collisions
 - determine Variable edit cascades or affected Blueprint assets
@@ -1556,6 +1644,7 @@ Pure LGL normalization must not:
 - compile Blueprints
 
 The adapter or bridge owns those UE-dependent responsibilities and must use UE
-APIs such as `FBlueprintEditorUtils`, `USimpleConstructionScript`, `USCS_Node`,
-`UK2Node_CustomEvent`, and `UK2Node_Timeline`. Generated Class and CDO access
-belongs to the Class Reflection and Class Defaults designs.
+APIs such as `FKismetEditorUtilities`, `FBlueprintEditorUtils`,
+`USimpleConstructionScript`, `USCS_Node`, `UK2Node_CustomEvent`, and
+`UK2Node_Timeline`. Generated Class and CDO access belongs to the Class
+Reflection and Class Defaults designs.
