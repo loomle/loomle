@@ -115,9 +115,9 @@ agent-facing behavior.
   graph queries, graph patches, and Palette-backed creation.
 - [`domains/asset.md`](domains/asset.md): asset discovery, resolution,
   registry metadata, and asset-level query/reference results.
-- [`domains/blueprint.md`](domains/blueprint.md): Blueprint class contract,
-  variables, dispatchers, graphs, component trees, and compound Timeline Node
-  backing state.
+- [`domains/blueprint.md`](domains/blueprint.md): Class Settings for Blueprint
+  assets, variables, dispatchers, graphs, component trees, and compound
+  Timeline Node backing state.
 - [`domains/class.md`](domains/class.md): Class Reflection identity, hierarchy,
   Properties, Functions, Parameters, Metadata, effective Class Defaults, and
   Blueprint-backed Defaults patches.

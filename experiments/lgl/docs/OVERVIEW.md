@@ -193,7 +193,7 @@ patch text, normalized JSON, diagnostics, and examples.
   graph patches, and Palette-backed node creation.
 - Asset: asset discovery, asset identity, Asset Registry metadata, and asset
   query/reference results. Asset mutation is a later asset-tools concern.
-- Blueprint: Blueprint class contract, variables, functions, dispatchers,
+- Blueprint: Class Settings, variables, functions, dispatchers,
   custom events, components, class/member/component patches, and
   component-bound event references used by graph creation.
 - Class: UClass Reflection identity and hierarchy, effective Properties and

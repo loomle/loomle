@@ -3,11 +3,11 @@
 ## Scope
 
 The blueprint domain describes Blueprint asset structure outside individual
-graph nodes and edges. It covers class contract, implemented interfaces, class
-options, variables, dispatchers, graphs, SimpleConstructionScript components,
-and Blueprint-owned backing state required by special Graph Nodes such as
-Timeline Nodes. Effective Class Default Object state belongs to the class
-domain and is not duplicated here.
+graph nodes and edges. It covers the Blueprint Editor's Class Settings,
+variables, dispatchers, graphs, SimpleConstructionScript components, and
+Blueprint-owned backing state required by special Graph Nodes such as Timeline
+Nodes. Effective `UClass` Reflection and Class Default Object state belong to
+the class domain and are not duplicated here.
 
 Function, macro, event, delegate-signature, interface-function, and construction
 script graphs are all graph objects. Their nodes, pins, and edges remain graph
@@ -107,10 +107,16 @@ The Asset Path remains the current load location; it is not substituted for
 Blueprint identity. The normalized Blueprint object replacement is
 intentionally not specified until the shared schema phase.
 
-## Class Contract
+## Class Settings
 
-Class contract fields describe what the current `UBlueprint` authors for its
-generated class:
+Class Settings is the Blueprint Editor surface backed by the current
+`UBlueprint` asset. It is distinct from the class domain: Class Settings are
+authored source state, while the generated `UClass`, effective Reflection, and
+Class Defaults are compiled or derived state.
+
+The read model follows the editor's Parent Class, Blueprint Options, Class
+Options, Interfaces, and Imports sections without introducing a Class Settings
+object:
 
 ```lgl
 door = blueprint(
@@ -124,26 +130,65 @@ door = blueprint(
   CompileMode: Default,
   BlueprintNamespace: "Game.Doors",
   BlueprintCategory: "Doors",
-  HideCategories: ["Rendering"]
+  HideCategories: ["Rendering"],
+  ImportedNamespaces: ["Game.Combat", "Game.UI"]
 )
 ```
 
 Canonical text should keep constructor arguments named. Formatters may keep the
-binding on one line when it is short.
+binding on one line when it is short. Fields equal to defined UE defaults may
+be omitted; `with schema` reports every usable field, its native type, default,
+access, and instance-level availability.
 
-Persisted authored options retain their exact UE names. Supported fields include
-`ParentClass`, `bRunConstructionScriptOnDrag`,
-`bRunConstructionScriptInSequencer`, `bGenerateConstClass`,
-`bGenerateAbstractClass`, `bDeprecate`, `ShouldCookPropertyGuidsValue`,
-`CompileMode`, `BlueprintDisplayName`, `BlueprintDescription`,
-`BlueprintNamespace`, `BlueprintCategory`, `HideCategories`,
-`ImportedNamespaces`, and `CategorySorting`. Fields equal to defined UE
-defaults may be omitted; `with schema` reports all usable fields.
-`ParentClass` is an authored field even though changing it requires UE's full
-Blueprint reparent workflow. Its mutation contract is defined below rather
-than translated into a separate lifecycle Operation.
+### Parent Class
 
-Implemented interfaces preserve the native `FBPInterfaceDescription` shape:
+`ParentClass` is the authored parent Class Path. It remains an ordinary
+Blueprint field even though changing it requires UE's full reparent workflow.
+Its mutation contract is defined below rather than translated into a parallel
+lifecycle Operation.
+
+### Blueprint Options
+
+Blueprint Options retain their exact `UBlueprint` field names:
+
+| Field | UE default | Meaning |
+| --- | --- | --- |
+| `bRunConstructionScriptOnDrag` | `true` | Continuously rerun an Actor Construction Script while dragging |
+| `bRunConstructionScriptInSequencer` | `false` | Continuously rerun an Actor Construction Script from Sequencer |
+| `BlueprintDisplayName` | `""` | Override the Blueprint display name in editor UI |
+| `BlueprintDescription` | `""` | Supply the Content Browser description and generated Class tooltip |
+| `BlueprintNamespace` | `""` | Assign the Blueprint's Namespace |
+| `BlueprintCategory` | `""` | Categorize the generated Blueprint Class in palette surfaces |
+| `HideCategories` | `[]` | Add generated Class categories to the inherited hidden set |
+
+Class Settings for a Level Blueprint does not expose
+`bRunConstructionScriptOnDrag`; exact schema therefore reports that field as
+unavailable for writes on a Level Blueprint. `BlueprintNamespace` remains a
+field even though its adapter path also updates the Namespace Registry and any
+open Blueprint Editor context.
+
+### Class Options
+
+Class Options likewise preserve their exact native names and enum values:
+
+| Field | UE default | Meaning |
+| --- | --- | --- |
+| `bGenerateConstClass` | `false` | Add `CLASS_Const` to the generated Class during compilation |
+| `bGenerateAbstractClass` | `false` | Add `CLASS_Abstract` to the generated Class during compilation |
+| `bDeprecate` | `false` | Deprecate the Blueprint-generated Class |
+| `ShouldCookPropertyGuidsValue` | `Inherit` | Resolve whether generated Property Guids are retained while cooking |
+| `CompileMode` | `Default` | Select development or final-release handling for explicitly disabled Nodes |
+
+`CompileMode` is always readable. Exact schema makes it writable only when UE's
+explicit impure Node disabling feature is enabled, matching the Class Settings
+UI. The compiler may synchronize inherited `CLASS_Abstract` and
+`CLASS_Deprecated` state back to the corresponding Blueprint fields; LGL
+returns that native state rather than inventing separate local and effective
+Class Option fields.
+
+### Interfaces
+
+Implemented Interfaces preserve the native `FBPInterfaceDescription` shape:
 
 ```lgl
 ImplementedInterfaces: [
@@ -166,14 +211,44 @@ to Class Reflection. `ImplementedInterfaces` is readable native relationship
 state, not a directly writable array; its compound mutation operations are
 defined below.
 
+### Imports
+
+`ImportedNamespaces` is the persisted `UBlueprint` `TSet<FString>` containing
+explicit imports. Canonical LGL sorts its strings for deterministic text; that
+order has no UE meaning. The empty global Namespace is implicit and never
+appears in this set.
+
+The editor's Default Namespaces list is derived rather than stored. It includes
+shared editor and project imports, the current Blueprint Namespace, parent
+Class Namespaces, and, when enabled by UE, explicit imports inherited from
+parent Blueprints. Exact Blueprint text returns that useful effective state as
+an adjacent comment instead of fabricating a `DefaultNamespaces` field:
+
+```lgl
+###
+Default Namespaces
+Game.Doors
+Game.Framework
+###
+```
+
+When UE's Namespace Editor Features are disabled, `ImportedNamespaces` remains
+readable but exact schema marks it unavailable for writes, matching the absent
+Imports section in Class Settings.
+
 `GeneratedClass` is derived navigation information and is returned as an
 immediately following comment with its exact Class Path. Compile status and
 errors are diagnostic comments. `SkeletonGeneratedClass`, transient compile
 state, internal versioning, editor-session state, generated collections, and
-caches are not authored Class Contract fields.
+caches are not Class Settings fields.
+
+`CategorySorting` is persisted My Blueprint panel presentation state. It is
+maintained internally while categories are discovered, removed, or reordered;
+it does not participate in Class Settings, generated Class semantics, or the
+public Blueprint object and is not exposed through `with schema`.
 
 `ComponentClassOverrides` and `InheritableComponentHandler` belong to
-Component Template resolution. They are not flattened into Class Contract or
+Component Template resolution. They are not flattened into Class Settings or
 Class Defaults fields.
 
 Variable declaration and CDO storage remain distinct.
@@ -279,7 +354,7 @@ Top-level graphs belong to the Blueprint asset. Nested graphs may additionally
 identify their owning graph or node when that relation exists in UE, without
 changing their Blueprint-plus-GraphGuid identity.
 
-Implemented interfaces remain native Blueprint Class Contract data:
+Implemented interfaces remain native Class Settings data:
 
 ```lgl
 ImplementedInterfaces: [
@@ -683,9 +758,71 @@ Blueprint Patch uses the shared Core lifecycle operations for its concrete
 objects. Ordinary lifecycle does not turn UE editor utility names into parallel
 `invoke` Operations. Target-local `invoke` remains reserved for native compound
 behavior whose primary meaning is not direct object lifecycle. This section
-confirms Blueprint Class Contract mutation, Graph, Variable, Dispatcher, and
+confirms Class Settings mutation, Graph, Variable, Dispatcher, and
 Component lifecycle plus the Blueprint-specific compound state of Timeline
 Nodes.
+
+### Class Settings Field Mutation
+
+Existing Blueprint and Class Options use shared field `set` and `reset` with
+their exact UE names:
+
+```lgl
+patch door
+
+set blueprint@blueprint-guid.BlueprintDescription = "A usable door"
+reset blueprint@blueprint-guid.BlueprintDescription
+set blueprint@blueprint-guid.bGenerateAbstractClass = true
+set blueprint@blueprint-guid.ShouldCookPropertyGuidsValue = Yes
+```
+
+`reset` restores the field's UE default. Setting the current value or resetting
+an already-default field is a successful no-op and does not dirty the asset.
+Ordinary Class Settings writes use native property change notification and mark
+the Blueprint modified. They do not imply a full Blueprint compile. Fields that
+affect Class flags or generated Class Metadata take effect in that derived
+state when the Blueprint is subsequently compiled; mutation results report the
+resulting dirty and compile state honestly.
+
+`bDeprecate` follows the Blueprint Editor's specialized path and structurally
+modifies the Blueprint, including Skeleton Class regeneration. A Blueprint
+whose parent Class is deprecated cannot clear or reset this field. Level
+Blueprint exact schema marks it unavailable. This structural update is still
+not a full Blueprint compile.
+
+`BlueprintNamespace` retains ordinary field syntax:
+
+```lgl
+set blueprint@blueprint-guid.BlueprintNamespace = "Game.Doors"
+reset blueprint@blueprint-guid.BlueprintNamespace
+```
+
+The adapter additionally refreshes the Blueprint Namespace Registry, registers
+a new non-empty Namespace, updates any open Blueprint Editor import context,
+and applies UE's related explicit-import changes. Those changes appear as
+ordinary Blueprint field effects; LGL does not add a Namespace operation.
+
+`ImportedNamespaces` also uses whole-field `set` and `reset`:
+
+```lgl
+set blueprint@blueprint-guid.ImportedNamespaces = [
+  "Game.Combat",
+  "Game.UI"
+]
+
+reset blueprint@blueprint-guid.ImportedNamespaces
+```
+
+The adapter validates every newly added Namespace against UE's registered
+Namespace set, diffs the old and requested `TSet`, and applies native import and
+removal behavior. It updates an open Blueprint Editor context and loads newly
+in-scope Blueprint libraries when required. If the Blueprint Editor is closed,
+the persistent set is authoritative and UE rebuilds the context when the asset
+is next opened. `reset` clears only explicit imports; derived Default Namespaces
+remain effective. Creating a new Namespace belongs to setting
+`BlueprintNamespace`, not inserting an unknown value into
+`ImportedNamespaces`. No parallel `ImportNamespace` or `RemoveNamespace`
+Operation is added.
 
 ### Parent Class Mutation
 
@@ -776,7 +913,7 @@ field because its `Graphs` are UE-created owned structure. LGL does not add an
 Interface object, `interface@id`, `interfaces` collection query, Interface
 constructor, or Palette entry.
 
-Adding an existing Interface Class to the Blueprint Class Contract uses one
+Adding an existing Interface Class in Class Settings uses one
 schema-discovered Blueprint Operation:
 
 ```lgl
@@ -843,7 +980,7 @@ Edges, and other native Graph-removal effects are included in dry run and the
 mutation result.
 
 With `bPreserveFunctions: true`, UE preserves implementation logic while
-removing the Class Contract:
+removing the Interface from Class Settings:
 
 - each Interface Function Graph becomes an ordinary Function Graph
 - `InterfaceGuid` is invalidated and the Graph becomes editable, renameable,
@@ -1713,6 +1850,8 @@ Pure LGL normalization may:
 
 - preserve concrete Blueprint object bindings and component statement order
 - normalize Blueprint query clauses into a structured query object
+- normalize schema-approved Blueprint and Class Option field `set` and `reset`
+  without interpreting their UE semantics
 - normalize `set blueprint.ParentClass` as an ordinary field write
 - preserve Blueprint `ImplementInterface` and `RemoveInterface` invokes and
   their named native values without interpreting them
@@ -1723,6 +1862,9 @@ Pure LGL normalization may:
 
 Pure LGL normalization must not:
 
+- derive Default Namespaces or validate registered Namespace paths
+- apply Blueprint Namespace Registry or editor-context side effects
+- decide instance-level Class Settings availability or property editability
 - resolve parent classes or interface classes
 - decide whether a class can be a Blueprint parent
 - validate Blueprint family and reparenting rules or determine reparent
