@@ -11,9 +11,22 @@ This document is the normative LGL design. The current TypeScript experiment
 and UE-backed Widget adapter predate it and remain implementation gaps. Bridge
 work is intentionally deferred until the LGL documents are complete.
 
-This revision covers Widget Graph events backed by multicast delegates. Legacy
-property and function bindings stored in `UWidgetBlueprint::Bindings`, and the
-separate Model-View-ViewModel plugin binding system, are intentionally deferred.
+The current Widget contract covers the authored Widget tree, exact native
+Widget and Slot state, Palette-backed creation, structural editing, and Widget
+Graph events backed by multicast delegates.
+
+The following UE systems are intentionally outside the current contract:
+
+- Widget Animations and their MovieScene timelines;
+- Widget Navigation;
+- legacy property and function bindings stored in
+  `UWidgetBlueprint::Bindings`;
+- the separate Model-View-ViewModel plugin binding system.
+
+LGL does not currently define discovery, query, or mutation behavior for these
+systems. Widget lifecycle operations must still preserve or report their native
+UE reference and cascade effects; that requirement does not make the deferred
+systems independently readable or editable.
 
 ## UE Object Boundary
 
