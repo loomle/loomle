@@ -11,6 +11,10 @@ This document is the normative LGL design. The current TypeScript experiment
 and UE-backed Widget adapter predate it and remain implementation gaps. Bridge
 work is intentionally deferred until the LGL documents are complete.
 
+This revision covers Widget Graph events backed by multicast delegates. Legacy
+property and function bindings stored in `UWidgetBlueprint::Bindings`, and the
+separate Model-View-ViewModel plugin binding system, are intentionally deferred.
+
 ## UE Object Boundary
 
 The domain maps UE objects directly:
@@ -379,6 +383,102 @@ invalid-state diagnostic rather than guessing.
 The normalized JSON operation kinds for these Widget queries still require a
 separate schema review. This text contract does not silently reuse the
 experiment's earlier Widget query payloads.
+
+### Graph Events
+
+An accessible native `FMulticastDelegateProperty` such as `OnClicked` is a
+Graph-event capability, not writable Widget state. An exact Widget read with
+`with schema` lists it in the existing `fields` section with its native name
+and delegate type. It does not introduce an Event object, an `events` query, or
+a Widget mutation Operation:
+
+```lgl
+query menu
+widget@button-guid
+with schema
+
+###
+schema
+
+fields:
+  OnClicked: FOnButtonClickedEvent; graph event
+    availability: available
+    discover with:
+      query graph@event-graph-guid
+      palette entries "OnClicked"
+      where widget = widget@button-guid
+
+  OnPressed: FOnButtonPressedEvent; graph event
+    availability: available
+    discover with:
+      query graph@event-graph-guid
+      palette entries "OnPressed"
+      where widget = widget@button-guid
+###
+```
+
+The indented LGL under `discover with` is one complete copyable query. The
+label is schema Comment text, not another LGL keyword. If more than one
+Ubergraph can own the event, the schema emits one complete `discover with
+graph@id` block for each compatible Graph rather than choosing from editor
+focus or `GetLastEditedUberGraph()`.
+
+If the Widget and delegate already have a bound event Node anywhere in the
+Blueprint, schema points directly to it:
+
+```lgl
+###
+schema
+
+fields:
+  OnClicked: FOnButtonClickedEvent; graph event
+    availability: existing
+    inspect with:
+      query graph@event-graph-guid
+      node@event-node-guid
+###
+```
+
+`inspect with` is likewise Comment guidance containing a complete exact Node
+query. Bound-event identity is the native component-property plus delegate
+pair, while the returned `node@id` remains the Graph Node's stable identity.
+
+A Widget must have a corresponding generated `FObjectProperty` before UE can
+create a component-bound event. When it does not, schema explains the concrete
+prerequisite:
+
+```lgl
+###
+schema
+
+fields:
+  OnClicked: FOnButtonClickedEvent; graph event
+    availability: unavailable
+    reason: Widget has no generated FObjectProperty
+    requires: bIsVariable = true
+###
+```
+
+When the resolved Widget schema permits that native field, the agent can make
+the Widget a Blueprint-visible variable through the ordinary Widget Patch:
+
+```lgl
+patch menu
+set widget@button-guid.bIsVariable = true
+```
+
+The adapter applies the same transaction and structural-modification behavior
+as the Widget Designer variable toggle and refreshes the generated Blueprint
+member context before a later Graph Palette query. It must not treat this as an
+isolated in-memory Boolean write.
+
+The adapter discovers Graph events through accessible
+`FMulticastDelegateProperty` fields and UE's Kismet accessibility rules. It
+checks the generated Widget property, delegate owner and visibility,
+deprecation state, and any existing `UK2Node_ComponentBoundEvent`. `OnClicked`
+and other Graph events never accept `set` or `reset`; creation and deletion
+remain Graph operations. Ordinary exact Widget reads do not emit this
+capability catalog unless `with schema` is present.
 
 ## Palette
 

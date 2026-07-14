@@ -1693,18 +1693,112 @@ Palette Entry identity incorporates the resolved Graph and Pin context, so
 | --- | --- | --- |
 | `from pin` | `palette entries "Branch" from pin@exec-output-pin-id` | `FBlueprintActionContext.Pins` |
 | `to pin` | `palette entries "Less Equal" to pin@data-input-pin-id` | `FBlueprintActionContext.Pins` |
-| `component` | `where component = Trigger` | `FBlueprintActionContext.SelectedObjects` component property |
+| `widget` | `where widget = StartButton`, `where widget = widget@button-guid` | the Widget's generated `FObjectProperty` in `FBlueprintActionContext.SelectedObjects` |
+| `component` | `where component = Trigger`, `where component = component@trigger-guid` | the Blueprint Component property in `FBlueprintActionContext.SelectedObjects` |
+| `actor` | `where actor = Enemy_2`, `where actor = actor@enemy-guid` | the Level Actor in `FBlueprintActionContext.SelectedObjects` |
 | `contextSensitive` | `where contextSensitive = false` | `MakeContextMenu(..., bIsContextSensitive, ...)` |
 
 `contextSensitive = true` is the default and should usually be omitted.
-`component` accepts one exact LGL `Name`; `contextSensitive` accepts a boolean.
-Both fields support only `=` and `!=`, plus the shared logical composition
-operators. Other Palette filter fields and ordered comparisons are unsupported.
+`widget`, `component`, and `actor` each accept either one exact current `Name`
+of that concrete object kind or its matching typed stable reference. A Widget
+name is its exact UObject and generated-member name, a Component name is its
+exact Blueprint component-variable name, and an Actor name is its exact UObject
+name. Display labels, localized text, and Class names are not exact object
+names. Zero matches and ambiguity are diagnostics rather than fallback to a
+display label or another object kind.
+
+The three object-context fields support only `=` and are mutually exclusive in
+one Palette query. They may be combined with `contextSensitive` through the
+shared logical `and`. The adapter resolves the selected object before it asks
+UE to construct the Action Menu; these clauses are not post-generation text
+filters. `contextSensitive` accepts a Boolean and supports `=` and `!=`. Other
+Palette filter fields and ordered comparisons are unsupported.
+
+The returned Palette Entry identity incorporates the resolved Widget,
+Component, or Actor binding context. `palette @id` and the later creation
+binding therefore do not repeat the `where` clause. The adapter revalidates the
+same resolved object and native binding compatibility; a rename, deletion,
+type change, or Graph-context change makes the entry stale rather than causing
+a new name search.
+
 Explicit Palette ordering supports `name`, `category`, and Palette Entry `id`;
 without `order by`, the adapter preserves UE Action Menu ranking.
 `page limit` defaults to 50. The search text after `palette entries` may be
 omitted. With no text, Pin context, or `where`, the operation enumerates the
 current context-sensitive Palette through the same cursor pagination contract.
+
+### Bound Event Entries
+
+Widget, Blueprint Component, and Level Actor multicast events remain Graph
+Nodes. Their creation is discovered through the same UE Action Menu as every
+other Node, using the concrete object-context field that matches the selected
+object:
+
+```lgl
+query eventGraph
+palette entries "OnClicked"
+where widget = widget@button-guid
+
+query eventGraph
+palette entries "OnComponentBeginOverlap"
+where component = component@trigger-guid
+
+query levelEventGraph
+palette entries "OnDestroyed"
+where actor = actor@enemy-guid
+```
+
+For Widget and Blueprint Component events, the adapter resolves the exact
+generated `FObjectProperty`; for Level Actor events it resolves the exact
+`AActor`. It passes that binding context through
+`UBlueprintBoundEventNodeSpawner::IsBindingCompatible` and binds the selected
+native delegate to the resulting `UK2Node_ComponentBoundEvent` or
+`UK2Node_ActorBoundEvent`. The query's explicit Graph is the creation target;
+LGL never substitutes UE Editor's last-focused Ubergraph.
+
+An available result is an ordinary Palette-backed Node binding. Future event
+Pins come from the exact entry's `with pins` expansion and are never declared
+manually:
+
+```lgl
+Clicked = node(palette: "P_Button_OnClicked")
+```
+
+One bound-event Node is allowed for the same native object and delegate across
+the entire owning Blueprint, not merely in the queried Graph. Palette is a
+creation surface, so an event that already exists does not return another
+`node(palette: ...)` binding. A context-bound search that encounters that event
+instead returns navigation guidance in the ordered result:
+
+```lgl
+###
+OnClicked already exists
+inspect with:
+  query graph@existing-event-graph-guid
+  node@existing-event-node-guid
+###
+```
+
+The Comment does not turn the existing Node into a creation alias. If a
+previously returned Palette id becomes stale because the event was created in
+the meantime, `palette @id` reports its unavailable state and `add` fails
+validation with the existing `graph@id` and `node@id`. It must not alias the
+existing Node, create a duplicate, move it to the current Graph, or silently
+succeed as a no-op. A second creation in the same provisional Patch fails by
+the same rule.
+
+Deleting the existing bound-event Node uses ordinary Graph lifecycle mutation:
+
+```lgl
+patch eventGraph
+remove node@existing-event-node-guid
+```
+
+After native Node removal and structural Blueprint modification, the creation
+entry becomes available again in a fresh Palette query. Widget, Component, and
+Actor adapters may expose copyable discovery or inspection queries through
+their object schemas, but they do not duplicate Bound Event creation as an
+`invoke` Operation.
 
 Palette result examples:
 
