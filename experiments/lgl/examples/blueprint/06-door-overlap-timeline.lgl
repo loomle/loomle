@@ -5,7 +5,7 @@ g = graph(domain: blueprint, asset: bp, graph: EventGraph)
 
 beginOverlap = node(graph: g, type: OnComponentBeginOverlap, id: "F001", Component: Box)
 endOverlap = node(graph: g, type: OnComponentEndOverlap, id: "F002", Component: Box)
-timeline = node(graph: g, type: Timeline, id: "F003", Name: DoorDriver)
+timeline = node(graph: g, type: Timeline, id: "F003", TimelineName: DoorDriver, FloatTracks: [{TrackName: Driver, bIsExternalCurve: false}])
 closedRot = node(graph: g, type: MakeRotator, id: "F004", Roll: 0.0, Pitch: 0.0, Yaw: 0.0)
 openRot = node(graph: g, type: MakeRotator, id: "F005", Roll: 0.0, Pitch: 0.0, Yaw: 90.0)
 lerpRot = node(graph: g, type: LerpRotator, id: "F006")

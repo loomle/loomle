@@ -38,8 +38,8 @@ comfortable across common graph shapes.
   `UEdGraphPin` names.
 - Component references such as `Trigger`, `Box`, `Mesh`, and `Muzzle` are
   represented as identifiers until schema binding exists.
-- Timeline tracks are represented as node arguments, for example
-  `Timeline({Name: DoorDriver})`, not as full nested timeline assets.
+- Timeline is one complex Graph Node. Its Template, Tracks, and internal Curve
+  Keys are nested native Node state rather than independent LGL objects.
 - Complex values are built through explicit nodes such as `MakeVector` and
   `MakeRotator` because the current parser intentionally avoids nested function
   literals.

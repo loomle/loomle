@@ -78,7 +78,7 @@ Domain docs:
 - `docs/domains/asset.md`: Asset domain for Asset Registry-backed search,
   resolve, registry tags, and asset result text.
 - `docs/domains/blueprint.md`: Blueprint domain for class contract, variables,
-  dispatchers, graphs, component trees, timelines, and their reads.
+  dispatchers, graphs, component trees, and compound Timeline Node state.
 - `docs/domains/widget.md`: Widget domain for UMG tree constructors, tree
   queries, palette entries, and widget patching.
 

@@ -227,8 +227,8 @@ graph@G001
 `object@id` is the common cross-query reference for concrete objects with a
 native UE identifier. A bare `@id` is invalid. Domains map the public `id` field
 to native identity such as BlueprintGuid, GraphGuid, VarGuid, VariableGuid,
-TimelineGuid, NodeGuid, or PinId. The object word is part of the reference and
-must match the returned object kind; an adapter never guesses it from context.
+NodeGuid, or PinId. The object word is part of the reference and must match the
+returned object kind; an adapter never guesses it from context.
 
 LGL does not define object-specific ref constructors such as `graph_ref`,
 `variable_ref`, `component_ref`, or `pin_ref`. A domain must return unknown or
@@ -329,7 +329,7 @@ The native source varies because UE itself uses different representations:
 - Blueprint `type` is native `EBlueprintType` text, such as `BPTYPE_Normal`.
 - Graph `type` is native `EGraphType` text returned by its Schema, such as
   `GT_Function`, `GT_Ubergraph`, or `GT_Macro`.
-- Node, Component, Timeline, and similar UObject `type` fields use their exact
+- Node, Component, Widget, and similar UObject `type` fields use their exact
   native Class Path.
 - Pin and Blueprint Variable `type` fields use canonical
   `FEdGraphPinType` text.
@@ -678,7 +678,7 @@ operations:
   AddExecutionPin()
     availability: available
     output pin: one Pin
-    invoke: invoke node@sequence-id AddExecutionPin() as pin: next
+    invoke: invoke node@sequence-id AddExecutionPin() as next
     UE action: FGraphEditorCommands::AddExecutionPin
     native: UK2Node_ExecutionSequence::AddInputPin
 ###
@@ -824,13 +824,14 @@ appears inside a Patch.
 `invoke` is the shared Patch operation for adapter-owned object interfaces:
 
 ```lgl
-invoke <target> <Operation>(named arguments) [as <selector>: <alias>, ...]
+invoke <target> <Operation>(named arguments) [as <alias>]
+invoke <target> <Operation>(named arguments) as <selector>: <alias>, ...
 ```
 
 For example:
 
 ```lgl
-invoke node@sequence-id AddExecutionPin() as pin: next
+invoke node@sequence-id AddExecutionPin() as next
 invoke pin@vector-id SplitStructPin() as subpins.X: x, subpins.Z: z
 ```
 
@@ -842,14 +843,16 @@ statement. `invoke` is a statement, never an expression nested inside another
 call or binding. Operation lookup is target-local; the same Operation name may
 have a different schema on a different target type.
 
-The optional `as` clause binds selected primary outputs for later statements in
-the same Patch. A selector is an exact adapter-provided role such as `pin` or a
-keyed-many selector such as `subpins.X`; LGL defines no universal `members` or
-`items` role. Fixed multi-output Operations expose multiple roles, for example
-`key` and `value`. The caller may omit outputs it does not need. Every alias is
-unique and becomes valid only after the `invoke` statement succeeds. It is then
-an ordinary object reference equivalent in operation position to a stable typed
-reference.
+The optional `as` clause binds primary outputs for later statements in the same
+Patch. When the Operation has exactly one primary output, `as <alias>` binds it
+directly; its object kind comes from the exact target's schema and is not
+repeated in text. When an Operation has multiple primary outputs, each binding
+uses an exact adapter-provided selector such as `key` or a keyed-many selector
+such as `subpins.X`. LGL defines no universal `members` or `items` role. The
+caller may omit outputs it does not need from a multi-output Operation. Every
+alias is unique and becomes valid only after the `invoke` statement succeeds.
+It is then an ordinary object reference equivalent in operation position to a
+stable typed reference.
 
 Normalized JSON:
 
@@ -878,10 +881,15 @@ interface Invoke {
 }
 
 interface InvokeOutputBinding {
-  selector: string;
+  selector?: string;
   alias: string;
 }
 ```
+
+An omitted JSON `selector` is valid only when the resolved Operation schema has
+exactly one primary output. Pure normalization preserves that omission; the
+owning adapter resolves and validates it against the same schema used by
+`with schema`.
 
 The single `statements` array preserves exact source order. Bindings and
 operations must not be regrouped into parallel arrays because binding lifetime,

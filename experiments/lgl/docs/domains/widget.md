@@ -767,7 +767,7 @@ Duplicate copies one existing Widget subtree through UE's internal Widget
 serialization path and exposes the new root as an output:
 
 ```lgl
-invoke widget@start-guid Duplicate() as widget: copy
+invoke widget@start-guid Duplicate() as copy
 ```
 
 The duplicate receives new Widget names and GUIDs, keeps copied native and Slot

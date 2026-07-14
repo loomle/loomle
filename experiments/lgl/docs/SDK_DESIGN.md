@@ -73,7 +73,7 @@ The target text forms are documented here:
   creation entries.
 - [`domains/asset.md`](domains/asset.md): asset discovery and references.
 - [`domains/blueprint.md`](domains/blueprint.md): Blueprint class, variable,
-  dispatcher, graph, component, and timeline structure.
+  dispatcher, graph, component, and compound Timeline Node structure.
 - [`domains/class.md`](domains/class.md): Class Reflection, effective Defaults,
   Class queries, and Defaults patches.
 - [`domains/widget.md`](domains/widget.md): widget trees, slots, queries, and

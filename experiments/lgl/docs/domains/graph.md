@@ -996,7 +996,7 @@ The complete Graph Patch operation set is:
 | Disconnect | `disconnect pin -> pin` | Remove exactly one existing Edge |
 | Break | `break pin` | Invoke UE Break All Pin Links for one Pin |
 | Insert | `insert pin -> name.input/output -> pin` | Atomically replace one existing Edge with a newly created Node |
-| Invoke | `invoke object Operation(args...) [as selector: alias, ...]` | Execute one schema-discovered UE object Operation |
+| Invoke | `invoke object Operation(args...) [as alias]` or `as selector: alias, ...` | Execute one schema-discovered UE object Operation |
 | Remove | `remove node` | Perform ordinary UE Delete Node behavior |
 | Move | `move node to (x, y)` or `move node by (dx, dy)` | Change LGL Graph layout |
 
@@ -1158,7 +1158,8 @@ Node- and Pin-specific UE editor behavior uses the shared Core `invoke`
 operation rather than pretending that every Graph supports one generic Pin
 edit. The exact target must first be queried `with schema`; that same schema
 defines the PascalCase Operation name, named arguments, availability, primary
-outputs, output selectors, UE Action, and native execution path.
+outputs, single-output binding or multi-output selectors, UE Action, and native
+execution path.
 
 ```lgl
 query g
@@ -1170,7 +1171,7 @@ The schema Comment may then guide a Patch directly:
 
 ```lgl
 patch g
-invoke node@sequence-id AddExecutionPin() as pin: next
+invoke node@sequence-id AddExecutionPin() as next
 connect next -> pin@target-id
 ```
 
@@ -1296,7 +1297,7 @@ the descendants under that parent, and exposes the still-existing parent as the
 fixed `parent` output:
 
 ```lgl
-invoke pin@x-id RecombineStructPin() as parent: vector
+invoke pin@x-id RecombineStructPin() as vector
 connect pin@source-id -> vector
 ```
 
@@ -1305,8 +1306,8 @@ child alias or stable reference becomes invalid after the Operation. Nested
 Structs recombine one level at a time:
 
 ```lgl
-invoke pin@x-id RecombineStructPin() as parent: location
-invoke location RecombineStructPin() as parent: transform
+invoke pin@x-id RecombineStructPin() as location
+invoke location RecombineStructPin() as transform
 ```
 
 Availability preserves the owning K2 Schema rules. Split is unavailable when
@@ -1337,7 +1338,7 @@ yet. An editable Function Graph exposes:
 invoke graph@function-id AddInputParameter(
   name: Damage,
   type: "<FEdGraphPinType native text>"
-) as pin: damage
+) as damage
 
 invoke graph@function-id AddOutputParameter(
   name: WasApplied,
@@ -1366,7 +1367,7 @@ creation target:
 invoke node@custom-event-id AddParameter(
   name: Damage,
   type: "<FEdGraphPinType native text>"
-) as pin: damage
+) as damage
 ```
 
 Custom Event parameters have signature-input meaning and become physical
@@ -1433,7 +1434,7 @@ no Function Result. It supports semantic input parameters only:
 invoke graph@signature-graph-id AddInputParameter(
   name: Damage,
   type: "<FEdGraphPinType native text>"
-) as pin: damage
+) as damage
 ```
 
 The Operation returns the final Function Entry Output Pin. Its exact-name,
@@ -1497,12 +1498,12 @@ Creation targets the Graph because the authoritative Pin does not exist yet:
 invoke graph@macro-id AddInputParameter(
   name: Target,
   type: "<FEdGraphPinType native text>"
-) as pin: target
+) as target
 
 invoke graph@macro-id AddOutputParameter(
   name: Result,
   type: "<FEdGraphPinType native text>"
-) as pin: result
+) as result
 ```
 
 Both Operations return the final authoritative Tunnel Pin. Unlike Function

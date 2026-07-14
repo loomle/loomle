@@ -5,16 +5,19 @@
 The blueprint domain describes Blueprint asset structure outside individual
 graph nodes and edges. It covers class contract, implemented interfaces, class
 options, variables, dispatchers, graphs, SimpleConstructionScript components,
-and timelines. Effective Class Default Object state belongs to the class
+and Blueprint-owned backing state required by special Graph Nodes such as
+Timeline Nodes. Effective Class Default Object state belongs to the class
 domain and is not duplicated here.
 
 Function, macro, event, delegate-signature, interface-function, and construction
 script graphs are all graph objects. Their nodes, pins, and edges remain graph
 domain work.
 
-Some graph nodes reference Blueprint-owned variables, dispatchers, components,
-or timelines. The graph domain owns those nodes; the blueprint domain owns the
-referenced object identities.
+Some Graph Nodes reference Blueprint-owned Variables, Dispatchers, or
+Components. Timeline differs: `UBlueprint::Timelines` stores the backing
+`UTimelineTemplate`, but the public LGL identity remains its owning Timeline
+Node. The Graph domain owns that Node identity; the Blueprint adapter resolves
+and flattens the backing pair.
 
 The TypeScript experiment still implements the earlier `members` array and
 member-oriented query model. That implementation does not match this design
@@ -37,11 +40,12 @@ and must be replaced in a later schema/parser/formatter/adapter phase.
 - `SimpleConstructionScript`
 - `Timelines`
 
-The read model exposes six concrete objects: Blueprint, Variable, Dispatcher,
-Graph, Component, and Timeline. It does not introduce a common Blueprint
-`Member` object. Generated classes, generated variables, intermediate graphs,
-and compiled event graphs are derived state rather than additional authored
-objects.
+The read model exposes five concrete Blueprint objects: Blueprint, Variable,
+Dispatcher, Graph, and Component. It does not introduce a common Blueprint
+`Member` object. Timeline Templates are backing state of Timeline Nodes rather
+than a sixth public object. Generated classes, generated variables,
+intermediate graphs, and compiled event graphs are derived state rather than
+additional authored objects.
 
 ## Basic Form
 
@@ -73,8 +77,6 @@ door.OnOpened = dispatcher(id: "dispatcher-variable-guid", type: "<FEdGraphPinTy
 
 door.Root = component(id: "root-component-guid", type: "/Script/Engine.SceneComponent")
 Root.Mesh = component(id: "mesh-component-guid", type: "/Script/Engine.StaticMeshComponent", StaticMesh: "/Game/Meshes/SM_Door.SM_Door")
-
-door.OpenTimeline = timeline(id: "timeline-guid", type: "/Script/Engine.TimelineTemplate")
 ```
 
 `blueprint.name = ...` is ordinary binding-path syntax. It expresses owner and
@@ -184,8 +186,8 @@ part of the confirmed language.
 
 Blueprint reads return concrete objects directly in the ordered LGL document.
 There is no `Member`, `BlueprintMember`, `members[]`, or generic member result.
-The six concrete object types are Blueprint, Variable, Dispatcher, Graph,
-Component, and Timeline.
+The five concrete object types are Blueprint, Variable, Dispatcher, Graph, and
+Component.
 
 Every concrete object exposes one `id` mapped to its native UE GUID, including
 the Blueprint's own `BlueprintGuid`. Binding paths supply owner and current
@@ -315,43 +317,80 @@ Graph atomically and belong to Blueprint asset Patch design. A missing,
 duplicated, or mismatched half is an inconsistent Blueprint diagnostic, not a
 guessing opportunity.
 
-### Timelines
+### Timeline Nodes
 
-Timeline is the only new concrete object constructor in this read design. It
-maps directly to `UTimelineTemplate`:
+Timeline does not introduce a `timeline(...)` object, `timeline@id`, or
+Blueprint-owned Timeline query. UE implements one authored Timeline through a
+`UK2Node_Timeline` in a Graph plus a same-named `UTimelineTemplate` in
+`UBlueprint::Timelines`. LGL presents that backing pair as one complex Node:
 
 ```lgl
-door.OpenTimeline = timeline(
-  id: "timeline-guid",
-  type: "/Script/Engine.TimelineTemplate",
+openTimeline = node(
+  graph: eventGraph,
+  id: "timeline-node-guid",
+  type: "/Script/BlueprintGraph.K2Node_Timeline",
+  TimelineName: OpenTimeline,
   TimelineLength: 1.0,
   LengthMode: TL_TimelineLength,
   bAutoPlay: false,
   bLoop: false,
   bReplicated: false,
   bIgnoreTimeDilation: false,
-  TimelineTickGroup: TG_PrePhysics
+  TimelineTickGroup: TG_PrePhysics,
+  FloatTracks: [
+    {
+      TrackName: Alpha,
+      bIsExternalCurve: false,
+      CurveFloat: {
+        FloatCurve: {
+          Keys: [
+            {Time: 0.0, Value: 0.0, InterpMode: RCIM_Linear, TangentMode: RCTM_Auto, TangentWeightMode: RCTWM_WeightedNone},
+            {Time: 1.0, Value: 1.0, InterpMode: RCIM_Linear, TangentMode: RCTM_Auto, TangentWeightMode: RCTWM_WeightedNone}
+          ]
+        }
+      }
+    }
+  ]
 )
 ```
 
-The binding name maps to `UTimelineTemplate::VariableName`, `id` maps to
-`TimelineGuid`, and `type` is the object's native UE class path. Authored fields
-retain their UE names and native values: `TimelineLength`, `LengthMode`,
-`bAutoPlay`, `bLoop`, `bReplicated`, `bIgnoreTimeDilation`, `MetaDataArray`, and
-`TimelineTickGroup`.
+`id` maps to `UEdGraphNode::NodeGuid`; `type` is the native Timeline Node Class
+Path. `TimelineName` is the shared authored name resolved across the Node and
+Template. Template fields are flattened onto the Node with their UE names:
+`TimelineLength`, `LengthMode`, `bAutoPlay`, `bLoop`, `bReplicated`,
+`bIgnoreTimeDilation`, `MetaDataArray`, and `TimelineTickGroup`. The Template is
+authoritative; same-named transient caches on `UK2Node_Timeline` are synchronized
+by the adapter rather than returned as a second field set.
 
-Tracks remain native Timeline fields rather than new LGL objects:
-`EventTracks`, `FloatTracks`, `VectorTracks`, `LinearColorTracks`, and the
-authored editor order `TrackDisplayOrder`. Their values use UE native text,
-preserving Track names, event keys, and curve references without introducing a
-`track(...)` constructor. Curve key data owned by a referenced Curve remains on
-that Curve object. Inspecting or editing it requires Curve/object support rather
-than copying it into a new Timeline-specific object.
+Tracks remain nested native Node state rather than LGL objects. Exact reads may
+include `EventTracks`, `FloatTracks`, `VectorTracks`, `LinearColorTracks`, and
+the authored editor order `TrackDisplayOrder`. Track names are unique across
+all four arrays and are the exact selectors used by Timeline Operations. LGL
+does not add `track(...)`, `track@id`, a Track query, or a Track type mapping.
 
-Cached names derived from the Timeline name, such as `DirectionPropertyName`,
-`UpdateFunctionName`, and `FinishedFunctionName`, are not returned as authored
-fields. Pure editor presentation state such as Track expansion and curve-view
-synchronization is also omitted.
+Internal Curve Keys retain the native `FRichCurveKey` fields and source order.
+Vector channels use the UE names `X`, `Y`, and `Z`; Linear Color channels use
+`R`, `G`, `B`, and `A`. `FKeyHandle` is completely transient in UE and is not an
+LGL identity. A Key is selected by Track name, native channel when present, and
+time. If invalid source data contains multiple Keys at the same selected time,
+the adapter returns an ambiguity diagnostic rather than choosing one.
+
+For an internal Curve, the exact Node read includes its authored Keys. For an
+external Curve, it returns `bIsExternalCurve: true` and the native Asset
+reference without recursively expanding or mutating that independent Asset.
+Pure Timeline editor presentation state such as Track expansion and curve-view
+synchronization is omitted.
+
+The Node and Template `TimelineGuid` fields exist for UE copy/paste matching and
+Template duplication. They are not stable LGL identity and are not writable.
+Cached names derived from `TimelineName`, including `DirectionPropertyName`,
+`UpdateFunctionName`, `FinishedFunctionName`, per-Track Function names, and
+per-Track Property names, are derived state and are not returned as authored
+fields.
+
+A missing Template, orphan Template, duplicate name pairing, or otherwise
+non-unique Node/Template relationship is an inconsistent Blueprint diagnostic.
+The adapter does not expose the halves independently or repair them by guessing.
 
 ### Graph-Owned Nodes
 
@@ -359,10 +398,10 @@ Custom events, override events, component-bound events, function entry/result
 nodes, macro tunnels, and Timeline nodes are Graph Nodes. They are not Blueprint
 objects and are not repeated in the Blueprint object model.
 
-Graph nodes may reference a Variable, Dispatcher, Component, or Timeline by its
-typed stable reference, such as `variable@id` or `component@id`.
-Getter/setter nodes, dispatcher nodes, component-bound events, and Timeline
-nodes remain independently identified Nodes in their owning Graph.
+Graph nodes may reference a Variable, Dispatcher, or Component by its typed
+stable reference, such as `variable@id` or `component@id`. Getter/setter nodes,
+dispatcher nodes, component-bound events, and Timeline Nodes remain
+independently identified Nodes in their owning Graph.
 
 ## Component Tree
 
@@ -465,9 +504,9 @@ summary
 ```
 
 The Blueprint adapter returns the compact Blueprint object followed by comments
-with counts for its owned Variables, Dispatchers, Graphs, Components, and
-Timelines. It does not expand those complete collections or return a summary
-object, section object, or generic Member item:
+with counts for its owned Variables, Dispatchers, Graphs, and Components. It
+does not expand those complete collections or return a summary object, section
+object, or generic Member item:
 
 ```lgl
 door = blueprint(asset: bpAsset, id: "blueprint-guid", type: BPTYPE_Normal, ParentClass: "/Script/Engine.Actor")
@@ -476,7 +515,6 @@ door = blueprint(asset: bpAsset, id: "blueprint-guid", type: BPTYPE_Normal, Pare
 # dispatchers: 2
 # graphs: 5
 # components: 4
-# timelines: 1
 ```
 
 The count labels also name the available collection operations. Collections
@@ -494,9 +532,6 @@ graphs ["text"]
 
 query door
 components ["text"]
-
-query door
-timelines ["text"]
 ```
 
 Without search text, each operation enumerates its complete owned collection
@@ -504,7 +539,7 @@ through cursor pagination while preserving the corresponding UE authored
 order. With search text, it performs adapter-owned search over the current
 name, type, and relevant native descriptive fields. Collection results contain
 compact concrete object identities rather than full Graph bodies, component
-templates, Timeline tracks, or schemas.
+templates, or schemas.
 
 Palette enumerates the creation capabilities valid for the bound Blueprint:
 
@@ -537,8 +572,9 @@ creation vocabulary the agent must memorize. The exact Palette read with
 structured comments. A Patch may reuse a previously returned Palette id, but
 `add` re-resolves it in the current Blueprint context. This section currently
 confirms Variable, Dispatcher, and directly created Graph entries. Component
-and Timeline lifecycle objects must follow the same Palette rule after their
-native creation paths are reviewed.
+creation follows the same Blueprint Palette rule. Timeline Node creation uses
+the Palette of its target Graph because Timeline is not a Blueprint lifecycle
+object.
 
 Singular operations resolve one object by its current local name inside the
 bound Blueprint:
@@ -555,9 +591,6 @@ graph EventGraph
 
 query door
 component DoorMesh
-
-query door
-timeline OpenTimeline
 ```
 
 The operation supplies the concrete kind, so the adapter never guesses among
@@ -604,9 +637,28 @@ component template properties the adapter can faithfully read or edit. The
 ordinary exact read includes properties actually set on the component template
 rather than all inherited class defaults.
 
-Timeline exact reads include the native Track array fields. Those fields expose
-inline event keys and references to Curve objects; they do not recursively
-expand Curve-owned data.
+Timeline discovery and exact reads use the Graph query model:
+
+```lgl
+query door
+graphs "EventGraph"
+
+query eventGraph
+nodes "OpenTimeline"
+
+query eventGraph
+nodes
+where type = "/Script/BlueprintGraph.K2Node_Timeline"
+
+query eventGraph
+node@timeline-node-guid
+with schema
+```
+
+Timeline-aware Node search includes `TimelineName` in its adapter-owned search
+metadata. The exact Node read returns its current Pins and flattened Timeline
+state described above. There is no Blueprint `timelines`, `timeline <name>`, or
+`timeline@id` operation and no Timeline-specific Graph query shortcut.
 
 Zero matches return an unknown-object diagnostic. If invalid UE state produces
 more than one match, the adapter returns an ambiguity diagnostic rather than
@@ -624,8 +676,8 @@ Blueprint Patch uses the shared Core lifecycle operations for its concrete
 objects. Ordinary lifecycle does not turn UE editor utility names into parallel
 `invoke` Operations. Target-local `invoke` remains reserved for native compound
 behavior whose primary meaning is not direct object lifecycle. This section
-currently confirms Graph, Variable, Dispatcher, and Component lifecycle;
-Timeline lifecycle remains to be reviewed against its native UE path.
+confirms Graph, Variable, Dispatcher, and Component lifecycle plus the
+Blueprint-specific compound state of Timeline Nodes.
 
 ### Graph Lifecycle
 
@@ -1173,7 +1225,7 @@ Default Scene Root is unavailable; replacement uses `MakeNewSceneRoot()`.
 Native single-Component duplication remains a target-local Operation:
 
 ```lgl
-invoke component@mesh-guid Duplicate() as component: copy
+invoke component@mesh-guid Duplicate() as copy
 ```
 
 It follows `DuplicateSubobjects` for exactly one target, copies the Component
@@ -1205,6 +1257,261 @@ paths structurally modify the Blueprint and report affected Component
 Templates, Graph Nodes, child Blueprints, and instances when determinable.
 They do not imply a full Blueprint compile.
 
+### Timeline Node Lifecycle and Operations
+
+A Timeline is created through the Palette of its target Graph. The returned
+constructor is still `node(...)`; LGL does not add a Timeline constructor:
+
+```lgl
+query eventGraph
+palette entries "Timeline"
+
+query eventGraph
+palette @P_Timeline
+with schema
+
+OpenTimeline = node(
+  palette: "P_Timeline",
+  TimelineName: OpenDoor,
+  TimelineLength: 1.0,
+  LengthMode: TL_TimelineLength,
+  bLoop: false
+)
+```
+
+Creation uses the ordinary Graph binding plus `add`:
+
+```lgl
+patch eventGraph
+
+openTimeline = node(
+  palette: "P_Timeline",
+  TimelineName: OpenDoor,
+  TimelineLength: 1.0,
+  LengthMode: TL_TimelineLength
+)
+
+add openTimeline
+```
+
+`TimelineName` is required for deterministic creation. Other schema-writable
+Timeline fields may be supplied as initial fields. Track arrays and display
+order are read-only structural state and are not accepted in the constructor.
+Application follows the native Timeline Node spawner and
+`FBlueprintEditorUtils::AddNewTimeline`, producing the Node and Template as one
+atomic result.
+
+The Palette entry is available only when the Blueprint is Actor-based,
+supports Event Graphs, and `FBlueprintEditorUtils::DoesSupportTimelines`
+succeeds. `UK2Node_Timeline::IsCompatibleWithGraph` further restricts placement
+to an Event Graph or a compatible nested Composite whose outer chain ultimately
+belongs to an Ubergraph. A stale Palette id is revalidated during `add`.
+
+Ordinary writable Timeline state uses `set` and `reset`:
+
+```lgl
+set node@timeline-node-guid.TimelineName = OpenDoor
+set node@timeline-node-guid.TimelineLength = 2.0
+set node@timeline-node-guid.LengthMode = TL_TimelineLength
+set node@timeline-node-guid.bAutoPlay = false
+set node@timeline-node-guid.bLoop = true
+set node@timeline-node-guid.bReplicated = false
+set node@timeline-node-guid.bIgnoreTimeDilation = false
+set node@timeline-node-guid.TimelineTickGroup = TG_PrePhysics
+set node@timeline-node-guid.MetaDataArray = []
+```
+
+`TimelineName` routes through `FBlueprintEditorUtils::RenameTimeline`. The
+native path updates the Node, Template object and cached names, Timeline
+Variable Nodes and Pins, and child-variable validation. A name or Template-name
+collision fails preflight. `TimelineLength` must be greater than
+`KINDA_SMALL_NUMBER`. `LengthMode`, `TimelineTickGroup`, Metadata, and Boolean
+values preserve their UE native text and behavior. Exact `with schema` output
+reports field access and reset support for the resolved instance.
+
+`EventTracks`, `FloatTracks`, `VectorTracks`, `LinearColorTracks`, and
+`TrackDisplayOrder` are readable but not directly writable or resettable. Their
+coordinated edits use target-local Operations.
+
+New internal Tracks use the UE Track kinds directly:
+
+```lgl
+invoke node@timeline-node-guid AddFloatTrack(
+  TrackName: Alpha
+) as alpha
+
+invoke node@timeline-node-guid AddVectorTrack(
+  TrackName: Position
+) as position
+
+invoke node@timeline-node-guid AddEventTrack(
+  TrackName: OnHalfway
+) as onHalfway
+
+invoke node@timeline-node-guid AddLinearColorTrack(
+  TrackName: Tint
+) as tint
+```
+
+`TrackName` is required and must be unique across all Track arrays and the
+Timeline's fixed Pins. A new Track is appended to native display order. Each
+Operation reconstructs the Timeline Node and has one primary output: the final
+Track Pin. Single-output `as <alias>` infers that Pin kind from schema.
+
+An existing Curve Asset can create an external Track:
+
+```lgl
+invoke node@timeline-node-guid AddTrackFromCurve(
+  Curve: "/Game/Curves/C_DoorAlpha.C_DoorAlpha"
+) as alpha
+```
+
+The native Curve Asset name becomes `TrackName`. `UCurveFloat` creates a Float
+Track unless `bIsEventCurve` is true, in which case it creates an Event Track;
+`UCurveVector` and `UCurveLinearColor` create their corresponding Tracks. A
+different desired name is a following `RenameTrack` Operation.
+
+Existing Track structure uses three Operations:
+
+```lgl
+invoke node@timeline-node-guid RenameTrack(
+  TrackName: Alpha,
+  NewName: Opacity
+)
+
+invoke node@timeline-node-guid MoveTrack(
+  TrackName: Opacity,
+  Before: Position
+)
+
+invoke node@timeline-node-guid RemoveTrack(
+  TrackName: Opacity
+)
+```
+
+`MoveTrack` requires exactly one of `Before` or `After` and resolves both names
+in the same Timeline. It changes only `TrackDisplayOrder` and resulting Pin
+display order. `RenameTrack` updates the generated Pin and native derived names
+while preserving links. `RemoveTrack` removes the Track, display record, and
+generated Pin; links incident to that Pin are removed as native effects.
+
+Internal Curve Keys use Track name, native channel when present, and time as
+their exact selector. `FKeyHandle` remains transient and never crosses the LGL
+boundary:
+
+```lgl
+invoke node@timeline-node-guid AddKey(
+  TrackName: Position,
+  Channel: X,
+  Time: 1.0,
+  Value: 100.0,
+  InterpMode: RCIM_Cubic,
+  TangentMode: RCTM_Auto
+)
+
+invoke node@timeline-node-guid SetKey(
+  TrackName: Position,
+  Channel: X,
+  Time: 1.0,
+  NewTime: 1.5,
+  Value: 150.0,
+  InterpMode: RCIM_Linear
+)
+
+invoke node@timeline-node-guid RemoveKey(
+  TrackName: Position,
+  Channel: X,
+  Time: 1.5
+)
+```
+
+Vector Tracks require `Channel: X|Y|Z`; Linear Color Tracks require
+`Channel: R|G|B|A`. Float and Event Tracks reject `Channel`. Non-event Tracks
+require a float `Value`. Event Keys may omit `Value`, which then uses the
+native `FRichCurveKey` default `0.0`; explicit values remain readable and
+writable for lossless state preservation.
+
+`AddKey` also accepts the optional native `FRichCurveKey` fields
+`InterpMode`, `TangentMode`, `TangentWeightMode`, `ArriveTangent`,
+`ArriveTangentWeight`, `LeaveTangent`, and `LeaveTangentWeight`. Omitted fields
+use the UE defaults `RCIM_Linear`, `RCTM_Auto`, `RCTWM_WeightedNone`, and zero
+tangent values. `SetKey` modifies only explicitly supplied fields; `Time`
+selects the current Key and optional `NewTime` moves it. Adding at an occupied
+time, moving onto an occupied time, or resolving duplicate source times returns
+a conflict or ambiguity diagnostic rather than overwriting or merging Keys.
+Native time sorting and tangent recalculation are preserved.
+
+Key Operations are available only for internal Curves. Existing Tracks switch
+between Curve ownership modes through two Operations:
+
+```lgl
+invoke node@timeline-node-guid UseExternalCurve(
+  TrackName: Position,
+  Curve: "/Game/Curves/C_Position.C_Position"
+)
+
+invoke node@timeline-node-guid UseInternalCurve(
+  TrackName: Position
+)
+```
+
+`UseExternalCurve` replaces the current Curve reference and sets
+`bIsExternalCurve = true`; it does not copy the current internal Keys into that
+Asset. Dry run must expose the replaced internal state. Event and Float Tracks
+accept `UCurveFloat`, Vector accepts `UCurveVector`, and Linear Color accepts
+`UCurveLinearColor`. `UseInternalCurve` is available only for an external Track
+and follows UE's native path to create an owned Curve and copy every current
+`FRichCurveKey` before clearing `bIsExternalCurve`.
+
+External Curve Keys are not expanded or mutated through the Timeline Node.
+Creating a new external Curve Asset is also not a Timeline Operation: Asset
+creation remains Palette-backed and the independent Curve Asset must own any
+future editing contract.
+
+Native Timeline duplication remains a target-local Operation:
+
+```lgl
+invoke node@timeline-node-guid Duplicate() as copy
+```
+
+UE creates a new Node Guid, unique Timeline name, Template, and internal
+Timeline Guid. It copies Timeline fields, Tracks, display order, and internal
+Curves while preserving external Curve references. Connections to other Graph
+Nodes are not duplicated. The single output alias resolves to the final copied
+Node and may be renamed, moved, or connected by following Patch statements.
+Duplicate is not a second constructor path; direct creation still requires
+Palette.
+
+Deletion uses ordinary Graph Node lifecycle:
+
+```lgl
+remove node@timeline-node-guid
+```
+
+The adapter must call the Timeline Node deletion path.
+`UK2Node_Timeline::DestroyNode` removes and relocates the backing Template before
+deleting the Graph Node and its incident Edges. Calling
+`FBlueprintEditorUtils::RemoveTimeline` alone is insufficient because that API
+does not remove the Graph Node. Every operation first validates a unique
+Node/Template pair; missing or duplicated halves invalidate the entire Patch.
+
+The complete Timeline surface is:
+
+| Operation | Meaning |
+| --- | --- |
+| Graph `nodes` / `node@id` | discover or exactly read the compound Timeline Node |
+| Graph Palette plus `add node` | create one Node and backing Template |
+| `set/reset node.field` | edit one schema-approved Timeline field |
+| `invoke node Add*Track()` | append one internal native Track |
+| `invoke node AddTrackFromCurve()` | append one external Track from an existing Curve Asset |
+| `invoke node RenameTrack()` | rename one Track and generated Pin |
+| `invoke node MoveTrack()` | change native Track display order |
+| `invoke node RemoveTrack()` | remove one Track and generated Pin |
+| `invoke node AddKey/SetKey/RemoveKey()` | edit one internal Curve Key |
+| `invoke node UseExternalCurve/UseInternalCurve()` | switch Curve ownership using UE behavior |
+| `invoke node Duplicate()` | duplicate the compound Timeline Node |
+| `remove node` | delete the Node and backing Template |
+
 ## Adapter Boundary
 
 Pure LGL normalization may:
@@ -1213,6 +1520,8 @@ Pure LGL normalization may:
 - normalize Blueprint query clauses into a structured query object
 - normalize confirmed Graph, Variable, Dispatcher, and Component bindings and
   common Patch operation forms
+- preserve Timeline Node native fields and `invoke` text without interpreting
+  their UE meaning
 
 Pure LGL normalization must not:
 
@@ -1235,6 +1544,12 @@ Pure LGL normalization must not:
 - resolve the preview Actor context required for native Component reparenting
 - determine Component child-promotion, transform, template, or instance
   effects
+- pair a Timeline Node with its Template or validate Timeline Graph
+  compatibility
+- resolve Timeline Palette availability, Track names, native Curve channels,
+  Key selectors, or external Curve Asset compatibility
+- determine Timeline rename, reconstruction, duplication, deletion, or Curve
+  ownership effects
 - validate function override eligibility
 - synthesize inherited override signatures
 - inspect or mutate SCS component templates
@@ -1242,5 +1557,5 @@ Pure LGL normalization must not:
 
 The adapter or bridge owns those UE-dependent responsibilities and must use UE
 APIs such as `FBlueprintEditorUtils`, `USimpleConstructionScript`, `USCS_Node`,
-and `UK2Node_CustomEvent`. Generated Class and CDO access belongs to the Class
-Reflection and Class Defaults designs.
+`UK2Node_CustomEvent`, and `UK2Node_Timeline`. Generated Class and CDO access
+belongs to the Class Reflection and Class Defaults designs.
