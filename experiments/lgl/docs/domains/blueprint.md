@@ -162,7 +162,9 @@ ImplementedInterfaces: [
 references and preserves UE order; the Graph objects remain separate. This
 replaces the lossy `blueprint.implements` translation. Only interfaces directly
 declared by this Blueprint appear here; inherited effective interfaces belong
-to Class Reflection.
+to Class Reflection. `ImplementedInterfaces` is readable native relationship
+state, not a directly writable array; its compound mutation operations are
+defined below.
 
 `GeneratedClass` is derived navigation information and is returned as an
 immediately following comment with its exact Class Path. Compile status and
@@ -577,7 +579,9 @@ structured comments. A Patch may reuse a previously returned Palette id, but
 confirms Variable, Dispatcher, and directly created Graph entries. Component
 creation follows the same Blueprint Palette rule. Timeline Node creation uses
 the Palette of its target Graph because Timeline is not a Blueprint lifecycle
-object.
+object. Implementing an existing Interface Class changes the Blueprint Class
+Contract rather than creating an Interface object, so it is not a Palette
+entry.
 
 Singular operations resolve one object by its current local name inside the
 bound Blueprint:
@@ -683,7 +687,7 @@ confirms Blueprint Class Contract mutation, Graph, Variable, Dispatcher, and
 Component lifecycle plus the Blueprint-specific compound state of Timeline
 Nodes.
 
-### Class Contract Mutation
+### Parent Class Mutation
 
 `ParentClass` remains an ordinary writable Blueprint field:
 
@@ -763,6 +767,112 @@ compile state and messages follow as comments. A compile diagnostic is
 resulting Blueprint state rather than a partially applied Patch. Failure of the
 adapter execution itself, or inability to complete a consistent reparent,
 remains an apply failure and restores the whole Patch.
+
+### Implemented Interface Operations
+
+`ImplementedInterfaces` remains an ordered, readable
+`TArray<FBPInterfaceDescription>`. It is not writable or resettable as one
+field because its `Graphs` are UE-created owned structure. LGL does not add an
+Interface object, `interface@id`, `interfaces` collection query, Interface
+constructor, or Palette entry.
+
+Adding an existing Interface Class to the Blueprint Class Contract uses one
+schema-discovered Blueprint Operation:
+
+```lgl
+patch door
+
+invoke blueprint@blueprint-guid ImplementInterface(
+  Interface: "/Script/MyGame.Damageable"
+)
+```
+
+`ImplementInterface` follows the editor action of that name and routes through
+`FBlueprintEditorUtils::ImplementNewInterface`. `Interface` is the exact native
+Interface Class Path and matches `FBPInterfaceDescription::Interface`; LGL does
+not translate it into a friendly type or Asset Path.
+
+Preflight requires `DoesSupportImplementingInterfaces` and rejects Macro
+Library, Interface, Level Script, and Function Library Blueprints. The resolved
+Class must be a non-deprecated, current, Blueprint-implementable Interface. It
+must not carry `CannotImplementInterfaceInBlueprint`, be prohibited by the
+parent Class's `ProhibitedInterfaces` metadata, or already be implemented
+directly or through inheritance. An existing implementation is a conflict that
+identifies its direct or inherited owner; it is not reported as a newly added
+local declaration.
+
+Before mutation, the adapter enumerates all inherited Interface Functions and
+validates the complete generated surface. Animation Interface Functions require
+an Anim Blueprint. Every required Function Graph name must be free of Graph,
+Function, Variable, and other declaration conflicts that would make Interface
+conformance invalid. UE's `ImplementNewInterface` creates Function Graphs as it
+iterates and may encounter a later conflict after earlier Graphs already exist;
+LGL therefore completes this validation before calling the native path and
+rolls back any unexpected partial native result.
+
+For each Interface Function that is overrideable but cannot be placed as an
+Event, UE creates an Interface-owned Function Graph, sets its `InterfaceGuid`,
+and makes it non-deletable. Animation Interface Functions use their native
+Animation Graph path. Event-compatible Interface Functions create no Event Node
+during this operation; their implementation remains the separately confirmed
+`ImplementFunction` behavior. The new `FBPInterfaceDescription` is appended
+only after all required Graphs are created, then the Blueprint is structurally
+modified.
+
+Removal is available only for an Interface directly present in
+`ImplementedInterfaces`; an inherited Interface cannot be removed from the
+child Blueprint. The caller must explicitly choose the native preservation
+mode:
+
+```lgl
+invoke blueprint@blueprint-guid RemoveInterface(
+  Interface: "/Script/MyGame.Damageable",
+  bPreserveFunctions: true
+)
+```
+
+`bPreserveFunctions` maps directly to
+`FBlueprintEditorUtils::RemoveInterface` and is required even though the C++
+API has a default. Omitting it is a validation error rather than silently
+choosing the destructive mode. There is no additional confirmation or `force`
+syntax.
+
+With `bPreserveFunctions: false`, UE removes each Interface-owned Function
+Graph and deletes each placed Interface Event Node. Their bodies, incident
+Edges, and other native Graph-removal effects are included in dry run and the
+mutation result.
+
+With `bPreserveFunctions: true`, UE preserves implementation logic while
+removing the Class Contract:
+
+- each Interface Function Graph becomes an ordinary Function Graph
+- `InterfaceGuid` is invalidated and the Graph becomes editable, renameable,
+  and deletable
+- callable, event, and public Function flags are added
+- Function Entry and Result parameters become ordinary user-defined Pins
+- animation linked-input poses are promoted when present
+- each placed Interface Event Node becomes a same-named Custom Event with its
+  position, signature, and Pin links preserved
+
+After either mode, UE removes the direct `FBPInterfaceDescription`, refreshes
+all Nodes, structurally modifies the Blueprint, and marks loaded child
+Blueprints for reference fixup. The adapter must not invoke UE's modal prompt
+for unloaded children. It marks and reports loaded children, reports unloaded
+child Asset Paths as deferred refresh, and lets normal load-time conformance
+repair them later rather than automatically loading and dirtying an unbounded
+asset hierarchy.
+
+Resolvable dependent Interface calls, casts, child Blueprints, removed Graphs,
+converted Events, Pins, and Edges are reported as effects. The operation does
+not silently delete unrelated external call sites. Both operations regenerate
+structural Blueprint state but do not imply a full Blueprint compile.
+
+Neither Operation defines primary output aliases. The returned ordinary
+Blueprint Object Text contains the updated `ImplementedInterfaces` field and
+interleaves every created or promoted compact Graph identity needed for
+navigation. Removed Graphs and converted or removed graph-owned Event Nodes
+remain mutation effects rather than new Blueprint object kinds. Graph-body
+edits continue in a following Graph Patch using the returned `graph@id`.
 
 ### Graph Lifecycle
 
@@ -1604,6 +1714,8 @@ Pure LGL normalization may:
 - preserve concrete Blueprint object bindings and component statement order
 - normalize Blueprint query clauses into a structured query object
 - normalize `set blueprint.ParentClass` as an ordinary field write
+- preserve Blueprint `ImplementInterface` and `RemoveInterface` invokes and
+  their named native values without interpreting them
 - normalize confirmed Graph, Variable, Dispatcher, and Component bindings and
   common Patch operation forms
 - preserve Timeline Node native fields and `invoke` text without interpreting
@@ -1615,6 +1727,9 @@ Pure LGL normalization must not:
 - decide whether a class can be a Blueprint parent
 - validate Blueprint family and reparenting rules or determine reparent
   cascades and compile results
+- decide whether a Blueprint can implement an Interface, validate the complete
+  Interface Function surface, or determine add, remove, preservation, and child
+  Blueprint effects
 - validate UE pin types
 - validate Variable names or inherited and child Blueprint collisions
 - determine Variable edit cascades or affected Blueprint assets
@@ -1648,3 +1763,10 @@ APIs such as `FKismetEditorUtilities`, `FBlueprintEditorUtils`,
 `USimpleConstructionScript`, `USCS_Node`, `UK2Node_CustomEvent`, and
 `UK2Node_Timeline`. Generated Class and CDO access belongs to the Class
 Reflection and Class Defaults designs.
+
+The current Bridge `addInterface` and `removeInterface` helpers do not yet
+satisfy this contract. Their dry run does not perform live Interface validation,
+addition can inherit UE's partial-Graph failure path, missing or inherited
+removal is treated as success, and removal may enter UE's interactive child-load
+prompt. They must be replaced by the adapter-owned non-interactive planning and
+transaction path above before this LGL surface is implemented.
