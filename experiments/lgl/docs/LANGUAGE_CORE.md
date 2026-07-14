@@ -761,7 +761,7 @@ domains:
 | `remove` | Delete one domain-owned lifecycle object |
 | `set` | Write one schema-approved field |
 | `reset` | Restore one field through its schema-approved native reset behavior |
-| `move` | Change one object's layout position or authored collection order |
+| `move` | Change one object's layout, authored collection order, or domain-owned structural placement |
 | `invoke` | Execute one target-local Operation discovered through `with schema` |
 
 The common operation name does not bypass the domain adapter. Each domain
@@ -772,7 +772,9 @@ Graph layout while an authored collection supports `before` and `after`.
 Domains may additionally define operations that depend on their own model.
 Graph owns `connect`, `disconnect`, `break`, and `insert` because their meanings
 require Pins, Edges, Nodes, and a Graph Schema. Those are not Core lifecycle
-operations merely because Graph was the first Patch domain.
+operations merely because Graph was the first Patch domain. Widget likewise
+owns `wrap` and `replace` because preserving Panel Slots, Named Slots, Root
+placement, Widget identity, and references requires the Widget ownership model.
 
 A domain must not expose two equivalent ways to perform the same mutation. If
 an object is a declared lifecycle object, ordinary creation and deletion use
@@ -800,6 +802,15 @@ exact creation capability returned by Palette. Missing, stale, or context-
 invalid Palette identities fail validation. Core still treats the binding value
 as an ordinary `Call`; the adapter owns capability resolution and argument
 validation.
+
+A domain operation may explicitly consume and materialize an unmaterialized
+Palette-backed binding when creation and a native structural transformation are
+one indivisible operation. Graph `insert` materializes its Node binding; Widget
+`wrap` materializes its wrapper binding, and Widget `replace` may materialize a
+replacement binding. Such a binding is not also passed to `add`, and the domain
+operation must document its exact identity, placement, and failure semantics.
+This is a domain operation, not Core creation sugar.
+
 Inline binding forms such as `add print = node(...)` are invalid. A domain may
 define operation-local sugar, but it must lower to ordinary ordered statements
 before validation. For example, Graph
@@ -906,6 +917,10 @@ query door
 palette @P_BlueprintVariable
 with schema
 ```
+
+The same discovered constructor Call is used when a documented domain
+operation materializes a binding directly, such as Graph `insert` or Widget
+`wrap` and Palette-backed `replace`.
 
 A Palette result is ordinary ordered Object Text. Each entry contains a binding
 whose value is the complete constructor `Call` the agent may copy into Patch

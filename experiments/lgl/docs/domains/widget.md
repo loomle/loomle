@@ -382,8 +382,8 @@ experiment's earlier Widget query payloads.
 
 ## Palette
 
-Every Widget created directly by `add` starts from the Palette of the bound
-WidgetBlueprint:
+Every new Widget materialized by `add` or by a Palette-backed `wrap` or
+`replace` starts from the Palette of the bound WidgetBlueprint:
 
 ```lgl
 query menu
@@ -420,14 +420,15 @@ same template are native effects, not additional direct `add` inputs. The
 mutation result returns the complete materialized subtree in ordinary ordered
 Widget Object Text with real Widget ids.
 
-At `add`, the adapter resolves the Palette id again and validates at least:
+When `add`, `wrap`, or `replace` materializes a binding, the adapter resolves
+the Palette id again and validates at least:
 
 1. The exact template is still available in the target WidgetBlueprint context.
 2. Its Widget Class is usable and not abstract, deprecated, hidden, or excluded
    by project Palette settings.
 3. A User Widget does not introduce a circular WidgetBlueprint reference.
-4. The requested Widget name is valid and unused.
-5. The selected parent can accept the created primary Widget.
+4. Any new Widget name requested by the operation is valid and unused.
+5. The selected structural operation can accept the created primary Widget.
 
 A Palette capability id is not a future Widget id and is not persisted in
 materialized Widget Object Text. Display labels, Class display names, and menu
@@ -439,7 +440,9 @@ Widget-specific creation expression.
 
 ## Patch
 
-Widget Patch uses the shared lifecycle operations. Bindings and operations are
+Widget Patch uses shared lifecycle operations for ordinary object ownership and
+two Widget-domain structural operations for native transformations that cannot
+be decomposed without losing UE behavior. Bindings and operations remain
 separate ordered statements.
 
 Creating the root Widget uses a local binding:
@@ -451,23 +454,55 @@ mainCanvas = widget(palette: "P_CanvasPanel")
 add mainCanvas
 ```
 
-For Widget Patch, direct `add` of a local Widget binding means set it as the
-WidgetTree root. It is valid only when no root currently exists.
+Direct `add` of a local Widget binding means set it as the WidgetTree root. It
+is valid only when no root currently exists. The binding is the exact requested
+initial Widget name and a document-local alias for later statements.
 
-Creating a child uses a member binding whose owner is the parent Widget:
+Creating a child keeps creation identity separate from placement:
 
 ```lgl
 patch menu
 
-stack.start = widget(palette: "P_Button")
-add stack.start
-set stack.start.Text = "<FText native text>"
+start = widget(palette: "P_Button")
+add start to widget@stack-guid
+set start.Text = "<FText native text>"
 ```
 
 The adapter materializes the Palette template in the target `UWidgetTree`, uses
-the binding member as the exact requested Widget name, attaches the Widget
-through the resolved parent, creates the native Panel Slot when applicable, and
-registers every created source Widget through the WidgetBlueprint GUID path.
+the local binding as the exact requested Widget name, attaches the Widget
+through the explicit destination, creates the native Panel Slot when
+applicable, and registers every created source Widget through the
+WidgetBlueprint GUID path.
+
+`add` supports four Widget placement forms:
+
+```lgl
+add root
+add child to widget@panel-guid
+add child before widget@anchor-guid
+add child after widget@anchor-guid
+```
+
+The bare form creates the root. `to widget@panel-guid` appends to a compatible
+`UPanelWidget`; `before` and `after` infer the Panel from the exact anchor and
+insert at that sibling position. Every form materializes exactly one
+Palette-backed binding.
+
+A Named Slot is an explicit structural destination rather than a writable
+field:
+
+```lgl
+header = widget(palette: "P_TextBlock")
+add header to widget@area-guid.NamedSlots.Header
+
+body = widget(palette: "P_Overlay")
+add body to blueprint@blueprint-guid.NamedSlots.Body
+```
+
+The Widget destination addresses a local `INamedSlotInterface` host. The
+Blueprint destination addresses one inherited Named Slot exposed by the
+WidgetTree. The exact slot must exist and be empty. `add` never replaces its
+current content implicitly.
 
 Existing objects use typed stable references across requests:
 
@@ -475,40 +510,177 @@ Existing objects use typed stable references across requests:
 set widget@title-guid.Text = "<FText native text>"
 reset widget@title-guid.Text
 move widget@help-guid after widget@start-guid
+move widget@help-guid to widget@stack-guid
+move widget@title-guid to widget@area-guid.NamedSlots.Header
 remove widget@quit-guid
 ```
 
-The confirmed Widget lifecycle surface is:
+`move before|after` both reorders same-Panel siblings and reparents a Widget to
+the anchor's Panel. `move ... to widget@panel-guid` appends to a Panel;
+`move ... to <host>.NamedSlots.<name>` assigns an empty Named Slot. The source
+and destination must be inside the same WidgetBlueprint, the destination must
+have capacity, and no operation may make a Widget a child of its own subtree.
+The current Root is not a valid `move` source: Root creation uses bare `add`,
+while Root-preserving transformation uses `wrap` or `replace` and Root deletion
+uses `remove`.
+
+Same-Panel reordering keeps the existing `UPanelSlot`. Reparenting to a Panel
+creates the destination's native Slot and imports only compatible old Slot
+properties, following Widget Designer drag/drop. Moving to a Named Slot
+removes the old Panel Slot; moving from a Named Slot explicitly clears the old
+host before attaching the Widget. Every discarded, created, or imported Slot
+value is part of preflight and mutation effects.
+
+`set` and `reset` edit only schema-approved Widget fields and nested Panel
+`Slot` fields. They never change Root, Panel-child, or Named Slot ownership.
+`NamedSlots` is therefore readable relationship state, not a writable field.
+
+`remove` means native deletion, never detach. It removes the target and its
+authored descendants, clears their Widget GUID records, delegate bindings,
+Desired Focus, and applicable Graph variable nodes, then structurally modifies
+the WidgetBlueprint. Preflight reports the complete determinable subtree and
+reference effects; failure leaves the entire Patch unchanged.
+
+The complete Widget Patch surface is:
 
 | Operation | Meaning |
 | --- | --- |
-| `add binding` | create one Palette-backed root or child Widget |
+| `add binding [to destination|before anchor|after anchor]` | create and place one Palette-backed Widget |
 | `set widget.field = value` | write one schema-approved native Widget field |
 | `reset widget.field` | restore one field through its schema-approved native reset path |
-| `move widget before|after widget` | reorder siblings under the same parent |
+| `move widget to destination|before anchor|after anchor` | relocate or reorder one existing Widget subtree |
 | `remove widget` | remove one authored Widget subtree through native editor behavior |
+| `wrap widget-or-array with binding` | create one Panel wrapper while preserving the targets' external placement |
+| `replace widget with binding-or-widget` | perform one native Widget replacement or content promotion |
 | `invoke widget Operation(...)` | execute a specialized operation returned by that Widget's schema |
 
 There is no inline `add parent.child = widget(...)` form. A failed validation
 applies nothing, and all mutation results use the same ordered Widget Object
 Text as queries plus the shared mutation diagnostics and effects.
 
+### Wrap
+
+`wrap` is a Widget-domain atomic operation, analogous to Graph `insert`. It is
+not sugar for `add` followed by `move` because UE preserves the target's
+external Panel Slot, Named Slot, or Root position while creating new internal
+Slots:
+
+```lgl
+patch menu
+
+wrapper = widget(palette: "P_VerticalBox")
+wrap widget@title-guid with wrapper
+```
+
+One statement may wrap multiple direct Panel siblings with one wrapper:
+
+```lgl
+wrapper = widget(palette: "P_VerticalBox")
+wrap [widget@title-guid, widget@body-guid] with wrapper
+```
+
+The operation materializes the Palette-backed `wrapper` binding itself; a
+separate `add wrapper` is invalid. The Palette capability must produce exactly
+one primary `UPanelWidget`, and that Panel must have capacity for every target.
+
+One `wrap` statement always creates exactly one wrapper. Multiple targets must
+be direct children of the same Panel, must not contain duplicate or
+ancestor/descendant selections, and are added to the wrapper in the explicit
+array order. The first target supplies the wrapper's external sibling position
+and Panel Slot. Other target Slots are removed, and every wrapped target gets a
+new native Slot owned by the wrapper. A Root or Named Slot target can only be
+wrapped alone; the wrapper takes that exact Root or Named Slot relationship.
+Detached Widgets are rejected rather than silently ignored.
+
+UE Widget Designer accepts an unordered selection, silently removes selected
+descendants of selected ancestors, and may create multiple wrappers for
+different parents or insufficient wrapper capacity. LGL deliberately does not
+copy that batch convenience: separate deterministic `wrap` statements express
+multiple wrappers.
+
+### Replace
+
+`replace` is the second Widget-domain atomic structural operation. A
+Palette-backed replacement follows Widget Designer's native Replace With path:
+
+```lgl
+replacement = widget(palette: "P_Border")
+replace widget@old-guid with replacement
+```
+
+The operation materializes `replacement`, preserves the target's external
+Panel Slot, Named Slot, or Root relationship, imports compatible native
+properties, and moves existing children when both old and new Widgets are
+compatible Panels. It preserves the target's logical Widget `id` through
+`WidgetVariableNameToGuidMap` and updates native references through the editor
+rename and replacement paths. After success, both the local replacement alias
+and the old stable reference resolve to the replacement object. Any required
+name change or incompatible property, child, capacity, binding, animation, or
+reference effect is reported during preflight.
+
+The same operation promotes existing content through UE's native Replace With
+Child and Replace With Named Slot behavior:
+
+```lgl
+replace widget@panel-guid with widget@only-child-guid
+replace widget@container-guid with widget@named-slot-content-guid
+```
+
+The existing replacement must be either the target Panel's only direct child
+or direct content of one of the target's Named Slots. It keeps its own `id` and
+is promoted into the target's exact external relationship; the old target and
+the rest of its subtree are removed. Any other existing-object relationship is
+invalid rather than being interpreted as a generic move-and-delete.
+
+### Schema Operations
+
+Widget-wide editor actions that do not define a new ownership grammar remain
+target-local Operations discovered through `with schema`.
+
+Rename uses the complete Widget editor path rather than a direct UObject or
+`DisplayLabel` field write:
+
+```lgl
+invoke widget@start-guid Rename(displayName: "Start Button")
+```
+
+It validates and sanitizes the requested display name, renames the template and
+preview Widget, preserves the Widget `id`, and updates variable references,
+delegate bindings, Desired Focus, animations, navigation bindings, UI
+Components, and affected child Blueprints. A collision is a validation error;
+the adapter never silently chooses a unique suffix.
+
+Duplicate copies one existing Widget subtree through UE's internal Widget
+serialization path and exposes the new root as an output:
+
+```lgl
+invoke widget@start-guid Duplicate() as widget: copy
+```
+
+The duplicate receives new Widget names and GUIDs, keeps copied native and Slot
+state, and is inserted immediately after the source. It is available only when
+the source has a Panel parent that permits an unambiguous sibling insertion.
+Root, Named Slot, detached, and single-child-parent cases are unavailable
+rather than invoking Widget Designer's clipboard fallback or replacing
+existing content.
+
+`Cut`, `Copy`, and `Paste` remain editor clipboard commands, not LGL Patch
+operations. `Find References` and `Open Widget Blueprint` are discovery or
+navigation behavior, not mutations. Widget introduces no `attach`, `detach`,
+`reparent`, `promote`, or lifecycle `Delete` Operation aliases.
+
 ## Relationship Mutation Boundary
 
-This revision closes the read model for Panel Slots and Named Slots without
-pretending they share one UE object:
+Panel Slots and Named Slots remain different UE relationships even though the
+same placement operations can address both:
 
 - Panel placement creates the exact native `UPanelSlot`; its editable fields
   use `set widget@id.Slot.Field` and `reset widget@id.Slot.Field`.
 - Named Slot content is returned through the host's `NamedSlots` relationship
   map and never receives a fake Panel Slot.
-
-Root creation and ordinary Panel child creation continue to use the confirmed
-Palette-backed `add` flow. Attaching, replacing, or moving content through a
-Named Slot is not assigned new Patch syntax by this query revision. Until that
-mutation path is reviewed separately, the adapter returns an
-unsupported-capability diagnostic instead of interpreting an ambiguous member
-binding as a Named Slot edit.
+- `add` and `move` own ordinary placement; `wrap` and `replace` own the two
+  native compound transformations that must preserve an external relationship.
+- `set` and `reset` never reinterpret either relationship as a property write.
 
 ## UE Mapping
 
@@ -527,8 +699,14 @@ The adapter follows UE's native ownership and editor paths:
   preserve template-specific initialization.
 - `UWidgetBlueprint::WidgetVariableNameToGuidMap` supplies Widget `id` values;
   `OnVariableAdded`, `OnVariableRenamed`, and `OnVariableRemoved` maintain them.
-- `UWidgetTree::RemoveWidget`, parent `UPanelWidget` operations, and the Widget
-  editor utilities own structural mutation behavior.
+- Widget Designer hierarchy drop owns Panel and Named Slot placement,
+  reparenting, compatible Slot-property import, capacity checks, and circular
+  relationship checks.
+- `FWidgetBlueprintEditorUtils::WrapWidgets`, replacement utilities,
+  `RenameWidget`, `DuplicateWidgets`, and `DeleteWidgets` own their complete
+  editor behaviors and cascades.
+- `UWidgetTree::RemoveWidget` and parent `UPanelWidget` operations provide the
+  lower-level structural behavior used by those editor paths.
 
 The adapter must not replace an exact `FWidgetTemplate` with a guessed Class and
 raw `ConstructWidget`, silently suffix requested names, synthesize missing ids
@@ -541,7 +719,8 @@ Pure LGL normalization may:
 
 - parse every `widget(...)` value as an ordinary `Call`;
 - preserve local and member binding targets and exact statement order;
-- normalize typed `widget@id` references and shared query or Patch clauses.
+- normalize typed `widget@id` references, relationship destinations, and the
+  Widget-domain `wrap` and `replace` statement shapes.
 
 Pure LGL normalization must not:
 
