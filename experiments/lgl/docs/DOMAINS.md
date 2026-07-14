@@ -29,11 +29,11 @@ The shared language core defines text kinds, bindings, constructors,
 references, arrays, inline object values, and statement lists. Domains define
 what those constructs mean for their UE area.
 
-For `summary <target>`, the owning adapter defines the useful orientation view.
-It chooses the existing LGL objects, comments, and statement order returned for
-that target. The shared core does not require every graph-like target to expose
-entry points, nodes, or any other common summary object. Summary content remains
-domain semantics, not shared language syntax.
+For the `summary` query operation, the owning adapter defines the useful
+orientation view. It chooses the existing LGL objects, comments, and statement
+order returned for that target. The shared core does not require every
+graph-like target to expose entry points, nodes, or any other common summary
+object. Summary content remains domain semantics, not shared language syntax.
 
 Domain docs should be the source of truth for the domain language. They should
 describe the intended syntax, object model, query behavior, patch behavior, and
@@ -121,8 +121,9 @@ agent-facing behavior.
 - [`domains/class.md`](domains/class.md): Class Reflection identity, hierarchy,
   Properties, Functions, Parameters, Metadata, effective Class Defaults, and
   Blueprint-backed Defaults patches.
-- [`domains/widget.md`](domains/widget.md): modeled widget constructors, widget
-  tree structure, slots, queries, and widget tree patching.
+- [`domains/widget.md`](domains/widget.md): authored Widget objects, tree views,
+  Panel Slot and Named Slot relationships, queries, Palette-backed creation,
+  and widget tree patching.
 
 The TypeScript experiment includes parser, formatter, schema, and in-memory
 adapter coverage for graph, asset, Blueprint, and widget, but some implemented

@@ -78,14 +78,15 @@ Query text asks a domain to find or expand information. Query results should be
 returned as object text:
 
 ```lgl
-summary g
+query g
+summary
 ```
 
-`summary <target>` asks the owning domain adapter for a compact orientation
-view. Its result is an ordered LGL document made from existing object statements
-and `#` comments. The adapter owns the content and order; LGL does not define a
-summary-specific result object or require all domains to summarize the same
-concepts.
+The `summary` primary operation asks the owning domain adapter for a compact
+orientation view. Its result is an ordered LGL document made from existing
+object statements and `#` comments. The adapter owns the content and order; LGL
+does not define a summary-specific result object or require all domains to
+summarize the same concepts.
 
 Local queries use the shared query statement list:
 
@@ -98,17 +99,24 @@ page limit 50
 Local reads share one small mental model:
 
 ```lgl
-summary <target>
+query <target>
+summary
+
+query <target>
 <objects> ["text"]
+
+query <target>
 <object> <name>
-find <object>@<id>
+
+query <target>
+<object>@<id>
 ```
 
 Plural object operations enumerate or search, singular object operations
-resolve a current local name inside the bound target, and `find` is reserved
-for exact typed stable-id reads. Each domain defines which forms its UE objects
-actually support, plus its result shape, `where` fields, `with` expansions,
-ordering, and pagination behavior.
+resolve a current local name inside the bound target, and a typed stable
+reference is itself the exact-id operation. Each domain defines which forms its
+UE objects actually support, plus its result shape, `where` fields, `with`
+expansions, ordering, and pagination behavior.
 
 ### Patch Text
 
@@ -191,8 +199,9 @@ patch text, normalized JSON, diagnostics, and examples.
 - Class: UClass Reflection identity and hierarchy, effective Properties and
   Functions, Parameters, Metadata, source provenance, effective Class
   Defaults, and Blueprint-backed Defaults patches.
-- Widget: widget tree structure, modeled widget constructors, slots, widget
-  properties, widget queries, and widget tree patches.
+- Widget: authored Widget objects, tree views, Panel Slot and Named Slot
+  relationships, native properties, queries, Palette-backed creation, and
+  widget tree patches.
 
 Additional domains should follow the same shape instead of adding new global
 language categories.

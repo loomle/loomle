@@ -45,7 +45,7 @@ owner-qualified `FFieldPath`:
 Blueprint-authored Properties and Functions may also be traceable to a
 `VarGuid`, `GraphGuid`, or `NodeGuid`. Those are source provenance, not
 universal Reflection ids. The class domain therefore does not support
-`find <object>@<id>`.
+`<object>@<id>`.
 
 ## Class Object
 
@@ -100,10 +100,11 @@ and do not appear as authored Class fields.
 
 ## Summary
 
-Class orientation uses the shared summary statement:
+Class orientation uses the shared `summary` primary operation:
 
 ```lgl
-summary actorClass
+query actorClass
+summary
 ```
 
 The adapter returns the compact Class object, including effective Class
@@ -534,25 +535,21 @@ When that binding is used by a read or Patch, normalization resolves it to:
 {"domain": "class", "path": "/Game/BP_Door.BP_Door_C"}
 ```
 
-Summary retains its shared standalone request shape:
-
-```ts
-interface ClassSummary extends Summary {
-  target: ClassTarget;
-}
-```
+Summary uses the shared query envelope:
 
 ```json
 {
-  "kind": "summary",
-  "target": {"domain": "class", "path": "/Game/BP_Door.BP_Door_C"}
+  "kind": "query",
+  "target": {"domain": "class", "path": "/Game/BP_Door.BP_Door_C"},
+  "operation": {"kind": "summary"}
 }
 ```
 
-The six local Class operations use the shared required `Query.operation` field:
+The seven Class operations use the shared required `Query.operation` field:
 
 ```ts
 type ClassQueryOperation =
+  | {kind: "summary"}
   | {kind: "properties"; text?: string}
   | {kind: "property"; name: string}
   | {kind: "functions"; text?: string}

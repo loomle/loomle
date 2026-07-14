@@ -167,7 +167,7 @@ Persisted Pin state retains native field names when present or non-default:
 `PinFriendlyName`, `PersistentGuid`, and `ReferencePassThroughConnection`.
 Pin references use the target Pin's typed `pin@id`. `PersistentGuid` is
 auxiliary UE reconstruction data, not public identity, and is never accepted
-by `find pin@id`.
+by `pin@id`.
 
 Split Pins remain separate Pin objects:
 
@@ -272,14 +272,15 @@ direction/schema-invalid connections instead of silently repairing them.
 
 Graph reads separate orientation, object search, exact reads, topology,
 semantic traversal, and creation discovery. These are parallel query
-operations; `find` is reserved for exact stable-id reads.
+operations.
 
 ### Summary
 
-Graph orientation uses the shared summary statement:
+Graph orientation uses the shared `summary` primary operation:
 
 ```lgl
-summary g
+query g
+summary
 ```
 
 The owning Graph adapter returns its semantic entry Nodes plus comments with
@@ -301,10 +302,13 @@ operation:
 
 ```lgl
 query <graph>
+summary
+
+query <graph>
 nodes ["text"]
 
 query <graph>
-find node@id|pin@id
+node@id|pin@id
 
 query <graph>
 context node@id|pin@id [depth <positive-integer>]
@@ -326,8 +330,9 @@ Each primary operation owns its allowed clauses and expansions:
 
 | Primary operation | `where` | `order by` / `page` | `depth` | `with` |
 | --- | --- | --- | --- | --- |
+| `summary` | no | no | no | none |
 | `nodes` | yes | yes | no | `layout` |
-| `find node@id\|pin@id` | no | no | no | `schema`, `layout` |
+| `node@id\|pin@id` | no | no | no | `schema`, `layout` |
 | `context` | no | no | yes | `layout` |
 | `exec flow` | no | no | yes | `layout` |
 | `data flow` | no | no | yes | `layout` |
@@ -378,7 +383,7 @@ Stable ids provide exact reads through a typed object reference:
 
 ```lgl
 query g
-find node@node-guid
+node@node-guid
 ```
 
 An exact Node read returns the complete Node and all of its current Pins,
@@ -388,7 +393,7 @@ there is no `with pins` or `with defaults` expansion for an exact Node.
 
 ```lgl
 query g
-find pin@pin-guid
+pin@pin-guid
 ```
 
 An exact Pin read returns the owning Node's compact identity and the complete
@@ -558,33 +563,29 @@ to:
 }
 ```
 
-Summary keeps the shared standalone request shape:
-
-```ts
-interface GraphSummary extends Summary {
-  target: GraphTarget;
-}
-```
+Summary uses the shared query envelope:
 
 ```json
 {
-  "kind": "summary",
+  "kind": "query",
   "target": {
     "domain": "blueprint",
     "asset": "/Game/BP_Door.BP_Door",
     "id": "graph-guid",
     "name": "EventGraph",
     "type": "GT_Ubergraph"
-  }
+  },
+  "operation": {"kind": "summary"}
 }
 ```
 
-The seven confirmed local operations form one closed union:
+The eight confirmed Graph operations form one closed union:
 
 ```ts
 type PositiveInteger = number; // JSON Schema: integer, minimum: 1
 
 type GraphQueryOperation =
+  | {kind: "summary"}
   | {kind: "nodes"; text?: string}
   | {kind: "find_by_id"; target: GraphSubjectRef}
   | {kind: "context"; target: GraphSubjectRef; depth?: PositiveInteger}
@@ -622,8 +623,9 @@ interface GraphQuery extends Query {
 
 | LGL primary operation | Normalized operation |
 | --- | --- |
+| `summary` | `{kind: "summary"}` |
 | `nodes ["text"]` | `{kind: "nodes", text?}` |
-| `find node@id\|pin@id` | `{kind: "find_by_id", target}` |
+| `node@id\|pin@id` | `{kind: "find_by_id", target}` |
 | `context node@id\|pin@id [depth N]` | `{kind: "context", target, depth?}` |
 | `exec flow from\|to node@id\|pin@id [depth N]` | `{kind: "exec_flow", direction, target, depth?}` |
 | `data flow from\|to node@id\|pin@id [depth N]` | `{kind: "data_flow", direction, target, depth?}` |
@@ -686,7 +688,7 @@ Palette Pin context remains explicit:
 The shared `where`, `with`, `orderBy`, and `page` fields retain their core JSON
 shapes. Capability validation applies the operation matrix above after
 structural validation. Unsupported combinations are diagnostics rather than
-ignored fields. `find node@id` or `find pin@id` may resolve only that typed
+ignored fields. `node@id` or `pin@id` may resolve only that typed
 object in the bound Graph;
 unknown or ambiguous ids are diagnostics.
 
@@ -1160,7 +1162,7 @@ outputs, output selectors, UE Action, and native execution path.
 
 ```lgl
 query g
-find node@sequence-id
+node@sequence-id
 with schema
 ```
 

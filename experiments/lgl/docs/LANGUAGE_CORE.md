@@ -160,22 +160,19 @@ Core does not give it a second creation-only expression type.
 Quoted values are strings. Unquoted words are symbols resolved by domains or
 adapters. In the target normalized JSON model, symbols map to `Name`.
 
-Normalized JSON:
+Normalized JSON uses one recursively composable expression model:
 
 ```ts
 type Expr =
-  | Value
-  | Ref
-  | Call;
-
-type Value =
   | null
   | boolean
   | number
   | string
   | Name
-  | Value[]
-  | { [key: string]: Value };
+  | Ref
+  | Call
+  | Expr[]
+  | { [key: string]: Expr };
 
 interface Name {
   kind: "name";
@@ -190,7 +187,11 @@ interface Call {
 ```
 
 `Name` is the normalized form for unquoted symbols. Domains and adapters
-resolve what each name means.
+resolve what each name means. Arrays and inline objects may contain the same
+references and calls that are valid at the top level. This adds no container
+syntax; it only keeps ordinary values composable. For example, an adapter-owned
+relationship map may contain `widget@id` values without translating them into
+strings or inventing a relationship object.
 
 ## References
 
@@ -424,17 +425,17 @@ the relevant domain feature sections.
 
 ### Summary
 
-`summary` asks the adapter that owns a target for a compact orientation view:
+`summary` is the shared orientation primary operation:
 
 ```lgl
-summary <target>
+query <target>
+summary
 ```
 
-The language core defines only this request shape. The owning domain adapter
-decides which existing LGL objects best summarize that target. Different
-domains, and different target types within one domain, may return different
-kinds of objects. The core does not define entry points or any other universal
-summary content.
+The owning domain adapter decides which existing LGL objects best summarize
+that target. Different domains, and different target types within one domain,
+may return different kinds of objects. The core does not define entry points or
+any other universal summary content.
 
 A summary result is an ordered LGL document made from existing object statements
 and `#` comment statements. Adapters may use comments for counts or other
@@ -443,23 +444,23 @@ must preserve the adapter's order instead of regrouping statements by object
 type.
 
 Summary introduces no result constructor, section syntax, or summary-specific
-object type. `summary <target>` is a standalone statement and does not accept
-`find`, `where`, `with`, `order by`, or `page` clauses.
+object type. It is one ordinary query operation and does not accept `where`,
+`with`, `order by`, or `page` clauses.
 
-Normalized JSON preserves that standalone meaning:
+Normalized JSON uses the same query envelope as every other read:
 
 ```ts
-interface Summary {
+interface SummaryOperation {
   kind: "summary";
-  target: Target;
 }
 ```
 
-The parser resolves the required target binding into its canonical `Target`.
-The document-local alias is not target identity and need not cross the RPC
+The shared `Query.operation` union includes `SummaryOperation`. The parser
+resolves the query target binding into its canonical `Target`; the
+document-local alias is not target identity and need not cross the RPC
 boundary.
 
-### Local Queries
+### Query Envelope
 
 Query text uses a shared multi-line envelope around one domain-owned primary
 operation:
@@ -470,22 +471,23 @@ query <target>
 <allowed clauses>
 ```
 
-Local reads follow one small, reusable model:
+Reads follow one small, reusable model. Each operation below occupies the line
+after `query <target>`:
 
 ```lgl
-summary <target>
+summary
 <objects> ["text"]
 <object> <name>
-find <object>@<id>
+<object>@<id>
 ```
 
 The plural object form enumerates or searches one domain-owned collection. The
 singular object form resolves one exact object by its current local name inside
-the bound target. `find` has one meaning only: resolve one existing object by a
-typed stable id. Stable references always include their object word, such as
-`node@id`, `pin@id`, or `graph@id`; bare `@id` is invalid. A domain supports
-only the forms that match its UE objects; for example, Class Reflection has no
-universal id and Graph Nodes have no reliable local name.
+the bound target. A typed stable reference is itself the exact-id primary
+operation; it needs no `find` prefix. Stable references always include their
+object word, such as `node@id`, `pin@id`, or `graph@id`; bare `@id` is invalid.
+A domain supports only the forms that match its UE objects; for example, Class
+Reflection has no universal id and Graph Nodes have no reliable local name.
 
 Domains may also define clear relationship operations such as Graph `context`,
 `exec flow`, `data flow`, `palette entries`, and `palette @id`. Every query
@@ -579,11 +581,12 @@ with the shared `schema` literal plus the closed set of domain details. Every
 operation has a readable snake_case `kind` and only its own arguments. Plural
 operations normally carry optional `text`; singular operations carry `name`;
 stable-id operations carry a typed reference. Relationship operations define
-their own fields.
+their own fields. Summary uses `{kind: "summary"}` and carries no operation
+arguments.
 
 The old normalized `find` property represented the earlier find-centric text
-model and is not part of the target contract. `find node@id` becomes an
-ordinary operation such as
+model and is not part of the target contract. `node@id` becomes an ordinary
+operation such as
 `{kind: "find_by_id", target: {kind: "node", id: "..."}}`; other primary
 operations must not be forced through a field named `find`.
 
@@ -628,7 +631,7 @@ must not preserve the old shape merely for implementation compatibility.
 
 ```lgl
 query target
-find node@id
+node@id
 with schema
 ```
 

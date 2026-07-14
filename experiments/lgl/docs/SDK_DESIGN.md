@@ -4,9 +4,9 @@
 
 LGL is a TypeScript SDK for agent-facing UE text operations, not a public Graph
 IR project. The SDK owns parsing, validation, adapter dispatch, diagnostics,
-and result formatting. Callers submit `summary` and local-query text through
-`query`, and patch text through `patch`. Palette discovery and creation binding
-are language features, not separate SDK methods.
+and result formatting. Callers submit query text, including the `summary`
+primary operation, through `query`, and patch text through `patch`. Palette
+discovery and creation binding are language features, not separate SDK methods.
 
 Internal data structures are implementation details. The contract is the SDK
 API plus the LGL text it accepts and returns.
@@ -121,9 +121,9 @@ reject malformed language shapes once, not inside every domain adapter:
 
 - query clauses normalize to valid `Query` objects once the revised primary
   operation JSON contract is separately reviewed
-- `find` text accepts only an exact typed stable reference such as `node@id`;
-  collection search belongs to domain plural operations such as `assets`,
-  `nodes`, or `functions`
+- an exact-id primary operation accepts only a typed stable reference such as
+  `node@id`; collection search belongs to domain plural operations such as
+  `assets`, `nodes`, or `functions`
 - `where` is a valid recursive `Condition` tree
 - `with` is a detail string list
 - `order by` is a list of order entries with keys and directions
@@ -325,7 +325,7 @@ Examples:
 
 ```lgl
 query g
-find node@node-id
+node@node-id
 
 query g
 palette entries "Print String"

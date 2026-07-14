@@ -446,10 +446,11 @@ LGL does not maintain parallel `get(...)`, `set(...)`, `event(...)`, or
 Blueprint reads use the shared summary, collection search, exact local-name,
 and exact stable-id model.
 
-Orientation uses the shared summary statement:
+Orientation uses the shared `summary` primary operation:
 
 ```lgl
-summary door
+query door
+summary
 ```
 
 The Blueprint adapter returns the compact Blueprint object followed by comments
@@ -555,10 +556,10 @@ Stable-id lookup uses the exact returned object kind:
 
 ```lgl
 query door
-find blueprint@blueprint-guid
+blueprint@blueprint-guid
 
 query door
-find variable@variable-guid
+variable@variable-guid
 ```
 
 The adapter resolves the typed id inside the Blueprint and selects exactly one
@@ -575,7 +576,7 @@ object:
 
 ```lgl
 query door
-find variable@variable-guid
+variable@variable-guid
 with schema
 ```
 
@@ -599,7 +600,7 @@ more than one match, the adapter returns an ambiguity diagnostic rather than
 guessing from name or object type.
 
 The normalized JSON representation of Blueprint collection, exact-name, and
-typed `find <object>@<id>` operations is intentionally not specified in this
+typed `<object>@<id>` operations is intentionally not specified in this
 document yet. It must be reviewed before schema work; this text contract does
 not silently introduce new normalized `kind` values. The current experiment
 also does not implement this query model or `with schema`.
