@@ -63,6 +63,7 @@ menu = blueprint(
   asset: menuAsset,
   id: "blueprint-guid",
   type: BPTYPE_Normal,
+  Status: BS_Dirty,
   ParentClass: "/Script/UMG.UserWidget"
 )
 
@@ -190,6 +191,7 @@ menu = blueprint(
   asset: menuAsset,
   id: "blueprint-guid",
   type: BPTYPE_Normal,
+  Status: BS_Dirty,
   NamedSlots: {
     Header: widget@header-guid,
     Body: null
@@ -795,6 +797,29 @@ same placement operations can address both:
   native compound transformations that must preserve an external relationship.
 - `set` and `reset` never reinterpret either relationship as a property write.
 
+## Blueprint Finalization
+
+`UWidgetBlueprint` uses the existing `blueprint(...)` object shape, so it also
+uses the one Blueprint-domain terminal compile path rather than a Widget-specific
+operation:
+
+```lgl
+patch menu
+compile
+save
+```
+
+`compile` selects UE's registered Widget Blueprint compiler and follows every
+target, PIE, Full Compile, diagnostic, dependency, and dry-run rule in the
+Blueprint domain. The following Core `save` infers the same WidgetBlueprint's
+owning Package. Neither statement may be mixed with Widget tree edits such as
+`add`, `move`, `wrap`, `replace`, `set`, or `reset`.
+
+The Widget adapter does not define `CompileWidget`, duplicate compiler flags,
+or create another result shape. Exact schema on the `blueprint(...)` target
+reports `compile` and `save` under `patch:`; exact schema on an individual
+`widget(...)` remains about that Widget's fields, relationships, and interfaces.
+
 ## UE Mapping
 
 The adapter follows UE's native ownership and editor paths:
@@ -833,7 +858,9 @@ Pure LGL normalization may:
 - parse every `widget(...)` value as an ordinary `Call`;
 - preserve local and member binding targets and exact statement order;
 - normalize typed `widget@id` references, relationship destinations, and the
-  Widget-domain `wrap` and `replace` statement shapes.
+  Widget-domain `wrap` and `replace` statement shapes;
+- preserve shared Blueprint `compile` and Core `save` terminal statement forms
+  without selecting a compiler or resolving Package state.
 
 Pure LGL normalization must not:
 
@@ -842,6 +869,10 @@ Pure LGL normalization must not:
 - validate Widget property names, values, parent compatibility, or capacity;
 - infer a root, Panel Slot, or Named Slot relationship not present in the
   ordered document;
-- compile the WidgetBlueprint or bind Widget events to Graph Nodes.
+- select or execute the WidgetBlueprint compiler, resolve its owning Package,
+  or bind Widget events to Graph Nodes.
 
-Those UE-dependent responsibilities belong to the Widget adapter and Bridge.
+Widget-specific responsibilities belong to the Widget adapter and Bridge.
+Compilation and saving delegate to the shared Blueprint compile and Core
+Package-save services; the Widget adapter must not implement parallel public
+semantics.

@@ -657,6 +657,8 @@ complete usable schema:
   required/default behavior, source, and constraints when known
 - adapter-owned editing Operations, with named parameters, current
   availability, primary outputs, a copyable `invoke` template, and UE source
+- direct Patch statements available when that exact object is the request
+  target, with current availability, constraints, and copyable request text
 
 There is no separate `with operations` expansion. Operations are normally
 short enough that one `with schema` read should tell the agent everything it can
@@ -683,6 +685,13 @@ operations:
     native: UK2Node_ExecutionSequence::AddInputPin
 ###
 ```
+
+`operations:` is reserved for object interfaces called through `invoke`.
+`patch:` lists direct statements accepted when the exact subject is the Patch
+target. `copy:` contains complete request text the agent may reuse. These are
+stable sections of opaque Comment text, not nested LGL grammar or additional
+schema objects. A direct statement that is temporarily unavailable remains in
+`patch:` with its UE-derived reason.
 
 An Operation name is a stable PascalCase name owned by the adapter and grounded
 in UE editor semantics. Prefer an exact non-localized UE Editor Action identity;
@@ -752,7 +761,7 @@ binding = constructor(arg: value)
 operation ...
 ```
 
-Core reserves six common Patch operations whose intent remains stable across
+Core reserves seven common Patch operations whose intent remains stable across
 domains:
 
 | Operation | Common intent |
@@ -763,6 +772,7 @@ domains:
 | `reset` | Restore one field through its schema-approved native reset behavior |
 | `move` | Change one object's layout, authored collection order, or domain-owned structural placement |
 | `invoke` | Execute one target-local Operation discovered through `with schema` |
+| `save` | Persist the Patch target's owning UE Package through the native save path |
 
 The common operation name does not bypass the domain adapter. Each domain
 defines the exact supported object kinds, operand forms, constraints, native UE
@@ -820,6 +830,38 @@ before validation. For example, Graph
 Object text describes state. Patch text always requires an explicit operation:
 a bare Graph Edge is object text and cannot mean `connect` merely because it
 appears inside a Patch.
+
+`save` is the shared terminal Patch operation:
+
+```lgl
+patch target
+save
+```
+
+The target may be an Asset, Blueprint, Graph, Widget, or another domain object
+whose real UE ownership resolves to persistent Package state. Core does not
+require the caller to retarget the request to a separate Asset binding merely
+because UE ultimately serializes a Package. A transient target or a target
+without resolvable persistent ownership does not support `save`.
+
+`save` persists only dirty Package state. A clean Package returns a successful
+`already clean` result without rewriting it. Saving follows UE's non-interactive,
+source-control-aware path: enabled Source Control may check out an existing
+file or mark a new file for add, and checkout, read-only, or disk failures are
+returned as diagnostics. Native external Package ownership, such as a World's
+external packages, remains UE-defined. Core does not add `save all`, interactive
+prompts, checkout flags, or a second Asset-only save syntax.
+
+`save` may appear at most once and must be the last statement in its Patch. It
+may be the only statement, or it may follow a terminal statement whose domain
+explicitly permits that sequence. It cannot be mixed with bindings, authored
+source mutation, or arbitrary `invoke` statements. The Blueprint domain, for
+example, permits `compile` followed by `save`; `save` followed by `compile`,
+repeated terminal statements, and undeclared terminal combinations are invalid.
+
+The normalized JSON payload for `save` is intentionally deferred to the shared
+schema phase. This text contract does not silently add a provisional `kind` or
+operation object to the current experiment.
 
 `invoke` is the shared Patch operation for adapter-owned object interfaces:
 
@@ -896,20 +938,30 @@ operations must not be regrouped into parallel arrays because binding lifetime,
 creation, member resolution, and execution all depend on that order. The
 `binding` value is a normalized JSON discriminator, not an LGL keyword.
 
-`PatchOp` is the closed schema union of domain-specific operation payloads;
-`Invoke` is the shared operation shape above. Core normalization preserves
-output-binding order but does not decide whether the target supports the
-Operation, whether arguments are valid, or which UE API executes it. The owning
-adapter validates all of those against the same schema it returns to the agent.
+`PatchOp` is the closed schema union of Core and domain-specific operation
+payloads; `Invoke` is the shared operation shape above. Core normalization
+preserves output-binding order but does not decide whether the target supports
+the Operation, whether arguments are valid, or which UE API executes it. The
+owning adapter validates all of those against the same schema it returns to the
+agent.
 
 Stable object references are typed in text and JSON: for example, `node@id` normalizes to
 `{kind: "node", id}`, while a document alias remains a `LocalRef` and an alias
 member remains a `MemberRef`. A bare stable `@id` does not exist.
 
 Dry run is a mutation mode, not a separate language: parse, resolve, validate,
-and plan through the real path, then stop before applying changes. Every Patch
-is ordered and atomic; a failed validation applies nothing, and an apply failure
-must restore the entire Patch rather than return partial success.
+and plan through the real path, then stop before applying changes. Authored
+source Patches are ordered and atomic; a failed validation applies nothing,
+and an apply failure must restore the entire Patch rather than return partial
+success.
+
+Terminal execution is ordered but not rollbackable. A terminal Patch validates
+its complete sequence before executing the first statement, but a later
+external failure cannot undo an earlier compile or disk write. The result must
+report every completed step honestly. If a Blueprint compiles and its following
+`save` then fails, the mutation returns `isError: true` and `applied: true`, the
+ordinary Blueprint object contains the resulting compile state, and the save
+diagnostic explains the failure. It must not claim that compilation rolled back.
 
 ## Creation Discovery
 
@@ -1030,6 +1082,12 @@ ordinary object; it does not introduce a second mutation-specific object or
 text format. Optional revision fields remain absent from a concrete tool's
 public response until that tool enforces them.
 
+For an ordered terminal Patch, `applied` means that at least one terminal step
+actually executed. `isError` reports whether the requested sequence completed
+successfully. The combination `applied: true, isError: true` is therefore valid
+when a later non-rollbackable step fails after an earlier one completed; the
+ordered object comments and structured diagnostics identify the exact boundary.
+
 `Comment.text` stores the content without text delimiters. A one-line value
 formats as `# text`; a value containing a newline formats between depth-zero
 `###` delimiter lines. The delimiters and a block's final line ending are not
@@ -1074,3 +1132,5 @@ should be changed.
     form and depth-zero `###` delimiter lines enclose the multi-line form.
 13. `invoke` is the shared Patch operation for schema-discovered object
     Operations; domains and adapters own the available Operations and outputs.
+14. `save` is the shared terminal Patch operation for a target with persistent
+    owning Package state; it is final, non-interactive, and never means save all.

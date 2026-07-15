@@ -208,12 +208,25 @@ asset resolution utilities.
 
 ## Patch
 
-The asset domain has no patch text. Asset mutation, such as create,
-rename, move, duplicate, delete, save, metadata edits, redirector cleanup, and
-source-control-aware package operations, belongs to a separate asset-tools
-design.
+The asset domain defines no Asset-specific Patch operations yet. An exact Asset
+binding may still use the Core terminal `save` statement:
 
-There is no `AssetPatch` in the current asset domain target model.
+```lgl
+patch door
+save
+```
+
+Core resolves the Asset's owning Package and applies the same dirty-only,
+non-interactive, source-control-aware behavior used when a Blueprint, Graph,
+Widget, or another owned target requests `save`. The collection-level
+`patch asset` target does not identify one Package and therefore cannot save;
+the caller must use an exact Asset binding or another exact target with
+resolvable persistent ownership.
+
+Asset mutation such as create, rename, move, duplicate, delete, metadata edits,
+redirector cleanup, and bulk package operations remains a separate Asset Tools
+design. Core `save` does not introduce an `AssetPatch`, `save all`, directory
+save, or any of those additional lifecycle operations.
 
 ## Adapter Boundary
 
@@ -223,6 +236,7 @@ Pure LGL normalization may:
 - preserve asset bindings as references for graph, widget, material, and PCG
   domains
 - normalize `registryTag.<key>` conditions into structured field references
+- preserve Core `save` terminal statement text for an exact Asset target
 
 Pure LGL normalization must not:
 
@@ -232,5 +246,7 @@ Pure LGL normalization must not:
 - decide whether an asset can be opened as a graph or widget
 - compute search ranking
 - validate UE class paths
+- resolve Package ownership, Source Control state, external packages, or
+  execute `save`
 
 The adapter or bridge owns those UE-dependent responsibilities.

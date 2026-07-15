@@ -57,6 +57,7 @@ door = blueprint(
   asset: bpAsset,
   id: "blueprint-guid",
   type: BPTYPE_Normal,
+  Status: BS_Dirty,
   ParentClass: "/Script/Engine.Actor",
   BlueprintNamespace: "Game.Doors",
   BlueprintCategory: "Doors",
@@ -91,7 +92,7 @@ UE text. They are not returned literally and do not introduce LGL syntax.
 | Object | Syntax | Example |
 | --- | --- | --- |
 | Blueprint asset | `name = asset(path: "...", type: nativeClassPath)` | `bpAsset = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")` |
-| Blueprint binding | `name = blueprint(asset: ref, id: string, type: nativeEnum, nativeFields...)` | `door = blueprint(asset: bpAsset, id: "blueprint-guid", type: BPTYPE_Normal, ParentClass: "/Script/Engine.Actor")` |
+| Blueprint binding | `name = blueprint(asset: ref, id: string, type: nativeEnum, nativeFields...)` | `door = blueprint(asset: bpAsset, id: "blueprint-guid", type: BPTYPE_Normal, Status: BS_Dirty, ParentClass: "/Script/Engine.Actor")` |
 | Implemented interfaces | native `ImplementedInterfaces` field | `ImplementedInterfaces: [{Interface: "/Script/MyGame.Damageable", Graphs: [graph@graph-guid]}]` |
 
 `blueprint(...)` identifies one Blueprint asset as a class-like editing target.
@@ -102,6 +103,13 @@ Guid for a new or duplicated Blueprint, while asset rename and move change only
 the Asset Path. `type` maps directly to the native `EBlueprintType` text:
 `BPTYPE_Normal`, `BPTYPE_Const`, `BPTYPE_MacroLibrary`, `BPTYPE_Interface`,
 `BPTYPE_LevelScript`, or `BPTYPE_FunctionLibrary`.
+
+`Status` is the current transient native `EBlueprintStatus` and is always
+returned because it tells the agent whether the authored source needs a full
+compile. LGL preserves `BS_Unknown`, `BS_Dirty`, `BS_Error`, `BS_UpToDate`,
+`BS_BeingCreated`, and `BS_UpToDateWithWarnings` exactly. `Status` is read-only,
+never accepts `set` or `reset`, and exact schema identifies it as transient.
+Saving a Package does not change it.
 
 The Asset Path remains the current load location; it is not substituted for
 Blueprint identity. The normalized Blueprint object replacement is
@@ -123,6 +131,7 @@ door = blueprint(
   asset: bpAsset,
   id: "blueprint-guid",
   type: BPTYPE_Normal,
+  Status: BS_Dirty,
   ParentClass: "/Script/Engine.Actor",
   bRunConstructionScriptOnDrag: true,
   bGenerateAbstractClass: false,
@@ -237,10 +246,11 @@ readable but exact schema marks it unavailable for writes, matching the absent
 Imports section in Class Settings.
 
 `GeneratedClass` is derived navigation information and is returned as an
-immediately following comment with its exact Class Path. Compile status and
-errors are diagnostic comments. `SkeletonGeneratedClass`, transient compile
-state, internal versioning, editor-session state, generated collections, and
-caches are not Class Settings fields.
+immediately following comment with its exact Class Path. The native transient
+`Status` remains on the Blueprint object; compile counts and messages are
+diagnostic comments. `SkeletonGeneratedClass`, other transient compile state,
+internal versioning, editor-session state, generated collections, and caches
+are not Class Settings fields.
 
 `CategorySorting` is persisted My Blueprint panel presentation state. It is
 maintained internally while categories are discovered, removed, or reordered;
@@ -589,7 +599,7 @@ does not expand those complete collections or return a summary object, section
 object, or generic Member item:
 
 ```lgl
-door = blueprint(asset: bpAsset, id: "blueprint-guid", type: BPTYPE_Normal, ParentClass: "/Script/Engine.Actor")
+door = blueprint(asset: bpAsset, id: "blueprint-guid", type: BPTYPE_Normal, Status: BS_Dirty, ParentClass: "/Script/Engine.Actor")
 
 # variables: 8
 # dispatchers: 2
@@ -654,8 +664,8 @@ structured comments. A Patch may reuse a previously returned Palette id, but
 confirms Variable, Dispatcher, and directly created Graph entries. Component
 creation follows the same Blueprint Palette rule. Timeline Node creation uses
 the Palette of its target Graph because Timeline is not a Blueprint lifecycle
-object. Implementing an existing Interface Class changes the Blueprint Class
-Contract rather than creating an Interface object, so it is not a Palette
+object. Implementing an existing Interface Class changes Blueprint Class
+Settings rather than creating an Interface object, so it is not a Palette
 entry.
 
 Singular operations resolve one object by its current local name inside the
@@ -761,6 +771,247 @@ behavior whose primary meaning is not direct object lifecycle. This section
 confirms Class Settings mutation, Graph, Variable, Dispatcher, and
 Component lifecycle plus the Blueprint-specific compound state of Timeline
 Nodes.
+
+### Compile And Save
+
+`compile` is a Blueprint-domain terminal Patch statement. It targets the
+resolved Blueprint as a whole, never an individual Graph:
+
+```lgl
+patch door
+compile
+```
+
+```lgl
+patch door
+compile
+save
+```
+
+The following is invalid even when the Graph belongs to `door`:
+
+```lgl
+patch eventGraph
+compile
+```
+
+A Graph remains a valid Query or Patch target for Graph-local reads and authored
+source edits. That request context does not make the Graph a compilation unit.
+`FBlueprintEditor::Compile`, `FKismetEditorUtilities::CompileBlueprint`, and
+`FBlueprintCompilationManager` all compile a `UBlueprint`; generated Class,
+CDO, bytecode, and `UBlueprint::Status` likewise belong to that whole target.
+
+`compile` has no arguments or modes. It always performs the normal synchronous
+Full Compile selected by UE for the resolved `UBlueprint` subtype. Widget
+Blueprints, Animation Blueprints, Blueprint Interfaces, Level Blueprints, and
+other supported subtypes use their native registered compiler without a
+parallel LGL statement. Direct Macro Library compilation is unavailable because
+`FBlueprintEditor::IsCompilingEnabled` disables it for
+`BPTYPE_MacroLibrary`; Macro Libraries still participate through UE's native
+dependency compilation behavior.
+
+Current editor state also participates in availability. Outside PIE, the normal
+editor capability applies. During PIE or simulation, the adapter follows the
+same safety boundary as `FBlueprintEditor::InEditingMode`, including
+`CanAlwaysRecompileWhilePlayingInEditor()` and the configured base Classes that
+disallow recompilation. An allowed PIE compile automatically includes
+`EBlueprintCompileOptions::IncludeCDOInReferenceReplacement`. A disallowed
+compile is rejected during validation rather than attempted speculatively.
+
+The valid explicit terminal sequences are exactly:
+
+```lgl
+patch door
+compile
+```
+
+```lgl
+patch door
+save
+```
+
+```lgl
+patch door
+compile
+save
+```
+
+`compile` may appear once and only as the first statement of an otherwise
+terminal Patch. `save` may follow it once and must remain last. `save` then
+`compile`, repeated statements, bindings, `set`, `add`, `connect`, arbitrary
+`invoke`, and every other authored source mutation are invalid in the same
+request. This is an independent finalization request, not a way to append
+compilation to one Graph edit batch.
+
+The Core `save` statement resolves the Blueprint's real owning Package; the
+caller does not repeat its Asset binding. It saves only dirty Package state
+through the shared non-interactive, source-control-aware path. In PIE, save
+availability follows `Editor.AllowSavingAssetsDuringPIE`. The adapter validates
+both terminal statements before executing either, so a known unavailable save
+rejects `compile` plus `save` before compilation starts. A later external save
+failure remains possible and follows Core's ordered non-rollbackable result
+contract.
+
+#### Native Compile Path
+
+The adapter constructs an `FCompilerResultsLog`, sets the Blueprint source
+path, and calls the normal Full Compile through
+`FKismetEditorUtilities::CompileBlueprint`. It always includes
+`EBlueprintCompileOptions::SkipSave`, so the user's global `SaveOnCompile`
+setting cannot introduce an implicit disk write. The explicit following `save`
+is the only persistence request.
+
+The adapter must not call `RefreshAllNodes`,
+`MarkBlueprintAsStructurallyModified`, or `MarkPackageDirty` before or after
+this explicit compile. UE's compiler may perform its own required
+reconstruction and reinstancing, but `compile` does not silently repair or
+rewrite authored source. The Package dirty flag is preserved across compile:
+a dirty Package remains dirty for a later `save`, and a clean Package is not
+made dirty merely by compiling.
+
+An explicit `compile` always runs even when current `Status` is
+`BS_UpToDate`; it is equivalent to invoking the editor's Compile action and may
+be used to obtain fresh diagnostics. A following `save` is a successful
+`already clean` no-op when no Package state requires persistence.
+
+Compiler errors and warnings are resulting Blueprint state, not execution
+failure. A completed compile may return `BS_Error` and still proceed to an
+explicit following `save`. Only inability to resolve or execute the compiler
+stops the terminal sequence before save. If compile executes and save later
+fails, the result is `applied: true, isError: true` and reports both completed
+compilation and failed persistence; neither effect is presented as rolled back.
+
+#### Diagnostics And Ordered Result
+
+The requested Blueprint returns first as the ordinary Blueprint object with
+its final native `Status`. A compact comment then reports
+`FCompilerResultsLog::NumErrors` and `NumWarnings`. Every compiler-produced
+tokenized message follows in original order, including Error, Warning,
+Performance Warning, and Info messages. The redundant success/timing
+summary produced by `EndEvent()` is omitted by provenance, not by matching its
+localized text.
+
+The adapter inspects each message's tokens rather than parsing flattened
+`ToText()` output. `FEdGraphToken::GetGraphObject()` and `GetPin()`, together
+with `FCompilerResultsLog::FindSourceObject` and `FindSourcePin`, map
+intermediate compiler objects back to authored Graphs, Nodes, and Pins. Macro
+diagnostics may contain both the source Node and its Macro Instance; all exact
+source tokens remain represented.
+
+Before a message first uses a source, the result inserts the minimal existing
+Graph, Node, and Pin objects needed to make that source inspectable. Each
+immediately following Comment includes every available typed stable reference
+as copyable text. Objects already emitted are not duplicated. A token that
+cannot be mapped to an authored LGL object remains an unreferenced original
+message; the adapter never guesses from a title or name.
+
+```lgl
+door = blueprint(
+  asset: bpAsset,
+  id: "blueprint-guid",
+  type: BPTYPE_Normal,
+  Status: BS_Error,
+  ParentClass: "/Script/Engine.Actor"
+)
+
+# compile: BS_Error; 1 error; 0 warnings
+
+eventGraph = graph(
+  domain: blueprint,
+  asset: bpAsset,
+  id: "event-graph-guid",
+  name: EventGraph,
+  type: GT_Ubergraph
+)
+
+badNode = node(id: "bad-node-guid", type: "/Script/BlueprintGraph.K2Node_CallFunction")
+badNode.Value = pin(id: "value-pin-guid", type: "<FEdGraphPinType native text>", direction: in)
+# error node@bad-node-guid pin@value-pin-guid: <UE compiler message>
+
+# save: saved
+```
+
+The typed references inside the final Comment remain opaque Comment text; they
+do not create another reference grammar. They are derived from actual UE tokens
+and use the same existing `graph@id`, `node@id`, and `pin@id` spelling the agent
+can copy into a later Query or Patch. There is no Compiler Message object,
+result constructor, or mutation-only Object Text.
+
+UE's Compilation Manager may additionally compile stale dependencies or
+Blueprints affected by a Macro Library. The result reports the total additional
+count as a comment. Successful additional Blueprints are not expanded. Any
+additional Blueprint ending in warning or error state is returned as a compact
+ordinary Blueprint object with its `Status`, so the agent can inspect or compile
+that target separately. Detailed `FCompilerResultsLog` messages are authoritative
+for the requested Blueprint; the adapter does not invent detailed diagnostics
+for dependents whose internal log it did not receive. A following `save` still
+persists only the requested target's owning Package.
+
+#### Schema And Dry Run
+
+An exact Blueprint `with schema` read reports terminal Patch statements in the
+shared opaque Comment layout:
+
+```lgl
+query door
+blueprint@blueprint-guid
+with schema
+```
+
+```lgl
+###
+schema
+
+fields:
+  Status: EBlueprintStatus; read, transient
+
+patch:
+  compile
+    availability: available
+    constraint: independent request; may only be followed by save
+
+  save
+    availability: available
+    target: owning Package
+
+copy:
+  patch door
+  compile
+  save
+###
+```
+
+Instance schema keeps unavailable statements visible with the exact current UE
+reason, such as Macro Library type, unsafe PIE recompilation, or disabled PIE
+save. `operations:` remains reserved for object interfaces called through
+`invoke`; `compile` and `save` are direct `patch:` statements.
+
+Dry run uses the same terminal request:
+
+```lgl
+patch door dry run
+compile
+save
+```
+
+It resolves the Blueprint, validates compile availability and sequence rules,
+resolves owning Package state, and performs current save, Source Control, file,
+and PIE preflight without compiling, checking out, or writing. It stops before
+the first terminal action and returns `applied: false` with comments such as
+`would compile: full` and `would save: /Game/Blueprints/BP_Door`. It cannot
+predict compiler status or messages and must say so rather than returning
+fabricated counts. External save conditions may still change after preflight.
+
+Some domain mutations intrinsically compile because UE's native compound
+operation requires it; reparenting is the confirmed Blueprint example. Such a
+compile remains a documented native effect of that mutation, returns the same
+Status and diagnostic form, and never implies save. The independence rule here
+applies to the explicit `compile` statement; it does not suppress required UE
+behavior inside another already-confirmed native operation.
+
+The normalized JSON payload for Blueprint terminal statements is intentionally
+deferred to the shared schema phase. This text contract does not silently add a
+provisional compile operation object to the current experiment.
 
 ### Class Settings Field Mutation
 
@@ -1165,8 +1416,8 @@ enable a lifecycle operation by setting an internal flag.
 All confirmed Graph lifecycle paths call UE's structural-modification path,
 which regenerates the Skeleton Class, notifies observers, and marks the package
 dirty. This is not a full Blueprint compile. Graph mutation results must report
-the resulting compile state honestly; the separate Blueprint compile and
-diagnostic policy remains to be designed.
+the resulting native `Status` honestly; an explicit Full Compile uses the
+independent terminal request defined above.
 
 ### Variable Lifecycle
 
@@ -1859,6 +2110,8 @@ Pure LGL normalization may:
   common Patch operation forms
 - preserve Timeline Node native fields and `invoke` text without interpreting
   their UE meaning
+- normalize the Blueprint-domain `compile` terminal statement, Core `save`,
+  their fixed order, and dry-run spelling without executing either action
 
 Pure LGL normalization must not:
 
@@ -1898,7 +2151,12 @@ Pure LGL normalization must not:
 - validate function override eligibility
 - synthesize inherited override signatures
 - inspect or mutate SCS component templates
-- compile Blueprints
+- decide whether the current Blueprint and editor state permit compilation
+- choose native compiler flags, execute Full Compile, or collect and backtrack
+  `FCompilerResultsLog` tokens
+- observe additional Blueprints compiled by the Compilation Manager
+- resolve persistent Package ownership, Source Control state, external
+  packages, or execute Core `save`
 
 The adapter or bridge owns those UE-dependent responsibilities and must use UE
 APIs such as `FKismetEditorUtilities`, `FBlueprintEditorUtils`,
@@ -1912,3 +2170,11 @@ addition can inherit UE's partial-Graph failure path, missing or inherited
 removal is treated as success, and removal may enter UE's interactive child-load
 prompt. They must be replaced by the adapter-owned non-interactive planning and
 transaction path above before this LGL surface is implemented.
+
+The current Bridge `CompileBlueprint` helper also does not satisfy this
+contract. Its Graph-name parameter is not a compilation target, and its current
+path refreshes all Nodes, marks the Blueprint structurally modified, dirties the
+Package, omits `FCompilerResultsLog`, and allows native SaveOnCompile behavior.
+The future LGL adapter must replace that path with the exact terminal compile
+and diagnostic contract above; this document does not authorize an incremental
+patch to the legacy helper.
