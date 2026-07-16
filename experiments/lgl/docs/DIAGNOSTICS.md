@@ -98,7 +98,7 @@ current implementation milestone does not support.
 
 Examples:
 
-- `capability.unsupported_find`
+- `capability.unsupported_query_feature`
 - `capability.unsupported_where_field`
 - `capability.unsupported_detail`
 - `capability.unsupported_order_key`
@@ -115,7 +115,7 @@ Example:
   "domain": "asset",
   "path": ["where", "field"],
   "actual": "modifiedTime",
-  "supported": ["root", "type", "class", "name", "path"],
+  "supported": ["root", "type", "name", "path", "registryTag.<key>", "loaded"],
   "suggestion": "Use one of the supported asset fields or omit this filter."
 }
 ```
@@ -304,10 +304,15 @@ objects, and it should emit this shared shape.
 
 Each domain document defines its supported primary operations, `where` fields,
 details, order keys, pagination support, patch operations, and common resolution
-or validation failures. `find` is reserved for stable-id resolution rather than
-domain search kinds.
+or validation failures.
 
 Domain diagnostics should make the next query or patch obvious. For example,
 missing assets should suggest an asset query, ambiguous nodes should return
 candidate nodes, and patch legality failures should include the operation path
 and expected target state.
+
+Diagnostics also close the interface-discovery loop without adding another
+reference field: unsupported Query or Patch syntax should name the relevant
+`lgl.schema("<module>")` call in `suggestion`; unknown fields and Operations
+should give the exact Query to retry `with schema`; and stale ids should point
+to the relevant summary, collection, or tree operation.

@@ -17,7 +17,7 @@ API plus the LGL text it accepts and returns.
 interface Lgl {
   query(text: LglText): Promise<TextResult>;
   patch(text: LglText): Promise<MutationTextResult>;
-  schema(): Promise<SchemaResult>;
+  schema(module?: string): Promise<TextResult>;
 }
 
 declare function createLgl(options?: CreateLglOptions): Lgl;
@@ -34,13 +34,17 @@ const lgl = createLgl({ adapters: [blueprintAdapter] });
 await lgl.query(text);
 await lgl.patch(text);
 await lgl.schema();
+await lgl.schema("graph");
 ```
 
-`schema` is reserved for SDK-side contract inspection. For now it should stay a
-minimal interface: expose the active LGL object schema and no domain capability
-model. Capabilities need separate design before they become part of this API.
-It is not a graph query, does not read UE assets, and does not require a UE
-bridge RPC.
+`schema()` returns the compact Text index of interface modules active in this
+SDK instance. `schema(module)` returns that module's static interface-card Text.
+Neither form reads UE objects or requires a UE bridge RPC. Current-instance
+fields and Operations remain a normal exact Query using `with schema`.
+
+The normalized LGL Object JSON Schema is an internal validation contract, not
+the public result of `lgl.schema`. The current TypeScript experiment still
+returns that JSON Schema and must migrate before it implements this facade.
 
 ## Text And Object Model
 
@@ -279,7 +283,6 @@ interface MutationFields {
 }
 interface MutationObjectResult extends ObjectResult, MutationFields {}
 interface MutationTextResult extends TextResult, MutationFields {}
-interface SchemaResult { schema: unknown; diagnostics: Diagnostic[]; }
 ```
 
 `ObjectResult` is the base adapter/RPC shape. `TextResult` is the base public
@@ -359,8 +362,8 @@ Adapters own domain semantics:
 
 - summary content and ordering for their supported target types
 - placement of agent-facing comments among returned object statements
-- object-schema discovery for one exact instance or creation entry requested
-  through the shared `with schema` expansion
+- object-schema discovery for one exact object, object-backed value surface, or
+  creation entry requested through the shared `with schema` expansion
 - palette binding resolution
 - palette/action lookup where the domain exposes creation entries
 - creation paths
@@ -370,9 +373,10 @@ Adapters own domain semantics:
 - mutation validation, change computation, dry-run, and apply
 - mapping native errors into LGL diagnostics
 
-Schema discovery keeps ordinary object or creation text as the result and adds
-agent-facing comments. Adapters derive the field catalog from the surface they
-can actually execute plus UE-owned Reflection, Graph Schema, spawners, template
+Schema discovery keeps ordinary object, value, or creation text as the result
+and adds agent-facing comments. Adapters derive Query operations, fields,
+direct Patch statements, and object Operations from the surface they can
+actually execute plus UE-owned Reflection, Graph Schema, spawners, template
 objects, or equivalent metadata. They must reject ambiguous, collection-wide,
 recursive, or unsupported schema expansion with capability diagnostics rather
 than inventing a schema result object.

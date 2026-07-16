@@ -63,12 +63,13 @@ adds stored Node position and size to `nodes`, exact Node or Pin reads,
 `context`, `exec flow`, and `data flow`. `with schema` is valid on an exact
 Graph, Node, Pin, or Palette Entry. Exact Palette Entries may also support
 `with pins` and `with defaults`.
-`nodes` supports `where` on `type`, `id`, and `NodeComment`, ordering by `type`
-or `id`, and cursor pagination. `palette entries` supports Pin context,
-`where` on `widget`, `component`, `actor`, or `contextSensitive`, ordering by
-`name`, `category`, or Palette id, and pagination with a default limit of 50.
-The three object contexts are mutually exclusive; `contextSensitive` defaults
-to true.
+`nodes` supports `=` and `!=` on `type`, `id`, and `NodeComment`, plus `~=` on
+`NodeComment`; ordering keys are `type` and `id`. `palette entries` supports Pin
+context; `widget`, `component`, and `actor` accept only `=` and are mutually
+exclusive, while Boolean `contextSensitive` accepts `=` and `!=` and defaults
+to true. Palette ordering keys are `name`, `category`, and `id`. Both
+collections use cursor pagination with a default limit of 50. Ordered
+comparisons are unsupported.
 
 Graph Summary returns semantic entry Nodes, disconnected-region
 representatives, and compact counts. It does not expand the whole Graph.

@@ -4,7 +4,7 @@
     { "code": "blueprint_not_found", "layer": "resolution", "defaultSeverity": "error", "title": "Blueprint not found", "legacy": true },
     { "code": "capability.unsupported_compare", "layer": "capability", "defaultSeverity": "error", "title": "Unsupported compare" },
     { "code": "capability.unsupported_detail", "layer": "capability", "defaultSeverity": "error", "title": "Unsupported detail" },
-    { "code": "capability.unsupported_find", "layer": "capability", "defaultSeverity": "error", "title": "Unsupported find" },
+    { "code": "capability.unsupported_find", "layer": "capability", "defaultSeverity": "error", "title": "Unsupported find", "legacy": true },
     { "code": "capability.unsupported_order_key", "layer": "capability", "defaultSeverity": "error", "title": "Unsupported order key" },
     { "code": "capability.unsupported_pagination", "layer": "capability", "defaultSeverity": "error", "title": "Unsupported pagination" },
     { "code": "capability.not_implemented", "layer": "capability", "defaultSeverity": "info", "title": "Capability not implemented" },

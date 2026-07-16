@@ -545,6 +545,11 @@ capability catalog unless `with schema` is present.
 defines its Widget creation entries; it does not create a parallel
 Widget-adapter palette selected by public syntax.
 
+The combined Palette keeps the Blueprint query surface: optional primary search
+text and cursor pagination with a default limit of 50, without `where`,
+`order by`, or a collection `with` expansion. Exact `palette @id` may use
+`with schema`.
+
 Every new Widget materialized by `add` or by a Palette-backed `wrap` or
 `replace` starts from the Palette of the bound WidgetBlueprint:
 

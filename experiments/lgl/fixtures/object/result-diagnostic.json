@@ -9,7 +9,7 @@
         "column": 22,
         "length": 7
       },
-      "suggestion": "Run find nodes where name = print with pins before patching."
+      "suggestion": "Run an exact node@id Query to inspect its Pins before patching."
     }
   ]
 }

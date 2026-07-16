@@ -20,7 +20,8 @@ widget
   Inspect and edit WidgetBlueprint trees, Widgets, placement, and events.
 
 Use lgl.schema("<module>") for one static interface.
-Use exact with schema for current UE fields and Operations.
+Use exact with schema for current UE Query operations, fields, Patch statements,
+and Operations.
 ```
 
 Unavailable modules are omitted rather than listed with status metadata. The

@@ -23,7 +23,7 @@ schema contract use normalized JSON.
 ## Current Scope
 
 - Provide the `createLgl({ adapters })` facade used as `lgl.query(text)`,
-  `lgl.patch(text)`, and `lgl.schema()`.
+  `lgl.patch(text)`, and `lgl.schema(module?)`.
 - Parse accepted LGL text into normalized `LglObject` values.
 - Format normalized objects back to LGL text.
 - Validate normalized objects against `schema/lgl-object.schema.json`.
@@ -59,6 +59,8 @@ Language and SDK docs:
 
 - `docs/OVERVIEW.md`: Next LGL direction, representation layers, and core
   design rules.
+- `docs/INTERFACE_SCHEMA.md`: Resident Agent context and the progressive
+  interface-schema workflow.
 - `docs/LANGUAGE_CORE.md`: Shared statement, constructor, value, and reference
   syntax.
 - `docs/DIAGNOSTICS.md`: Shared diagnostic shape, error layers, and repair
@@ -68,6 +70,7 @@ Language and SDK docs:
   model, query, patch, diagnostics, and examples.
 - `docs/SDK_DESIGN.md`: SDK facade, adapter contract, diagnostics, and result
   types for the current experiment.
+- `docs/interfaces/`: Static Text returned by `lgl.schema(module?)`.
 - `schema/lgl-object.schema.json`: JSON Schema contract for normalized LGL
   objects and adapter/RPC results.
 
@@ -123,12 +126,13 @@ The parser/formatter covers statement-list object, query, patch, and palette
 entry forms for the current graph, asset, Blueprint, and widget
 domains.
 
-The current facade is `createLgl({ adapters })`, returning an object used as
-`lgl.query(text)`, `lgl.patch(text)`, and `lgl.schema()`. Query and patch parse
-LGL text, dispatch by target domain to an adapter or bridge RPC, and format
-adapter `ObjectResult` values back to LGL text. Schema is served by the
-TypeScript SDK from the local object contract. Capability metadata needs
-separate design before it becomes part of this API.
+The target facade is `createLgl({ adapters })`, returning an object used as
+`lgl.query(text)`, `lgl.patch(text)`, and `lgl.schema(module?)`. Query and patch
+parse LGL text, dispatch by target domain to an adapter or bridge RPC, and
+format adapter `ObjectResult` values back to LGL text. Static interface cards
+are served by the SDK; exact current-object schema is queried through the
+owning adapter. The current experiment still exposes the normalized Object
+JSON Schema from `schema()` and must migrate to this documented Text contract.
 
 `createMemoryGraphAdapter` is an in-memory SDK test fixture for exercising the
 adapter contract without Unreal Editor. It is useful for query/patch closed-loop

@@ -54,8 +54,8 @@ palette @id
 `summary` returns the compact Blueprint and counts naming the four collection
 operations. Collections return compact identities, preserve UE authored order
 by default, and use cursor pagination with a default limit of 50. They support
-exact `where` predicates on `name`, `id`, and `type`, plus ordering by those
-same keys. Fuzzy matching belongs to the optional primary search text.
+exact `=` and `!=` predicates on `name`, `id`, and `type`, plus ordering by
+those same keys. Fuzzy matching belongs to the optional primary search text.
 
 Exact-name queries discover the current object and id. Both exact-name and
 exact-id reads return complete compact state and may use `with schema`. Exact
@@ -85,6 +85,9 @@ query door
 palette @palette-entry-id
 with schema
 ```
+
+Palette search accepts optional text and cursor pagination with a default limit
+of 50. It does not accept `where`, `order by`, or collection expansions.
 
 Copy returned constructors into one ordered Patch:
 

@@ -89,6 +89,9 @@ palette @palette-entry-id
 with schema
 ```
 
+Palette search accepts optional text and cursor pagination with a default limit
+of 50. It does not accept `where`, `order by`, or collection expansions.
+
 The result supplies a binding such as:
 
 ```lgl

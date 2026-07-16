@@ -18,7 +18,7 @@ can supply the exact locator fields needed by later self-contained requests.
 - `lgl.query(text)` executes one Query Text.
 - `lgl.patch(text)` executes one ordered Patch Text.
 - `lgl.schema()` returns only the active interface-module index.
-- `lgl.schema("graph")` returns one static query and patch interface.
+- `lgl.schema("<module>")` returns one static query and patch interface.
 
 ## Blueprint Query
 
@@ -75,7 +75,7 @@ applied = false
 
 ## Graph Execution Flow
 
-Start from a Graph identity returned by Blueprint `summary` or `graph <name>`:
+Start from a Graph identity returned by Blueprint `graphs` or `graph <name>`:
 
 ```lgl
 door = blueprint(
@@ -238,13 +238,15 @@ operation parameters.
 Schema discovery has three layers:
 
 1. This resident guide provides the minimum LGL mental model.
-2. `lgl.schema()` lists the interface modules active in the current server.
-3. `lgl.schema("<module>")` returns one compact static interface card.
+2. Static interface discovery uses `lgl.schema()` to list active modules and
+   `lgl.schema("<module>")` to return one compact interface card.
+3. Dynamic discovery uses an exact object, exact object-backed value surface,
+   or exact Palette Entry with `with schema`.
 
 A static card explains locators, queries, Object Text, Palette, Patch, and
 handoffs. It does not load UE objects or inspect one concrete instance.
 
-Dynamic discovery uses an exact object or exact Palette Entry:
+Dynamic discovery example:
 
 ```lgl
 query eventGraph
@@ -252,10 +254,11 @@ graph@graph-guid
 with schema
 ```
 
-The same exact-object rule applies to Nodes, Pins, Widgets, Properties, and
-Palette Entries through each module's singular syntax. The result remains
-ordinary Object Text followed by a schema comment containing the fields,
-constraints, and Operations available in that UE context. Summary, collections,
+The same exact-subject rule applies to Blueprint objects, Nodes, Pins, Widgets,
+Properties, Functions, Defaults, and Palette Entries through each module's
+singular syntax. The result remains ordinary Object Text followed by a schema
+comment containing the Query surface, fields, constraints, direct Patch
+statements, and Operations available in that UE context. Summary, collections,
 and ambiguous Palette searches do not accept `with schema`.
 
 Diagnostics should close the same discovery loop:

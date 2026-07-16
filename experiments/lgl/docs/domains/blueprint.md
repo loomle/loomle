@@ -686,6 +686,12 @@ palette @P_BlueprintVariable
 with schema
 ```
 
+`palette entries` accepts optional primary search text and shared cursor
+pagination with a default limit of 50. It does not accept `where`, `order by`,
+or `with`; exact `palette @id` accepts `with schema` but no collection clauses.
+On a composed target such as `UWidgetBlueprint`, this same query surface covers
+the one combined Palette rather than a separate Widget collection.
+
 The result is ordinary ordered Blueprint Object Text whose binding value is the
 complete constructor `Call` to copy into a Patch:
 

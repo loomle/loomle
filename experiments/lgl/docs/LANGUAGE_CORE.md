@@ -716,18 +716,21 @@ property Health
 with schema
 ```
 
-The subject must resolve to exactly one existing object or one exact creation
-entry. Existing objects use either a typed stable reference or a domain-owned
-singular name operation; creation entries use the owning domain's exact palette
-identity. `with schema` is not valid for summary results, collections, or
-ambiguous palette searches.
+The subject must resolve to exactly one existing object, one exact
+object-backed value surface, or one exact creation entry. Existing objects use
+either a typed stable reference or a domain-owned singular name operation;
+object-backed values such as one Class Default reuse the exact owning object;
+creation entries use the owning domain's exact palette identity. `with schema`
+is not valid for summary results, collections, or ambiguous palette searches.
 
-The ordinary object or creation text remains the query result. The adapter adds
-one immediately following multi-line Comment containing the primary subject's
-complete usable schema:
+The ordinary object, value, or creation text remains the query result. The
+adapter adds one immediately following multi-line Comment containing the
+primary subject's complete usable schema:
 
 - fields, with native UE type text, readable/writable status,
   required/default behavior, source, and constraints when known
+- target-local Query operations, with their accepted clauses, expansions,
+  current availability, and copyable request text when useful
 - adapter-owned editing Operations, with named parameters, current
   availability, primary outputs, a copyable `invoke` template, and UE source
 - direct Patch statements available when that exact object is the request
@@ -759,12 +762,27 @@ operations:
 ###
 ```
 
-`operations:` is reserved for object interfaces called through `invoke`.
-`patch:` lists direct statements accepted when the exact subject is the Patch
-target. `copy:` contains complete request text the agent may reuse. These are
-stable sections of opaque Comment text, not nested LGL grammar or additional
-schema objects. A direct statement that is temporarily unavailable remains in
-`patch:` with its UE-derived reason.
+When the exact subject is also the request target, the same Comment may expose
+its context-sensitive Query surface:
+
+```lgl
+###
+schema
+
+query:
+  exec flow from|to node@id|pin@id [depth N]
+    availability: available
+    with: layout
+###
+```
+
+`query:` lists primary operations accepted when the exact subject is the
+request target. `operations:` is reserved for object interfaces called through
+`invoke`. `patch:` lists direct statements accepted when the exact subject is
+the Patch target. `copy:` contains complete request text the agent may reuse.
+These are stable sections of opaque Comment text, not nested LGL grammar or
+additional schema objects. A Query or direct Patch statement that is
+temporarily unavailable remains in its section with the UE-derived reason.
 
 An Operation name is a stable PascalCase name owned by the adapter and grounded
 in UE editor semantics. Prefer an exact non-localized UE Editor Action identity;

@@ -109,7 +109,8 @@ Each domain that supports queries must define:
 - supported plural collection, singular exact-name, and stable-id forms
 - default result shape without `with`
 - supported `with` expansions
-- how `with schema` discovers fields for an exact instance or creation entry
+- how `with schema` discovers one exact object, object-backed value surface, or
+  creation entry
 - supported `where` fields and operators
 - supported `order by` keys
 - pagination behavior and defaults
@@ -124,12 +125,13 @@ resolved target as ordinary typed constructor bindings.
 `with schema` has shared language semantics, but adapters own the discovered
 content. They derive it from their real edit surface, UE Reflection, Graph
 Schema, spawners, template objects, or other UE-owned metadata. A schema should
-describe only fields the adapter can faithfully read or write, identify LGL
-common, adapter-modeled, native, and relationship-backed sources when relevant,
-and remain valid for the exact subject and context that produced it.
+describe only Query operations, fields, direct Patch statements, and object
+Operations the adapter can faithfully execute; identify LGL common,
+adapter-modeled, native, and relationship-backed sources when relevant; and
+remain valid for the exact subject and context that produced it.
 
-Adapters return schema guidance as comments around ordinary object or creation
-text. They must not define domain-specific schema result objects.
+Adapters return schema guidance as comments around ordinary object, value, or
+creation text. They must not define domain-specific schema result objects.
 
 Normalized JSON must be documented only after its shared contract is confirmed.
 Until then, a domain should mark the envelope as deferred and explicitly call

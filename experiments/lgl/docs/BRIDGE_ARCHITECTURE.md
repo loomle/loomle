@@ -54,10 +54,12 @@ Responses are `ObjectResult` JSON:
 `asset_result`, `blueprint_result`, `widget_result`, or `palette_result`.
 `graph` is not a separate response envelope.
 
-The TypeScript SDK owns `lgl.schema()`. For now it is a minimal contract
-inspection interface for the active LGL object schema. Domain capability
-metadata needs separate design and does not require a bridge RPC or live UE
-graph state.
+The TypeScript SDK owns the static `lgl.schema(module?)` interface.
+`lgl.schema()` returns the active-module Text index and
+`lgl.schema(module)` returns one registered static interface card; neither
+requires a bridge RPC or live UE state. Dynamic exact-object discovery remains
+a normal `lgl.query` request using `with schema` and is executed by the owning
+UE adapter.
 
 ## Flow
 
@@ -240,9 +242,11 @@ decode
   -> domain execution
 ```
 
-Capability validation returns diagnostics such as `unsupported_find`,
-`unsupported_where_field`, `unsupported_detail`, `unsupported_order_key`, and
-`unsupported_pagination`, but it should not report malformed-language errors.
+Capability validation returns diagnostics such as
+`capability.unsupported_query_feature`,
+`capability.unsupported_where_field`, `capability.unsupported_detail`,
+`capability.unsupported_order_key`, and `capability.unsupported_pagination`, but
+it should not report malformed-language errors.
 Malformed-language errors belong to SDK and bridge core validation.
 Concrete diagnostic objects should follow [`DIAGNOSTICS.md`](DIAGNOSTICS.md),
 including the `language.*`, `capability.*`, `resolution.*`, and `validation.*`
@@ -398,8 +402,9 @@ features:
   issues
 - add missing SDK tests for language-level rejection and normalized object
   schema validation
-- keep domain capability support out of `lgl.schema()` until separately
-  designed
+- keep static `lgl.schema(module?)` SDK-owned and separate from the internal
+  normalized Object JSON Schema
+- route dynamic exact-object `with schema` through the normal adapter query path
 
 Milestone 3 implements UE-backed asset query:
 
