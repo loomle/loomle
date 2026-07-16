@@ -66,11 +66,11 @@ door = blueprint(
   ]
 )
 
-eventGraph = graph(domain: blueprint, asset: bpAsset, id: "event-graph-guid", name: EventGraph, type: GT_Ubergraph)
+eventGraph = graph(asset: door, id: "event-graph-guid", name: EventGraph, type: GT_Ubergraph)
 # UBlueprint::UbergraphPages
-signatureGraph = graph(domain: blueprint, asset: bpAsset, id: "signature-graph-guid", name: OnOpened, type: GT_Function)
+signatureGraph = graph(asset: door, id: "signature-graph-guid", name: OnOpened, type: GT_Function)
 # UBlueprint::DelegateSignatureGraphs
-damageableGraph = graph(domain: blueprint, asset: bpAsset, id: "damageable-graph-guid", name: TakeDamage, type: GT_Function)
+damageableGraph = graph(asset: door, id: "damageable-graph-guid", name: TakeDamage, type: GT_Function)
 # FBPInterfaceDescription::Graphs
 
 door.Health = variable(id: "variable-guid", type: "<FEdGraphPinType native text>", Category: "Stats")
@@ -112,8 +112,14 @@ never accepts `set` or `reset`, and exact schema identifies it as transient.
 Saving a Package does not change it.
 
 The Asset Path remains the current load location; it is not substituted for
-Blueprint identity. The normalized Blueprint object replacement is
-intentionally not specified until the shared schema phase.
+Blueprint identity. `BlueprintGuid` is serialized on the Blueprint but is not
+an Asset Registry lookup key, so it cannot resolve an unloaded Blueprint by
+itself. A first Query may bind `blueprint(asset: ...)` to discover the Guid.
+Later exact Queries should bind `asset + id`, and every Blueprint Patch must do
+so. Resolution loads by Asset Path and then strictly verifies the Guid; a
+mismatch fails without continuing by Path alone. The normalized Blueprint
+object replacement is intentionally not specified until the shared schema
+phase.
 
 ## Class Settings
 
@@ -323,14 +329,14 @@ objects. Graph `type` is the exact native `EGraphType` reported by the Graph's
 Schema; it does not encode the Graph's lifecycle role:
 
 ```lgl
-openDoor = graph(domain: blueprint, asset: bpAsset, id: "function-graph-guid", name: OpenDoor, type: GT_Function)
+openDoor = graph(asset: door, id: "function-graph-guid", name: OpenDoor, type: GT_Function)
 # UBlueprint::FunctionGraphs
-traceDoor = graph(domain: blueprint, asset: bpAsset, id: "macro-graph-guid", name: TraceDoor, type: GT_Macro)
+traceDoor = graph(asset: door, id: "macro-graph-guid", name: TraceDoor, type: GT_Macro)
 # UBlueprint::MacroGraphs
 ```
 
 `id` maps to `UEdGraph::GraphGuid`. Graph name is readable and searchable but is
-not identity. `domain`, `asset`, `id`, and `name` are LGL common structure;
+not identity. `asset`, `id`, and `name` are LGL common structure;
 `type` preserves the native `EGraphType` text such as `GT_Function`,
 `GT_Ubergraph`, or `GT_Macro`. Relevant authored `UEdGraph` fields retain their
 UE names and native values, including `Schema`, `bEditable`, `bAllowDeletion`,
@@ -388,7 +394,7 @@ door.OnOpened = dispatcher(
   type: "<multicast-delegate FEdGraphPinType native text>",
   Category: "Events"
 )
-signatureGraph = graph(domain: blueprint, asset: bpAsset, id: "signature-graph-guid", name: OnOpened, type: GT_Function)
+signatureGraph = graph(asset: door, id: "signature-graph-guid", name: OnOpened, type: GT_Function)
 # UBlueprint::DelegateSignatureGraphs
 ```
 
@@ -586,6 +592,29 @@ LGL does not maintain parallel `get(...)`, `set(...)`, `event(...)`, or
 Blueprint reads use the shared summary, collection search, exact local-name,
 and exact stable-id model.
 
+The request target is one Blueprint locator binding. A Path-only binding is
+the first-discovery form:
+
+```lgl
+door = blueprint(asset: "/Game/BP_Door.BP_Door")
+
+query door
+summary
+```
+
+Once that read returns `BlueprintGuid`, later exact Queries repeat both fields:
+
+```lgl
+door = blueprint(
+  asset: "/Game/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
+```
+
+Every typed Blueprint object reference below is scoped to that resolved
+`door`. A bare `blueprint@id`, `graph@id`, `variable@id`, `dispatcher@id`, or
+`component@id` is not a complete request target.
+
 Orientation uses the shared `summary` primary operation:
 
 ```lgl
@@ -687,8 +716,9 @@ component DoorMesh
 
 The operation supplies the concrete kind, so the adapter never guesses among
 same-named kinds. Name lookup returns zero-match or ambiguity diagnostics
-rather than falling back to another kind. Names are convenient current
-locators, not rename-stable identity.
+rather than falling back to another kind. These exact-name forms discover the
+current object and its id; Patch never substitutes the current name for that
+stable identity.
 
 Stable-id lookup uses the exact returned object kind:
 
@@ -771,6 +801,23 @@ behavior whose primary meaning is not direct object lifecycle. This section
 confirms Class Settings mutation, Graph, Variable, Dispatcher, and
 Component lifecycle plus the Blueprint-specific compound state of Timeline
 Nodes.
+
+Every Blueprint Patch target binding requires both Asset Path and
+BlueprintGuid:
+
+```lgl
+door = blueprint(
+  asset: "/Game/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
+
+patch door
+```
+
+The target alias is the exact Blueprint inside that Patch, so target-owned
+fields and Operations use `door`. Contained existing objects use their typed
+ids, such as `variable@id`, `graph@id`, or `component@id`. Current names are not
+Patch locators.
 
 ### Compile And Save
 
@@ -917,14 +964,13 @@ door = blueprint(
 # compile: BS_Error; 1 error; 0 warnings
 
 eventGraph = graph(
-  domain: blueprint,
-  asset: bpAsset,
+  asset: door,
   id: "event-graph-guid",
   name: EventGraph,
   type: GT_Ubergraph
 )
 
-badNode = node(id: "bad-node-guid", type: "/Script/BlueprintGraph.K2Node_CallFunction")
+badNode = node(graph: eventGraph, id: "bad-node-guid", type: "/Script/BlueprintGraph.K2Node_CallFunction")
 badNode.Value = pin(id: "value-pin-guid", type: "<FEdGraphPinType native text>", direction: in)
 # error node@bad-node-guid pin@value-pin-guid: <UE compiler message>
 
@@ -1021,10 +1067,10 @@ their exact UE names:
 ```lgl
 patch door
 
-set blueprint@blueprint-guid.BlueprintDescription = "A usable door"
-reset blueprint@blueprint-guid.BlueprintDescription
-set blueprint@blueprint-guid.bGenerateAbstractClass = true
-set blueprint@blueprint-guid.ShouldCookPropertyGuidsValue = Yes
+set door.BlueprintDescription = "A usable door"
+reset door.BlueprintDescription
+set door.bGenerateAbstractClass = true
+set door.ShouldCookPropertyGuidsValue = Yes
 ```
 
 `reset` restores the field's UE default. Setting the current value or resetting
@@ -1044,8 +1090,8 @@ not a full Blueprint compile.
 `BlueprintNamespace` retains ordinary field syntax:
 
 ```lgl
-set blueprint@blueprint-guid.BlueprintNamespace = "Game.Doors"
-reset blueprint@blueprint-guid.BlueprintNamespace
+set door.BlueprintNamespace = "Game.Doors"
+reset door.BlueprintNamespace
 ```
 
 The adapter additionally refreshes the Blueprint Namespace Registry, registers
@@ -1056,12 +1102,12 @@ ordinary Blueprint field effects; LGL does not add a Namespace operation.
 `ImportedNamespaces` also uses whole-field `set` and `reset`:
 
 ```lgl
-set blueprint@blueprint-guid.ImportedNamespaces = [
+set door.ImportedNamespaces = [
   "Game.Combat",
   "Game.UI"
 ]
 
-reset blueprint@blueprint-guid.ImportedNamespaces
+reset door.ImportedNamespaces
 ```
 
 The adapter validates every newly added Namespace against UE's registered
@@ -1082,7 +1128,7 @@ Operation is added.
 ```lgl
 patch door
 
-set blueprint@blueprint-guid.ParentClass = "/Script/Engine.Actor"
+set door.ParentClass = "/Script/Engine.Actor"
 ```
 
 The value is the exact native Class Path. A native Class uses a path such as
@@ -1170,7 +1216,7 @@ schema-discovered Blueprint Operation:
 ```lgl
 patch door
 
-invoke blueprint@blueprint-guid ImplementInterface(
+invoke door ImplementInterface(
   Interface: "/Script/MyGame.Damageable"
 )
 ```
@@ -1213,7 +1259,7 @@ child Blueprint. The caller must explicitly choose the native preservation
 mode:
 
 ```lgl
-invoke blueprint@blueprint-guid RemoveInterface(
+invoke door RemoveInterface(
   Interface: "/Script/MyGame.Damageable",
   bPreserveFunctions: true
 )
@@ -1260,7 +1306,8 @@ Blueprint Object Text contains the updated `ImplementedInterfaces` field and
 interleaves every created or promoted compact Graph identity needed for
 navigation. Removed Graphs and converted or removed graph-owned Event Nodes
 remain mutation effects rather than new Blueprint object kinds. Graph-body
-edits continue in a following Graph Patch using the returned `graph@id`.
+edits continue in a following Graph Patch by combining the returned `graph@id`
+with the same exact Blueprint owner locator.
 
 ### Graph Lifecycle
 
@@ -1329,7 +1376,8 @@ Object Text, including its generated `graph@id`, current name, native `type`,
 `Schema`, and ownership comment. Generated default Nodes and other native
 effects belong to the mutation effects or comments; the Blueprint result does
 not expand the new Graph body. The returned `graph@id` is immediately usable as
-a following Graph query or Patch target.
+the scoped identity in a following `graph(asset: door, id: ...)` binding. It is
+not a standalone Query or Patch target.
 
 Existing Graph rename uses the common `name` field rather than an invented UE
 field:
@@ -1390,7 +1438,7 @@ Not every Graph is directly created or owned by this lifecycle:
   Graph, so it is a Blueprint `invoke`, not `add graph`:
 
   ```lgl
-  invoke blueprint@blueprint-id ImplementFunction(
+  invoke door ImplementFunction(
     function: "/Script/Engine.Actor:ReceiveAnyDamage"
   )
   ```
@@ -1646,8 +1694,14 @@ Signature Graph. Editing them stays in a following Graph Patch and reuses the
 confirmed signature Operations:
 
 ```lgl
-patch graph@signature-graph-id
-invoke graph@signature-graph-id AddInputParameter(
+door = blueprint(
+  asset: "/Game/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
+signatureGraph = graph(asset: door, id: "signature-graph-id")
+
+patch signatureGraph
+invoke signatureGraph AddInputParameter(
   name: Damage,
   type: "<FEdGraphPinType native text>"
 )

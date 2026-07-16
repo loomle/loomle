@@ -14,6 +14,7 @@ Each domain document should define:
 - intent and UE semantic boundary
 - agent workflows
 - object text
+- root locator and contained-object identity scopes
 - canonical text
 - accepted sugar and its canonical expansion
 - summary behavior for each supported target type
@@ -29,9 +30,25 @@ The shared language core defines text kinds, bindings, constructors,
 references, arrays, inline object values, and statement lists. Domains define
 what those constructs mean for their UE area.
 
-For the `summary` query operation, the owning adapter defines the useful
-orientation view. It chooses the existing LGL objects, comments, and statement
-order returned for that target. The shared core does not require every
+Every target-owning domain must define one complete locator chain. The chain
+starts from a UE-global address such as Asset Path or Class Path and then adds
+native ids only inside their real owner scopes. A typed `object@id` is exact
+inside the resolved target but is never a replacement for the target chain.
+Domains must distinguish exact-name discovery, stable-id access, native
+path-based identity, and Patch-local creation aliases, and must reject identity
+mismatch or ambiguity without falling back to display text.
+
+Public constructors describe LGL object shape; they are not adapter selectors
+or translated UE Classes. Once a locator loads its real UE object, capability
+composition follows that object's native Class and inheritance chain. A
+specialized Blueprint asset therefore retains one `blueprint(...)` target and
+adds the capabilities valid for its actual subclass. Domain documents remain
+modular descriptions of those capabilities, not competing public target types.
+
+For the `summary` query operation, the resolved target's composed capabilities
+define the useful orientation view. Their most-specific adapter chooses the
+existing LGL objects, comments, and statement order returned for that target.
+The shared core does not require every
 graph-like target to expose entry points, nodes, or any other common summary
 object. Summary content remains domain semantics, not shared language syntax.
 
@@ -86,6 +103,8 @@ Each domain should explicitly separate:
 
 Each domain that supports queries must define:
 
+- its request target locator fields and every contained id's owner scope
+- whether a Path-only first discovery differs from later exact access or Patch
 - supported summary targets and the orientation each adapter returns
 - supported plural collection, singular exact-name, and stable-id forms
 - default result shape without `with`
@@ -94,6 +113,13 @@ Each domain that supports queries must define:
 - supported `where` fields and operators
 - supported `order by` keys
 - pagination behavior and defaults
+
+When several capability modules apply to one concrete UE object, the resolved
+target exposes their compatible operation union. It has one target-specific
+`summary` and one combined `palette`; it does not require callers to select a
+module with a public `domain` field. The most specific adapter owns summary
+ordering, while Palette returns every direct creation capability valid for the
+resolved target as ordinary typed constructor bindings.
 
 `with schema` has shared language semantics, but adapters own the discovered
 content. They derive it from their real edit surface, UE Reflection, Graph
@@ -105,9 +131,10 @@ and remain valid for the exact subject and context that produced it.
 Adapters return schema guidance as comments around ordinary object or creation
 text. They must not define domain-specific schema result objects.
 
-For currently implemented domains, the normalized JSON section should describe
-the current schema and explicitly call out any implementation gap that affects
-agent-facing behavior.
+Normalized JSON must be documented only after its shared contract is confirmed.
+Until then, a domain should mark the envelope as deferred and explicitly call
+out incompatible legacy implementation shapes rather than letting them define
+the LGL text design.
 
 ## Current Domains
 

@@ -43,6 +43,13 @@ The domain maps UE objects directly:
 `widget(asset: ..., root: ...)` wrapper. The `tree` query is a view of that
 owned relationship, not a constructor or result object.
 
+The target remains one ordinary `blueprint(...)` binding. After UE loads the
+object, its actual `UWidgetBlueprint` Class composes the shared Blueprint
+capabilities with the Widget capabilities in this document. The public request
+does not select a second Widget adapter or carry a `domain` field. Consequently
+the target has one combined `summary` and one target-specific `palette`, not
+competing Blueprint and Widget variants.
+
 Every authored Widget uses the same neutral object shape. Native Classes do not
 become constructors such as `Button()`, `CanvasPanel()`, or `TextBlock()`.
 Existing objects return the exact UE Class path in `type`, and native properties
@@ -231,6 +238,20 @@ Panel Slot, or Named Slot expression.
 
 ## Query
 
+Widget queries use the same Blueprint locator chain:
+
+```lgl
+menu = blueprint(
+  asset: "/Game/UI/WBP_Menu.WBP_Menu",
+  id: "blueprint-guid"
+)
+```
+
+The first discovery Query may omit `id` and resolve by exact Asset Path so the
+adapter can return `BlueprintGuid`. Later exact Queries use both `asset` and
+`id`; Patch requires both. `widget@id` is scoped inside that resolved
+WidgetBlueprint and cannot replace the top-level `menu` target.
+
 Widget reads use the shared summary, collection, exact-name, exact-id, and
 Palette model:
 
@@ -263,11 +284,12 @@ query has exactly one primary operation. A typed stable reference such as
 
 ### Summary
 
-The `summary` operation is owned by the Widget adapter. It returns compact
-Asset and Blueprint context, the root identity when one exists, and ordered
-comments for useful counts such as total source Widgets, reachable Widgets,
-and detached Widgets. It does not expand the tree or introduce a
-summary-specific object.
+The resolved `UWidgetBlueprint` has one target-specific `summary`. It combines
+the useful Blueprint directory with the Widget root identity when one exists
+and ordered comments for counts such as total source Widgets, reachable
+Widgets, and detached Widgets. It reuses the request target alias, does not
+repeat the complete Asset and Blueprint locator merely for context, does not
+expand the tree, and introduces no summary-specific object.
 
 ### Tree
 
@@ -296,9 +318,9 @@ do not. When descendants remain beyond the requested depth, the adapter places
 an ordinary comment at each truncated boundary. A local tree operation accepts
 one stable Widget reference, not a guessed display label.
 
-The default tree result is a structure-and-layout skeleton:
+The default tree result reuses the request's `menu` binding and returns a
+structure-and-layout skeleton:
 
-- Asset and Blueprint context;
 - Widget binding, `id`, and exact native `type`;
 - `DisplayLabel` only when it carries meaningful authored identity;
 - Panel `Slot` layout and `NamedSlots` relationships;
@@ -370,9 +392,8 @@ Class display text. `widget@id` resolves the corresponding entry in
 
 The default result contains:
 
-1. Asset and Blueprint context.
-2. The shortest compact ancestor chain needed to show the target relationship.
-3. The target Widget's `id`, exact native `type`, all readable non-default
+1. The shortest compact ancestor chain needed to show the target relationship.
+2. The target Widget's `id`, exact native `type`, all readable non-default
    native fields, Panel `Slot`, and `NamedSlots` relationships.
 
 Ancestors carry only navigation identity and relationship state. Descendants
@@ -419,24 +440,35 @@ fields:
   OnClicked: FOnButtonClickedEvent; graph event
     availability: available
     discover with:
-      query graph@event-graph-guid
+      eventOwner = blueprint(
+        asset: "/Game/UI/WBP_Menu.WBP_Menu",
+        id: "blueprint-guid"
+      )
+      eventGraph = graph(asset: eventOwner, id: "event-graph-guid")
+      query eventGraph
       palette entries "OnClicked"
       where widget = widget@button-guid
 
   OnPressed: FOnButtonPressedEvent; graph event
     availability: available
     discover with:
-      query graph@event-graph-guid
+      eventOwner = blueprint(
+        asset: "/Game/UI/WBP_Menu.WBP_Menu",
+        id: "blueprint-guid"
+      )
+      eventGraph = graph(asset: eventOwner, id: "event-graph-guid")
+      query eventGraph
       palette entries "OnPressed"
       where widget = widget@button-guid
 ###
 ```
 
 The indented LGL under `discover with` is one complete copyable query. The
-label is schema Comment text, not another LGL keyword. If more than one
-Ubergraph can own the event, the schema emits one complete `discover with
-graph@id` block for each compatible Graph rather than choosing from editor
-focus or `GetLastEditedUberGraph()`.
+label is schema Comment text, not another LGL keyword. The returned guidance
+includes the exact Blueprint owner locator because `graph@id` alone is scoped
+and cannot begin a new request. If more than one Ubergraph can own the event,
+the schema emits one complete `discover with` block for each compatible Graph
+rather than choosing from editor focus or `GetLastEditedUberGraph()`.
 
 If the Widget and delegate already have a bound event Node anywhere in the
 Blueprint, schema points directly to it:
@@ -449,7 +481,12 @@ fields:
   OnClicked: FOnButtonClickedEvent; graph event
     availability: existing
     inspect with:
-      query graph@event-graph-guid
+      eventOwner = blueprint(
+        asset: "/Game/UI/WBP_Menu.WBP_Menu",
+        id: "blueprint-guid"
+      )
+      eventGraph = graph(asset: eventOwner, id: "event-graph-guid")
+      query eventGraph
       node@event-node-guid
 ###
 ```
@@ -496,6 +533,10 @@ remain Graph operations. Ordinary exact Widget reads do not emit this
 capability catalog unless `with schema` is present.
 
 ## Palette
+
+`palette` is the one catalog exposed by the resolved target. This section
+defines its Widget creation entries; it does not create a parallel
+Widget-adapter palette selected by public syntax.
 
 Every new Widget materialized by `add` or by a Palette-backed `wrap` or
 `replace` starts from the Palette of the bound WidgetBlueprint:
@@ -555,6 +596,10 @@ Widget-specific creation expression.
 
 ## Patch
 
+The `menu` Patch target must be a `blueprint(...)` locator containing both the
+exact Asset Path and verified `BlueprintGuid`. A path-only discovery binding is
+not sufficient for mutation.
+
 Widget Patch uses shared lifecycle operations for ordinary object ownership and
 two Widget-domain structural operations for native transformations that cannot
 be decomposed without losing UE behavior. Bindings and operations remain
@@ -611,7 +656,7 @@ header = widget(palette: "P_TextBlock")
 add header to widget@area-guid.NamedSlots.Header
 
 body = widget(palette: "P_Overlay")
-add body to blueprint@blueprint-guid.NamedSlots.Body
+add body to menu.NamedSlots.Body
 ```
 
 The Widget destination addresses a local `INamedSlotInterface` host. The
@@ -619,7 +664,9 @@ Blueprint destination addresses one inherited Named Slot exposed by the
 WidgetTree. The exact slot must exist and be empty. `add` never replaces its
 current content implicitly.
 
-Existing objects use typed stable references across requests:
+Existing objects use typed stable references inside the resolved `menu` target.
+Each new request still begins with the complete WidgetBlueprint binding; the
+scoped references below then select its Widgets:
 
 ```lgl
 set widget@title-guid.Text = "<FText native text>"

@@ -11,8 +11,11 @@ and Palette-backed node creation.
 Graph object text is a statement list:
 
 ```lgl
-bp = asset(path: "/Game/BP_LGLExample.BP_LGLExample", type: "/Script/Engine.Blueprint")
-g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
+bp = blueprint(
+  asset: "/Game/BP_LGLExample.BP_LGLExample",
+  id: "blueprint-guid"
+)
+g = graph(asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 
 begin = node(graph: g, id: "A001", type: "/Script/BlueprintGraph.K2Node_Event")
 # Event BeginPlay
@@ -27,9 +30,9 @@ print.InString = pin(id: "string-pin-guid", type: "<FEdGraphPinType native text>
 begin.then -> print.execute
 ```
 
-Returned graph text should be standalone and copyable by default. Query
-results repeat required asset and graph bindings so snippets stay
-self-contained.
+Returned graph text reuses the request's owner and Graph aliases. It does not
+repeat the complete target merely to add context. Navigation to another Graph
+must include enough owner locator information to build a complete request.
 
 Angle-bracketed strings in examples are documentation placeholders for native
 UE text. They are not returned literally and do not introduce LGL syntax.
@@ -38,27 +41,36 @@ UE text. They are not returned literally and do not introduce LGL syntax.
 
 | Object | Syntax | Example |
 | --- | --- | --- |
-| Asset binding | `name = asset(path: "...", type: nativeClassPath)` | `bp = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")` |
-| Graph binding | `name = graph(domain: symbol, asset: ref, id: string, name: symbol, type: nativeEnum)` | `g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)` |
+| Concrete asset-backed owner | Domain-defined locator; for example `name = blueprint(asset: path, id: string)` | `bp = blueprint(asset: "/Game/BP_Door.BP_Door", id: "blueprint-guid")` |
+| Graph binding | `name = graph(asset: ref, id: string, name: symbol, type: nativeEnum)` | `g = graph(asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)` |
 | Node object text | `name = node(graph: ref, id: string, type: classPath, nativeFields...)` | `delay = node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")` |
 | Pin object text | `node.pin = pin(id: string, type: nativeTypeText, direction: in/out, nativeFields...)` | `delay.Duration = pin(id: "pin-guid", type: "<FEdGraphPinType native text>", direction: in, DefaultValue: "1.0")` |
 | Edge sugar | `pin -> pin` | `begin.then -> print.execute` |
 | Edge canonical | `edge(pin, pin)` | `edge(begin.then, print.execute)` |
 
-Graph ownership is explicit. Nodes use `graph: g`; ownership is not inferred
-from source position.
+Graph ownership is explicit. `graph.asset` references the resolved concrete
+asset-backed owner, such as a Blueprint or Material. The owner's actual UE
+Class determines the capabilities available on the Graph; LGL does not route
+an adapter through a public `domain` field. Nodes use `graph: g`; ownership is
+not inferred from source position.
 
 ## Graph Identity
 
-Canonical graph identity uses an asset binding plus one ordinary Graph object:
+Canonical Graph identity uses the exact concrete owner plus
+`UEdGraph::GraphGuid`:
 
 ```lgl
-bp = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
-g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
+bp = blueprint(asset: "/Game/BP_Door.BP_Door", id: "blueprint-guid")
+g = graph(asset: bp, id: "graph-guid")
 ```
 
+The request locator needs only fields that participate in resolution. A full
+returned Graph object may additionally contain `name`, `type`, and native
+state. `graph@graph-guid` is an exact selector only inside an already resolved
+owner scope; it is not a complete top-level Query or Patch target.
+
 Graph follows the same object rule used across LGL: `id` is stable identity,
-`name` is current readable/searchable name, and `type` is exact native UE text.
+`name` is current readable/searchable state, and `type` is exact native UE text.
 For Blueprint graphs, `id` maps to `UEdGraph::GraphGuid` and `type` is the
 native `EGraphType` returned by the Graph's Schema, such as `GT_Function`,
 `GT_Ubergraph`, or `GT_Macro`.
@@ -71,17 +83,16 @@ adjacent comments; it must not translate them into an LGL type enum.
 
 The normalized form remains the shared `Binding` shape. Its value is a
 `graph(...)` `Call`; there is no separate nested Graph object or Graph ref
-constructor. The exact binding and request target shapes are defined under
-[Normalized JSON](#normalized-json).
+constructor.
 
 The earlier `graph: EventGraph` / `graph: id(id: "...")` alternative identity
 is removed. It forced readers to choose either name or id and introduced a
-needless nested ref object. `query g` and `patch g` still use the local Graph
-binding; cross-query identity uses its returned `graph@id`.
+needless nested ref object. `query g` and `patch g` use the complete local
+Graph binding. Exact selection inside that request uses typed scoped ids.
 
-The current schema and adapters still use the earlier Graph target shape. The
-replacement below is the target contract for the later schema, parser,
-formatter, and adapter migration.
+The current schema and adapters still use the earlier flat Graph target shape.
+Its replacement belongs to the later normalized JSON design and must preserve
+this owner-locator chain without reintroducing a public adapter domain.
 
 ## Nodes
 
@@ -505,79 +516,32 @@ returns a capability diagnostic.
 
 ### Query Results And Current Implementation
 
-Every result repeats the required Asset and Graph bindings and preserves the
-adapter's interleaved reading order. `with layout` has one meaning across Graph
-queries: add stored position and size to every returned existing Node. It is not
-valid for Palette Entries because no Node exists yet.
+Every result preserves the adapter's interleaved reading order and reuses the
+request's owner and Graph aliases. It does not repeat the complete target merely
+to add context. `with layout` has one meaning across Graph queries: add stored
+position and size to every returned existing Node. It is not valid for Palette
+Entries because no Node exists yet.
 
-The normalized request and ordered result contract is defined below. It adds no
-Graph result constructor to LGL text. The current Graph query implementation
-does not yet match this design and does not support `with schema`.
+The confirmed normalized operation and ordered result models are defined below;
+the owner-aware request envelope is deferred to the later JSON contract pass.
+This adds no Graph result constructor to LGL text. The current Graph query
+implementation does not yet match this design and does not support
+`with schema`.
 
 ## Normalized JSON
 
 ### Target And Requests
 
-A Graph target carries enough information to reconstruct the complete Asset and
-Graph bindings without UE state:
+The LGL locator chain defined above is authoritative. The exact normalized JSON
+representation of an owner locator and its Graph target is intentionally left
+for the later JSON contract pass. The current implementation's flat
+`domain + asset + graph` target is not the future contract: it loses the typed
+owner chain and makes adapter routing part of public data.
 
-```ts
-interface GraphTarget {
-  domain: string;
-  asset: string;
-  id: string;
-  name: string;
-  type: string;
-}
-```
-
-`domain` is the owning Graph adapter domain, such as `blueprint`, `material`, or
-`pcg`; it is not the literal string `graph` and is not a native type. `asset` is
-the canonical owning Asset Path. Only `domain + asset + id` participate in
-stable Graph resolution. `name` and `type` preserve the current Graph binding
-text for the pure formatter and must not be used as fallback identity when
-`id` fails. `type` is the normalized native Graph type value, not an LGL role.
-
-`GraphTarget` intentionally does not duplicate Asset Class Path. When a pure
-formatter must reconstruct a request header from this target alone, it emits
-the sufficient minimal Asset binding `asset(path: "...")`; it never infers
-Asset `type` from `domain`. Ordered object results may carry the native Asset
-type in their Asset statement when the adapter actually returned it.
-
-For example, normalization resolves the local `bp` and `g` aliases in:
-
-```lgl
-bp = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
-g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
-```
-
-to:
-
-```json
-{
-  "domain": "blueprint",
-  "asset": "/Game/BP_Door.BP_Door",
-  "id": "graph-guid",
-  "name": "EventGraph",
-  "type": "GT_Ubergraph"
-}
-```
-
-Summary uses the shared query envelope:
-
-```json
-{
-  "kind": "query",
-  "target": {
-    "domain": "blueprint",
-    "asset": "/Game/BP_Door.BP_Door",
-    "id": "graph-guid",
-    "name": "EventGraph",
-    "type": "GT_Ubergraph"
-  },
-  "operation": {"kind": "summary"}
-}
-```
+This section therefore defines only the already confirmed operation model. A
+future request envelope must preserve the resolved concrete owner plus
+GraphGuid, must not use `name` or `type` as fallback identity, and must not
+reintroduce a public `domain` selector.
 
 The eight confirmed Graph operations form one closed union:
 
@@ -615,10 +579,6 @@ interface PalettePinContext {
   pin: PinIdRef;
 }
 
-interface GraphQuery extends Query {
-  target: GraphTarget;
-  operation: GraphQueryOperation;
-}
 ```
 
 | LGL primary operation | Normalized operation |
@@ -639,7 +599,7 @@ an `id`; normalization sends that stable `PinIdRef`, not the local alias.
 Omitted traversal `depth` remains omitted in JSON and the adapter applies the
 documented default of one.
 
-For example:
+For example, this LGL operation:
 
 ```lgl
 query g
@@ -647,30 +607,23 @@ exec flow from node@node-guid depth 5
 with layout
 ```
 
-normalizes to:
+normalizes to the following operation data. The enclosing target representation
+is deferred as described above:
 
 ```json
 {
-  "kind": "query",
+  "kind": "exec_flow",
+  "direction": "from",
   "target": {
-    "domain": "blueprint",
-    "asset": "/Game/BP_Door.BP_Door",
-    "id": "graph-guid",
-    "name": "EventGraph",
-    "type": "GT_Ubergraph"
+    "kind": "node",
+    "id": "node-guid"
   },
-  "operation": {
-    "kind": "exec_flow",
-    "direction": "from",
-    "target": {
-      "kind": "node",
-      "id": "node-guid"
-    },
-    "depth": 5
-  },
-  "with": ["layout"]
+  "depth": 5
 }
 ```
+
+`with layout` remains part of the shared Query envelope; that envelope is not
+redesigned here.
 
 Palette Pin context remains explicit:
 
@@ -695,7 +648,8 @@ unknown or ambiguous ids are diagnostics.
 ### Ordered Results
 
 Graph Summary, existing-object queries, traversal queries, and Palette queries
-all return one ordered Graph object model:
+all return one ordered Graph object model. Owner or Graph bindings appear only
+when they are requested result state; they are not mandatory context headers:
 
 ```ts
 interface GraphResult {
@@ -704,7 +658,6 @@ interface GraphResult {
 }
 
 type GraphResultStatement =
-  | GraphAssetBinding
   | GraphBinding
   | GraphNodeBinding
   | GraphPinBinding
@@ -712,22 +665,12 @@ type GraphResultStatement =
   | GraphResultEdge
   | Comment;
 
-interface GraphAssetBinding {
-  target: LocalRef;
-  value: {
-    kind: "call";
-    callee: "asset";
-    args: {path: string; type?: string};
-  };
-}
-
 interface GraphBinding {
   target: LocalRef;
   value: {
     kind: "call";
     callee: "graph";
     args: {
-      domain: Name;
       asset: LocalRef;
       id: string;
       name: Name;
@@ -810,31 +753,6 @@ one sequence:
   "kind": "graph_result",
   "statements": [
     {
-      "target": {"kind": "local", "name": "bp"},
-      "value": {
-        "kind": "call",
-        "callee": "asset",
-        "args": {
-          "path": "/Game/BP_Door.BP_Door",
-          "type": "/Script/Engine.Blueprint"
-        }
-      }
-    },
-    {
-      "target": {"kind": "local", "name": "g"},
-      "value": {
-        "kind": "call",
-        "callee": "graph",
-        "args": {
-          "domain": {"kind": "name", "name": "blueprint"},
-          "asset": {"kind": "local", "name": "bp"},
-          "id": "graph-guid",
-          "name": {"kind": "name", "name": "EventGraph"},
-          "type": {"kind": "name", "name": "GT_Ubergraph"}
-        }
-      }
-    },
-    {
       "target": {"kind": "local", "name": "begin"},
       "value": {
         "kind": "call",
@@ -914,17 +832,19 @@ capability in the bound Graph. An exact Palette Entry may follow it with
 Pin belonging to an existing Node must include its actual `id`. Graph does not
 return the old grouped `PaletteResult.entries` model.
 
-Every `GraphResult` obeys one self-contained ordering contract:
+Every `GraphResult` is an ordered response fragment evaluated with the request's
+locator aliases. It obeys this ordering contract:
 
-1. Exactly one Asset binding appears first.
-2. Exactly one Graph binding immediately follows and references that Asset.
-3. A Node or Palette binding precedes every Pin that uses its alias.
-4. A split parent Pin precedes its child Pins.
-5. An Edge follows both endpoint Pin bindings.
-6. Every local alias is unique, and every member target is bound at most once.
-7. One or more comments describing a statement form one contiguous run
+1. A returned Graph binding is present only when the operation requests Graph
+   state; otherwise Node `graph` fields reuse the request's Graph alias.
+2. A Node or Palette binding precedes every Pin that uses its alias.
+3. A split parent Pin precedes its child Pins.
+4. An Edge follows both endpoint Pin bindings.
+5. Every new local alias is unique, and every member target is bound at most
+   once.
+6. One or more comments describing a statement form one contiguous run
    immediately after it.
-8. Apart from those reference dependencies, adapter reading order is preserved.
+7. Apart from those reference dependencies, adapter reading order is preserved.
 
 The formatter walks `statements` once and never regroups them into Asset, Node,
 Pin, Edge, Palette, or comment arrays. It may use existing Edge sugar only when
@@ -932,9 +852,10 @@ doing so preserves the exact sequence; a Comment or any other statement is a
 hard boundary. Pagination remains in the shared `Result.page` envelope rather
 than becoming LGL object text.
 
-Summary and `nodes` use Asset, Graph, Node, and Comment statements. Exact Node
-or Pin reads may add Pin statements. `context`, `exec flow`, and `data flow` may
-also add Edges. Palette search uses Palette bindings and comments; exact Palette
+Summary and `nodes` use Graph, Node, and Comment statements as requested. Exact
+Node or Pin reads may add Pin statements. `context`, `exec flow`, and
+`data flow` may also add Edges. Palette search uses Palette bindings and
+comments; exact Palette
 reads may add future Pins. Cross-Graph navigation remains an immediately
 following Comment and never inserts a second Graph binding or a cross-Graph
 Edge.
@@ -1022,16 +943,11 @@ current Graph context. Palette creation creates the Node and all base Pins UE
 normally creates; Patch text does not copy future Pin declarations from the
 Palette result and cannot construct a raw `pin(...)`.
 
-Normalized JSON:
+The exact normalized Patch request envelope is deferred with the Query target
+envelope above. Once the target has been resolved, Patch statements form this
+ordered union:
 
 ```ts
-interface GraphPatch {
-  kind: "patch";
-  target: GraphTarget;
-  dryRun: boolean;
-  statements: GraphPatchStatement[];
-}
-
 type GraphPatchStatement =
   | BindingStatement
   | Invoke
@@ -1775,7 +1691,15 @@ instead returns navigation guidance in the ordered result:
 ###
 OnClicked already exists
 inspect with:
-  query graph@existing-event-graph-guid
+  existingBlueprint = blueprint(
+    asset: "/Game/UI/WBP_Menu.WBP_Menu",
+    id: "blueprint-guid"
+  )
+  existingGraph = graph(
+    asset: existingBlueprint,
+    id: "existing-event-graph-guid"
+  )
+  query existingGraph
   node@existing-event-node-guid
 ###
 ```

@@ -27,9 +27,10 @@ top-level LGL text kind.
 
 The Core has one generic named-call form and no predeclared constructor
 vocabulary. Adapters return calls such as `graph(...)`, `node(...)`, or
-`pin(...)` in ordered Object Text. Their names select an adapter-owned object
-shape and identity namespace; they are not UE types or LGL translations of UE
-roles.
+`pin(...)` in ordered Object Text. Their names express small LGL structural
+roles; they do not select an adapter, map a UE type, or route a domain. The
+resolved object's actual UE Class and ownership chain determine its composed
+capabilities.
 
 Every `type` field remains exact native UE text. A constructor expression only
 describes or binds an object and has no side effect. Palette returns every
@@ -60,8 +61,8 @@ LGL has three agent-facing text kinds.
 Object text describes UE objects, object fragments, or query results:
 
 ```lgl
-bp = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
-g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
+bp = blueprint(asset: "/Game/BP_Door.BP_Door", id: "blueprint-guid")
+g = graph(asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 
 begin = node(graph: g, id: "A001", type: "/Script/BlueprintGraph.K2Node_Event")
 print = node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")
@@ -82,11 +83,12 @@ query g
 summary
 ```
 
-The `summary` primary operation asks the owning domain adapter for a compact
-orientation view. Its result is an ordered LGL document made from existing
-object statements and `#` comments. The adapter owns the content and order; LGL
-does not define a summary-specific result object or require all domains to
-summarize the same concepts.
+The `summary` primary operation asks the resolved target for a compact
+orientation view. Its result is ordered LGL Object Text made from existing
+object statements and `#` comments and may reuse request aliases. The target's
+composed capabilities own the content and order; LGL does not define a
+summary-specific result object or require all targets to summarize the same
+concepts.
 
 Local queries use the shared query statement list:
 

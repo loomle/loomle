@@ -15,8 +15,8 @@ LGL is a line-oriented text language. A document is a sequence of statements:
 
 ```lgl
 # Name objects, then refer to them from later statements.
-bp = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
-g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
+door = blueprint(asset: "/Game/BP_Door.BP_Door", id: "blueprint-guid")
+g = graph(asset: door, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 print = node(graph: g, id: "node-guid", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")
 ```
 
@@ -72,7 +72,7 @@ single-line or multi-line layout, but both must normalize identically.
 | --- | --- | --- |
 | Single-line comment | `# text` | `# Inspect a Blueprint event graph.` |
 | Multi-line comment | `###` lines around text | see below |
-| Binding | `target = Expression` | `g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)` |
+| Binding | `target = Expression` | `g = graph(asset: door, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)` |
 | Domain statement | domain-defined line | `query g` |
 | Sugar statement | domain-defined shorthand | `begin.Then -> print.Exec` |
 
@@ -207,14 +207,16 @@ In the graph domain, `begin.Then` refers to a pin on the node binding `begin`.
 Other domains may define their own member meanings.
 
 Local aliases and member paths exist only inside the current LGL document. They
-make ordered object text readable, but they are not stable identities and must
-not be carried into a later query or mutation.
+make ordered object text readable, but the alias alone is not identity. A later
+request may repeat a complete target binding and choose any local alias for it;
+it must not carry only the earlier alias without its locator fields.
 
-Existing objects expose their native `id`; aliases are document-local handles.
-A creation binding uses an alias before the native object exists. After
-creation, the adapter returns the created object with its actual `id`. Use
-aliases and member paths within one LGL document, and use a typed stable
-reference across queries or later operations.
+Existing objects expose native `id` only when UE provides a stable one; other
+objects retain their native Path or exact scoped name. Aliases are
+document-local handles. A creation binding uses an alias before the native
+object exists. After creation, the adapter returns its real native locator,
+including `id` when applicable. Use aliases and member paths within one LGL
+document, and repeat the complete owner locator chain in later requests.
 
 Stable references always state the object kind before `@`:
 
@@ -224,17 +226,20 @@ pin@P001
 graph@G001
 ```
 
-`object@id` is the common cross-query reference for concrete objects with a
-native UE identifier. A bare `@id` is invalid. Domains map the public `id` field
-to native identity such as BlueprintGuid, GraphGuid, VarGuid, VariableGuid,
-NodeGuid, or PinId. The object word is part of the reference and must match the
-returned object kind; an adapter never guesses it from context.
+`object@id` is the common cross-query spelling for concrete objects with a
+native UE identifier, but it is always resolved inside the exact request
+target. It is a scoped selector, not a global address. A bare `@id` is invalid.
+Domains map the public `id` field to native identity such as BlueprintGuid,
+GraphGuid, VarGuid, VariableGuid, NodeGuid, or PinId. The object word is part of
+the reference and must match the returned object kind; an adapter never guesses
+it from context.
 
 LGL does not define object-specific ref constructors such as `graph_ref`,
 `variable_ref`, `component_ref`, or `pin_ref`. A domain must return unknown or
 ambiguous rather than resolve an id by display name. A Blueprint Asset Path is
-its current load location; the Blueprint object's stable `id` maps to its
-persisted `BlueprintGuid`.
+its load address; the Blueprint object's stable `id` maps to its persisted
+`BlueprintGuid`. The Path locates the asset and the Guid verifies its identity;
+the Guid is not a project-wide asset lookup key.
 
 Normalized JSON:
 
@@ -256,6 +261,65 @@ identity namespace; it is not a native UE `type` and is not inferred from one.
 Member references remain two-segment, document-local paths in normalized JSON;
 a domain operation may then select one native field from the referenced object.
 
+### Request Targets And Locator Chains
+
+A Query or Patch target is a document-local alias whose preceding bindings
+form a complete locator chain. Each binding contributes only the native address
+or scoped identity required to resolve the next object:
+
+```lgl
+door = blueprint(
+  asset: "/Game/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
+
+eventGraph = graph(
+  asset: door,
+  id: "graph-guid"
+)
+
+query eventGraph
+node@node-guid
+```
+
+Resolution is ordered: load the Blueprint by Asset Path, verify its
+BlueprintGuid, resolve the GraphGuid inside that Blueprint, then resolve the
+NodeGuid inside that Graph. `node@node-guid` is exact only because
+`eventGraph` already establishes its owner scope.
+
+A locator binding is a projection of ordinary Object Text, not a second text
+syntax. It may omit descriptive state such as native fields, `name`, `type`,
+layout, or status when those values do not participate in resolution. Full
+returned Object Text remains valid input, but non-locator fields do not become
+fallback identity or implicit state assertions.
+
+Each domain must define:
+
+- its globally resolvable root locator, such as Asset Path or Class Path;
+- the owner scope of every native id;
+- which locator fields are required for Query and Patch;
+- whether an exact current name is available for discovery;
+- how missing, mismatched, or duplicate identity is reported.
+
+An id-bearing object uses its typed id for later exact access. An exact-name
+Query may discover such an object, but Patch must not use its current name as a
+substitute for the returned id. An object without a native stable id continues
+to use its UE Path or an exact name inside an already resolved owner. An object
+that does not exist yet uses a Patch-local alias until mutation returns its real
+id.
+
+A scoped stable reference cannot stand alone as the request target:
+
+```lgl
+query graph@graph-guid
+patch graph@graph-guid
+```
+
+Both forms are invalid because they omit the owning target chain. Request
+targets use a complete local binding; stable references select objects inside
+that target. A domain-wide collection root such as `query asset` is the narrow
+exception because it does not claim to identify one object.
+
 ## Constructors
 
 The Core parses every `Name(named: arguments)` expression through the same
@@ -265,7 +329,7 @@ data returned by adapters in Object Text, not built-in business constructs:
 
 ```lgl
 asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
-graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
+graph(asset: door, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")
 ```
 
@@ -275,6 +339,13 @@ namespace, ownership shape, and text layout. It must not translate native UE
 `type`, encode a UE business role, or decide an operation merely from its name.
 For example, `graph(...)` identifies Graph-shaped object text; it does not mean
 Function Graph, Event Graph, or Dispatcher Signature Graph.
+
+Constructors also do not select an adapter domain. The adapter resolves the
+real UE object and composes capabilities from its native Class and inheritance
+chain. A `blueprint(...)` target that loads a `UWidgetBlueprint`, for example,
+retains the same Blueprint-shaped locator while gaining the valid Widget
+operations of that concrete UE type. LGL does not repeat that decision through
+a `domain` argument or translate native Classes into constructor names.
 
 A constructor expression has no mutation side effect. It may describe an
 existing object returned by a query or bind an unmaterialized object inside a
@@ -307,7 +378,7 @@ Constructor arguments are named because they are clear for agents, easy to
 validate, and safe to evolve:
 
 ```lgl
-g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
+g = graph(asset: door, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 ```
 
 Positional constructor arguments are not supported:
@@ -348,8 +419,10 @@ values and preserves the native text without semantic remapping; there is no
 type-specific AST or JSON model.
 
 The adapter-defined object word or normalized discriminator remains structural
-information such as `asset`, `graph`, `node`, or `pin`. `domain` and `domains`
-remain adapter routing information. None of them substitute for native `type`.
+information such as `asset`, `graph`, `node`, or `pin`. Optional capability
+hints such as an Asset result's `domains` list are descriptive discovery data,
+not target-routing selectors. None of them substitute for native `type` or the
+resolved UE Class.
 
 ## Arrays And Objects
 
@@ -1082,6 +1155,14 @@ ordinary object; it does not introduce a second mutation-specific object or
 text format. Optional revision fields remain absent from a concrete tool's
 public response until that tool enforces them.
 
+A result returns the state requested by its primary operation. It must not
+repeat a complete target snapshot merely to identify the request again. It may
+reuse target aliases established by the request and return only the typed ids
+or other locator projections required for contained objects and relationships.
+When a result navigates to a different target, it must provide enough owning
+locator information to construct a later self-contained request; a scoped id
+alone is insufficient.
+
 For an ordered terminal Patch, `applied` means that at least one terminal step
 actually executed. `isError` reports whether the requested sequence completed
 successfully. The combination `applied: true, isError: true` is therefore valid
@@ -1134,3 +1215,11 @@ should be changed.
     Operations; domains and adapters own the available Operations and outputs.
 14. `save` is the shared terminal Patch operation for a target with persistent
     owning Package state; it is final, non-interactive, and never means save all.
+15. A Query or Patch target alias expands to a complete domain-defined locator
+    chain; a scoped `object@id` cannot replace that chain.
+16. Exact names discover existing id-bearing objects, typed ids access and
+    modify them, native Paths or scoped names identify objects that have no
+    native id, and Patch-local aliases identify objects that do not exist yet.
+17. Constructors describe LGL object shape. Native UE Class and inheritance
+    determine adapter capabilities and are never translated into constructor
+    names or repeated through a public `domain` field.

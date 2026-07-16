@@ -150,12 +150,12 @@ Blueprint examples currently cover:
   detailed node output
 
 The examples still use the earlier implemented statement-list Graph identity.
-They must migrate to the documented `id`/`name`/`type` Graph object when the
+They must migrate to the documented owner locator plus GraphGuid when the
 schema and parser are updated:
 
 ```txt
-bp = asset(path: "/Game/BP_LGLExample.BP_LGLExample", type: "/Script/Engine.Blueprint")
-g = graph(domain: blueprint, asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
+bp = blueprint(asset: "/Game/BP_LGLExample.BP_LGLExample", id: "blueprint-guid")
+g = graph(asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 
 begin = node(graph: g, type: "/Script/BlueprintGraph.K2Node_Event", id: "7A9D", at: [0, 0], size: [180, 80])
 delay = node(graph: g, type: "/Script/BlueprintGraph.K2Node_CallFunction", id: "81EF", FunctionReference: "<FMemberReference native text>", at: [320, 0], size: [200, 100])

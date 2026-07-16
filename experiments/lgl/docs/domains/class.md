@@ -57,6 +57,13 @@ actorClass = class(path: "/Script/Engine.Actor")
 doorClass = class(path: "/Game/BP_Door.BP_Door_C")
 ```
 
+This `class(path: ...)` binding is already the complete request locator. Class
+Path is globally resolvable and there is no Class Guid to add. A Function name,
+Property name, or Default name is an exact selector inside the resolved Class;
+none can replace the top-level Class target. Returned Function and Property
+objects carry their complete native UObject Path or `FFieldPath` for navigation,
+but LGL does not fabricate typed ids for them.
+
 Complete Class text uses the native Class Path and meaningful Reflection state:
 
 ```lgl
@@ -292,15 +299,12 @@ first design addresses only top-level Properties; Struct members and container
 elements are read and written as part of the complete native Property value.
 It does not add nested value paths.
 
-An exact read returns the required Class and compact Property bindings, then
-the value and source comments in reading order:
+An exact read reuses the request's Class alias, returns the compact Property
+binding needed to interpret the value, then emits the value and source comments
+in reading order. It does not repeat the complete Class object merely for
+context:
 
 ```lgl
-doorClass = class(
-  path: "/Game/BP_Door.BP_Door_C",
-  type: "/Script/Engine.BlueprintGeneratedClass"
-)
-
 health = property(
   path: "/Script/Game.DoorBase:Health",
   type: "FloatProperty"
@@ -424,12 +428,21 @@ inherited Property. The returned object's full Path records the actual owner.
 collection. Zero matches and invalid ambiguity produce diagnostics rather than
 path, type, or storage inference.
 
+These names are exact scoped Query selectors, not persistent ids and not Patch
+aliases. A later request always binds the Class Path again. Where the returned
+full Function or Property Path participates in cross-target navigation, the
+guidance must preserve that native Path instead of reducing it to an unscoped
+name.
+
 The first design adds no Class-specific `order by`. Only `defaults` supports
 the exact `where overridden = true` condition above. Flag filtering needs a
 separately reviewed bit-flag expression rather than pretending flags are
 ordinary scalar strings.
 
 ## Defaults Patch
+
+The Patch target is the same complete `class(path: ...)` locator used by Query.
+Only the bound Class alias may own the field path in `set` or `reset`.
 
 Defaults mutation reuses the shared Patch envelope and the existing `set`
 operation. The Class domain additionally defines `reset` because assigning the
@@ -505,45 +518,10 @@ must not expose revision controls until the Bridge enforces them.
 
 ### Target And Requests
 
-The Class target is its canonical UObject Path. A document-local binding is
-required in LGL text, but its alias is not sent as identity:
-
-```ts
-interface ClassTarget {
-  domain: "class";
-  path: string;
-}
-```
-
-For example, this binding uses the shared `Binding`, `LocalRef`, and `Call`
-shapes:
-
-```json
-{
-  "target": {"kind": "local", "name": "doorClass"},
-  "value": {
-    "kind": "call",
-    "callee": "class",
-    "args": {"path": "/Game/BP_Door.BP_Door_C"}
-  }
-}
-```
-
-When that binding is used by a read or Patch, normalization resolves it to:
-
-```json
-{"domain": "class", "path": "/Game/BP_Door.BP_Door_C"}
-```
-
-Summary uses the shared query envelope:
-
-```json
-{
-  "kind": "query",
-  "target": {"domain": "class", "path": "/Game/BP_Door.BP_Door_C"},
-  "operation": {"kind": "summary"}
-}
-```
+The LGL `class(path: ...)` locator above is authoritative. The exact normalized
+JSON request envelope is intentionally left for the later JSON contract pass.
+It must preserve the native Class Path without adding an adapter-routing
+`domain` field or fabricating a Class id.
 
 The seven Class operations use the shared required `Query.operation` field:
 
@@ -556,36 +534,14 @@ type ClassQueryOperation =
   | {kind: "function"; name: string}
   | {kind: "defaults"; text?: string}
   | {kind: "default"; name: string};
-
-interface ClassQuery extends Query {
-  target: ClassTarget;
-  operation: ClassQueryOperation;
-}
 ```
 
-An exact schema query normalizes without retaining the local alias:
+The confirmed override filter reuses the shared Condition shape. The following
+shows only operation data and shared modifiers; the enclosing target is
+deferred as described above:
 
 ```json
 {
-  "kind": "query",
-  "target": {
-    "domain": "class",
-    "path": "/Game/BP_Door.BP_Door_C"
-  },
-  "operation": {"kind": "default", "name": "Health"},
-  "with": ["schema"]
-}
-```
-
-The confirmed override filter reuses the shared Condition shape:
-
-```json
-{
-  "kind": "query",
-  "target": {
-    "domain": "class",
-    "path": "/Game/BP_Door.BP_Door_C"
-  },
   "operation": {"kind": "defaults", "text": "health"},
   "where": {
     "kind": "eq",
@@ -616,39 +572,11 @@ interface ClassPropertyPath {
 type ClassPatchOp =
   | {kind: "set"; target: ClassPropertyPath; value: string}
   | {kind: "reset"; target: ClassPropertyPath};
-
-interface ClassPatch extends Patch {
-  target: ClassTarget;
-  bindings: [];
-  ops: ClassPatchOp[];
-}
 ```
 
 The owner alias in `set doorClass.Health` is checked against the Patch target
-while parsing and then removed from the operation payload:
-
-```json
-{
-  "kind": "patch",
-  "target": {
-    "domain": "class",
-    "path": "/Game/BP_Door.BP_Door_C"
-  },
-  "dryRun": false,
-  "bindings": [],
-  "ops": [
-    {
-      "kind": "set",
-      "target": {"path": ["Health"]},
-      "value": "150.000000"
-    },
-    {
-      "kind": "reset",
-      "target": {"path": ["NetUpdateFrequency"]}
-    }
-  ]
-}
-```
+while parsing and then removed from the operation data. The exact normalized
+Patch envelope is deferred with the Query target envelope.
 
 `value` is always the complete native UE text string, not a translated JSON
 number, boolean, Struct, container, or object. The first Class Defaults Patch
@@ -750,17 +678,6 @@ One exact Default result is therefore one ordered JSON sequence:
   "kind": "class_result",
   "statements": [
     {
-      "target": {"kind": "local", "name": "doorClass"},
-      "value": {
-        "kind": "call",
-        "callee": "class",
-        "args": {
-          "path": "/Game/BP_Door.BP_Door_C",
-          "type": "/Script/Engine.BlueprintGeneratedClass"
-        }
-      }
-    },
-    {
       "target": {"kind": "local", "name": "health"},
       "value": {
         "kind": "call",
@@ -791,15 +708,14 @@ Sparse Defaults, schema comments, and Patch-order refreshed values all remain
 interleaved. Class results never add parallel `classes`, `properties`,
 `functions`, `defaults`, or `comments` arrays.
 
-Every `ClassResult` is a self-contained LGL document. It contains exactly one
-Class binding, which must precede any statement that uses the Class alias, and
-every other referenced alias must likewise be bound earlier in the same array.
-An exact `default`
-result must place the matching Property binding before its Default value
-binding. A plural `defaults` result may omit per-Property bindings to remain
-compact, but it still begins with the required Class binding. A Patch result
-uses one Class binding followed by one Property/value/comment group per
-affected operation in Patch order.
+Every `ClassResult` is an ordered response fragment evaluated with the request's
+Class alias. A Class binding appears only when the operation requests Class
+state, such as `summary`; it is not repeated merely so later statements can use
+the alias. Every other referenced alias must be bound earlier in the same
+array. An exact `default` result places the matching Property binding before
+its Default value binding. A plural `defaults` result may omit per-Property
+bindings to remain compact. A Patch result emits one
+Property/value/comment group per affected operation in Patch order.
 
 Mutation responses put this same `ClassResult` in the ordinary `object` field.
 The shared `MutationResult` extends the normal Result with execution fields such
@@ -818,10 +734,11 @@ document. Named native fields retain their exact names and values.
 Statement order and comment placement are semantic and must round-trip exactly.
 The formatter must walk `statements` once without regrouping. The current core
 text parser discards comments. The current schema also lacks standalone
-`Summary`, `ClassTarget`, `ClassResult`, `Comment`, Class query and Patch
-operations, and the extended `MutationResult`; current parsers and formatters
-still use the old find-centric and grouped-array models. All are explicit
-implementation gaps for the later schema/parser/formatter migration.
+`Summary`, the future owner-locator request envelope, `ClassResult`, `Comment`,
+Class query and Patch operations, and the extended `MutationResult`; current
+parsers and formatters still use the old find-centric and grouped-array models.
+All are explicit implementation gaps for the later
+schema/parser/formatter migration.
 
 These JSON shapes introduce no `class_result(...)`, CDO object, Default object,
 Sparse object, nested value path, or other Agent-facing LGL syntax.

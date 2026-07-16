@@ -35,10 +35,15 @@ door = asset(path: "/Game/Blueprints/BP_Door.BP_Door", type: "/Script/Engine.Blu
 doorFrame = asset(path: "/Game/Blueprints/BP_DoorFrame.BP_DoorFrame", type: "/Script/Engine.Blueprint", domains: [asset, blueprint], loaded: false)
 ```
 
-The returned bindings should be directly usable by other domains:
+The returned binding supplies the global address for a more specific target.
+For example, the first Blueprint read uses the Asset result without guessing
+its native state:
 
 ```lgl
-g = graph(domain: blueprint, asset: door, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
+doorBlueprint = blueprint(asset: door)
+
+query doorBlueprint
+summary
 ```
 
 ## Asset Objects
@@ -53,7 +58,17 @@ g = graph(domain: blueprint, asset: door, id: "graph-guid", name: EventGraph, ty
 `path` is the canonical object path. `type` is exactly
 `FAssetData::AssetClassPath`; LGL does not translate it into an asset category.
 Other named arguments are lightweight Registry metadata or deterministic LGL
-adapter routing information.
+capability hints derived from the registered native Asset Class. A `domains`
+list helps the agent discover relevant interface schema; it does not select an
+adapter or override the actual UE Class after load.
+
+Asset Path is the Asset domain's exact locator. UE assets do not share one
+universal persistent Guid that the Asset Registry can resolve, so Asset
+targets do not invent `asset@id`. `type`, `domains`, loaded state, registry
+tags, and score describe or rank the result but do not replace `path` as
+identity. Capability hints are not target-routing input. A missing path,
+redirector, or type mismatch is resolved and reported by the adapter rather
+than repaired through display-name search.
 
 Asset identity should stay explicit. Avoid positional asset constructors:
 
@@ -67,20 +82,9 @@ Use named arguments:
 door = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint", loaded: false)
 ```
 
-Normalized JSON:
-
-```ts
-interface Asset {
-  kind: "asset";
-  alias: string;
-  path: string;
-  type?: string;
-  domains?: string[];
-  loaded?: boolean;
-  registryTags?: Record<string, Value>;
-  score?: number;
-}
-```
+The exact normalized JSON representation is deferred to the shared JSON
+contract pass. It must use the common ordered Binding and Call model rather
+than introducing a second Asset-only object shape.
 
 ## Query
 
@@ -151,16 +155,9 @@ Results should be deterministic. A default ranking policy can prefer:
 Results should not load assets by default. Loading belongs to explicit adapter
 behavior outside default search.
 
-Normalized JSON:
-
-```ts
-interface AssetResult {
-  kind: "asset_result";
-  assets: Asset[];
-}
-```
-
-The formatter turns asset result objects into canonical asset bindings.
+The exact normalized JSON result envelope is deferred to the shared JSON
+contract pass. It must preserve this ordered Object Text and interleaved
+comments; it must not regroup statements into a parallel `assets` array.
 
 ## Registry Tags
 
@@ -194,11 +191,14 @@ without copying Content Browser's UI search language as the main interface.
 
 ## Relationship To Other Domains
 
-Asset bindings are reusable references:
+Asset bindings are reusable global-address references. An asset-backed domain
+first binds its own concrete object, then contained objects refer to that
+specific target:
 
 ```lgl
-door = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
-g = graph(domain: blueprint, asset: door, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
+doorAsset = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
+door = blueprint(asset: doorAsset, id: "blueprint-guid")
+g = graph(asset: door, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
 ```
 
 Graph, widget, material, and PCG domains should not reimplement asset path
