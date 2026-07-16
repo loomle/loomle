@@ -108,14 +108,20 @@ belongs in `where`.
 Field-level `~=` may still be used for advanced structured filters, but it is
 not the normal way to express the main asset search text.
 
-Supported `where` fields:
+The filter surface is closed:
 
-- `root`: package path root such as `/Game`
-- `type`: exact native `FAssetData::AssetClassPath`
-- `name`: asset name
-- `path`: object path
-- `registryTag.<key>`: Asset Registry tag filtering
-- `loaded`: whether the asset is currently loaded
+| Field | Meaning | Operators |
+| --- | --- | --- |
+| `root` | package path root such as `/Game` | `=`, `!=` |
+| `type` | exact native `FAssetData::AssetClassPath` | `=`, `!=` |
+| `name` | Asset name | `=`, `!=`, `~=` |
+| `path` | canonical object path | `=`, `!=`, `~=` |
+| `registryTag.<key>` | one Asset Registry tag value | `=`, `!=`, `~=` |
+| `loaded` | whether the Asset is currently loaded | `=`, `!=`, bare Boolean predicate |
+
+`loaded` and `not loaded` are the compact Boolean predicate forms. Ordered
+comparison operators are not supported by Asset fields. Conditions may still
+combine supported predicates through `not`, `and`, `or`, and parentheses.
 
 Supported `order by` keys:
 
@@ -126,7 +132,13 @@ Supported `order by` keys:
 
 Asset query has no `select` clause. The default result includes identity,
 path, type, domains, and loaded state. `with registryTags` expands Asset
-Registry tags.
+Registry tags. Cursor pagination defaults to 50 results when `page limit` is
+omitted.
+
+`assets` is the Asset collection root's only primary operation. The domain
+defines no `summary`, Palette, `asset@id`, singular Asset operation, or
+Asset-object `with schema`. When an exact Asset Path is already known, the
+agent binds `asset(path: ...)` directly rather than querying it again.
 
 The normalized JSON representation of the `assets` primary operation is not
 specified yet. It must be reviewed with the shared query contract rather than

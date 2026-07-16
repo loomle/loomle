@@ -153,6 +153,7 @@ Current interface cards:
 
 - [`interfaces/README.md`](interfaces/README.md): zero-argument active-module
   index
+- [`interfaces/asset.md`](interfaces/asset.md)
 - [`interfaces/graph.md`](interfaces/graph.md)
 
 ## Current Domains
