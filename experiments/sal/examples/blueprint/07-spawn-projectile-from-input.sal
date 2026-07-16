@@ -1,0 +1,16 @@
+# Source pattern: Epic Spawn Actor from Class API plus common input-to-projectile Blueprint flow.
+# Tests input action, socket transform, actor spawning, and return-value use.
+bp = asset(path: "/Game/BP_SALExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+
+fire = node(graph: g, type: FireInput, id: "G001")
+mesh = node(graph: g, type: GetMesh, id: "G002")
+socketTransform = node(graph: g, type: GetSocketTransform, id: "G003", SocketName: Muzzle)
+spawn = node(graph: g, type: SpawnActorFromClass, id: "G004", Class: BP_Projectile, CollisionHandlingOverride: AlwaysSpawn)
+owner = node(graph: g, type: Self, id: "G005")
+print = node(graph: g, type: PrintString, id: "G006", InString: "Projectile spawned")
+
+fire.Pressed -> spawn.Exec/Then -> print.Exec
+mesh.ReturnValue -> socketTransform.Target
+socketTransform.ReturnValue -> spawn.SpawnTransform
+owner.ReturnValue -> spawn.Owner

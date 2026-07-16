@@ -1,7 +1,0 @@
-# Patch variant of a beginner flow.
-bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
-g = graph(domain: blueprint, asset: bp, graph: EventGraph)
-patch g
-
-delay = delay(duration: 1.0)
-insert begin.Then -> delay.Exec/Completed -> print.Exec

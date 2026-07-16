@@ -1,0 +1,27 @@
+# Query for detailed pin readback on SpawnActorFromClass.
+bp = asset(path: "/Game/BP_SALExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+query g
+
+find nodes
+where name = spawn
+with pins, defaults
+
+---
+
+bp = asset(path: "/Game/BP_SALExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+
+spawn = node(graph: g, type: SpawnActorFromClass, id: "G004", Class: BP_Projectile, CollisionHandlingOverride: AlwaysSpawn)
+
+spawn.Exec = pin(type: exec, direction: in)
+spawn.Class = pin(type: class<Actor>, direction: in, value: BP_Projectile)
+spawn.SpawnTransform = pin(type: transform, direction: in)
+spawn.CollisionHandlingOverride = pin(type: enum<SpawnActorCollisionHandlingMethod>, direction: in, value: AlwaysSpawn)
+spawn.Owner = pin(type: object<Actor>, direction: in)
+spawn.Then = pin(type: exec, direction: out)
+spawn.ReturnValue = pin(type: object<BP_Projectile>, direction: out)
+
+fire.Pressed -> spawn.Exec/Then -> print.Exec
+socketTransform.ReturnValue -> spawn.SpawnTransform
+owner.ReturnValue -> spawn.Owner

@@ -1,6 +1,0 @@
-# Patch variant for removing one data connection.
-bp = asset(path: "/Game/BP_LGLExample", type: blueprint)
-g = graph(domain: blueprint, asset: bp, graph: EventGraph)
-patch g
-
-disconnect threshold.ReturnValue -> branch.Condition

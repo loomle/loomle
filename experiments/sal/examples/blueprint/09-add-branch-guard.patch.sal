@@ -1,0 +1,10 @@
+# Patch variant of inserting a Branch before an existing action.
+bp = asset(path: "/Game/BP_SALExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+patch g
+
+branch = branch()
+isUsable = get(variable: DoorIsUsable)
+add isUsable
+insert input.Pressed -> branch.Exec/True -> openDoor.Exec
+connect isUsable.Value -> branch.Condition

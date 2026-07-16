@@ -1,0 +1,15 @@
+# Query for locating PrintString nodes.
+bp = asset(path: "/Game/BP_SALExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+query g
+
+find nodes
+where type = PrintString
+
+---
+
+bp = asset(path: "/Game/BP_SALExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+
+print = node(graph: g, type: PrintString, id: "C2B0", InString: "Ready")
+debugPrint = node(graph: g, type: PrintString, id: "D991", InString: "Debug")

@@ -1,0 +1,1125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loomle.dev/schemas/sal-object.schema.json",
+  "title": "SAL Normalized Object Schema",
+  "description": "Normalized SAL JSON contract for text parsing, SDK adapters, RPC, results, and diagnostics.",
+  "anyOf": [
+    { "$ref": "#/$defs/SalObject" },
+    { "$ref": "#/$defs/Result" },
+    { "$ref": "#/$defs/Diagnostic" },
+    { "$ref": "#/$defs/Target" },
+    { "$ref": "#/$defs/GraphRef" },
+    { "$ref": "#/$defs/Ref" },
+    { "$ref": "#/$defs/Expr" },
+    { "$ref": "#/$defs/Value" },
+    { "$ref": "#/$defs/Name" },
+    { "$ref": "#/$defs/PinRef" },
+    { "$ref": "#/$defs/Edge" }
+  ],
+  "$defs": {
+    "SalObject": {
+      "oneOf": [
+        { "$ref": "#/$defs/Graph" },
+        { "$ref": "#/$defs/AssetResult" },
+        { "$ref": "#/$defs/BlueprintResult" },
+        { "$ref": "#/$defs/WidgetResult" },
+        { "$ref": "#/$defs/Query" },
+        { "$ref": "#/$defs/Patch" },
+        { "$ref": "#/$defs/PaletteResult" }
+      ]
+    },
+    "Target": {
+      "oneOf": [
+        { "$ref": "#/$defs/AssetTarget" },
+        { "$ref": "#/$defs/BlueprintTarget" },
+        { "$ref": "#/$defs/WidgetTarget" },
+        { "$ref": "#/$defs/GraphTarget" }
+      ]
+    },
+    "AssetTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain"],
+      "properties": {
+        "domain": { "const": "asset" }
+      }
+    },
+    "GraphTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain", "asset", "graph"],
+      "properties": {
+        "domain": { "type": "string", "minLength": 1 },
+        "asset": { "type": "string", "minLength": 1 },
+        "graph": { "$ref": "#/$defs/GraphRef" }
+      }
+    },
+    "BlueprintTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain", "asset"],
+      "properties": {
+        "domain": { "const": "blueprint" },
+        "asset": { "type": "string", "minLength": 1 }
+      }
+    },
+    "WidgetTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain", "asset"],
+      "properties": {
+        "domain": { "const": "widget" },
+        "asset": { "type": "string", "minLength": 1 }
+      }
+    },
+    "GraphRef": {
+      "oneOf": [
+        { "$ref": "#/$defs/GraphNameRef" },
+        { "$ref": "#/$defs/GraphIdRef" }
+      ]
+    },
+    "GraphNameRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "const": "name" },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "GraphIdRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "id" },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Ref": {
+      "oneOf": [
+        { "$ref": "#/$defs/LocalRef" },
+        { "$ref": "#/$defs/MemberRef" },
+        { "$ref": "#/$defs/IdRef" }
+      ]
+    },
+    "LocalRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "const": "local" },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "MemberRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "object", "member"],
+      "properties": {
+        "kind": { "const": "member" },
+        "object": { "type": "string", "minLength": 1 },
+        "member": { "type": "string", "minLength": 1 }
+      }
+    },
+    "IdRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "id" },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "BindingTarget": {
+      "oneOf": [
+        { "$ref": "#/$defs/LocalRef" },
+        { "$ref": "#/$defs/MemberRef" }
+      ]
+    },
+    "Binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "value"],
+      "properties": {
+        "target": { "$ref": "#/$defs/BindingTarget" },
+        "value": { "$ref": "#/$defs/BindingValue" }
+      }
+    },
+    "BindingValue": {
+      "oneOf": [
+        { "$ref": "#/$defs/Expr" },
+        { "$ref": "#/$defs/NodeCreation" }
+      ]
+    },
+    "Expr": {
+      "oneOf": [
+        { "$ref": "#/$defs/Value" },
+        { "$ref": "#/$defs/Ref" },
+        { "$ref": "#/$defs/Call" }
+      ]
+    },
+    "Value": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        { "$ref": "#/$defs/Name" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Value" }
+        },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Value" },
+          "not": { "required": ["kind"] }
+        }
+      ]
+    },
+    "Name": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "const": "name" },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "callee", "args"],
+      "properties": {
+        "kind": { "const": "call" },
+        "callee": { "type": "string", "minLength": 1 },
+        "args": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Expr" }
+        }
+      }
+    },
+    "NodeCreation": {
+      "oneOf": [
+        { "$ref": "#/$defs/PaletteNodeCreation" },
+        { "$ref": "#/$defs/ShortcutNodeCreation" }
+      ]
+    },
+    "PaletteNodeCreation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "palette"],
+      "properties": {
+        "kind": { "const": "palette_node" },
+        "palette": { "type": "string", "minLength": 1 },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Expr" }
+        }
+      }
+    },
+    "ShortcutNodeCreation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "constructor"],
+      "properties": {
+        "kind": { "const": "shortcut_node" },
+        "constructor": { "$ref": "#/$defs/Call" }
+      }
+    },
+    "Point": {
+      "type": "array",
+      "prefixItems": [{ "type": "number" }, { "type": "number" }],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "PinRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "pin"],
+      "properties": {
+        "node": { "type": "string", "minLength": 1 },
+        "pin": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "$ref": "#/$defs/PinRef" },
+        "to": { "$ref": "#/$defs/PinRef" }
+      }
+    },
+    "Graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "nodes", "edges"],
+      "properties": {
+        "kind": { "const": "graph" },
+        "target": { "$ref": "#/$defs/GraphTarget" },
+        "nodes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Node" }
+        },
+        "edges": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Edge" }
+        },
+        "pins": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Pin" }
+        }
+      }
+    },
+    "Node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "type", "fields"],
+      "properties": {
+        "alias": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "fields": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Expr" }
+        },
+        "at": { "$ref": "#/$defs/Point" },
+        "size": { "$ref": "#/$defs/Point" }
+      }
+    },
+    "Pin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "name", "type", "direction"],
+      "properties": {
+        "node": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "direction": { "enum": ["in", "out"] },
+        "value": { "$ref": "#/$defs/Expr" },
+        "anchor": { "$ref": "#/$defs/Point" }
+      }
+    },
+    "AssetResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "assets"],
+      "properties": {
+        "kind": { "const": "asset_result" },
+        "assets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Asset" }
+        }
+      }
+    },
+    "Asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "path"],
+      "properties": {
+        "alias": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "class": { "type": "string", "minLength": 1 },
+        "domains": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "loaded": { "type": "boolean" },
+        "registryTags": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Value" }
+        },
+        "score": { "type": "number" }
+      }
+    },
+    "BlueprintResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "blueprints"],
+      "properties": {
+        "kind": { "const": "blueprint_result" },
+        "blueprints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Blueprint" }
+        }
+      }
+    },
+    "Blueprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "asset"],
+      "properties": {
+        "alias": { "type": "string", "minLength": 1 },
+        "asset": { "type": "string", "minLength": 1 },
+        "parent": { "type": "string", "minLength": 1 },
+        "namespace": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
+        "abstract": { "type": "boolean" },
+        "deprecated": { "type": "boolean" },
+        "interfaces": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Value" }
+        },
+        "members": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/BlueprintMember" }
+        },
+        "components": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/BlueprintComponent" }
+        }
+      }
+    },
+    "BlueprintMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "enum": ["variable", "function", "macro", "dispatcher", "event"] },
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "default": { "$ref": "#/$defs/Value" },
+        "category": { "type": "string", "minLength": 1 },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "outputs": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "pure": { "type": "boolean" },
+        "const": { "type": "boolean" },
+        "replication": { "type": "string", "minLength": 1 },
+        "reliable": { "type": "boolean" },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Value" }
+        },
+        "guid": { "type": "string", "minLength": 1 },
+        "graph": { "$ref": "#/$defs/GraphRef" }
+      }
+    },
+    "BlueprintComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "class"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "class": { "type": "string", "minLength": 1 },
+        "parent": { "type": ["string", "null"], "minLength": 1 },
+        "properties": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Value" }
+        }
+      }
+    },
+    "WidgetResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "documents"],
+      "properties": {
+        "kind": { "const": "widget_result" },
+        "documents": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/WidgetDocument" }
+        }
+      }
+    },
+    "WidgetDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "asset", "root", "widgets"],
+      "properties": {
+        "alias": { "type": "string", "minLength": 1 },
+        "asset": { "type": "string", "minLength": 1 },
+        "root": { "type": "string", "minLength": 1 },
+        "widgets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/WidgetNode" }
+        }
+      }
+    },
+    "WidgetNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "class"],
+      "properties": {
+        "alias": { "type": "string", "minLength": 1 },
+        "class": { "type": "string", "minLength": 1 },
+        "parent": { "type": "string", "minLength": 1 },
+        "properties": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Value" }
+        }
+      }
+    },
+    "Query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": { "const": "query" },
+        "target": { "$ref": "#/$defs/Target" },
+        "find": { "$ref": "#/$defs/Find" },
+        "where": { "$ref": "#/$defs/Condition" },
+        "with": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Detail" },
+          "uniqueItems": true
+        },
+        "orderBy": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/OrderBy" }
+        },
+        "page": { "$ref": "#/$defs/Page" }
+      }
+    },
+    "Find": {
+      "oneOf": [
+        { "$ref": "#/$defs/FindAssets" },
+        { "$ref": "#/$defs/FindBlueprintMembers" },
+        { "$ref": "#/$defs/FindBlueprintComponents" },
+        { "$ref": "#/$defs/FindWidgetTree" },
+        { "$ref": "#/$defs/FindWidgets" },
+        { "$ref": "#/$defs/GraphFind" }
+      ]
+    },
+    "FindAssets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "assets" },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "FindBlueprintMembers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "members" },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "FindBlueprintComponents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "components" },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "FindWidgetTree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "tree" }
+      }
+    },
+    "FindWidgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "widgets" },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "GraphFind": {
+      "oneOf": [
+        { "$ref": "#/$defs/FindNodes" },
+        { "$ref": "#/$defs/FindPath" },
+        { "$ref": "#/$defs/FindPaletteEntry" }
+      ]
+    },
+    "FindNodes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "nodes" },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "FindPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "direction", "pin"],
+      "properties": {
+        "kind": { "const": "path" },
+        "direction": { "enum": ["from", "to"] },
+        "pin": { "$ref": "#/$defs/PinRef" }
+      }
+    },
+    "FindPaletteEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "palette_entry" },
+        "text": { "type": "string", "minLength": 1 },
+        "pinContext": { "$ref": "#/$defs/PinContext" }
+      }
+    },
+    "PinContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["direction", "pin"],
+      "properties": {
+        "direction": { "enum": ["from", "to"] },
+        "pin": { "$ref": "#/$defs/PinRef" }
+      }
+    },
+    "Detail": {
+      "enum": ["pins", "defaults", "layout", "properties", "registryTags"]
+    },
+    "Condition": {
+      "oneOf": [
+        { "$ref": "#/$defs/EqCondition" },
+        { "$ref": "#/$defs/NeCondition" },
+        { "$ref": "#/$defs/ContainsCondition" },
+        { "$ref": "#/$defs/CompareCondition" },
+        { "$ref": "#/$defs/NotCondition" },
+        { "$ref": "#/$defs/AndCondition" },
+        { "$ref": "#/$defs/OrCondition" }
+      ]
+    },
+    "EqCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "field", "value"],
+      "properties": {
+        "kind": { "const": "eq" },
+        "field": { "$ref": "#/$defs/FieldPath" },
+        "value": { "$ref": "#/$defs/Expr" }
+      }
+    },
+    "NeCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "field", "value"],
+      "properties": {
+        "kind": { "const": "ne" },
+        "field": { "$ref": "#/$defs/FieldPath" },
+        "value": { "$ref": "#/$defs/Expr" }
+      }
+    },
+    "ContainsCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "field", "value"],
+      "properties": {
+        "kind": { "const": "contains" },
+        "field": { "$ref": "#/$defs/FieldPath" },
+        "value": { "$ref": "#/$defs/Expr" }
+      }
+    },
+    "CompareCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "op", "field", "value"],
+      "properties": {
+        "kind": { "const": "compare" },
+        "op": { "enum": ["gt", "gte", "lt", "lte"] },
+        "field": { "$ref": "#/$defs/FieldPath" },
+        "value": { "$ref": "#/$defs/Expr" }
+      }
+    },
+    "NotCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "condition"],
+      "properties": {
+        "kind": { "const": "not" },
+        "condition": { "$ref": "#/$defs/Condition" }
+      }
+    },
+    "AndCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "conditions"],
+      "properties": {
+        "kind": { "const": "and" },
+        "conditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/Condition" }
+        }
+      }
+    },
+    "OrCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "conditions"],
+      "properties": {
+        "kind": { "const": "or" },
+        "conditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/Condition" }
+        }
+      }
+    },
+    "FieldPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "OrderBy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "direction"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "direction": { "enum": ["asc", "desc"] }
+      }
+    },
+    "Page": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "limit": { "type": "integer", "minimum": 1 },
+        "after": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Patch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "dryRun", "bindings", "ops"],
+      "properties": {
+        "kind": { "const": "patch" },
+        "target": { "$ref": "#/$defs/Target" },
+        "dryRun": { "type": "boolean" },
+        "bindings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Binding" }
+        },
+        "ops": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PatchOp" }
+        }
+      }
+    },
+    "PatchOp": {
+      "anyOf": [
+        { "$ref": "#/$defs/GraphPatchOp" },
+        { "$ref": "#/$defs/BlueprintPatchOp" },
+        { "$ref": "#/$defs/WidgetPatchOp" }
+      ]
+    },
+    "GraphPatchOp": {
+      "oneOf": [
+        { "$ref": "#/$defs/Set" },
+        { "$ref": "#/$defs/Add" },
+        { "$ref": "#/$defs/Insert" },
+        { "$ref": "#/$defs/Connect" },
+        { "$ref": "#/$defs/DisconnectByEdge" },
+        { "$ref": "#/$defs/DisconnectByPin" },
+        { "$ref": "#/$defs/Remove" },
+        { "$ref": "#/$defs/MoveTo" },
+        { "$ref": "#/$defs/MoveBy" },
+        { "$ref": "#/$defs/Reconstruct" }
+      ]
+    },
+    "BlueprintPatchOp": {
+      "oneOf": [
+        { "$ref": "#/$defs/BlueprintSet" },
+        { "$ref": "#/$defs/BlueprintAdd" },
+        { "$ref": "#/$defs/BlueprintRemove" },
+        { "$ref": "#/$defs/BlueprintRename" },
+        { "$ref": "#/$defs/BlueprintMove" }
+      ]
+    },
+    "BlueprintSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "value"],
+      "properties": {
+        "kind": { "const": "set" },
+        "target": { "$ref": "#/$defs/FieldPath" },
+        "value": { "$ref": "#/$defs/Expr" }
+      }
+    },
+    "BlueprintAdd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": { "const": "add" },
+        "target": { "$ref": "#/$defs/FieldPath" }
+      }
+    },
+    "BlueprintRemove": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": { "const": "remove" },
+        "target": { "$ref": "#/$defs/FieldPath" }
+      }
+    },
+    "BlueprintRename": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "name"],
+      "properties": {
+        "kind": { "const": "rename" },
+        "target": { "$ref": "#/$defs/FieldPath" },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "BlueprintMove": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "relativeTo", "position"],
+      "properties": {
+        "kind": { "const": "move" },
+        "target": { "$ref": "#/$defs/FieldPath" },
+        "relativeTo": { "$ref": "#/$defs/FieldPath" },
+        "position": { "enum": ["before", "after"] }
+      }
+    },
+    "WidgetPatchOp": {
+      "oneOf": [
+        { "$ref": "#/$defs/WidgetAdd" },
+        { "$ref": "#/$defs/WidgetSet" },
+        { "$ref": "#/$defs/WidgetRemove" },
+        { "$ref": "#/$defs/WidgetMove" }
+      ]
+    },
+    "WidgetAdd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": { "const": "add" },
+        "target": { "$ref": "#/$defs/FieldPath" }
+      }
+    },
+    "WidgetSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "value"],
+      "properties": {
+        "kind": { "const": "set" },
+        "target": { "$ref": "#/$defs/FieldPath" },
+        "value": { "$ref": "#/$defs/Expr" }
+      }
+    },
+    "WidgetRemove": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": { "const": "remove" },
+        "target": { "$ref": "#/$defs/FieldPath" }
+      }
+    },
+    "WidgetMove": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "relativeTo", "position"],
+      "properties": {
+        "kind": { "const": "move" },
+        "target": { "$ref": "#/$defs/FieldPath" },
+        "relativeTo": { "$ref": "#/$defs/FieldPath" },
+        "position": { "enum": ["before", "after"] }
+      }
+    },
+    "Set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "value"],
+      "properties": {
+        "kind": { "const": "set" },
+        "target": { "$ref": "#/$defs/SetTarget" },
+        "value": { "$ref": "#/$defs/Expr" }
+      }
+    },
+    "SetTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["object", "field"],
+      "properties": {
+        "object": { "type": "string", "minLength": 1 },
+        "field": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Add": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "binding"],
+      "properties": {
+        "kind": { "const": "add" },
+        "binding": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Insert": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "node", "from", "to", "input", "output"],
+      "properties": {
+        "kind": { "const": "insert" },
+        "node": { "type": "string", "minLength": 1 },
+        "from": { "$ref": "#/$defs/PinRef" },
+        "to": { "$ref": "#/$defs/PinRef" },
+        "input": { "$ref": "#/$defs/PinRef" },
+        "output": { "$ref": "#/$defs/PinRef" }
+      }
+    },
+    "Connect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "edge"],
+      "properties": {
+        "kind": { "const": "connect" },
+        "edge": { "$ref": "#/$defs/Edge" }
+      }
+    },
+    "DisconnectByEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "edge"],
+      "properties": {
+        "kind": { "const": "disconnect" },
+        "edge": { "$ref": "#/$defs/Edge" }
+      }
+    },
+    "DisconnectByPin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "pin"],
+      "properties": {
+        "kind": { "const": "disconnect" },
+        "pin": { "$ref": "#/$defs/PinRef" }
+      }
+    },
+    "Remove": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "node"],
+      "properties": {
+        "kind": { "const": "remove" },
+        "node": { "type": "string", "minLength": 1 }
+      }
+    },
+    "MoveTo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "node", "mode", "at"],
+      "properties": {
+        "kind": { "const": "move" },
+        "node": { "type": "string", "minLength": 1 },
+        "mode": { "const": "to" },
+        "at": { "$ref": "#/$defs/Point" }
+      }
+    },
+    "MoveBy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "node", "mode", "delta"],
+      "properties": {
+        "kind": { "const": "move" },
+        "node": { "type": "string", "minLength": 1 },
+        "mode": { "const": "by" },
+        "delta": { "$ref": "#/$defs/Point" }
+      }
+    },
+    "Reconstruct": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "node", "preserveLinks"],
+      "properties": {
+        "kind": { "const": "reconstruct" },
+        "node": { "type": "string", "minLength": 1 },
+        "preserveLinks": { "type": "boolean" }
+      }
+    },
+    "PaletteResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "entries"],
+      "properties": {
+        "kind": { "const": "palette_result" },
+        "target": { "$ref": "#/$defs/Target" },
+        "entries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CreationEntry" }
+        }
+      }
+    },
+    "CreationEntry": {
+      "oneOf": [
+        { "$ref": "#/$defs/ShortcutEntry" },
+        { "$ref": "#/$defs/ClassEntry" },
+        { "$ref": "#/$defs/PaletteEntry" }
+      ]
+    },
+    "ShortcutEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "constructor"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "constructor": { "$ref": "#/$defs/Call" },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Expr" }
+        },
+        "properties": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Property" }
+        },
+        "pins": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Pin" }
+        }
+      }
+    },
+    "PaletteEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "palette"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "palette": { "$ref": "#/$defs/PaletteSourceRef" },
+        "label": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Expr" }
+        },
+        "properties": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Property" }
+        },
+        "pins": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Pin" }
+        }
+      }
+    },
+    "ClassEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "class"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "class": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Expr" }
+        },
+        "properties": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Property" }
+        }
+      }
+    },
+    "Property": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "default": { "$ref": "#/$defs/Expr" },
+        "writable": { "type": "boolean" },
+        "category": { "type": "string", "minLength": 1 }
+      }
+    },
+    "PaletteSourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "palette" },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["diagnostics"],
+      "properties": {
+        "object": { "$ref": "#/$defs/SalObject" },
+        "diagnostics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Diagnostic" }
+        },
+        "page": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "next": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "Diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "code", "message"],
+      "properties": {
+        "severity": { "enum": ["error", "warning", "info"] },
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "path": { "$ref": "#/$defs/DiagnosticPath" },
+        "span": { "$ref": "#/$defs/SourceSpan" },
+        "domain": { "type": "string", "minLength": 1 },
+        "operation": { "type": "string", "minLength": 1 },
+        "ref": { "type": "string", "minLength": 1 },
+        "expected": true,
+        "actual": true,
+        "supported": true,
+        "matches": {
+          "type": "array",
+          "items": true
+        },
+        "suggestion": { "type": "string", "minLength": 1 }
+      }
+    },
+    "DiagnosticPath": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          { "type": "integer", "minimum": 0 }
+        ]
+      }
+    },
+    "SourceSpan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line", "column"],
+      "properties": {
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 },
+        "endColumn": { "type": "integer", "minimum": 1 },
+        "length": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

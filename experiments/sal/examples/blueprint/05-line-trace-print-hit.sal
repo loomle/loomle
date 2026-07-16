@@ -1,0 +1,28 @@
+# Source: Epic documentation, "Using a Single Line Trace (Raycast) by Channel".
+# Tests a per-tick trace, vector math, hit breaking, branch, and name printing.
+bp = asset(path: "/Game/BP_SALExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+
+tick = node(graph: g, type: EventTick, id: "E001")
+cameraLocation = node(graph: g, type: GetCameraLocation, id: "E002")
+cameraForward = node(graph: g, type: GetCameraForwardVector, id: "E003")
+distance = node(graph: g, type: FloatConstant, id: "E004", Value: 1500.0)
+scaledForward = node(graph: g, type: VectorTimesFloat, id: "E005")
+traceEnd = node(graph: g, type: VectorPlusVector, id: "E006")
+trace = node(graph: g, type: LineTraceByChannel, id: "E007", TraceChannel: Visibility, TraceComplex: false, DrawDebugType: ForOneFrame)
+breakHit = node(graph: g, type: BreakHitResult, id: "E008")
+branch = node(graph: g, type: Branch, id: "E009")
+hitActorName = node(graph: g, type: GetDisplayName, id: "E00A")
+print = node(graph: g, type: PrintString, id: "E00B")
+
+tick.Then -> trace.Exec/Then -> branch.Exec/True -> print.Exec
+cameraForward.ReturnValue -> scaledForward.Vector
+distance.Value -> scaledForward.Float
+cameraLocation.ReturnValue -> trace.Start
+cameraLocation.ReturnValue -> traceEnd.A
+scaledForward.ReturnValue -> traceEnd.B
+traceEnd.ReturnValue -> trace.End
+trace.ReturnValue -> branch.Condition
+trace.OutHit -> breakHit.Hit
+breakHit.HitActor -> hitActorName.Object
+hitActorName.ReturnValue -> print.InString

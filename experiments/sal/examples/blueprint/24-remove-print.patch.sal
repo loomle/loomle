@@ -1,0 +1,6 @@
+# Patch variant for removing one node without healing surrounding links.
+bp = asset(path: "/Game/BP_SALExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+patch g
+
+remove print

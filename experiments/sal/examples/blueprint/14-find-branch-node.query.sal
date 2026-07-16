@@ -1,0 +1,25 @@
+# Query for detailed pin readback on a node.
+bp = asset(path: "/Game/BP_SALExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+query g
+
+find nodes
+where name = branch
+with pins, defaults
+
+---
+
+bp = asset(path: "/Game/BP_SALExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+
+branch = node(graph: g, type: Branch, id: "B004")
+
+branch.Exec = pin(type: exec, direction: in)
+branch.Condition = pin(type: bool, direction: in)
+branch.True = pin(type: exec, direction: out)
+branch.False = pin(type: exec, direction: out)
+
+begin.Then -> branch.Exec
+threshold.ReturnValue -> branch.Condition
+branch.True -> dead.Exec
+branch.False -> alive.Exec

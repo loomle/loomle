@@ -1,0 +1,25 @@
+# Source: Epic documentation, "Setting Up Input on an Actor".
+# Tests overlap events, casts, player controller access, and key input.
+bp = asset(path: "/Game/BP_SALExample", type: blueprint)
+g = graph(domain: blueprint, asset: bp, graph: EventGraph)
+
+beginOverlap = node(graph: g, type: TriggerBeginOverlap, id: "C001")
+endOverlap = node(graph: g, type: TriggerEndOverlap, id: "C002")
+castBegin = node(graph: g, type: CastToFirstPersonCharacter, id: "C003")
+castEnd = node(graph: g, type: CastToFirstPersonCharacter, id: "C004")
+playerControllerA = node(graph: g, type: GetPlayerController, id: "C005", PlayerIndex: 0)
+playerControllerB = node(graph: g, type: GetPlayerController, id: "C006", PlayerIndex: 0)
+enableInput = node(graph: g, type: EnableInput, id: "C007")
+disableInput = node(graph: g, type: DisableInput, id: "C008")
+keyE = node(graph: g, type: KeyboardEvent, id: "C009", Key: E)
+print = node(graph: g, type: PrintString, id: "C00A", InString: "Hello")
+
+beginOverlap.Then -> castBegin.Exec/Then -> enableInput.Exec
+beginOverlap.OtherActor -> castBegin.Object
+playerControllerA.ReturnValue -> enableInput.PlayerController
+
+endOverlap.Then -> castEnd.Exec/Then -> disableInput.Exec
+endOverlap.OtherActor -> castEnd.Object
+playerControllerB.ReturnValue -> disableInput.PlayerController
+
+keyE.Pressed -> print.Exec
