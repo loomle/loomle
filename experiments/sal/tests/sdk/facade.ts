@@ -20,7 +20,8 @@ set node@N1.NodeComment = "Guard"`;
 
 const object: ObjectText = {
   statements: [
-    { target: { kind: "local", name: "branch" }, value: { kind: "call", callee: "node", args: { id: "N1", type: "/Script/BlueprintGraph.K2Node_IfThenElse" } } },
+    { target: { kind: "local", name: "g" }, value: { kind: "call", callee: "graph", args: { id: "G1" } } },
+    { target: { kind: "local", name: "branch" }, value: { kind: "call", callee: "node", args: { graph: { kind: "local", name: "g" }, id: "N1", type: "/Script/BlueprintGraph.K2Node_IfThenElse" } } },
     { kind: "comment", text: "schema available with with schema" },
   ],
 };
@@ -56,6 +57,7 @@ console.log("[PASS] sal.schema is static and interface-scoped");
 
 const queryResult = await sal.query(queryText);
 assert.deepEqual(queryResult.diagnostics, []);
+assert.match(queryResult.text ?? "", /g = graph\(id: "G1"\)/);
 assert.match(queryResult.text ?? "", /branch = node/);
 assert.equal(queryResult.page?.next, "offset:1");
 console.log("[PASS] sal.query returns Object Text and preserves pagination");
@@ -107,3 +109,31 @@ const invalidReferenceExecutor: SalExecutor = {
 const invalidReference = await createSal({ executor: invalidReferenceExecutor }).query(queryText);
 assert.equal(invalidReference.diagnostics[0]?.code, "language.invalid_result_shape");
 console.log("[PASS] executor output preserves ordered local-reference semantics");
+
+const inheritedRequestAliasExecutor: SalExecutor = {
+  interfaces: ["graph"],
+  async query() {
+    return {
+      object: {
+        statements: [
+          {
+            target: { kind: "local", name: "branch" },
+            value: {
+              kind: "call",
+              callee: "node",
+              args: {
+                graph: { kind: "local", name: "g" },
+                id: "N1",
+                type: "/Script/BlueprintGraph.K2Node_IfThenElse",
+              },
+            },
+          },
+        ],
+      },
+      diagnostics: [],
+    };
+  },
+};
+const inheritedRequestAlias = await createSal({ executor: inheritedRequestAliasExecutor }).query(queryText);
+assert.equal(inheritedRequestAlias.diagnostics[0]?.code, "language.invalid_result_shape");
+console.log("[PASS] result Text must declare compact bindings instead of inheriting request aliases");

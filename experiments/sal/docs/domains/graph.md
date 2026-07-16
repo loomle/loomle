@@ -30,9 +30,12 @@ print.InString = pin(id: "string-pin-guid", type: "<FEdGraphPinType native text>
 begin.then -> print.execute
 ```
 
-Returned graph text reuses the request's owner and Graph aliases. It does not
-repeat the complete target merely to add context. Navigation to another Graph
-must include enough owner locator information to build a complete request.
+Returned Graph text is self-contained. When Nodes or other statements refer to
+the target Graph, the result first declares a compact Graph binding such as
+`g = graph(id: "graph-guid")`; it never relies on the request's local aliases.
+The result does not repeat the complete owner locator merely to add context.
+Navigation to another Graph must include enough owner locator information to
+build a complete request.
 
 Angle-bracketed strings in examples are documentation placeholders for native
 UE text. They are not returned literally and do not introduce SAL syntax.
@@ -549,11 +552,12 @@ returns a capability diagnostic.
 
 ### Query Results
 
-Every result preserves the adapter's interleaved reading order and reuses the
-request's owner and Graph aliases. It does not repeat the complete target merely
-to add context. `with layout` has one meaning across Graph queries: add stored
-position and size to every returned existing Node. It is not valid for Palette
-Entries because no Node exists yet.
+Every result preserves the adapter's interleaved reading order. When returned
+Nodes refer to the target Graph, a compact Graph binding precedes them; no
+statement inherits an owner or Graph alias from the request. The result does
+not repeat the complete target merely to add context. `with layout` has one
+meaning across Graph queries: add stored position and size to every returned
+existing Node. It is not valid for Palette Entries because no Node exists yet.
 
 The normalized operation and ordered result models are defined below. They add
 no Graph result constructor to SAL text. The shared SDK implements these forms;
@@ -672,8 +676,9 @@ unknown or ambiguous ids are diagnostics.
 ### Ordered Results
 
 Graph Summary, existing-object queries, traversal queries, and Palette queries
-all return the shared ordered Object Text. Owner or Graph bindings appear only
-when they are requested result state; they are not mandatory context headers:
+all return the shared ordered Object Text. A compact owner or Graph binding is
+present whenever later result statements refer to its alias; it may also carry
+state requested by the operation:
 
 ```ts
 interface ObjectText {
@@ -688,10 +693,10 @@ interface GraphBinding {
     kind: "call";
     callee: "graph";
     args: {
-      asset: LocalRef;
       id: string;
-      name: Name;
-      type: Name;
+      asset?: LocalRef;
+      name?: Name;
+      type?: Name;
     };
   };
 }
@@ -839,11 +844,13 @@ capability in the bound Graph. An exact Palette Entry may follow it with
 Pin belonging to an existing Node must include its actual `id`. Graph does not
 return the old grouped `PaletteResult.entries` model.
 
-Every Graph Object Text is an ordered response fragment evaluated with the request's
-locator aliases. It obeys this ordering contract:
+Every Graph Object Text is a self-contained ordered response. It obeys this
+ordering contract:
 
-1. A returned Graph binding is present only when the operation requests Graph
-   state; otherwise Node `graph` fields reuse the request's Graph alias.
+1. A compact target Graph binding precedes any returned statement that refers
+   to it. It normally needs only `id`; requested Graph state may add `name`,
+   `type`, or native fields. It never repeats the complete owner locator solely
+   to establish result context.
 2. A Node or Palette binding precedes every Pin that uses its alias.
 3. A split parent Pin precedes its child Pins.
 4. An Edge follows both endpoint Pin bindings.

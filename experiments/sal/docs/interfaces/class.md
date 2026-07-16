@@ -69,6 +69,8 @@ Returned Class, Property, and Function state uses native fields and effective
 An exact Default returns its compact Property before the value:
 
 ```sal
+doorClass = class(path: "/Game/BP_Door.BP_Door_C")
+
 health = property(
   path: "/Script/Game.DoorBase:Health",
   type: "FloatProperty"

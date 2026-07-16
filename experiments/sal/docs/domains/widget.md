@@ -287,9 +287,10 @@ query has exactly one primary operation. A typed stable reference such as
 The resolved `UWidgetBlueprint` has one target-specific `summary`. It combines
 the useful Blueprint directory with the Widget root identity when one exists
 and ordered comments for counts such as total source Widgets, reachable
-Widgets, and detached Widgets. It reuses the request target alias, does not
-repeat the complete Asset and Blueprint locator merely for context, does not
-expand the tree, and introduces no summary-specific object.
+Widgets, and detached Widgets. When summary statements refer to the target, a
+compact Blueprint binding precedes them; the result does not inherit the
+request alias or repeat the complete Asset locator merely for context. It does
+not expand the tree and introduces no summary-specific object.
 
 ### Tree
 
@@ -318,8 +319,9 @@ do not. When descendants remain beyond the requested depth, the adapter places
 an ordinary comment at each truncated boundary. A local tree operation accepts
 one stable Widget reference, not a guessed display label.
 
-The default tree result reuses the request's `menu` binding and returns a
-structure-and-layout skeleton:
+The default tree result returns a structure-and-layout skeleton. If it uses
+`menu` for target-owned relationships such as `menu.NamedSlots`, it first
+declares a compact `menu = blueprint(id: "blueprint-guid")` binding:
 
 - Widget binding, `id`, and exact native `type`;
 - `DisplayLabel` only when it carries meaningful authored identity;

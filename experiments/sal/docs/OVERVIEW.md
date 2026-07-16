@@ -94,10 +94,11 @@ summary
 
 The `summary` primary operation asks the resolved target for a compact
 orientation view. Its result is ordered SAL Object Text made from existing
-object statements and `#` comments and may reuse request aliases. The target's
-composed capabilities own the content and order; SAL does not define a
-summary-specific result object or require all targets to summarize the same
-concepts.
+object statements and `#` comments. Result Text does not inherit request
+aliases; if a summary refers to its target or another owner, it first declares
+that object's compact binding. The target's composed capabilities own the
+content and order; SAL does not define a summary-specific result object or
+require all targets to summarize the same concepts.
 
 Local queries use the shared query statement list:
 

@@ -299,12 +299,13 @@ first design addresses only top-level Properties; Struct members and container
 elements are read and written as part of the complete native Property value.
 It does not add nested value paths.
 
-An exact read reuses the request's Class alias, returns the compact Property
-binding needed to interpret the value, then emits the value and source comments
-in reading order. It does not repeat the complete Class object merely for
-context:
+An exact read first declares the compact Class binding needed by its member
+references, then returns the Property binding, value, and source comments in
+reading order. It does not repeat unrelated Class state merely for context:
 
 ```sal
+doorClass = class(path: "/Game/BP_Door.BP_Door_C")
+
 health = property(
   path: "/Script/Game.DoorBase:Health",
   type: "FloatProperty"
@@ -637,6 +638,14 @@ One exact Default result is therefore one ordered JSON sequence:
 {
   "statements": [
     {
+      "target": {"kind": "local", "name": "doorClass"},
+      "value": {
+        "kind": "call",
+        "callee": "class",
+        "args": {"path": "/Game/BP_Door.BP_Door_C"}
+      }
+    },
+    {
       "target": {"kind": "local", "name": "health"},
       "value": {
         "kind": "call",
@@ -667,13 +676,13 @@ Sparse Defaults, schema comments, and Patch-order refreshed values all remain
 interleaved. Class results never add parallel `classes`, `properties`,
 `functions`, `defaults`, or `comments` arrays.
 
-Every Class Object Text is an ordered response fragment evaluated with the request's
-Class alias. A Class binding appears only when the operation requests Class
-state, such as `summary`; it is not repeated merely so later statements can use
-the alias. Every other referenced alias must be bound earlier in the same
-array. An exact `default` result places the matching Property binding before
-its Default value binding. A plural `defaults` result may omit per-Property
-bindings to remain compact. A Patch result emits one
+Every Class Object Text is a self-contained ordered response. A compact Class
+binding precedes any member value that refers to its alias; it contains only
+the native Class Path and any state requested by the operation. Every other
+referenced alias must likewise be bound earlier in the same array. An exact
+`default` result places the matching Property binding before its Default value
+binding. A plural `defaults` result may omit per-Property bindings to remain
+compact. A Patch result emits one
 Property/value/comment group per affected operation in Patch order.
 
 Mutation responses put this same `ObjectText` in the ordinary `object` field.

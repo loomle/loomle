@@ -9,9 +9,12 @@ native values remain unchanged. Existing objects use native Paths or typed
 stable references inside their owner scopes. Objects created directly through
 `add` use aliases and constructors returned by Palette.
 
-Each Query or Patch is one self-contained SAL Text. Both return ordered SAL
-Object Text. Result Text may reuse aliases from its request; returned objects
-can supply the exact locator fields needed by later self-contained requests.
+Each Query or Patch is one self-contained SAL Text. Both return ordered,
+self-contained SAL Object Text. Result Text does not inherit aliases from its
+request. When returned statements refer to the target or another owner, the
+result first declares a compact binding for that object. The binding carries
+only the identity or state needed by this result; later requests still supply
+their own complete locator chains.
 
 ## Calls
 
@@ -88,6 +91,8 @@ exec flow from node@begin-node-guid depth 1
 Possible result:
 
 ```sal
+eventGraph = graph(id: "graph-guid")
+
 beginPlay = node(
   graph: eventGraph,
   id: "begin-node-guid",

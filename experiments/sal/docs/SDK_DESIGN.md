@@ -85,7 +85,9 @@ presentation context only. A collection root such as `query asset` becomes a
 Only `Target.alias` remains available to the request body. Intermediate locator
 aliases disappear during expansion. Other local references must resolve to an
 earlier binding or `invoke` output; executor results are rejected if their
-ordered Object Text violates the same rule.
+ordered Object Text violates the same rule. Result validation starts with an
+empty local-alias scope: an executor must declare a compact target or owner
+binding before any returned statement refers to that alias.
 
 ```ts
 interface Query {

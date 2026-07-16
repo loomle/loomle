@@ -1223,12 +1223,14 @@ text format. Optional revision fields remain absent from a concrete tool's
 public response until that tool enforces them.
 
 A result returns the state requested by its primary operation. It must not
-repeat a complete target snapshot merely to identify the request again. It may
-reuse target aliases established by the request and return only the typed ids
-or other locator projections required for contained objects and relationships.
-When a result navigates to a different target, it must provide enough owning
-locator information to construct a later self-contained request; a scoped id
-alone is insufficient.
+repeat a complete target snapshot merely to identify the request again, and it
+must not inherit local aliases from the request. When returned statements refer
+to the target or another owner, the result first declares a compact binding for
+that object using only the typed id, native Path, or other state needed by the
+returned relationships. This compact result binding is not a substitute for a
+complete request locator. When a result navigates to a different target, it
+must provide enough owning locator information to construct a later
+self-contained request; a scoped id alone is insufficient.
 
 For an ordered terminal Patch, `applied` means that at least one terminal step
 actually executed. `isError` reports whether the requested sequence completed
