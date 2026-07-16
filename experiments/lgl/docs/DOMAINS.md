@@ -136,6 +136,25 @@ Until then, a domain should mark the envelope as deferred and explicitly call
 out incompatible legacy implementation shapes rather than letting them define
 the LGL text design.
 
+## Interface Schema Cards
+
+The formal domain documents below preserve design intent, UE mapping, complete
+semantics, and implementation boundaries. They are not returned directly by
+`lgl.schema("<module>")`.
+
+Each active module has a compact interface card under `interfaces/`. The card
+is the normative static Text returned by `lgl.schema("<module>")`. It assumes
+the resident Core guide, contains only operational target, Query, Object Text,
+Palette, Patch, and handoff information, and should remain approximately
+800–1200 model Tokens. It never loads UE state; exact instance capabilities
+remain the role of `with schema`.
+
+Current interface cards:
+
+- [`interfaces/README.md`](interfaces/README.md): zero-argument active-module
+  index
+- [`interfaces/graph.md`](interfaces/graph.md)
+
 ## Current Domains
 
 - [`domains/graph.md`](domains/graph.md): graph objects, nodes, pins, edges,

@@ -319,6 +319,9 @@ query <graph>
 nodes ["text"]
 
 query <graph>
+graph@id
+
+query <graph>
 node@id|pin@id
 
 query <graph>
@@ -343,6 +346,7 @@ Each primary operation owns its allowed clauses and expansions:
 | --- | --- | --- | --- | --- |
 | `summary` | no | no | no | none |
 | `nodes` | yes | yes | no | `layout` |
+| `graph@id` | no | no | no | `schema` |
 | `node@id\|pin@id` | no | no | no | `schema`, `layout` |
 | `context` | no | no | yes | `layout` |
 | `exec flow` | no | no | yes | `layout` |
@@ -387,6 +391,36 @@ comparison operators and `~=` on `type` or `id` are unsupported.
 
 `with layout` adds `at` and `size` to every returned existing Node. It never
 adds Pins, Edges, or schema to a Node search result.
+
+### Exact Graph Read
+
+The bound Graph itself is an exact object and may be read through its scoped
+GraphGuid:
+
+```lgl
+query g
+graph@graph-guid
+```
+
+The id must match the Graph already resolved by `g`; this operation cannot
+select a sibling Graph without a new complete owner locator. The result returns
+ordinary Graph Object Text with its current `id`, `name`, native `type`, and
+meaningful native state. It does not expand Nodes or Palette Entries.
+
+`with schema` discovers the capabilities of this concrete Graph in its current
+owner and `UEdGraphSchema` context:
+
+```lgl
+query g
+graph@graph-guid
+with schema
+```
+
+The schema comment lists the Query operations and Graph-level `invoke`
+Operations currently available on this target, including their clauses,
+parameters, outputs, and copyable templates where applicable. It does not list
+hypothetical operations from unrelated Graph types, recursively attach Node or
+Pin schema, or replace `lgl.schema("graph")` as the static interface guide.
 
 ### Exact Node And Pin Reads
 
@@ -538,12 +572,14 @@ for the later JSON contract pass. The current implementation's flat
 `domain + asset + graph` target is not the future contract: it loses the typed
 owner chain and makes adapter routing part of public data.
 
-This section therefore defines only the already confirmed operation model. A
-future request envelope must preserve the resolved concrete owner plus
+This section therefore defines only the already confirmed body-operation
+model. A future request envelope must preserve the resolved concrete owner plus
 GraphGuid, must not use `name` or `type` as fallback identity, and must not
-reintroduce a public `domain` selector.
+reintroduce a public `domain` selector. The exact `graph@id` target-object read
+belongs to that deferred owner-aware envelope and is not assigned a separate
+normalized operation shape here.
 
-The eight confirmed Graph operations form one closed union:
+The eight confirmed Graph body operations form one closed union:
 
 ```ts
 type PositiveInteger = number; // JSON Schema: integer, minimum: 1

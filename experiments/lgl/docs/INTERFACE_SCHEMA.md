@@ -17,8 +17,8 @@ can supply the exact locator fields needed by later self-contained requests.
 
 - `lgl.query(text)` executes one Query Text.
 - `lgl.patch(text)` executes one ordered Patch Text.
-- `lgl.schema()` returns this guide and the active domain list.
-- `lgl.schema("graph")` returns one domain's query and patch interface.
+- `lgl.schema()` returns only the active interface-module index.
+- `lgl.schema("graph")` returns one static query and patch interface.
 
 ## Blueprint Query
 
@@ -34,7 +34,7 @@ Possible result:
 ```lgl
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "6C96BAE143A7C89D15E532A9E98090D1",
+  id: "blueprint-guid",
   type: BPTYPE_Normal,
   Status: BS_UpToDate,
   ParentClass: "/Script/Engine.Actor"
@@ -53,7 +53,7 @@ Use `dry run` to resolve, validate, and plan without changing UE state:
 ```lgl
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "6C96BAE143A7C89D15E532A9E98090D1"
+  id: "blueprint-guid"
 )
 
 patch door dry run
@@ -73,22 +73,22 @@ valid = true
 applied = false
 ```
 
-## Graph Summary and Execution Flow
+## Graph Execution Flow
 
-Start from a Graph binding returned by a Blueprint query:
+Start from a Graph identity returned by Blueprint `summary` or `graph <name>`:
 
 ```lgl
 door = blueprint(
   asset: "/Game/BP_Door.BP_Door",
-  id: "6C96BAE143A7C89D15E532A9E98090D1"
+  id: "blueprint-guid"
 )
 eventGraph = graph(
   asset: door,
-  id: "36D2459943EBE9B98D4A46A1F31A67E2"
+  id: "graph-guid"
 )
 
 query eventGraph
-summary
+exec flow from node@begin-node-guid depth 1
 ```
 
 Possible result:
@@ -96,77 +96,34 @@ Possible result:
 ```lgl
 beginPlay = node(
   graph: eventGraph,
-  id: "DE2A1BF846D7C21FD84730B41564646A",
+  id: "begin-node-guid",
   type: "/Script/BlueprintGraph.K2Node_Event"
 )
-
-# Event BeginPlay
-# nodes: 7
-# pins: 18
-# edges: 6
-```
-
-Continue from the returned entry Node:
-
-```lgl
-door = blueprint(
-  asset: "/Game/BP_Door.BP_Door",
-  id: "6C96BAE143A7C89D15E532A9E98090D1"
-)
-eventGraph = graph(
-  asset: door,
-  id: "36D2459943EBE9B98D4A46A1F31A67E2"
-)
-
-query eventGraph
-exec flow from node@DE2A1BF846D7C21FD84730B41564646A depth 1
-```
-
-Possible result:
-
-```lgl
-beginPlay = node(
-  graph: eventGraph,
-  id: "DE2A1BF846D7C21FD84730B41564646A",
-  type: "/Script/BlueprintGraph.K2Node_Event",
-  EventReference: "<native FMemberReference text>"
-)
 # Event BeginPlay
 
-beginPlay.OutputDelegate = pin(
-  id: "612F74D44422E65C6DDDF38EFC4E723C",
-  type: "<native FEdGraphPinType text>",
-  direction: out
-)
 beginPlay.then = pin(
-  id: "60F764A24E36687B1DE131A79F167474",
+  id: "then-pin-guid",
   type: "<native FEdGraphPinType text>",
   direction: out
 )
 
 sequence = node(
   graph: eventGraph,
-  id: "C5014FC84D4DC2B696CA4094020A1E39",
+  id: "sequence-node-guid",
   type: "/Script/BlueprintGraph.K2Node_ExecutionSequence"
 )
 # Sequence
 
 sequence.execute = pin(
-  id: "63AE2D3946AEAD03793D45B847EE7C88",
+  id: "execute-pin-guid",
   type: "<native FEdGraphPinType text>",
   direction: in
-)
-sequence.then_0 = pin(
-  id: "DB8346BE4ECA6D90D758F5B91526771B",
-  type: "<native FEdGraphPinType text>",
-  direction: out
 )
 
 beginPlay.then -> sequence.execute
 ```
 
-Angle-bracketed values shorten long native UE text only in this guide. Real
-results contain the complete native text.
+Angle-bracketed placeholders stand for complete native UE text in real results.
 
 ## Object Text
 
@@ -231,7 +188,7 @@ name. Typed references resolve stable identity. Domains may add operations such
 as `context`, `exec flow`, and `data flow`.
 
 Conditions support `=`, `!=`, `~=`, `>`, `>=`, `<`, `<=`, `not`, `and`, `or`,
-and parentheses. `lgl.schema("<domain>")` lists the operations, fields,
+and parentheses. `lgl.schema("<module>")` lists the operations, fields,
 expansions, ordering, pagination, depth, and clauses supported by that domain.
 
 ## Patch Text
@@ -256,7 +213,7 @@ save
 
 Patch statements execute in written order. The complete Patch is resolved and
 validated before mutation. Domain operations such as Graph `connect`, Widget
-`wrap`, or Blueprint `compile` come from `lgl.schema("<domain>")`.
+`wrap`, or Blueprint `compile` come from `lgl.schema("<module>")`.
 
 Every object created directly through `add` starts from Palette:
 
@@ -278,33 +235,36 @@ operation parameters.
 
 ## Schema Discovery
 
-```text
-lgl.schema("<domain>")
-  -> summary
-  -> collection search
-  -> exact object
-  -> with schema
-  -> Palette
-  -> dry run
-  -> Patch
-```
+Schema discovery has three layers:
 
-`lgl.schema("<domain>")` explains one domain's targets, queries, patches, and
-handoffs to related domains. It does not enumerate runtime objects or Palette
-Entries.
+1. This resident guide provides the minimum LGL mental model.
+2. `lgl.schema()` lists the interface modules active in the current server.
+3. `lgl.schema("<module>")` returns one compact static interface card.
 
-An exact object or exact Palette Entry may request its usable fields and
-operations:
+A static card explains locators, queries, Object Text, Palette, Patch, and
+handoffs. It does not load UE objects or inspect one concrete instance.
+
+Dynamic discovery uses an exact object or exact Palette Entry:
 
 ```lgl
 query eventGraph
-node@DE2A1BF846D7C21FD84730B41564646A
+graph@graph-guid
 with schema
 ```
 
-The result remains ordinary Object Text followed by a schema comment. Summary,
-collections, and ambiguous Palette searches do not accept `with schema`.
+The same exact-object rule applies to Nodes, Pins, Widgets, Properties, and
+Palette Entries through each module's singular syntax. The result remains
+ordinary Object Text followed by a schema comment containing the fields,
+constraints, and Operations available in that UE context. Summary, collections,
+and ambiguous Palette searches do not accept `with schema`.
 
-`lgl.schema()` ends with the currently active domain list. Core domains include
-`asset`, `blueprint`, `class`, `graph`, and `widget` when their adapters are
-available.
+Diagnostics should close the same discovery loop:
+
+- unknown syntax points to `lgl.schema("<module>")`;
+- unknown fields or Operations point to exact `with schema`;
+- stale ids point to the relevant summary, collection, or tree;
+- unavailable capabilities give a reason and copyable next query when possible.
+
+The initial interface modules are `asset`, `blueprint`, `class`, `graph`, and
+`widget` when their adapters are active. Module names organize documentation;
+they are not target-routing fields.
