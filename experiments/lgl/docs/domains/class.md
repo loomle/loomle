@@ -514,6 +514,25 @@ Structured mutation results follow the shared Mutation Dry Run Contract. The
 domain does not add a Defaults-specific result, diff, or revision syntax, and
 must not expose revision controls until the Bridge enforces them.
 
+## Save
+
+A Blueprint Generated Class resolves durable Defaults ownership through
+`ClassGeneratedBy`, so it may use the shared Core `save` terminal Patch:
+
+```lgl
+patch doorClass
+save
+```
+
+This is an independent terminal request and cannot be mixed with Defaults
+`set` or `reset`. It saves only the dirty Package of the exact source Blueprint.
+A native Class, transient Class, or Class without resolvable persistent source
+ownership does not support `save`.
+
+Class defines no `compile` statement. When compilation is required, bind the
+exact source Blueprint named by `ClassGeneratedBy` and use the Blueprint
+terminal Patch. Saving Class Defaults does not implicitly compile that source.
+
 ## Normalized JSON
 
 ### Target And Requests

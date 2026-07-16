@@ -155,6 +155,7 @@ Current interface cards:
   index
 - [`interfaces/asset.md`](interfaces/asset.md)
 - [`interfaces/blueprint.md`](interfaces/blueprint.md)
+- [`interfaces/class.md`](interfaces/class.md)
 - [`interfaces/graph.md`](interfaces/graph.md)
 
 ## Current Domains
