@@ -19,9 +19,9 @@ Components. Timeline differs: `UBlueprint::Timelines` stores the backing
 Node. The Graph domain owns that Node identity; the Blueprint adapter resolves
 and flattens the backing pair.
 
-The TypeScript experiment still implements the earlier `members` array and
-member-oriented query model. That implementation does not match this design
-and must be replaced in a later schema/parser/formatter/adapter phase.
+The TypeScript SDK implements the shared normalized request, ordered Object
+Text, formatter, and in-memory executor contract. Live Blueprint resolution
+and UE-native mutation remain Bridge work.
 
 ## UE Boundary
 
@@ -1076,9 +1076,15 @@ Status and diagnostic form, and never implies save. The independence rule here
 applies to the explicit `compile` statement; it does not suppress required UE
 behavior inside another already-confirmed native operation.
 
-The normalized JSON payload for Blueprint terminal statements is intentionally
-deferred to the shared schema phase. This text contract does not silently add a
-provisional compile operation object to the current experiment.
+Blueprint terminal statements use the shared Patch operation union directly:
+
+```json
+{"kind": "compile"}
+{"kind": "save"}
+```
+
+They remain ordered entries in `Patch.statements`; Blueprint does not add a
+second terminal request or result shape.
 
 ### Class Settings Field Mutation
 
@@ -2244,7 +2250,7 @@ satisfy this contract. Their dry run does not perform live Interface validation,
 addition can inherit UE's partial-Graph failure path, missing or inherited
 removal is treated as success, and removal may enter UE's interactive child-load
 prompt. They must be replaced by the adapter-owned non-interactive planning and
-transaction path above before this SAL surface is implemented.
+transaction path above before the UE-backed SAL executor exposes this surface.
 
 The current Bridge `CompileBlueprint` helper also does not satisfy this
 contract. Its Graph-name parameter is not a compilation target, and its current

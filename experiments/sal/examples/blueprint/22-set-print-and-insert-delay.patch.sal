@@ -1,7 +1,0 @@
-bp = asset(path: "/Game/BP_SALExample", type: blueprint)
-g = graph(domain: blueprint, asset: bp, graph: EventGraph)
-patch g
-
-set print.InString = "Game Started"
-delay = delay(duration: 1.0)
-insert begin.Then -> delay.Exec/Completed -> print.Exec

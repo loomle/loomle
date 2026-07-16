@@ -1,0 +1,14 @@
+bp = blueprint(asset: "/Game/Doors/BP_Door.BP_Door")
+eventGraph = graph(asset: bp, name: "EventGraph")
+query eventGraph
+nodes "Print"
+where type = "/Script/BlueprintGraph.K2Node_CallFunction"
+with pins
+page limit 10
+
+---
+
+print = node(id: "N3", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "PrintString")
+print.execute = pin(id: "P4", direction: in)
+print.InString = pin(id: "P5", direction: in, DefaultValue: "Ready")
+print.then = pin(id: "P6", direction: out)

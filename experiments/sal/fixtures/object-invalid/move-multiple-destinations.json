@@ -1,0 +1,8 @@
+{
+  "kind": "patch",
+  "target": { "alias": "g", "value": { "kind": "call", "callee": "graph", "args": { "name": "EventGraph" } } },
+  "dryRun": false,
+  "statements": [
+    { "kind": "move", "target": { "kind": "node", "id": "N1" }, "by": [10, 20], "after": { "kind": "node", "id": "N2" } }
+  ]
+}

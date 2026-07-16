@@ -1,0 +1,13 @@
+{
+  "statements": [
+    {
+      "target": { "kind": "local", "name": "begin" },
+      "value": { "kind": "call", "callee": "node", "args": { "id": "N1", "type": "/Script/BlueprintGraph.K2Node_Event" } }
+    },
+    {
+      "target": { "kind": "member", "object": { "kind": "local", "name": "begin" }, "path": ["Then"] },
+      "value": { "kind": "call", "callee": "pin", "args": { "id": "P1", "direction": { "kind": "name", "name": "out" } } }
+    },
+    { "kind": "comment", "text": "ordered navigation hint" }
+  ]
+}

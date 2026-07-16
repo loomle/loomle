@@ -133,10 +133,10 @@ remain valid for the exact subject and context that produced it.
 Adapters return schema guidance as comments around ordinary object, value, or
 creation text. They must not define domain-specific schema result objects.
 
-Normalized JSON must be documented only after its shared contract is confirmed.
-Until then, a domain should mark the envelope as deferred and explicitly call
-out incompatible legacy implementation shapes rather than letting them define
-the SAL text design.
+Every domain reuses the confirmed shared `Target`, `Query`, `Patch`,
+`ObjectText`, and result contract. Domain docs specify semantic constraints on
+generic Calls, operations, fields, and references; they do not introduce new
+request envelopes or result wrappers.
 
 ## Interface Schema Cards
 
@@ -177,7 +177,7 @@ Current interface cards:
   Panel Slot and Named Slot relationships, queries, Palette-backed creation,
   and widget tree patching.
 
-The TypeScript experiment includes parser, formatter, schema, and in-memory
-adapter coverage for graph, asset, Blueprint, and widget, but some implemented
-query text still reflects the earlier `find`-centric design. The Class domain
-and UE-backed adapters remain separate implementation work.
+The TypeScript experiment includes the shared parser, formatter, schema,
+fixtures, examples, and in-memory executor coverage for asset, Blueprint,
+graph, and widget interfaces. Class request/result forms use the same schema;
+Reflection-complete behavior and all UE-backed executors remain Bridge work.

@@ -1,0 +1,4 @@
+{
+  "from": { "kind": "member", "object": { "kind": "node", "id": "N1" } },
+  "to": { "kind": "pin", "id": "P1" }
+}

@@ -1,123 +1,116 @@
 import type {
-  Result,
+  Diagnostic,
+  ObjectResult,
   Patch,
   Query,
+  ResultPage,
+  SalObject,
 } from "./generated/sal-object-schema.js";
 
 export type {
   Add,
   AndCondition,
-  Asset,
-  AssetResult,
-  AssetTarget,
-  Blueprint,
-  BlueprintComponent,
-  BlueprintMember,
-  BlueprintPatchOp,
-  BlueprintResult,
-  BlueprintTarget,
   Binding,
-  BindingValue,
+  BindingMemberRef,
+  BindingTarget,
+  Break,
   Call,
+  CollectionOperation,
+  Comment,
+  CompareCondition,
+  Compile,
   Condition,
   Connect,
   ContainsCondition,
-  CreationEntry,
-  PaletteResult,
-  Detail,
   Diagnostic,
-  DisconnectByEdge,
-  DisconnectByPin,
+  DiagnosticPath,
+  Disconnect,
   Edge,
   EqCondition,
   Expr,
   FieldPath,
-  FindAssets,
-  FindBlueprintComponents,
-  FindBlueprintMembers,
-  FindWidgetTree,
-  FindWidgets,
-  FindNodes,
-  FindPaletteEntry,
-  FindPath,
-  Graph,
-  GraphFind,
-  GraphTarget,
-  GraphIdRef,
-  GraphNameRef,
-  GraphPatchOp,
-  GraphRef,
-  IdRef,
+  FlowOperation,
+  IdOperation,
+  InlineObject,
   Insert,
-  SALNormalizedObjectSchema,
-  SalObject,
+  Invoke,
+  InvokeOutput,
   LocalRef,
   MemberRef,
-  MoveBy,
-  MoveTo,
+  Move,
+  MutationResult,
   Name,
-  Node,
-  NodeCreation,
+  NamedOperation,
+  NeCondition,
+  NotCondition,
+  ObjectResult,
+  ObjectText,
   OrderBy,
-  Patch,
-  PaletteEntry,
-  PaletteNodeCreation,
-  PaletteSourceRef,
-  PatchOp,
+  OrCondition,
   Page,
-  Pin,
-  PinContext,
-  PinRef,
+  PaletteEntriesOperation,
+  PalettePinContext,
+  Patch,
+  PatchOperation,
+  PatchStatement,
   Point,
   Query,
-  Reconstruct,
+  QueryOperation,
   Ref,
   Remove,
+  Replace,
+  Reset,
   Result,
+  ResultPage,
+  SALNormalizedObjectSchema,
+  SalObject,
+  Save,
   Set,
-  SetTarget,
-  ShortcutEntry,
-  ShortcutNodeCreation,
   SourceSpan,
+  StableRef,
+  Statement,
+  SummaryOperation,
   Target,
-  Value,
-  WidgetDocument,
-  ClassEntry,
-  WidgetNode,
-  WidgetPatchOp,
-  Property,
-  WidgetResult,
-  WidgetTarget,
+  TreeOperation,
+  Wrap,
 } from "./generated/sal-object-schema.js";
 
 export type SalText = string;
-export type ObjectResult = Result;
-export type Find = import("./generated/sal-object-schema.js").Find;
-export type Op = import("./generated/sal-object-schema.js").PatchOp;
+
+export interface ParseResult {
+  object?: SalObject;
+  diagnostics: Diagnostic[];
+}
 
 export interface TextResult {
   text?: SalText;
-  diagnostics: ObjectResult["diagnostics"];
-  page?: ObjectResult["page"];
-}
-
-export interface SchemaResult {
-  schema: unknown;
-  diagnostics: ObjectResult["diagnostics"];
+  diagnostics: Diagnostic[];
+  page?: ResultPage;
+  isError?: boolean;
+  dryRun?: boolean;
+  valid?: boolean;
+  applied?: boolean;
+  assetPath?: string;
+  operation?: string;
+  resolvedRefs?: unknown;
+  planned?: unknown;
+  diff?: unknown;
+  previousRevision?: string;
+  newRevision?: string;
 }
 
 export interface Sal {
   query(text: SalText): Promise<TextResult>;
   patch(text: SalText): Promise<TextResult>;
-  schema(): Promise<SchemaResult>;
+  schema(module?: string): Promise<TextResult>;
 }
 
 export interface CreateSalOptions {
-  adapters?: Adapter[];
+  executor: SalExecutor;
 }
 
-export interface Adapter {
-  domain: string;
+export interface SalExecutor {
+  readonly interfaces: readonly string[];
   query(object: Query): Promise<ObjectResult>;
   patch?(object: Patch): Promise<ObjectResult>;
 }
@@ -125,23 +118,17 @@ export interface Adapter {
 export { formatSalObject } from "./formatter.js";
 export { parseSalObject } from "./parser.js";
 export { createSal } from "./sdk.js";
-export { createMemoryGraphAdapter } from "./memory-adapter.js";
+export { createMemoryExecutor, createMemoryGraphExecutor } from "./memory-executor.js";
 export type {
-  CreateMemoryGraphAdapterOptions,
-  MemoryGraphAdapter,
-} from "./memory-adapter.js";
-export { createMemoryAssetAdapter } from "./asset/memory-adapter.js";
-export type {
-  CreateMemoryAssetAdapterOptions,
-  MemoryAssetAdapter,
-} from "./asset/memory-adapter.js";
-export { createMemoryBlueprintAdapter } from "./blueprint/memory-adapter.js";
-export type {
-  CreateMemoryBlueprintAdapterOptions,
-  MemoryBlueprintAdapter,
-} from "./blueprint/memory-adapter.js";
-export { createMemoryWidgetAdapter } from "./widget/memory-adapter.js";
-export type {
-  CreateMemoryWidgetAdapterOptions,
-  MemoryWidgetAdapter,
-} from "./widget/memory-adapter.js";
+  CreateMemoryExecutorOptions,
+  CreateMemoryGraphExecutorOptions,
+  MemoryDocument,
+  MemoryExecutor,
+  MemoryGraphExecutor,
+} from "./memory-executor.js";
+export { createMemoryAssetExecutor } from "./asset/memory-executor.js";
+export type { CreateMemoryAssetExecutorOptions, MemoryAssetExecutor } from "./asset/memory-executor.js";
+export { createMemoryBlueprintExecutor } from "./blueprint/memory-executor.js";
+export type { CreateMemoryBlueprintExecutorOptions, MemoryBlueprintExecutor } from "./blueprint/memory-executor.js";
+export { createMemoryWidgetExecutor } from "./widget/memory-executor.js";
+export type { CreateMemoryWidgetExecutorOptions, MemoryWidgetExecutor } from "./widget/memory-executor.js";

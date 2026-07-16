@@ -16,10 +16,10 @@
     "test:examples:extended": "npm run build && node dist/tests/parser/extended-examples.js",
     "test:examples:reference": "npm run build && node dist/tests/parser/reference-examples.js",
     "test:facade": "npm run build && node dist/tests/sdk/facade.js",
-    "test:memory": "npm run build && node dist/tests/sdk/memory-adapter.js",
-    "test:memory:asset": "npm run build && node dist/tests/sdk/memory-asset-adapter.js",
-    "test:memory:blueprint": "npm run build && node dist/tests/sdk/memory-blueprint-adapter.js",
-    "test:memory:widget": "npm run build && node dist/tests/sdk/memory-widget-adapter.js",
+    "test:memory": "npm run build && node dist/tests/sdk/memory-executor.js",
+    "test:memory:asset": "npm run build && node dist/tests/sdk/memory-asset-executor.js",
+    "test:memory:blueprint": "npm run build && node dist/tests/sdk/memory-blueprint-executor.js",
+    "test:memory:widget": "npm run build && node dist/tests/sdk/memory-widget-executor.js",
     "test": "npm run check:generated && npm run test:schema && npm run test:diagnostics && npm run test:invalid && npm run test:roundtrip && npm run test:examples && npm run test:examples:extended && npm run test:examples:reference && npm run test:facade && npm run test:memory && npm run test:memory:asset && npm run test:memory:blueprint && npm run test:memory:widget"
   },
   "devDependencies": {

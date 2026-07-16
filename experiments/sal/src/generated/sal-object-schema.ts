@@ -6,48 +6,21 @@
  */
 
 /**
- * Normalized SAL JSON contract for text parsing, SDK adapters, RPC, results, and diagnostics.
+ * Normalized SAL contract for parsing, executors, RPC, ordered Object Text, and diagnostics.
  */
-export type SALNormalizedObjectSchema =
-  | SalObject
-  | Result
-  | Diagnostic
-  | Target
-  | GraphRef
-  | Ref
-  | Expr
-  | Value
-  | Name
-  | PinRef
-  | Edge;
-export type SalObject = Graph | AssetResult | BlueprintResult | WidgetResult | Query | Patch | PaletteResult;
-export type GraphRef = GraphNameRef | GraphIdRef;
-export type Expr = Value | Ref | Call;
-export type Value =
-  | null
-  | boolean
-  | number
-  | string
-  | Name
-  | Value[]
-  | {
-      [k: string]: Value;
-    };
-export type Ref = LocalRef | MemberRef | IdRef;
-/**
- * @minItems 2
- * @maxItems 2
- */
-export type Point = [any, any];
-export type Target = AssetTarget | BlueprintTarget | WidgetTarget | GraphTarget;
-export type Find =
-  | FindAssets
-  | FindBlueprintMembers
-  | FindBlueprintComponents
-  | FindWidgetTree
-  | FindWidgets
-  | GraphFind;
-export type GraphFind = FindNodes | FindPath | FindPaletteEntry;
+export type SALNormalizedObjectSchema = SalObject | ObjectResult;
+export type SalObject = Query | Patch | ObjectText;
+export type Expr = null | boolean | number | string | Name | Ref | Call | Expr[] | InlineObject;
+export type Ref = LocalRef | StableRef | MemberRef;
+export type QueryOperation =
+  | SummaryOperation
+  | CollectionOperation
+  | NamedOperation
+  | IdOperation
+  | TreeOperation
+  | ContextOperation
+  | FlowOperation
+  | PaletteEntriesOperation;
 export type Condition =
   | EqCondition
   | NeCondition
@@ -56,56 +29,57 @@ export type Condition =
   | NotCondition
   | AndCondition
   | OrCondition;
-export type Detail = "pins" | "defaults" | "layout" | "properties" | "registryTags";
-export type BindingTarget = LocalRef | MemberRef;
-export type BindingValue = Expr | NodeCreation;
-export type NodeCreation = PaletteNodeCreation | ShortcutNodeCreation;
-export type PatchOp = GraphPatchOp | BlueprintPatchOp | WidgetPatchOp;
-export type GraphPatchOp =
-  | Set
+export type PatchStatement = Binding | PatchOperation;
+export type BindingTarget = LocalRef | BindingMemberRef;
+export type PatchOperation =
   | Add
-  | Insert
-  | Connect
-  | DisconnectByEdge
-  | DisconnectByPin
   | Remove
-  | MoveTo
-  | MoveBy
-  | Reconstruct;
-export type BlueprintPatchOp = BlueprintSet | BlueprintAdd | BlueprintRemove | BlueprintRename | BlueprintMove;
-export type WidgetPatchOp = WidgetAdd | WidgetSet | WidgetRemove | WidgetMove;
-export type CreationEntry = ShortcutEntry | ClassEntry | PaletteEntry;
+  | Set
+  | Reset
+  | Move
+  | Connect
+  | Disconnect
+  | Break
+  | Insert
+  | Wrap
+  | Replace
+  | Invoke
+  | Compile
+  | Save;
+/**
+ * @minItems 2
+ * @maxItems 2
+ */
+export type Point = [number, number];
+export type Statement = Binding | Edge | Comment;
+export type ObjectResult = Result | MutationResult;
 export type DiagnosticPath = (string | number)[];
 
-export interface Graph {
-  kind: "graph";
-  target: GraphTarget;
-  nodes: Node[];
-  edges: Edge[];
-  pins?: Pin[];
+export interface Query {
+  kind: "query";
+  target: Target;
+  operation: QueryOperation;
+  where?: Condition;
+  /**
+   * @minItems 1
+   */
+  with?: [string, ...string[]];
+  /**
+   * @minItems 1
+   */
+  orderBy?: [OrderBy, ...OrderBy[]];
+  page?: Page;
 }
-export interface GraphTarget {
-  domain: string;
-  asset: string;
-  graph: GraphRef;
-}
-export interface GraphNameRef {
-  kind: "name";
-  name: string;
-}
-export interface GraphIdRef {
-  kind: "id";
-  id: string;
-}
-export interface Node {
+export interface Target {
   alias: string;
-  id?: string;
-  type: string;
-  fields: {
+  value: Call | Name;
+}
+export interface Call {
+  kind: "call";
+  callee: string;
+  args: {
     [k: string]: Expr;
   };
-  at?: Point;
-  size?: Point;
 }
 export interface Name {
   kind: "name";
@@ -115,177 +89,70 @@ export interface LocalRef {
   kind: "local";
   name: string;
 }
-export interface MemberRef {
-  kind: "member";
-  object: string;
-  member: string;
-}
-export interface IdRef {
-  kind: "id";
+export interface StableRef {
+  kind: string;
   id: string;
 }
-export interface Call {
-  kind: "call";
-  callee: string;
-  args: {
-    [k: string]: Expr;
-  };
+export interface MemberRef {
+  kind: "member";
+  object: LocalRef | StableRef;
+  /**
+   * @minItems 1
+   */
+  path: [string, ...string[]];
 }
-export interface Edge {
-  from: PinRef;
-  to: PinRef;
+export interface InlineObject {
+  [k: string]: Expr;
 }
-export interface PinRef {
-  node: string;
-  pin: string;
+export interface SummaryOperation {
+  kind: "summary";
 }
-export interface Pin {
-  node: string;
-  name: string;
-  type: string;
-  direction: "in" | "out";
-  value?: Expr;
-  anchor?: Point;
-}
-export interface AssetResult {
-  kind: "asset_result";
-  assets: Asset[];
-}
-export interface Asset {
-  alias: string;
-  path: string;
-  type?: string;
-  class?: string;
-  domains?: string[];
-  loaded?: boolean;
-  registryTags?: {
-    [k: string]: Value;
-  };
-  score?: number;
-}
-export interface BlueprintResult {
-  kind: "blueprint_result";
-  blueprints: Blueprint[];
-}
-export interface Blueprint {
-  alias: string;
-  asset: string;
-  parent?: string;
-  namespace?: string;
-  category?: string;
-  abstract?: boolean;
-  deprecated?: boolean;
-  interfaces?: string[];
-  defaults?: {
-    [k: string]: Value;
-  };
-  members?: BlueprintMember[];
-  components?: BlueprintComponent[];
-}
-export interface BlueprintMember {
-  kind: "variable" | "function" | "macro" | "dispatcher" | "event";
-  name: string;
-  type?: string;
-  default?: Value;
-  category?: string;
-  inputs?: {
-    [k: string]: string;
-  };
-  outputs?: {
-    [k: string]: string;
-  };
-  pure?: boolean;
-  const?: boolean;
-  replication?: string;
-  reliable?: boolean;
-  metadata?: {
-    [k: string]: Value;
-  };
-  guid?: string;
-  graph?: GraphRef;
-}
-export interface BlueprintComponent {
-  name: string;
-  class: string;
-  parent?: string | null;
-  properties?: {
-    [k: string]: Value;
-  };
-}
-export interface WidgetResult {
-  kind: "widget_result";
-  documents: WidgetDocument[];
-}
-export interface WidgetDocument {
-  alias: string;
-  asset: string;
-  root: string;
-  widgets: WidgetNode[];
-}
-export interface WidgetNode {
-  alias: string;
-  class: string;
-  parent?: string;
-  properties?: {
-    [k: string]: Value;
-  };
-}
-export interface Query {
-  kind: "query";
-  target: Target;
-  find?: Find;
-  where?: Condition;
-  with?: Detail[];
-  orderBy?: OrderBy[];
-  page?: Page;
-}
-export interface AssetTarget {
-  domain: "asset";
-}
-export interface BlueprintTarget {
-  domain: "blueprint";
-  asset: string;
-}
-export interface WidgetTarget {
-  domain: "widget";
-  asset: string;
-}
-export interface FindAssets {
-  kind: "assets";
+export interface CollectionOperation {
+  kind:
+    | "assets"
+    | "variables"
+    | "dispatchers"
+    | "graphs"
+    | "components"
+    | "nodes"
+    | "properties"
+    | "functions"
+    | "defaults"
+    | "widgets";
   text?: string;
 }
-export interface FindBlueprintMembers {
-  kind: "members";
-  text?: string;
+export interface NamedOperation {
+  kind: "variable" | "dispatcher" | "graph" | "component" | "property" | "function" | "default" | "widget";
+  name: string;
 }
-export interface FindBlueprintComponents {
-  kind: "components";
-  text?: string;
+export interface IdOperation {
+  kind: "blueprint" | "variable" | "dispatcher" | "graph" | "component" | "node" | "pin" | "widget" | "palette";
+  id: string;
 }
-export interface FindWidgetTree {
+export interface TreeOperation {
   kind: "tree";
+  root?: StableRef;
+  depth?: number;
 }
-export interface FindWidgets {
-  kind: "widgets";
-  text?: string;
+export interface ContextOperation {
+  kind: "context";
+  target: StableRef;
+  depth?: number;
 }
-export interface FindNodes {
-  kind: "nodes";
-  text?: string;
-}
-export interface FindPath {
-  kind: "path";
+export interface FlowOperation {
+  kind: "exec_flow" | "data_flow";
   direction: "from" | "to";
-  pin: PinRef;
+  target: StableRef;
+  depth?: number;
 }
-export interface FindPaletteEntry {
-  kind: "palette_entry";
+export interface PaletteEntriesOperation {
+  kind: "palette_entries";
   text?: string;
-  pinContext?: PinContext;
+  pinContext?: PalettePinContext;
 }
-export interface PinContext {
+export interface PalettePinContext {
   direction: "from" | "to";
-  pin: PinRef;
+  pin: StableRef;
 }
 export interface EqCondition {
   kind: "eq";
@@ -321,16 +188,16 @@ export interface NotCondition {
 export interface AndCondition {
   kind: "and";
   /**
-   * @minItems 1
+   * @minItems 2
    */
-  conditions: [Condition, ...Condition[]];
+  conditions: [Condition, Condition, ...Condition[]];
 }
 export interface OrCondition {
   kind: "or";
   /**
-   * @minItems 1
+   * @minItems 2
    */
-  conditions: [Condition, ...Condition[]];
+  conditions: [Condition, Condition, ...Condition[]];
 }
 export interface OrderBy {
   key: string;
@@ -344,173 +211,119 @@ export interface Patch {
   kind: "patch";
   target: Target;
   dryRun: boolean;
-  bindings: Binding[];
-  ops: PatchOp[];
+  /**
+   * @minItems 1
+   */
+  statements: [PatchStatement, ...PatchStatement[]];
 }
 export interface Binding {
   target: BindingTarget;
-  value: BindingValue;
-}
-export interface PaletteNodeCreation {
-  kind: "palette_node";
-  palette: string;
-  defaults?: {
-    [k: string]: Expr;
-  };
-}
-export interface ShortcutNodeCreation {
-  kind: "shortcut_node";
-  constructor: Call;
-}
-export interface Set {
-  kind: "set";
-  target: SetTarget;
   value: Expr;
 }
-export interface SetTarget {
-  object: string;
-  field: string;
+export interface BindingMemberRef {
+  kind: "member";
+  object: LocalRef;
+  /**
+   * @minItems 1
+   */
+  path: [string, ...string[]];
 }
 export interface Add {
   kind: "add";
-  binding: string;
-}
-export interface Insert {
-  kind: "insert";
-  node: string;
-  from: PinRef;
-  to: PinRef;
-  input: PinRef;
-  output: PinRef;
-}
-export interface Connect {
-  kind: "connect";
-  edge: Edge;
-}
-export interface DisconnectByEdge {
-  kind: "disconnect";
-  edge: Edge;
-}
-export interface DisconnectByPin {
-  kind: "disconnect";
-  pin: PinRef;
+  target: BindingTarget;
+  to?: Ref;
+  before?: Ref;
+  after?: Ref;
 }
 export interface Remove {
   kind: "remove";
-  node: string;
+  target: Ref;
 }
-export interface MoveTo {
-  kind: "move";
-  node: string;
-  mode: "to";
-  at: Point;
-}
-export interface MoveBy {
-  kind: "move";
-  node: string;
-  mode: "by";
-  delta: Point;
-}
-export interface Reconstruct {
-  kind: "reconstruct";
-  node: string;
-  preserveLinks: boolean;
-}
-export interface BlueprintSet {
+export interface Set {
   kind: "set";
-  target: FieldPath;
+  target: MemberRef;
   value: Expr;
 }
-export interface BlueprintAdd {
-  kind: "add";
-  target: FieldPath;
+export interface Reset {
+  kind: "reset";
+  target: MemberRef;
 }
-export interface BlueprintRemove {
-  kind: "remove";
-  target: FieldPath;
-}
-export interface BlueprintRename {
-  kind: "rename";
-  target: FieldPath;
-  name: string;
-}
-export interface BlueprintMove {
+export interface Move {
   kind: "move";
-  target: FieldPath;
-  relativeTo: FieldPath;
-  position: "before" | "after";
+  target: Ref;
+  to?: Ref | Point;
+  by?: Point;
+  before?: Ref;
+  after?: Ref;
 }
-export interface WidgetAdd {
-  kind: "add";
-  target: FieldPath;
+export interface Connect {
+  kind: "connect";
+  from: Ref;
+  to: Ref;
 }
-export interface WidgetSet {
-  kind: "set";
-  target: FieldPath;
-  value: Expr;
+export interface Disconnect {
+  kind: "disconnect";
+  from: Ref;
+  to: Ref;
 }
-export interface WidgetRemove {
-  kind: "remove";
-  target: FieldPath;
+export interface Break {
+  kind: "break";
+  target: Ref;
 }
-export interface WidgetMove {
-  kind: "move";
-  target: FieldPath;
-  relativeTo: FieldPath;
-  position: "before" | "after";
+export interface Insert {
+  kind: "insert";
+  from: Ref;
+  input: Ref;
+  output: Ref;
+  to: Ref;
 }
-export interface PaletteResult {
-  kind: "palette_result";
-  target: Target;
-  entries: CreationEntry[];
+export interface Wrap {
+  kind: "wrap";
+  /**
+   * @minItems 1
+   */
+  targets: [Ref, ...Ref[]];
+  with: LocalRef;
 }
-export interface ShortcutEntry {
-  name: string;
-  constructor: Call;
-  defaults?: {
+export interface Replace {
+  kind: "replace";
+  target: Ref;
+  with: LocalRef;
+}
+export interface Invoke {
+  kind: "invoke";
+  target: Ref;
+  operation: string;
+  args: {
     [k: string]: Expr;
   };
-  properties?: Property[];
-  pins?: Pin[];
+  outputs: InvokeOutput[];
 }
-export interface Property {
-  name: string;
-  type: string;
-  default?: Expr;
-  writable?: boolean;
-  category?: string;
+export interface InvokeOutput {
+  selector?: string;
+  alias: string;
 }
-export interface ClassEntry {
-  name: string;
-  class: string;
-  label?: string;
-  category?: string;
-  defaults?: {
-    [k: string]: Expr;
-  };
-  properties?: Property[];
+export interface Compile {
+  kind: "compile";
 }
-export interface PaletteEntry {
-  name: string;
-  palette: PaletteSourceRef;
-  label?: string;
-  category?: string;
-  defaults?: {
-    [k: string]: Expr;
-  };
-  properties?: Property[];
-  pins?: Pin[];
+export interface Save {
+  kind: "save";
 }
-export interface PaletteSourceRef {
-  kind: "palette";
-  id: string;
+export interface ObjectText {
+  statements: Statement[];
+}
+export interface Edge {
+  from: Ref;
+  to: Ref;
+}
+export interface Comment {
+  kind: "comment";
+  text: "###" | string;
 }
 export interface Result {
-  object?: SalObject;
+  object?: ObjectText;
   diagnostics: Diagnostic[];
-  page?: {
-    next?: string;
-  };
+  page?: ResultPage;
 }
 export interface Diagnostic {
   severity: "error" | "warning" | "info";
@@ -530,7 +343,24 @@ export interface Diagnostic {
 export interface SourceSpan {
   line: number;
   column: number;
-  endLine?: number;
-  endColumn?: number;
   length?: number;
+}
+export interface ResultPage {
+  next?: string;
+}
+export interface MutationResult {
+  object?: ObjectText;
+  diagnostics: Diagnostic[];
+  page?: ResultPage;
+  isError: boolean;
+  dryRun: boolean;
+  valid: boolean;
+  applied: boolean;
+  assetPath?: string;
+  operation: string;
+  resolvedRefs?: any;
+  planned?: any;
+  diff?: any;
+  previousRevision?: string;
+  newRevision?: string;
 }

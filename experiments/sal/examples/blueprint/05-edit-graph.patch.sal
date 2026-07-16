@@ -1,0 +1,18 @@
+bp = blueprint(asset: "/Game/Doors/BP_Door.BP_Door")
+eventGraph = graph(asset: bp, name: "EventGraph")
+patch eventGraph dry run
+
+delay = node(palette: "Delay", Duration: 1.0)
+add delay
+connect pin@P1 -> delay.execute
+set node@N3.NodeComment = "Print after delay"
+move node@N3 by (180, 0)
+compile
+save
+
+---
+
+delay = node(id: "N4", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "Delay", Duration: 1.0)
+delay.execute = pin(id: "P7", direction: in)
+print = node(id: "N3", type: "/Script/BlueprintGraph.K2Node_CallFunction", NodeComment: "Print after delay")
+# dry run: valid, not applied

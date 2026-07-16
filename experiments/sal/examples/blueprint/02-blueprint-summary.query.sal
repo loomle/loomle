@@ -1,0 +1,10 @@
+bp = blueprint(asset: "/Game/Doors/BP_Door.BP_Door")
+query bp
+summary
+
+---
+
+# 3 graphs, 4 variables, 2 components
+eventGraph = graph(id: "G1", name: "EventGraph")
+construction = graph(id: "G2", name: "ConstructionScript")
+health = variable(id: "V1", name: "Health", type: "FloatProperty")

@@ -1,0 +1,10 @@
+{
+  "object": { "statements": [{ "kind": "comment", "text": "planned one operation" }] },
+  "diagnostics": [],
+  "isError": false,
+  "dryRun": true,
+  "valid": true,
+  "applied": false,
+  "operation": "patch",
+  "planned": { "operations": 1 }
+}

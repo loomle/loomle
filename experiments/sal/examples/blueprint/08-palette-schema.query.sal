@@ -1,0 +1,19 @@
+bp = blueprint(asset: "/Game/Doors/BP_Door.BP_Door")
+eventGraph = graph(asset: bp, name: "EventGraph")
+query eventGraph
+palette entries "Branch" from pin@P1
+with schema
+page limit 5
+
+---
+
+branch = node(palette: "Branch", type: "/Script/BlueprintGraph.K2Node_IfThenElse")
+###
+schema
+
+items:
+  - name: Condition
+    required: false
+  - name: NodeComment
+    required: false
+###

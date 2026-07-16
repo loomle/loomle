@@ -1,0 +1,18 @@
+{
+  "kind": "patch",
+  "target": {
+    "alias": "eventGraph",
+    "value": { "kind": "call", "callee": "graph", "args": { "name": "EventGraph" } }
+  },
+  "dryRun": true,
+  "statements": [
+    {
+      "target": { "kind": "local", "name": "delay" },
+      "value": { "kind": "call", "callee": "node", "args": { "palette": "Delay", "Duration": 1.0 } }
+    },
+    { "kind": "add", "target": { "kind": "local", "name": "delay" } },
+    { "kind": "connect", "from": { "kind": "pin", "id": "P1" }, "to": { "kind": "member", "object": { "kind": "local", "name": "delay" }, "path": ["execute"] } },
+    { "kind": "compile" },
+    { "kind": "save" }
+  ]
+}

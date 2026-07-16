@@ -1,0 +1,12 @@
+{
+  "object": {
+    "statements": [
+      {
+        "target": { "kind": "local", "name": "branch" },
+        "value": { "kind": "call", "callee": "node", "args": { "id": "N2", "type": "/Script/BlueprintGraph.K2Node_IfThenElse" } }
+      }
+    ]
+  },
+  "diagnostics": [],
+  "page": { "next": "offset:1" }
+}

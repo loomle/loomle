@@ -125,14 +125,18 @@ Normalized JSON:
 ```ts
 interface Binding {
   target: BindingTarget;
-  value: BindingValue;
+  value: Expr;
 }
 
 type BindingTarget =
-  | { kind: "local"; name: string }
-  | { kind: "member"; object: string; member: string };
+  | LocalRef
+  | BindingMemberRef;
 
-type BindingValue = Expr;
+interface BindingMemberRef {
+  kind: "member";
+  object: LocalRef;
+  path: string[];
+}
 ```
 
 Local targets cover aliases such as `g` or `print`. Member targets cover
@@ -156,6 +160,9 @@ Core does not give it a second creation-only expression type.
 | Symbol | unquoted word | `PrintString` |
 | Array | `[value, value]` | `[320, 72]` |
 | Inline object | `{key: value}` | `{TraceComplex: false}` |
+
+`true`, `false`, and `null` are literal keywords and cannot be local aliases or
+bare `Name` values.
 
 Quoted values are strings. Unquoted words are symbols resolved by domains or
 adapters. In the target normalized JSON model, symbols map to `Name`.
@@ -245,21 +252,34 @@ Normalized JSON:
 
 ```ts
 type Ref =
-  | { kind: "local"; name: string }
-  | { kind: "member"; object: string; member: string }
+  | LocalRef
+  | MemberRef
   | StableRef;
+
+interface LocalRef {
+  kind: "local";
+  name: string;
+}
 
 interface StableRef {
   kind: string;
   id: string;
+}
+
+interface MemberRef {
+  kind: "member";
+  object: LocalRef | StableRef;
+  path: string[];
 }
 ```
 
 Each adapter schema defines the object words it supports. For example, Graph
 may use `node`, `pin`, and `graph`. The word before `@` selects that schema's
 identity namespace; it is not a native UE `type` and is not inferred from one.
-Member references remain two-segment, document-local paths in normalized JSON;
-a domain operation may then select one native field from the referenced object.
+`MemberRef.path` preserves every member segment after either a local alias or a
+typed stable reference. The same shape therefore covers `begin.Then`,
+`node@id.NodeComment`, and `menu.NamedSlots.Body` without separate field-path
+types.
 
 ### Request Targets And Locator Chains
 
@@ -281,6 +301,34 @@ eventGraph = graph(
 query eventGraph
 node@node-guid
 ```
+
+Normalized JSON uses one target shape:
+
+```ts
+interface Target {
+  alias: string;
+  value: Call | Name;
+}
+```
+
+For a bound target, normalization recursively replaces local references in the
+target value with their preceding bound values. The example above therefore
+contains a `graph(...)` Call whose `asset` argument is the complete nested
+`blueprint(...)` Call. `alias` is presentation context for compact result
+references; it never participates in identity. A collection root such as
+`query asset` uses `{alias: "asset", value: {kind: "name", name: "asset"}}`.
+Patch requires a bound `Call`, not a collection-root `Name`.
+
+Only the final target alias survives normalization. Intermediate locator
+aliases are expanded away and therefore cannot be referenced by Query clauses
+or Patch statements. Every other local reference must point to a binding or
+`invoke` output declared earlier in the same ordered document.
+
+`Target` has no public domain field and no Asset-, Blueprint-, Widget-, Class-,
+or Graph-specific variant. The executor resolves the generic Call through the
+active object schema and decides which arguments are locator fields. Other
+arguments carried from full Object Text are not fallback identity or implicit
+state assertions.
 
 Resolution is ordered: load the Blueprint by Asset Path, verify its
 BlueprintGuid, resolve the GraphGuid inside that Blueprint, then resolve the
@@ -653,15 +701,16 @@ operation types defined by implemented domains, and replaces `with: string[]`
 with the shared `schema` literal plus the closed set of domain details. Every
 operation has a readable snake_case `kind` and only its own arguments. Plural
 operations normally carry optional `text`; singular operations carry `name`;
-stable-id operations carry a typed reference. Relationship operations define
+stable-id operations carry `id`, with their `kind` preserving the typed object
+word. Relationship operations define
 their own fields. Summary uses `{kind: "summary"}` and carries no operation
 arguments.
 
 The old normalized `find` property represented the earlier find-centric text
-model and is not part of the target contract. `node@id` becomes an ordinary
-operation such as
-`{kind: "find_by_id", target: {kind: "node", id: "..."}}`; other primary
-operations must not be forced through a field named `find`.
+model and is not part of the contract. `node@id` normalizes directly to
+`{kind: "node", id: "..."}`; `variable Health` normalizes to
+`{kind: "variable", name: "Health"}`. There is no internal `find_by_id`
+operation.
 
 Shared condition, ordering, and pagination value shapes remain:
 
@@ -693,10 +742,6 @@ interface Page {
 Domain documents define their primary operations, supported `where` fields,
 `with` items, ordering keys, and pagination defaults. `~=` lowers to
 `contains`; domains decide its exact match behavior.
-
-The current TypeScript schema, parser, and adapters still use the old `find`
-field. They must migrate to `operation` domain by domain; target documentation
-must not preserve the old shape merely for implementation compatibility.
 
 ### Object Schema Expansion
 
@@ -820,9 +865,6 @@ Pin, or other instance ids before UE creates them. After creation, the mutation
 result returns the real objects and ids, whose instance schema may differ and
 may be queried separately.
 
-The current TypeScript schema, parser, and adapters do not implement the
-`schema` expansion yet.
-
 Pagination is cursor-based. If `page limit` is omitted, domains normally use
 50. If `page after` is omitted, the query returns the first page. Results with
 more data return an opaque cursor that agents pass back unchanged:
@@ -895,7 +937,7 @@ add print
 connect pin@begin-then-id -> print.execute
 ```
 
-Each binding occupies one complete line. It declares an unmaterialized local or
+Each binding occupies one complete statement. It declares an unmaterialized local or
 member-path alias; the owning domain defines which `add` form materializes it.
 Every binding passed directly to `add` must contain the `palette` identity of an
 exact creation capability returned by Palette. Missing, stale, or context-
@@ -949,9 +991,8 @@ source mutation, or arbitrary `invoke` statements. The Blueprint domain, for
 example, permits `compile` followed by `save`; `save` followed by `compile`,
 repeated terminal statements, and undeclared terminal combinations are invalid.
 
-The normalized JSON payload for `save` is intentionally deferred to the shared
-schema phase. This text contract does not silently add a provisional `kind` or
-operation object to the current experiment.
+`save` normalizes directly to `{kind: "save"}`. Blueprint `compile` follows the
+same terminal-statement rule and normalizes to `{kind: "compile"}`.
 
 `invoke` is the shared Patch operation for adapter-owned object interfaces:
 
@@ -996,13 +1037,7 @@ interface Patch {
   statements: PatchStatement[];
 }
 
-type PatchStatement = BindingStatement | Invoke | PatchOp;
-
-interface BindingStatement {
-  kind: "binding";
-  target: BindingTarget;
-  value: BindingValue;
-}
+type PatchStatement = Binding | PatchOperation;
 
 interface Invoke {
   kind: "invoke";
@@ -1023,13 +1058,17 @@ exactly one primary output. Pure normalization preserves that omission; the
 owning adapter resolves and validates it against the same schema used by
 `with schema`.
 
-The single `statements` array preserves exact source order. Bindings and
-operations must not be regrouped into parallel arrays because binding lifetime,
-creation, member resolution, and execution all depend on that order. The
-`binding` value is a normalized JSON discriminator, not an SAL keyword.
+The single `statements` array preserves exact source order. Bindings appear
+directly as `{target, value}` and are not wrapped in a second `binding`
+statement. Operations must not be regrouped into parallel arrays because
+binding lifetime, creation, member resolution, and execution all depend on
+that order.
 
-`PatchOp` is the closed schema union of Core and domain-specific operation
-payloads; `Invoke` is the shared operation shape above. Core normalization
+`PatchOperation` is the closed schema union of Core and domain-specific
+operation payloads; `Invoke` is the shared operation shape above. Direct fields
+mirror SAL keywords: `connect` and `disconnect` carry `from` and `to`; `move`
+carries exactly one of `to`, `by`, `before`, or `after`; `wrap` and `replace`
+carry `with`; `save` and `compile` carry no arguments. Core normalization
 preserves output-binding order but does not decide whether the target supports
 the Operation, whether arguments are valid, or which UE API executes it. The
 owning adapter validates all of those against the same schema it returns to the
@@ -1125,7 +1164,7 @@ Normalized JSON:
 
 ```ts
 interface Result {
-  object?: SalObject;
+  object?: ObjectText;
   diagnostics: Diagnostic[];
   page?: {
     next?: string;
@@ -1151,6 +1190,17 @@ interface Comment {
   text: string;
 }
 
+interface ObjectText {
+  statements: Statement[];
+}
+
+type Statement = Binding | Edge | Comment;
+
+interface Edge {
+  from: Ref;
+  to: Ref;
+}
+
 interface Diagnostic {
   severity: "error" | "warning" | "info";
   code: string;
@@ -1166,7 +1216,7 @@ interface SourceSpan {
 }
 ```
 
-Queries and mutations use the same `object: SalObject` content model and the
+Queries and mutations use the same `object: ObjectText` content model and the
 same SAL formatter. `MutationResult` only adds execution state around that
 ordinary object; it does not introduce a second mutation-specific object or
 text format. Optional revision fields remain absent from a concrete tool's
@@ -1193,13 +1243,12 @@ part of `text`. Comments are data in the ordered object, not an auxiliary
 comments array. Schema is one use of an ordinary multi-line Comment, not a new
 result statement type.
 
-A domain result that represents multiple SAL statements must serialize them in
-one `statements` array. Bindings, comments, and any domain-owned statement
-shapes are interleaved in exact formatter order. It must not serialize parallel
-arrays such as `nodes`, `pins`, `properties`, `defaults`, and `comments` and
-then ask the formatter to reconstruct reading order. Each domain defines its
-closed statement union; the class domain's first concrete model is defined in
-[`domains/class.md`](domains/class.md).
+Every result serializes its Object Text in one `statements` array. Bindings,
+Edges, and Comments are interleaved in exact formatter order. It must not use
+domain result wrappers such as `GraphResult`, `ClassResult`, `AssetResult`, or
+`PaletteResult`, or parallel arrays such as `nodes`, `pins`, `properties`,
+`defaults`, and `comments`. Exact Call fields and operation capabilities remain
+executor-owned; the result container does not repeat the domain distinction.
 
 The ordered result container is normalized JSON only. It does not add
 `document(...)`, `result(...)`, section syntax, or any other SAL text form.

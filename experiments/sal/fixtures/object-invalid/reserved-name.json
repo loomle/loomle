@@ -1,0 +1,14 @@
+{
+  "statements": [
+    {
+      "target": {
+        "kind": "local",
+        "name": "value"
+      },
+      "value": {
+        "kind": "name",
+        "name": "true"
+      }
+    }
+  ]
+}

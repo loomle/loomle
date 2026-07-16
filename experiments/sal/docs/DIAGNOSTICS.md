@@ -34,8 +34,7 @@ type DiagnosticPath = Array<string | number>;
 interface SourceSpan {
   line: number;
   column: number;
-  endLine?: number;
-  endColumn?: number;
+  length?: number;
 }
 ```
 
@@ -69,8 +68,8 @@ They do not require UE state.
 
 Examples:
 
-- `language.invalid_query_clause`
-- `language.invalid_condition`
+- `language.invalid_operation`
+- `language.unsupported_condition`
 - `language.invalid_order_by`
 - `language.invalid_page`
 - `language.invalid_object_shape`
@@ -98,25 +97,20 @@ current implementation milestone does not support.
 
 Examples:
 
-- `capability.unsupported_query_feature`
-- `capability.unsupported_where_field`
-- `capability.unsupported_detail`
-- `capability.unsupported_order_key`
-- `capability.unsupported_pagination`
-- `capability.unsupported_patch_op`
+- `capability.interface_unavailable`
+- `capability.unsupported_query_operation`
+- `capability.patch_unavailable`
 
 Example:
 
 ```json
 {
   "severity": "error",
-  "code": "capability.unsupported_where_field",
-  "message": "Asset query does not support where field modifiedTime.",
-  "domain": "asset",
-  "path": ["where", "field"],
-  "actual": "modifiedTime",
-  "supported": ["root", "type", "name", "path", "registryTag.<key>", "loaded"],
-  "suggestion": "Use one of the supported asset fields or omit this filter."
+  "code": "capability.unsupported_query_operation",
+  "message": "The resolved target does not support data_flow.",
+  "operation": "data_flow",
+  "supported": ["summary", "nodes", "context"],
+  "suggestion": "Use sal.schema(\"graph\") to inspect the active interface."
 }
 ```
 
@@ -127,43 +121,26 @@ context cannot be resolved, or resolves ambiguously.
 
 Examples:
 
-- `resolution.asset_not_found`
-- `resolution.graph_not_found`
-- `resolution.node_not_found`
-- `resolution.pin_not_found`
-- `resolution.ambiguous_asset`
-- `resolution.ambiguous_node`
+- `resolution.target_not_found`
+- `resolution.object_not_found`
+- `resolution.binding_not_found`
+- `resolution.edge_not_found`
 
 Example:
 
 ```json
 {
   "severity": "error",
-  "code": "resolution.asset_not_found",
-  "message": "Asset /Game/BP_Door.BP_Door was not found.",
-  "domain": "blueprint",
-  "path": ["target", "asset"],
+  "code": "resolution.target_not_found",
+  "message": "Target /Game/BP_Door.BP_Door was not found.",
+  "path": ["target"],
   "ref": "/Game/BP_Door.BP_Door",
   "suggestion": "Run query asset with assets \"BP_Door\" to discover the asset path."
 }
 ```
 
-Ambiguity should include compact candidates:
-
-```json
-{
-  "severity": "error",
-  "code": "resolution.ambiguous_node",
-  "message": "Node name Print matched 2 nodes.",
-  "domain": "blueprint",
-  "ref": "Print",
-  "matches": [
-    { "alias": "printReady", "id": "A001", "type": "/Script/BlueprintGraph.K2Node_CallFunction" },
-    { "alias": "printError", "id": "A002", "type": "/Script/BlueprintGraph.K2Node_CallFunction" }
-  ],
-  "suggestion": "Use id or a more specific where clause."
-}
-```
+Future ambiguity codes should include compact `matches` and must be registered
+before an executor emits them.
 
 ### `validation.*`
 
@@ -172,26 +149,19 @@ usually require a resolved target and are common in patch planning.
 
 Examples:
 
-- `validation.invalid_edge`
-- `validation.missing_insert_edge`
-- `validation.pin_type_mismatch`
-- `validation.readonly_property`
-- `validation.duplicate_member`
-- `validation.cannot_remove_root`
+- `validation.field_unavailable`
 
 Example:
 
 ```json
 {
   "severity": "error",
-  "code": "validation.missing_insert_edge",
-  "message": "Insert requires an existing direct edge.",
-  "domain": "blueprint",
-  "operation": "insert",
-  "path": ["ops", 0],
-  "expected": { "edge": { "from": "begin.Then", "to": "print.Exec" } },
-  "actual": { "edgeExists": false },
-  "suggestion": "Query the path first, then insert on an existing direct edge."
+  "code": "validation.field_unavailable",
+  "message": "NodeComment is not writable on this object.",
+  "operation": "set",
+  "path": ["statements", 0],
+  "ref": "node@A001.NodeComment",
+  "suggestion": "Query node@A001 with schema before choosing a writable field."
 }
 ```
 
@@ -275,13 +245,13 @@ The SDK produces `language.*` diagnostics from parsing, pure normalization, and
 schema validation. Parser-specific `ParseError` values should be converted into
 the shared diagnostic shape.
 
-The SDK adapter boundary may produce `capability.*`, `resolution.*`, and
-`validation.*` diagnostics through in-memory adapters. These adapters are
-contract fixtures for UE-backed adapters, so their diagnostic behavior should
-follow the same layer boundaries.
+The SDK executor boundary may produce `capability.*`, `resolution.*`, and
+`validation.*` diagnostics through in-memory executors. These executors are
+contract fixtures for a UE-backed executor, so their diagnostic behavior
+should follow the same layer boundaries.
 
-The SDK should validate normalized objects before adapter dispatch and validate
-adapter results before formatting. Schema validation failures should become
+The SDK should validate normalized objects before executor calls and validate
+executor results before formatting. Schema validation failures should become
 `language.invalid_object_shape` or `language.invalid_result_shape`.
 
 ## Bridge Rules

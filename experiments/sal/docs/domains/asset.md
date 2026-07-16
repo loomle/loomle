@@ -10,10 +10,9 @@ initialized UE process. It should not load assets by default. Search should
 return canonical asset identities and lightweight registry metadata that agents
 can feed into later SAL queries or patches.
 
-The TypeScript experiment still implements the earlier `find assets` text and
-JSON shape. The language design below uses `assets`; parser, schema, formatter,
-and in-memory adapter migration remains implementation work. UE Asset Registry
-integration belongs to the UE-backed adapter.
+The TypeScript SDK implements the shared `assets` Query operation, ordered
+Object Text result, schema contract, formatter, and in-memory executor. Live UE
+Asset Registry resolution remains Bridge work.
 
 ## Basic Form
 
@@ -82,9 +81,8 @@ Use named arguments:
 door = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint", loaded: false)
 ```
 
-The exact normalized JSON representation is deferred to the shared JSON
-contract pass. It must use the common ordered Binding and Call model rather
-than introducing a second Asset-only object shape.
+The normalized representation is the shared `Binding` and `Call` model. Asset
+does not introduce a second Asset-only object shape.
 
 ## Query
 
@@ -140,11 +138,14 @@ defines no `summary`, Palette, `asset@id`, singular Asset operation, or
 Asset-object `with schema`. When an exact Asset Path is already known, the
 agent binds `asset(path: ...)` directly rather than querying it again.
 
-The normalized JSON representation of the `assets` primary operation is not
-specified yet. It must be reviewed with the shared query contract rather than
-silently reusing the experiment's earlier `find = FindAssets` field. The asset
-domain still owns allowed fields, expansions, sort keys, and pagination
-defaults.
+The primary operation normalizes as:
+
+```json
+{"kind": "assets", "text": "door"}
+```
+
+The common Query envelope carries it in `operation`. The asset interface still
+owns allowed fields, expansions, sort keys, and pagination defaults.
 
 ## Results
 
@@ -167,9 +168,9 @@ Results should be deterministic. A default ranking policy can prefer:
 Results should not load assets by default. Loading belongs to explicit adapter
 behavior outside default search.
 
-The exact normalized JSON result envelope is deferred to the shared JSON
-contract pass. It must preserve this ordered Object Text and interleaved
-comments; it must not regroup statements into a parallel `assets` array.
+The shared `Result.object` contains one `ObjectText.statements` array. Asset
+bindings and comments stay interleaved; there is no parallel `assets` array or
+Asset-specific result wrapper.
 
 ## Registry Tags
 

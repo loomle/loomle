@@ -1,48 +1,40 @@
 import { formatSalObject } from "./formatter.js";
+import { loadInterfaceSchema, normalizeInterfaceModules } from "./interface-schema.js";
 import { parseSalObject } from "./parser.js";
 import { validateSalObject, validateObjectResult } from "./schema-validator.js";
-import { readFile } from "node:fs/promises";
 import type {
-  Adapter,
   CreateSalOptions,
   Diagnostic,
   Sal,
-  SalObject,
+  SalExecutor,
+  ObjectText,
   ObjectResult,
   Patch,
   Query,
   TextResult,
 } from "./index.js";
 
-export function createSal(options: CreateSalOptions = {}): Sal {
-  const adapters = new Map<string, Adapter>();
-  for (const adapter of options.adapters ?? []) {
-    adapters.set(adapter.domain, adapter);
-  }
+export function createSal(options: CreateSalOptions): Sal {
+  const executor = options.executor;
+  const interfaces = normalizeInterfaceModules(executor.interfaces);
 
   return {
     query(text) {
-      return run("query", text, adapters);
+      return run("query", text, executor);
     },
     patch(text) {
-      return run("patch", text, adapters);
+      return run("patch", text, executor);
     },
-    schema() {
-      return loadSchema();
+    schema(module) {
+      return loadInterfaceSchema(interfaces, module);
     },
   };
-}
-
-async function loadSchema() {
-  const url = new URL("../../schema/sal-object.schema.json", import.meta.url);
-  const schema = JSON.parse(await readFile(url, "utf8")) as unknown;
-  return { schema, diagnostics: [] };
 }
 
 async function run(
   expectedKind: "query" | "patch",
   text: string,
-  adapters: Map<string, Adapter>,
+  executor: SalExecutor,
 ): Promise<TextResult> {
   const parsed = parseSalObject(text);
   if (!parsed.object) {
@@ -54,49 +46,34 @@ async function run(
     return { diagnostics: [objectDiagnostic] };
   }
 
-  if (parsed.object.kind !== expectedKind) {
+  if (!("kind" in parsed.object) || parsed.object.kind !== expectedKind) {
     return {
       diagnostics: [
         {
           severity: "error",
-          code: "wrong_document_kind",
-          message: `Expected a ${expectedKind} document but received ${parsed.object.kind}.`,
+          code: "language.wrong_document_kind",
+          message: `Expected ${expectedKind} Text but received ${"kind" in parsed.object ? parsed.object.kind : "Object"} Text.`,
         },
       ],
     };
   }
 
-  const adapter = adapters.get(parsed.object.target.domain);
-  if (!adapter) {
+  const patchExecutor = executor.patch;
+  if (expectedKind === "patch" && !patchExecutor) {
     return {
       diagnostics: [
         {
           severity: "error",
-          code: "missing_adapter",
-          message: `No SAL adapter is registered for domain ${parsed.object.target.domain}.`,
-          suggestion: `Register an adapter with domain ${parsed.object.target.domain}.`,
-        },
-      ],
-    };
-  }
-
-  const patchAdapter = adapter.patch;
-  if (expectedKind === "patch" && !patchAdapter) {
-    return {
-      diagnostics: [
-        {
-          severity: "error",
-          code: "missing_patch_adapter",
-          message: `No SAL patch adapter is registered for domain ${parsed.object.target.domain}.`,
-          suggestion: `Register a patch-capable adapter with domain ${parsed.object.target.domain}.`,
+          code: "capability.patch_unavailable",
+          message: "The configured SAL executor does not support Patch requests.",
         },
       ],
     };
   }
 
   const result = expectedKind === "query"
-    ? await adapter.query(parsed.object as Query)
-    : await patchAdapter!(parsed.object as Patch);
+    ? await executor.query(parsed.object as Query)
+    : await patchExecutor!(parsed.object as Patch);
 
   const resultDiagnostic = await validateObjectResult(result);
   if (resultDiagnostic) {
@@ -107,10 +84,10 @@ async function run(
 }
 
 function objectResultToTextResult(result: ObjectResult): TextResult {
+  const { object, ...fields } = result;
   return {
-    ...(result.object ? { text: formatSalObject(result.object) } : {}),
-    diagnostics: result.diagnostics,
-    ...(result.page ? { page: result.page } : {}),
+    ...fields,
+    ...(object ? { text: formatSalObject(object) } : {}),
   };
 }
 
@@ -122,6 +99,6 @@ export function diagnostic(
   return { severity, code, message };
 }
 
-export function echoObjectResult(object: SalObject): ObjectResult {
+export function echoObjectResult(object: ObjectText): ObjectResult {
   return { object, diagnostics: [] };
 }

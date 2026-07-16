@@ -1,0 +1,14 @@
+bp = blueprint(asset: "/Game/Doors/BP_Door.BP_Door")
+eventGraph = graph(asset: bp, name: "EventGraph")
+query eventGraph
+exec flow from pin@P1 depth 4
+
+---
+
+begin = node(id: "N1", type: "/Script/BlueprintGraph.K2Node_Event")
+begin.Then = pin(id: "P1", direction: out)
+delay = node(id: "N2", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "Delay")
+delay.execute = pin(id: "P2", direction: in)
+delay.then = pin(id: "P3", direction: out)
+pin@P1 -> pin@P2
+# continuation: pin@P3

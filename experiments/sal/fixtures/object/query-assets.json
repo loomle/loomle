@@ -1,46 +1,7 @@
 {
   "kind": "query",
-  "target": {
-    "domain": "asset"
-  },
-  "find": {
-    "kind": "assets",
-    "text": "door"
-  },
-  "where": {
-    "kind": "and",
-    "conditions": [
-      {
-        "kind": "eq",
-        "field": {
-          "path": ["root"]
-        },
-        "value": "/Game"
-      },
-      {
-        "kind": "eq",
-        "field": {
-          "path": ["type"]
-        },
-        "value": {
-          "kind": "name",
-          "name": "blueprint"
-        }
-      }
-    ]
-  },
-  "with": ["registryTags"],
-  "orderBy": [
-    {
-      "key": "score",
-      "direction": "desc"
-    },
-    {
-      "key": "path",
-      "direction": "asc"
-    }
-  ],
-  "page": {
-    "limit": 10
-  }
+  "target": { "alias": "asset", "value": { "kind": "name", "name": "asset" } },
+  "operation": { "kind": "assets", "text": "door" },
+  "with": ["schema"],
+  "page": { "limit": 10 }
 }

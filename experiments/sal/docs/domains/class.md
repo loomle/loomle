@@ -537,10 +537,21 @@ terminal Patch. Saving Class Defaults does not implicitly compile that source.
 
 ### Target And Requests
 
-The SAL `class(path: ...)` locator above is authoritative. The exact normalized
-JSON request envelope is intentionally left for the later JSON contract pass.
-It must preserve the native Class Path without adding an adapter-routing
-`domain` field or fabricating a Class id.
+The SAL `class(path: ...)` locator uses the shared `Target`:
+
+```json
+{
+  "alias": "doorClass",
+  "value": {
+    "kind": "call",
+    "callee": "class",
+    "args": {"path": "/Script/Game.DoorBase"}
+  }
+}
+```
+
+It preserves the native Class Path without an adapter-routing `domain` field
+or fabricated Class id.
 
 The seven Class operations use the shared required `Query.operation` field:
 
@@ -556,8 +567,7 @@ type ClassQueryOperation =
 ```
 
 The confirmed override filter reuses the shared Condition shape. The following
-shows only operation data and shared modifiers; the enclosing target is
-deferred as described above:
+shows operation data and shared modifiers inside the common Query envelope:
 
 ```json
 {
@@ -579,107 +589,38 @@ combinations are diagnostics, not ignored fields.
 
 ### Defaults Patch
 
-Class Defaults reuse the shared Patch envelope. Their target path is a narrow
-one-segment specialization of the shared `FieldPath`, relative to the already
-resolved Class. It cannot introduce a nested value path:
+Class Defaults reuse the shared Patch envelope and `MemberRef`. The member path
+contains exactly one Property name relative to the resolved Class and cannot
+introduce a nested value path:
 
 ```ts
-interface ClassPropertyPath {
-  path: [string];
-}
-
 type ClassPatchOp =
-  | {kind: "set"; target: ClassPropertyPath; value: string}
-  | {kind: "reset"; target: ClassPropertyPath};
+  | {kind: "set"; target: MemberRef; value: string}
+  | {kind: "reset"; target: MemberRef};
 ```
 
-The owner alias in `set doorClass.Health` is checked against the Patch target
-while parsing and then removed from the operation data. The exact normalized
-Patch envelope is deferred with the Query target envelope.
+The owner alias in `set doorClass.Health` remains the `MemberRef.object` local
+reference and is checked against the resolved Patch target.
 
 `value` is always the complete native UE text string, not a translated JSON
-number, boolean, Struct, container, or object. The first Class Defaults Patch
-has no creation bindings, so `bindings` must be empty. The Bridge resolves each
-current local Property name to its exact `FFieldPath` during preflight.
+number, boolean, Struct, container, or object. Class Defaults creates no
+objects, so `Patch.statements` contains only `set` and `reset`. The Bridge
+resolves each current local Property name to its exact `FFieldPath` during
+preflight.
 
 ### Ordered Results
 
-Query and mutation return the same Class object model:
+Query and mutation return the shared ordered object model:
 
 ```ts
-interface ClassResult {
-  kind: "class_result";
-  statements: ClassResultStatement[];
+interface ObjectText {
+  statements: Statement[];
 }
 
-interface ClassBinding {
-  target: LocalRef;
-  value: {
-    kind: "call";
-    callee: "class";
-    args: ClassCallArgs;
-  };
-}
-
-interface ClassCallArgs {
-  path: string;
-  type: string;
-  [nativeField: string]: Expr;
-}
-
-interface PropertyBinding {
-  target: LocalRef;
-  value: {
-    kind: "call";
-    callee: "property";
-    args: PropertyCallArgs;
-  };
-}
-
-interface PropertyCallArgs {
-  path: string;
-  type: string;
-  [nativeField: string]: Expr;
-}
-
-interface FunctionBinding {
-  target: LocalRef;
-  value: {
-    kind: "call";
-    callee: "function";
-    args: FunctionCallArgs;
-  };
-}
-
-interface FunctionCallArgs {
-  path: string;
-  type: string;
-  [nativeField: string]: Expr;
-}
-
-interface DefaultValueBinding {
-  target: MemberRef;
-  value: string;
-}
-
-type ClassResultStatement =
-  | ClassBinding
-  | PropertyBinding
-  | FunctionBinding
-  | DefaultValueBinding
-  | Comment;
-
-interface ClassObjectResult extends Result {
-  object?: ClassResult;
-}
-
-interface ClassMutationResult extends MutationResult {
-  object?: ClassResult;
-}
+type Statement = Binding | Edge | Comment;
 ```
 
-These closed variants are constrained uses of the shared `LocalRef`,
-`MemberRef`, `Call`, `Expr`, and comment primitives:
+Class constrains ordinary bindings through its interface semantics:
 
 - `ClassBinding`: local target plus `class(path: ..., nativeFields...)` Call.
 - `PropertyBinding`: local target plus `property(path: ..., type: ...,
@@ -694,7 +635,6 @@ One exact Default result is therefore one ordered JSON sequence:
 
 ```json
 {
-  "kind": "class_result",
   "statements": [
     {
       "target": {"kind": "local", "name": "health"},
@@ -710,8 +650,8 @@ One exact Default result is therefore one ordered JSON sequence:
     {
       "target": {
         "kind": "member",
-        "object": "doorClass",
-        "member": "Health"
+        "object": {"kind": "local", "name": "doorClass"},
+        "path": ["Health"]
       },
       "value": "150.000000"
     },
@@ -727,7 +667,7 @@ Sparse Defaults, schema comments, and Patch-order refreshed values all remain
 interleaved. Class results never add parallel `classes`, `properties`,
 `functions`, `defaults`, or `comments` arrays.
 
-Every `ClassResult` is an ordered response fragment evaluated with the request's
+Every Class Object Text is an ordered response fragment evaluated with the request's
 Class alias. A Class binding appears only when the operation requests Class
 state, such as `summary`; it is not repeated merely so later statements can use
 the alias. Every other referenced alias must be bound earlier in the same
@@ -736,7 +676,7 @@ its Default value binding. A plural `defaults` result may omit per-Property
 bindings to remain compact. A Patch result emits one
 Property/value/comment group per affected operation in Patch order.
 
-Mutation responses put this same `ClassResult` in the ordinary `object` field.
+Mutation responses put this same `ObjectText` in the ordinary `object` field.
 The shared `MutationResult` extends the normal Result with execution fields such
 as `dryRun`, `valid`, `applied`, `planned`, and `diff`; it does not wrap or
 replace the Class object. Consequently the same formatter produces query,
@@ -751,13 +691,9 @@ canonical field order, then uses those aliases consistently throughout the
 document. Named native fields retain their exact names and values.
 
 Statement order and comment placement are semantic and must round-trip exactly.
-The formatter must walk `statements` once without regrouping. The current core
-text parser discards comments. The current schema also lacks standalone
-`Summary`, the future owner-locator request envelope, `ClassResult`, `Comment`,
-Class query and Patch operations, and the extended `MutationResult`; current
-parsers and formatters still use the old find-centric and grouped-array models.
-All are explicit implementation gaps for the later
-schema/parser/formatter migration.
+The formatter walks `statements` once without regrouping. The shared parser,
+schema, formatter, and result contract preserve Comments, Targets, Class Query
+operations, Patch operations, and Mutation fields without a Class wrapper.
 
 These JSON shapes introduce no `class_result(...)`, CDO object, Default object,
 Sparse object, nested value path, or other Agent-facing SAL syntax.
@@ -776,6 +712,7 @@ Blueprint-owned declaration edits belong to their authored Blueprint or Graph
 objects. Native declarations and native ordinary defaults require source-code
 editing and recompiling.
 
-The current TypeScript schema, parser, formatter, fixtures, and adapters do not
-implement this Class contract yet. They must migrate only after this documented
-target is accepted; Bridge implementation remains a later phase.
+The TypeScript schema, parser, formatter, and fixtures implement the shared
+Class request and result shapes. The generic memory executor is only a contract
+fixture; Reflection, native value import/export, CDO/Sparse mutation, and all
+UE-backed behavior remain Bridge work.

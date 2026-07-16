@@ -90,9 +90,8 @@ is removed. It forced readers to choose either name or id and introduced a
 needless nested ref object. `query g` and `patch g` use the complete local
 Graph binding. Exact selection inside that request uses typed scoped ids.
 
-The current schema and adapters still use the earlier flat Graph target shape.
-Its replacement belongs to the later normalized JSON design and must preserve
-this owner-locator chain without reintroducing a public adapter domain.
+The shared schema and parser expand this owner-locator chain into one nested
+`Target.value` Call. The executor resolves it without a public adapter domain.
 
 ## Nodes
 
@@ -548,7 +547,7 @@ Graph boundaries.
 every UE graph type. An adapter without Blueprint-style Exec or data semantics
 returns a capability diagnostic.
 
-### Query Results And Current Implementation
+### Query Results
 
 Every result preserves the adapter's interleaved reading order and reuses the
 request's owner and Graph aliases. It does not repeat the complete target merely
@@ -556,28 +555,18 @@ to add context. `with layout` has one meaning across Graph queries: add stored
 position and size to every returned existing Node. It is not valid for Palette
 Entries because no Node exists yet.
 
-The confirmed normalized operation and ordered result models are defined below;
-the owner-aware request envelope is deferred to the later JSON contract pass.
-This adds no Graph result constructor to SAL text. The current Graph query
-implementation does not yet match this design and does not support
-`with schema`.
+The normalized operation and ordered result models are defined below. They add
+no Graph result constructor to SAL text. The shared SDK implements these forms;
+live Graph semantics and instance-specific `with schema` content remain Bridge
+work.
 
 ## Normalized JSON
 
 ### Target And Requests
 
-The SAL locator chain defined above is authoritative. The exact normalized JSON
-representation of an owner locator and its Graph target is intentionally left
-for the later JSON contract pass. The current implementation's flat
-`domain + asset + graph` target is not the future contract: it loses the typed
-owner chain and makes adapter routing part of public data.
-
-This section therefore defines only the already confirmed body-operation
-model. A future request envelope must preserve the resolved concrete owner plus
-GraphGuid, must not use `name` or `type` as fallback identity, and must not
-reintroduce a public `domain` selector. The exact `graph@id` target-object read
-belongs to that deferred owner-aware envelope and is not assigned a separate
-normalized operation shape here.
+The locator chain uses the shared `Target`. Local owner references recursively
+expand into nested Calls, preserving the concrete owner plus GraphGuid without
+using `name` or `type` as fallback identity and without a public `domain` field.
 
 The eight confirmed Graph body operations form one closed union:
 
@@ -587,7 +576,7 @@ type PositiveInteger = number; // JSON Schema: integer, minimum: 1
 type GraphQueryOperation =
   | {kind: "summary"}
   | {kind: "nodes"; text?: string}
-  | {kind: "find_by_id"; target: GraphSubjectRef}
+  | {kind: "node" | "pin"; id: string}
   | {kind: "context"; target: GraphSubjectRef; depth?: PositiveInteger}
   | {
       kind: "exec_flow";
@@ -606,7 +595,7 @@ type GraphQueryOperation =
       text?: string;
       pinContext?: PalettePinContext;
     }
-  | {kind: "palette_entry"; id: string};
+  | {kind: "palette"; id: string};
 
 type GraphSubjectRef = NodeIdRef | PinIdRef;
 
@@ -621,12 +610,12 @@ interface PalettePinContext {
 | --- | --- |
 | `summary` | `{kind: "summary"}` |
 | `nodes ["text"]` | `{kind: "nodes", text?}` |
-| `node@id\|pin@id` | `{kind: "find_by_id", target}` |
+| `node@id\|pin@id` | `{kind: "node"\|"pin", id}` |
 | `context node@id\|pin@id [depth N]` | `{kind: "context", target, depth?}` |
 | `exec flow from\|to node@id\|pin@id [depth N]` | `{kind: "exec_flow", direction, target, depth?}` |
 | `data flow from\|to node@id\|pin@id [depth N]` | `{kind: "data_flow", direction, target, depth?}` |
 | `palette entries ["text"] [from|to pin]` | `{kind: "palette_entries", text?, pinContext?}` |
-| `palette @id` | `{kind: "palette_entry", id}` |
+| `palette @id` | `{kind: "palette", id}` |
 
 The object word before `@` is required SAL text and becomes the normalized
 reference `kind`; the `@` marker itself is not stored in `id`. A document-local
@@ -643,8 +632,7 @@ exec flow from node@node-guid depth 5
 with layout
 ```
 
-normalizes to the following operation data. The enclosing target representation
-is deferred as described above:
+normalizes to the following operation data inside the shared Query envelope:
 
 ```json
 {
@@ -684,22 +672,15 @@ unknown or ambiguous ids are diagnostics.
 ### Ordered Results
 
 Graph Summary, existing-object queries, traversal queries, and Palette queries
-all return one ordered Graph object model. Owner or Graph bindings appear only
+all return the shared ordered Object Text. Owner or Graph bindings appear only
 when they are requested result state; they are not mandatory context headers:
 
 ```ts
-interface GraphResult {
-  kind: "graph_result";
-  statements: GraphResultStatement[];
+interface ObjectText {
+  statements: Statement[];
 }
 
-type GraphResultStatement =
-  | GraphBinding
-  | GraphNodeBinding
-  | GraphPinBinding
-  | GraphPaletteBinding
-  | GraphResultEdge
-  | Comment;
+type Statement = Binding | Edge | Comment;
 
 interface GraphBinding {
   target: LocalRef;
@@ -759,23 +740,14 @@ interface GraphPaletteBinding {
   value: Call;
 }
 
-interface GraphResultEdge {
-  from: MemberRef;
-  to: MemberRef;
-}
-
-interface GraphObjectResult extends Result {
-  object?: GraphResult;
-}
 ```
 
 These are constrained uses of the existing `Binding`, `LocalRef`, `MemberRef`,
 `Call`, `Expr`, `Edge`, and `Comment` primitives. They do
 not add `graph_result(...)`, Palette Entry, schema, context, flow, or other
-Agent-facing result objects. `GraphResultEdge` is the result-only specialization
-of `Edge`: because both returned Pins are already bound in the same document,
-the ordered result uses readable member references. General Edge text and later
-mutations may still use stable `PinIdRef` values.
+Agent-facing result objects. Because returned Pins are already bound in the
+same document, an Edge may use readable member references. Later mutations may
+instead use stable Pin references.
 
 `GraphNodeCallArgs` and `GraphPinCallArgs` may also contain the native fields
 defined in the Node and Pin sections. Every such additional key maps to one
@@ -786,7 +758,6 @@ one sequence:
 
 ```json
 {
-  "kind": "graph_result",
   "statements": [
     {
       "target": {"kind": "local", "name": "begin"},
@@ -802,7 +773,7 @@ one sequence:
     },
     {"kind": "comment", "text": "Event BeginPlay"},
     {
-      "target": {"kind": "member", "object": "begin", "member": "then"},
+      "target": {"kind": "member", "object": {"kind": "local", "name": "begin"}, "path": ["then"]},
       "value": {
         "kind": "call",
         "callee": "pin",
@@ -826,7 +797,7 @@ one sequence:
       }
     },
     {
-      "target": {"kind": "member", "object": "print", "member": "execute"},
+      "target": {"kind": "member", "object": {"kind": "local", "name": "print"}, "path": ["execute"]},
       "value": {
         "kind": "call",
         "callee": "pin",
@@ -838,14 +809,14 @@ one sequence:
       }
     },
     {
-      "from": {"kind": "member", "object": "begin", "member": "then"},
-      "to": {"kind": "member", "object": "print", "member": "execute"}
+      "from": {"kind": "member", "object": {"kind": "local", "name": "begin"}, "path": ["then"]},
+      "to": {"kind": "member", "object": {"kind": "local", "name": "print"}, "path": ["execute"]}
     }
   ]
 }
 ```
 
-Graph Palette results use the same `GraphResult`. A Palette Entry is the
+Graph Palette results use the same `ObjectText`. A Palette Entry is the
 already-confirmed creation binding:
 
 ```json
@@ -868,7 +839,7 @@ capability in the bound Graph. An exact Palette Entry may follow it with
 Pin belonging to an existing Node must include its actual `id`. Graph does not
 return the old grouped `PaletteResult.entries` model.
 
-Every `GraphResult` is an ordered response fragment evaluated with the request's
+Every Graph Object Text is an ordered response fragment evaluated with the request's
 locator aliases. It obeys this ordering contract:
 
 1. A returned Graph binding is present only when the operation requests Graph
@@ -896,13 +867,9 @@ reads may add future Pins. Cross-Graph navigation remains an immediately
 following Comment and never inserts a second Graph binding or a cross-Graph
 Edge.
 
-The current schema still stores Graph data in grouped `nodes`, `pins`, and
-`edges` arrays, uses the old nested Graph target and Pin ref shapes, and exposes
-a separate grouped `PaletteResult`. The current parser and formatter also drop
-comments or regroup statements. Those are explicit implementation gaps for the
-later schema/parser/formatter migration. The Patch contract below is likewise
-normative documentation for that later migration, not a description of the
-current implementation.
+The shared schema, parser, and formatter preserve this ordered sequence and use
+the same Object Text for Graph reads, Palette reads, and Patch responses. UE
+Graph traversal and mutation remain executor responsibilities.
 
 ## Patch
 
@@ -979,13 +946,12 @@ current Graph context. Palette creation creates the Node and all base Pins UE
 normally creates; Patch text does not copy future Pin declarations from the
 Palette result and cannot construct a raw `pin(...)`.
 
-The exact normalized Patch request envelope is deferred with the Query target
-envelope above. Once the target has been resolved, Patch statements form this
-ordered union:
+Graph uses the shared Patch envelope. Once the target has been resolved, its
+statements form this ordered union:
 
 ```ts
 type GraphPatchStatement =
-  | BindingStatement
+  | Binding
   | Invoke
   | Add
   | Set
@@ -996,12 +962,6 @@ type GraphPatchStatement =
   | Insert
   | Remove
   | Move;
-
-interface BindingStatement {
-  kind: "binding";
-  alias: string;
-  value: Call;
-}
 
 type NodeRef = NodeIdRef | LocalRef;
 
@@ -1014,60 +974,63 @@ type GraphObjectRef =
 
 interface Set {
   kind: "set";
-  target: GraphObjectRef;
-  field: string;
+  target: MemberRef;
   value: Expr;
 }
 
 interface Reset {
   kind: "reset";
-  target: GraphObjectRef;
-  field: string;
+  target: MemberRef;
 }
 
 interface Add {
   kind: "add";
-  binding: string;
+  target: BindingTarget;
 }
 
 interface Connect {
   kind: "connect";
-  edge: Edge;
+  from: Ref;
+  to: Ref;
 }
 
 interface Disconnect {
   kind: "disconnect";
-  edge: Edge;
+  from: Ref;
+  to: Ref;
 }
 
 interface Break {
   kind: "break";
-  pin: PinRef;
+  target: Ref;
 }
 
 interface Insert {
   kind: "insert";
-  binding: string;
-  edge: Edge;
+  from: Ref;
   input: MemberRef;
   output: MemberRef;
+  to: Ref;
 }
 
 interface Remove {
   kind: "remove";
-  node: NodeRef;
+  target: NodeRef;
 }
 
-type Move =
-  | { kind: "move"; node: NodeRef; mode: "to"; at: Point }
-  | { kind: "move"; node: NodeRef; mode: "by"; delta: Point };
+interface Move {
+  kind: "move";
+  target: NodeRef;
+  to?: Point | Ref;
+  by?: Point;
+  before?: Ref;
+  after?: Ref;
+}
 ```
 
 The normalized `statements` array preserves exact source order. A binding line
-normalizes in place as `{kind: "binding", alias, value}`; bindings and
-operations are never regrouped into parallel arrays. The public binding text
-remains `name = node(...)`; `binding` is only the normalized JSON statement
-kind, not an SAL keyword.
+normalizes directly as `{target, value}`; it is not wrapped in a `binding`
+statement. Bindings and operations are never regrouped into parallel arrays.
 
 The last component of `set object.field` or `reset object.field` is the exact
 native field name. The preceding text must resolve to one object. For example,
@@ -1146,7 +1109,7 @@ invoke pin@vector-id SplitStructPin() as subpins.X: x, subpins.Z: z
 
 There is no universal `members` or `items` selector. The caller may bind only
 the outputs it needs. Other created outputs still appear in the final ordered
-`GraphResult`. Mirrored Pins, reconstructed call sites, disconnected Edges, and
+`ObjectText`. Mirrored Pins, reconstructed call sites, disconnected Edges, and
 cross-domain cascades are reported as effects rather than output aliases.
 
 An `invoke` target may be a stable Node or Pin reference, an `add`/`insert`
@@ -1229,7 +1192,7 @@ invoke pin@vector-id SplitStructPin() as subpins.X: x, subpins.Z: z
 
 Output order preserves the target Pin's UE `SubPins` order. The caller may bind
 only the children it needs; every created child still appears in the final
-ordered `GraphResult`. The existing parent keeps its `id`, becomes hidden, and
+ordered `ObjectText`. The existing parent keeps its `id`, becomes hidden, and
 precedes its children in Object Text.
 
 Nested Structs split one level at a time:
@@ -1273,7 +1236,7 @@ UE projects parent defaults into child defaults during split. During recombine
 it has explicit native folding behavior for types including `FVector`,
 `FRotator`, `FVector2D`, and `FLinearColor`; other Struct behavior remains
 whatever the owning native path produces. SAL does not reinterpret, reorder, or
-normalize these defaults. The final `GraphResult` and effects report the actual
+normalize these defaults. The final `ObjectText` and effects report the actual
 native `DefaultValue` and Pin state.
 
 #### Function And Event Signature Operations
@@ -1310,7 +1273,7 @@ the final parameter Pin on the primary Result Node selected by UE and that
 Result Node as `result`. If no Result Node exists, the native path creates one,
 places it relative to Function Entry, and connects execution when UE permits.
 Pins created on other Result Nodes and any automatic Node or Edge changes are
-effects and remain visible in the final ordered `GraphResult`.
+effects and remain visible in the final ordered `ObjectText`.
 
 A Custom Event has no dedicated Function Graph, so its Node is the semantic
 creation target:
@@ -1407,7 +1370,7 @@ invoke graph@signature-graph-id CopySignatureFrom(
 the exact UFunction in the Dispatcher property's allowed Class scope, requires
 UE delegate compatibility, rejects Functions with any output parameter,
 removes every old user-defined Pin, and recreates input Pins in native Function
-declaration order. It has no primary outputs; the final ordered `GraphResult`
+declaration order. It has no primary outputs; the final ordered `ObjectText`
 contains the complete replacement signature. Every old parameter alias and
 stable Pin reference becomes invalid after the statement.
 
@@ -1580,10 +1543,10 @@ with pins
 ```
 
 `dry run` follows the same parse, resolve, and validation path and stops before
-step 7 applies the plan. It returns the real current `GraphResult` as `object`;
+step 7 applies the plan. It returns the real current `ObjectText` as `object`;
 provisional objects and planned changes belong to the mutation envelope's plan
 or diff, not to a fake applied Graph. Success after apply returns the same ordered
-`GraphResult` object model used by queries, containing the actual final Node,
+`ObjectText` model used by queries, containing the actual final Node,
 Pin, Edge, field, and layout state. The mutation envelope adds execution state;
 Graph Patch does not define a second mutation-only SAL object format.
 

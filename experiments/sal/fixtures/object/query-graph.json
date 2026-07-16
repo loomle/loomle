@@ -1,0 +1,15 @@
+{
+  "kind": "query",
+  "target": {
+    "alias": "eventGraph",
+    "value": {
+      "kind": "call",
+      "callee": "graph",
+      "args": {
+        "asset": { "kind": "call", "callee": "blueprint", "args": { "asset": "/Game/BP_Door.BP_Door" } },
+        "name": "EventGraph"
+      }
+    }
+  },
+  "operation": { "kind": "exec_flow", "direction": "from", "target": { "kind": "pin", "id": "P1" }, "depth": 4 }
+}

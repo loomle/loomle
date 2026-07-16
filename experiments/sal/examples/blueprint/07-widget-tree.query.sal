@@ -1,0 +1,10 @@
+menu = blueprint(asset: "/Game/UI/WBP_Menu.WBP_Menu")
+query menu
+tree depth 20
+
+---
+
+root = widget(id: "W1", type: "/Script/UMG.CanvasPanel")
+root.stack = widget(id: "W2", type: "/Script/UMG.VerticalBox")
+stack.title = widget(id: "W3", type: "/Script/UMG.TextBlock", Text: "Main Menu")
+stack.start = widget(id: "W4", type: "/Script/UMG.Button")

@@ -1,0 +1,8 @@
+bp = blueprint(asset: "/Game/Doors/BP_Door.BP_Door")
+eventGraph = graph(asset: bp, name: "EventGraph")
+patch eventGraph
+
+delay = node(palette: "Delay", Duration: 1.0)
+insert pin@P1 -> delay.execute/delay.then -> pin@P4
+compile
+save

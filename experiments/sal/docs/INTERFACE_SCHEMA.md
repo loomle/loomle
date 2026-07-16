@@ -263,5 +263,5 @@ Diagnostics should close the same discovery loop:
 - unavailable capabilities give a reason and copyable next query when possible.
 
 The initial interface modules are `asset`, `blueprint`, `class`, `graph`, and
-`widget` when their adapters are active. Module names organize documentation;
-they are not target-routing fields.
+`widget` when declared by `executor.interfaces`. Module names organize
+documentation; they are not target-routing fields.

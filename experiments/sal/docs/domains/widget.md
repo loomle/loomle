@@ -7,9 +7,9 @@ The Widget domain describes the authored `UWidget` objects inside a
 document object or translate Widget Classes and properties into SAL-specific
 types.
 
-This document is the normative SAL design. The current TypeScript experiment
-and UE-backed Widget adapter predate it and remain implementation gaps. Bridge
-work is intentionally deferred until the SAL documents are complete.
+This document is the normative SAL design. The TypeScript SDK implements its
+shared Query, Patch, ordered Object Text, schema, and in-memory executor forms.
+The UE-backed Widget executor remains deferred Bridge work.
 
 The current Widget contract covers the authored Widget tree, exact native
 Widget and Slot state, Palette-backed creation, structural editing, and Widget
@@ -423,9 +423,9 @@ Missing GUID entries are not synthesized during a read. Zero matches return an
 unknown-object diagnostic; duplicate name or GUID state returns an ambiguity or
 invalid-state diagnostic rather than guessing.
 
-The normalized JSON operation kinds for these Widget queries still require a
-separate schema review. This text contract does not silently reuse the
-experiment's earlier Widget query payloads.
+Widget uses the shared Query operations directly: `tree`, `widgets`, and
+singular/exact `widget`. It adds no Widget-specific Query envelope or result
+wrapper.
 
 ### Graph Events
 

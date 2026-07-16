@@ -1,13 +1,5 @@
 {
   "kind": "patch",
-  "target": {
-    "domain": "blueprint",
-    "asset": "/Game/BP_Door",
-    "graph": {
-      "kind": "name",
-      "name": "EventGraph"
-    }
-  },
-  "bindings": [],
-  "ops": []
+  "target": { "alias": "bp", "value": { "kind": "call", "callee": "blueprint", "args": { "asset": "/Game/BP_Test" } } },
+  "statements": []
 }
