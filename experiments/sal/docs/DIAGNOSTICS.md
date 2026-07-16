@@ -92,8 +92,8 @@ Example:
 
 ### `capability.*`
 
-Capability diagnostics report language-valid requests that the target domain or
-current implementation milestone does not support.
+Capability diagnostics report language-valid requests that the resolved target
+or its active interface does not support.
 
 Examples:
 
@@ -267,9 +267,9 @@ After bridge core validation, adapters should produce:
 - `resolution.*` for missing or ambiguous UE targets.
 - `validation.*` for target-state legality failures.
 
-The legacy Bridge uses `FLglDiagnostics` as its shared construction helper.
-The later SAL Bridge migration must preserve this single-helper boundary while
-renaming or replacing the implementation.
+The UE Bridge uses `FSalDiagnostics` as its shared construction helper. Domain
+interfaces add UE-specific context through that helper after the normalized
+object boundary has been validated centrally.
 
 ## Domain Rules
 

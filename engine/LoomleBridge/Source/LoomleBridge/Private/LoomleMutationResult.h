@@ -25,6 +25,53 @@ namespace LoomleMutation
         }
     }
 
+    /**
+     * Builds the shared normalized mutation envelope used by SAL and any other
+     * ordered-object surface. Domain code supplies only its object, diagnostics,
+     * plan, resolved references, and diff; envelope fields stay centralized.
+     */
+    static TSharedPtr<FJsonObject> BuildMutationResult(
+        const TSharedPtr<FJsonObject>& Object,
+        const TArray<TSharedPtr<FJsonValue>>& Diagnostics,
+        const bool bDryRun,
+        const bool bValid,
+        const bool bApplied,
+        const FString& AssetPath,
+        const FString& Operation,
+        const TSharedPtr<FJsonObject>& Planned = nullptr,
+        const TSharedPtr<FJsonObject>& ResolvedRefs = nullptr,
+        const TSharedPtr<FJsonObject>& Diff = nullptr)
+    {
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        if (Object.IsValid())
+        {
+            Result->SetObjectField(TEXT("object"), Object);
+        }
+        SetDiagnostics(Result, Diagnostics);
+        Result->SetBoolField(TEXT("isError"), !bValid);
+        Result->SetBoolField(TEXT("dryRun"), bDryRun);
+        Result->SetBoolField(TEXT("valid"), bValid);
+        Result->SetBoolField(TEXT("applied"), bApplied);
+        Result->SetStringField(TEXT("operation"), Operation);
+        if (!AssetPath.IsEmpty())
+        {
+            Result->SetStringField(TEXT("assetPath"), AssetPath);
+        }
+        if (Planned.IsValid())
+        {
+            Result->SetObjectField(TEXT("planned"), Planned);
+        }
+        if (ResolvedRefs.IsValid())
+        {
+            Result->SetObjectField(TEXT("resolvedRefs"), ResolvedRefs);
+        }
+        if (Diff.IsValid())
+        {
+            Result->SetObjectField(TEXT("diff"), Diff);
+        }
+        return Result;
+    }
+
     static void SetRevision(const TSharedPtr<FJsonObject>& Result, const FString& PreviousRevision, const FString& NewRevision)
     {
         if (!Result.IsValid())

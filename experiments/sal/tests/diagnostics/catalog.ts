@@ -21,6 +21,7 @@ const catalogSchemaPath = join(packageRoot, "diagnostics/catalog.schema.json");
 const sourceRoots = [
   join(packageRoot, "src"),
   join(packageRoot, "tests"),
+  join(packageRoot, "../../engine/LoomleBridge/Source/LoomleBridge/Private/Sal"),
 ];
 
 const catalog = JSON.parse(await readFile(catalogPath, "utf8")) as DiagnosticCatalog;
@@ -63,6 +64,7 @@ async function collectUsedDiagnosticCodes(roots: string[]): Promise<Set<string>>
       collectPattern(source, /diagnostic\s*\(\s*"([^"]+)"/g, codes);
       collectPattern(source, /errorResult\s*\(\s*"([^"]+)"/g, codes);
       collectPattern(source, /code:\s*"([^"]+)"/g, codes);
+      collectPattern(source, /TEXT\(\"((?:language|capability|resolution|validation)\.[^\"]+)\"\)/g, codes);
     }
   }
   return codes;
@@ -80,7 +82,7 @@ async function listSourceFiles(root: string): Promise<string[]> {
     const path = join(root, entry.name);
     if (entry.isDirectory()) {
       files.push(...await listSourceFiles(path));
-    } else if ([".ts", ".js"].includes(extname(entry.name))) {
+    } else if ([".ts", ".js", ".cpp", ".h"].includes(extname(entry.name))) {
       files.push(path);
     }
   }

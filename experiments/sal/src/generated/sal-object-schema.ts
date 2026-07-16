@@ -54,6 +54,24 @@ export type Point = [number, number];
 export type Statement = Binding | Edge | Comment;
 export type ObjectResult = Result | MutationResult;
 export type DiagnosticPath = (string | number)[];
+export type MutationResult = {
+  [k: string]: any;
+} & {
+  object?: ObjectText;
+  diagnostics: Diagnostic[];
+  page?: ResultPage;
+  isError: boolean;
+  dryRun: boolean;
+  valid: boolean;
+  applied: boolean;
+  assetPath?: string;
+  operation: string;
+  resolvedRefs?: any;
+  planned?: any;
+  diff?: any;
+  previousRevision?: string;
+  newRevision?: string;
+};
 
 export interface Query {
   kind: "query";
@@ -288,7 +306,7 @@ export interface Wrap {
 export interface Replace {
   kind: "replace";
   target: Ref;
-  with: LocalRef;
+  with: Ref;
 }
 export interface Invoke {
   kind: "invoke";
@@ -347,20 +365,4 @@ export interface SourceSpan {
 }
 export interface ResultPage {
   next?: string;
-}
-export interface MutationResult {
-  object?: ObjectText;
-  diagnostics: Diagnostic[];
-  page?: ResultPage;
-  isError: boolean;
-  dryRun: boolean;
-  valid: boolean;
-  applied: boolean;
-  assetPath?: string;
-  operation: string;
-  resolvedRefs?: any;
-  planned?: any;
-  diff?: any;
-  previousRevision?: string;
-  newRevision?: string;
 }

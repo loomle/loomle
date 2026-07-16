@@ -11,8 +11,8 @@ return canonical asset identities and lightweight registry metadata that agents
 can feed into later SAL queries or patches.
 
 The TypeScript SDK implements the shared `assets` Query operation, ordered
-Object Text result, schema contract, formatter, and in-memory executor. Live UE
-Asset Registry resolution remains Bridge work.
+Object Text result, schema contract, formatter, and in-memory executor. The UE
+Bridge executes the same contract against the live Asset Registry.
 
 ## Basic Form
 

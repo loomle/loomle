@@ -18,6 +18,11 @@ const cases: Array<{ name: string; text: string }> = [
     text: "",
   },
   {
+    name: "query and patch remain valid object aliases",
+    text: `query = asset(path: "/Game/Query.Query")
+patch = asset(path: "/Game/Patch.Patch")`,
+  },
+  {
     name: "asset collection query",
     text: `query asset
 assets "door"
@@ -36,6 +41,14 @@ where loaded = false and (path ~= "/Game" or name ~= "Door") and not deprecated`
     name: "blueprint summary with nested target",
     text: `bp = blueprint(asset: "/Game/Doors/BP_Door.BP_Door")
 query bp
+summary`,
+  },
+  {
+    name: "full object bindings remain reusable target locators",
+    text: `doorAsset = asset(path: "/Game/Doors/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
+bp = blueprint(asset: doorAsset, id: "blueprint-guid", type: BPTYPE_Normal, Status: BS_UpToDate)
+eventGraph = graph(asset: bp, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
+query eventGraph
 summary`,
   },
   {
@@ -119,6 +132,7 @@ patch menu
 box = widget(palette: "VerticalBox")
 wrap [widget@TITLE, widget@START] with box
 replace widget@OLD with box
+replace widget@PLACEHOLDER with widget@EXISTING
 save`,
   },
 ];

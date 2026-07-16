@@ -56,6 +56,9 @@ const idKinds = new Set([
   "widget",
 ]);
 
+const queryHeader = /^query\s+[A-Za-z_][A-Za-z0-9_]*$/;
+const patchHeader = /^patch\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+dry run)?$/;
+
 export function parseSalObject(text: string): ParseResult {
   try {
     const lines = preprocessLines(text);
@@ -63,7 +66,7 @@ export function parseSalObject(text: string): ParseResult {
       return { object: { statements: [] }, diagnostics: [] };
     }
     const requestIndex = lines.findIndex(
-      (line) => line.kind === "code" && (line.text.startsWith("query ") || line.text.startsWith("patch ")),
+      (line) => line.kind === "code" && (queryHeader.test(line.text) || patchHeader.test(line.text)),
     );
     if (requestIndex < 0) {
       return { object: parseObjectText(lines), diagnostics: [] };
@@ -71,7 +74,7 @@ export function parseSalObject(text: string): ParseResult {
 
     const { bindings } = parseLeadingBindings(lines.slice(0, requestIndex));
     const header = lines[requestIndex];
-    if (header.text.startsWith("query ")) {
+    if (queryHeader.test(header.text)) {
       return { object: parseQuery(lines, requestIndex, bindings), diagnostics: [] };
     }
     return { object: parsePatch(lines, requestIndex, bindings), diagnostics: [] };
@@ -405,10 +408,10 @@ function parsePatchOperation(
     return { statements: [parseWrap(text.slice(5), line)], outputs: [] };
   }
   if (text.startsWith("replace ")) {
-    const match = /^(.+)\s+with\s+([A-Za-z_][A-Za-z0-9_]*)$/.exec(text.slice(8));
+    const match = /^(.+?)\s+with\s+(.+)$/.exec(text.slice(8));
     if (!match) operationError(line);
     return {
-      statements: [{ kind: "replace", target: parseRef(match![1], line), with: localOutput(match![2], line) }],
+      statements: [{ kind: "replace", target: parseRef(match![1], line), with: parseRef(match![2], line) }],
       outputs: [],
     };
   }

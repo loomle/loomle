@@ -110,6 +110,12 @@ Mesh = component(palette: "component-palette-id")
 add Mesh to component@root-guid
 ```
 
+On a composed target such as `UWidgetBlueprint`, one authored Patch is owned
+atomically by exactly one interface planner. Blueprint declarations, Graph
+lifecycle, Class Settings, and SCS Components may share one Blueprint Patch;
+they cannot be mixed with Widget-tree lifecycle in that same request. Run the
+Widget-authored batch as a following request. Queries remain freely composable.
+
 Palette and exact schema determine which constructors and arguments are valid
 for the concrete Blueprint subclass. Timeline Nodes come from their target
 Graph Palette, not the Blueprint Palette.
@@ -154,6 +160,15 @@ invoke door ImplementFunction(function: "<Function Path>")
 invoke component@id MakeNewSceneRoot()
 invoke component@id Duplicate() as copy
 ```
+
+Dry run resolves and applies the ordered authored batch to a transient
+Blueprint/SCS copy. Its mutation envelope returns ordered
+`planned.operations` and `planned.effects`; it never returns transiently
+generated ids as durable state. Real success returns the final Blueprint plus
+the same ordinary Variable, Dispatcher, Graph, and Component objects touched
+or created by the batch, together with any Graph, Node, and Pin navigation
+objects produced by compound operations. A later apply failure undoes the
+complete private UE transaction before the error is returned.
 
 ## Compile And Save
 

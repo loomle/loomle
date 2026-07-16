@@ -1,8 +1,8 @@
-# Structured Agent Language SDK Experiment
+# Structured Agent Language
 
-This directory contains the TypeScript SDK experiment for Structured Agent
-Language (SAL). It is not yet part of Loomle's public MCP surface or Unreal
-Engine Bridge.
+This directory contains the normative contract and TypeScript SDK for
+Structured Agent Language (SAL). Loomle's Unreal Engine Bridge implements the
+same normalized executor contract through `sal.query` and `sal.patch`.
 
 SAL is compact, ordered text for humans and agents to inspect and modify
 complex non-text objects. It keeps native UE names and values, is directly
@@ -47,6 +47,8 @@ SAL Text
 - `src/interface-schema.ts`: resident static interface cards.
 - `schema/sal-object.schema.json`: normalized request/result contract.
 - `src/generated/sal-object-schema.ts`: generated TypeScript model.
+- `../../engine/LoomleBridge/Source/LoomleBridge/Private/Sal/`: UE-backed
+  executor, target resolution, ordered Object Text, and interface adapters.
 - `fixtures/`: valid and rejected normalized JSON boundaries.
 - `examples/blueprint/`: current SAL Text examples with possible responses.
 - `diagnostics/catalog.json`: current public diagnostic codes.
@@ -66,10 +68,11 @@ SAL Text
 - `docs/domains/`: complete domain semantics.
 - `docs/interfaces/`: compact Text returned by `sal.schema(module)`.
 
-Bridge documents remain historical or forward-looking implementation context.
-The existing UE Bridge still uses legacy `lgl.query`, `lgl.patch`, `Private/Lgl`,
-and `FLgl*` names. Bridge migration is intentionally deferred until the SAL SDK
-contract is complete.
+- [`docs/BRIDGE_ARCHITECTURE.md`](docs/BRIDGE_ARCHITECTURE.md): implemented UE
+  executor boundary and native interface mapping.
+- [`docs/BRIDGE_IMPLEMENTATION_REPORT.md`](docs/BRIDGE_IMPLEMENTATION_REPORT.md):
+  implemented surface, source mapping, autonomous decisions, verification, and
+  explicit boundaries.
 
 ## Commands
 
@@ -93,5 +96,5 @@ npm run generate:types
 - The memory executors are contract fixtures, not UE semantic models.
 - The SDK does not mutate Unreal assets.
 - UE-backed target resolution, Reflection, Palette execution, graph legality,
-  transactions, compile, and save remain Bridge work.
+  transactions, compile, and save belong to the Bridge implementation.
 - SAL is not a Blueprint replacement language or a public Graph IR.

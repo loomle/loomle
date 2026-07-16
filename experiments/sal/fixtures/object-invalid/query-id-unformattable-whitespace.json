@@ -1,0 +1,12 @@
+{
+  "kind": "query",
+  "target": {
+    "alias": "graph",
+    "value": {
+      "kind": "call",
+      "callee": "graph",
+      "args": { "id": "graph-guid" }
+    }
+  },
+  "operation": { "kind": "node", "id": "node id" }
+}

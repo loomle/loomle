@@ -81,10 +81,13 @@ doorClass.Health = "150.000000"
 # source: /Game/BP_Door.BP_Door
 ```
 
-Default values are complete native UE `ExportText` strings. Ordinary, inherited,
-Sparse, and read-only Config values share this surface. Source and storage are
-comments, not new objects. The interface exposes top-level Properties only;
-Struct members and container elements remain part of the complete native value.
+Default values are complete native UE `ExportText` strings. A native fixed
+array (`ArrayDim > 1`) uses the existing SAL array Expr with exactly one native
+string per fixed element; a dynamic `FArrayProperty` remains one native string.
+Ordinary, inherited, Sparse, and read-only Config values share this surface.
+Source and storage are comments, not new objects. The interface exposes
+top-level Properties only; Struct members and dynamic-container elements remain
+part of the complete native value.
 
 ## Patch
 
@@ -102,6 +105,13 @@ reset doorClass.NetUpdateFrequency
 initialized default of a Property introduced by the current Class. Exact
 Default `with schema` is authoritative for writability, constraints, source,
 reset behavior, and Config or Sparse provenance.
+
+For `ArrayDim == 1`, `set` accepts one native string. For a native fixed array,
+it accepts exactly `ArrayDim` native strings in an SAL array and imports every
+element in index order. UE 5.7 cannot durably serialize an explicit Blueprint
+CDO override equal to its inherited value, so that `set` is rejected; use
+`reset` to inherit or set a distinct value. Loomle does not enable UE's
+experimental `FOverridableManager`.
 
 Native `/Script/...` Classes, Config values, Component Templates, default
 subobjects, Reflection declarations, and Metadata are read-only. Defaults Patch

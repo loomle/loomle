@@ -1,0 +1,8 @@
+{
+  "statements": [
+    {
+      "from": { "kind": "pin", "id": "pin.with.member.ambiguity" },
+      "to": { "kind": "pin", "id": "target" }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "statements": [
+    {
+      "from": { "kind": "true", "id": "source" },
+      "to": { "kind": "pin", "id": "target" }
+    }
+  ]
+}

@@ -79,6 +79,19 @@ async function run(
   if (resultDiagnostic) {
     return { diagnostics: [resultDiagnostic] };
   }
+  const isMutationResult = "isError" in result;
+  if ((expectedKind === "patch") !== isMutationResult) {
+    return {
+      diagnostics: [
+        diagnostic(
+          "language.invalid_result_shape",
+          expectedKind === "patch"
+            ? "Patch executor must return MutationResult execution fields."
+            : "Query executor must return Result without mutation execution fields.",
+        ),
+      ],
+    };
+  }
 
   return objectResultToTextResult(result);
 }

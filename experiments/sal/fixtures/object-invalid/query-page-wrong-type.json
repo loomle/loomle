@@ -1,0 +1,9 @@
+{
+  "kind": "query",
+  "target": {
+    "alias": "asset",
+    "value": { "kind": "name", "name": "asset" }
+  },
+  "operation": { "kind": "assets" },
+  "page": "offset:50"
+}

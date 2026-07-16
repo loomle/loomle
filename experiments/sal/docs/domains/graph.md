@@ -565,9 +565,10 @@ meaning across Graph queries: add stored position and size to every returned
 existing Node. It is not valid for Palette Entries because no Node exists yet.
 
 The normalized operation and ordered result models are defined below. They add
-no Graph result constructor to SAL text. The shared SDK implements these forms;
-live Graph semantics and instance-specific `with schema` content remain Bridge
-work.
+no Graph result constructor to SAL text. The shared SDK implements these forms,
+and the Bridge resolves them against live Graph, Palette, Node, Pin, signature,
+and Timeline state. Instance-specific `with schema` is produced from the same
+UE availability checks used by Patch rather than from a static catalog.
 
 ## Normalized JSON
 
@@ -577,7 +578,7 @@ The locator chain uses the shared `Target`. Local owner references recursively
 expand into nested Calls, preserving the concrete owner plus GraphGuid without
 using `name` or `type` as fallback identity and without a public `domain` field.
 
-The eight confirmed Graph body operations form one closed union:
+The nine confirmed Graph body operations form one closed union:
 
 ```ts
 type PositiveInteger = number; // JSON Schema: integer, minimum: 1
@@ -585,7 +586,7 @@ type PositiveInteger = number; // JSON Schema: integer, minimum: 1
 type GraphQueryOperation =
   | {kind: "summary"}
   | {kind: "nodes"; text?: string}
-  | {kind: "node" | "pin"; id: string}
+  | {kind: "graph" | "node" | "pin"; id: string}
   | {kind: "context"; target: GraphSubjectRef; depth?: PositiveInteger}
   | {
       kind: "exec_flow";
@@ -619,6 +620,7 @@ interface PalettePinContext {
 | --- | --- |
 | `summary` | `{kind: "summary"}` |
 | `nodes ["text"]` | `{kind: "nodes", text?}` |
+| `graph@id` | `{kind: "graph", id}` |
 | `node@id\|pin@id` | `{kind: "node"\|"pin", id}` |
 | `context node@id\|pin@id [depth N]` | `{kind: "context", target, depth?}` |
 | `exec flow from\|to node@id\|pin@id [depth N]` | `{kind: "exec_flow", direction, target, depth?}` |
@@ -1054,6 +1056,14 @@ such as `id`, `type`, `graph`, and Pin direction are not ordinary writable
 fields. Setting the current value or resetting an already-reset field is a
 successful no-op and must not dirty the asset.
 
+For native Node fields, exact schema and Patch execution share one instance
+access check. Persistent Reflection fields remain readable; writing additionally
+requires `CPF_Edit`, rejects `CPF_EditConst`, transient and deprecated state,
+honors `CPF_DisableEditOnTemplate` for template objects, and calls the resolved
+Node's `CanEditChange`. Reset also rejects `NoResetToDefault` and requires a
+usable Class default object. A field cannot be advertised writable by schema and
+then bypass these checks during Patch.
+
 `connect` delegates compatibility, break-others behavior, conversion-node
 creation, and type promotion to the owning UE Graph Schema. Preflight and the
 mutation result must report every resulting Node, Pin, and Edge change.
@@ -1187,6 +1197,25 @@ User-defined Pins on Function Entry, Function Result, Custom Event, and Tunnel
 nodes are not part of this table. They may change a function signature, mirror
 another node, or reconstruct call sites, so they belong to separate signature
 or cross-object Operations.
+
+#### Timeline Compound Node Operations
+
+Timeline does not add a Graph object kind. `UK2Node_Timeline` and its unique
+same-named `UTimelineTemplate` are validated and edited as one `node(...)`.
+Exact reads flatten the Template's authored fields, four Track arrays, native
+display order, internal `FRichCurveKey` state, and external Curve Asset
+references onto that Node. The exact Node and Palette schemas expose the full
+surface documented in the Blueprint domain: Timeline constructor fields,
+`Add*Track`, `AddTrackFromCurve`, Track rename/move/remove, Key add/set/remove,
+`UseExternalCurve`, `UseInternalCurve`, `Duplicate`, and ordinary Node removal.
+
+Every Operation first proves the Node/Template pair, Track-name uniqueness,
+Track/display-order bijection, generated Track Pins, and Curve presence. Track
+and Key edits update the Template and reconstruct the Node through the same UE
+paths used by the Timeline editor. Internal Curve ownership is isolated during
+dry run, while external Curve Assets remain references and are never mutated.
+Timeline duplication uses native Graph export/import so UE creates the new Node
+Guid, unique Timeline name, Template, Timeline Guid, and internal Curves.
 
 #### Struct Pin Operations
 
@@ -1560,6 +1589,34 @@ or diff, not to a fake applied Graph. Success after apply returns the same order
 `ObjectText` model used by queries, containing the actual final Node,
 Pin, Edge, field, and layout state. The mutation envelope adds execution state;
 Graph Patch does not define a second mutation-only SAL object format.
+
+The shared dry-run and apply `planned` object contains the target Graph,
+statement and native-change counts, ordered `operations`, and `effects`. Each
+operation records its source index, operation or creation binding, stable source
+references, and target-local invoke name when present. Effects retain consumed
+creation aliases, statement categories such as connection and field edits, and
+only touched Node or Pin ids that map back to the live Graph. Transient preflight
+Guids are never returned; a provisional creation remains identified by its SAL
+alias until live apply produces its final stable id.
+
+The Bridge realizes provisional state by duplicating the complete owning
+Blueprint into the transient package, remapping the target by `GraphGuid`,
+isolating generated and skeleton Classes, duplicating Timeline Templates, and
+explicitly detaching every internal Timeline Curve. It then executes the same
+ordered mutation functions used by live apply. This is required because
+`UTimelineTemplate::PostDuplicate` deliberately does not duplicate Curves in a
+transient outer during Blueprint reinstancing. Transient Node-only guessing is
+not a valid preflight path.
+
+Graph Patch, including native-path dry run, requires one available top-level
+Editor transaction. Dry run cancels its transient transaction record after
+planning. If any live native step fails, the scoped transaction is allowed to close and the Bridge performs
+an immediate `UndoTransaction`; `FScopedTransaction::Cancel` is not rollback.
+The previous package-dirty state is restored after undo. A missing transaction
+capability fails before live mutation with
+`capability.transaction_unavailable`; a failed undo is reported as
+`validation.rollback_failed`. A successful Patch containing only no-ops may
+cancel its empty transaction and does not dirty the asset.
 
 If the adapter cannot preflight an operation's exact native effects or derive a
 required generated Pin precisely, it rejects the Patch with a diagnostic that

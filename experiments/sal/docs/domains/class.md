@@ -294,10 +294,18 @@ default-subobject internals. The `properties` collection remains the discovery
 surface for Reflection fields outside this Defaults collection.
 
 Default values use the owning Property's native UE `ExportText` form wrapped in
-an SAL string. SAL does not translate the value into a second type system. The
-first design addresses only top-level Properties; Struct members and container
+an SAL string. SAL does not translate the value into a second type system.
+The one exception is native fixed-dimension `FProperty::ArrayDim > 1`: UE
+exports and imports those values per element, so SAL uses its existing array
+Expr with exactly `ArrayDim` native strings in index order. A dynamic
+`FArrayProperty` still uses one complete native string. The first design
+addresses only top-level Properties; Struct members and dynamic-container
 elements are read and written as part of the complete native Property value.
 It does not add nested value paths.
+
+```sal
+actorClass.SomeFixedArray = ["1.000000", "2.000000", "3.000000"]
+```
 
 An exact read first declares the compact Class binding needed by its member
 references, then returns the Property binding, value, and source comments in
@@ -484,9 +492,16 @@ notifications, archetype propagation, and an explicit
 `FBlueprintEditorUtils::MarkBlueprintAsModified` call. `dry run` shares parse,
 resolve, validation, and planning, then stops before creating Sparse data,
 opening a transaction, sending notifications, or dirtying the Blueprint.
+Any changing live Patch requires an available top-level editor transaction and
+verifies that its scoped transaction is outstanding before CDO mutation or
+Sparse allocation. Otherwise it returns `capability.transaction_unavailable`
+with `applied: false`; dry run and live no-op requests do not require a
+transaction.
 
-Successful application returns refreshed exact Default text for every affected
-Property in Patch order:
+Successful application returns refreshed exact Default text once for every
+final affected Property. If one Property appears more than once, its group is
+ordered at that Property's last Patch operation. The structured `planned`
+operations still retain every input operation in original Patch order:
 
 ```sal
 doorClass.Health = "100.000000"
@@ -505,9 +520,13 @@ doorClass.Health = "100.000000"
 # applied: false
 ```
 
-Change detection includes override state as well as value. Setting an inherited
-Property to its current effective value still creates a local override and is
-not a no-op. Repeating an identical local set, or resetting an already inherited
+Change detection includes override state as well as value. UE 5.7's ordinary
+Blueprint CDO delta serialization cannot persist an explicit local override
+whose value equals its archetype. Therefore `set` of an inherited Property to
+that same inherited value is rejected with a validation diagnostic; callers
+use `reset` to inherit or set a distinct value. Loomle does not enable UE's
+experimental `FOverridableManager` to manufacture different semantics.
+Repeating an identical durable local set, or resetting an already inherited
 Property, is a no-op and must not dirty the Blueprint or create an empty
 transaction.
 
@@ -596,18 +615,20 @@ introduce a nested value path:
 
 ```ts
 type ClassPatchOp =
-  | {kind: "set"; target: MemberRef; value: string}
+  | {kind: "set"; target: MemberRef; value: string | string[]}
   | {kind: "reset"; target: MemberRef};
 ```
 
 The owner alias in `set doorClass.Health` remains the `MemberRef.object` local
 reference and is checked against the resolved Patch target.
 
-`value` is always the complete native UE text string, not a translated JSON
-number, boolean, Struct, container, or object. Class Defaults creates no
-objects, so `Patch.statements` contains only `set` and `reset`. The Bridge
-resolves each current local Property name to its exact `FFieldPath` during
-preflight.
+`value` is the complete native UE text string for `ArrayDim == 1`, including a
+dynamic `FArrayProperty`. For native fixed-dimension Properties it is an array
+of exactly `ArrayDim` native strings, one per fixed element. It is never a
+translated JSON number, boolean, Struct, dynamic container, or object. Class
+Defaults creates no objects, so `Patch.statements` contains only `set` and
+`reset`. The Bridge resolves each current local Property name to its exact
+`FFieldPath` during preflight.
 
 ### Ordered Results
 
@@ -628,7 +649,8 @@ Class constrains ordinary bindings through its interface semantics:
   nativeFields...)` Call.
 - `FunctionBinding`: local target plus `function(path: ..., type: ...,
   nativeFields...)` Call.
-- `DefaultValueBinding`: member target plus one native value string.
+- `DefaultValueBinding`: member target plus one native value string, or exactly
+  `ArrayDim` native strings in a Core array Expr for a fixed array.
 - `Comment`: `{kind: "comment", text: string}` containing one non-empty line
   without the `# ` prefix.
 
@@ -682,8 +704,10 @@ the native Class Path and any state requested by the operation. Every other
 referenced alias must likewise be bound earlier in the same array. An exact
 `default` result places the matching Property binding before its Default value
 binding. A plural `defaults` result may omit per-Property bindings to remain
-compact. A Patch result emits one
-Property/value/comment group per affected operation in Patch order.
+compact. A Patch result emits one Property/value/comment group per final
+affected Property, ordered by its last Patch operation. Object Text never
+repeats a binding target; the structured mutation plan preserves every
+original operation in Patch order.
 
 Mutation responses put this same `ObjectText` in the ordinary `object` field.
 The shared `MutationResult` extends the normal Result with execution fields such
@@ -722,6 +746,9 @@ objects. Native declarations and native ordinary defaults require source-code
 editing and recompiling.
 
 The TypeScript schema, parser, formatter, and fixtures implement the shared
-Class request and result shapes. The generic memory executor is only a contract
-fixture; Reflection, native value import/export, CDO/Sparse mutation, and all
-UE-backed behavior remain Bridge work.
+Class request and result shapes. The Bridge now resolves live Reflection,
+imports and exports native values, reads CDO/Sparse/Config provenance, and
+applies the documented CDO and Sparse edits through UE-backed paths. The
+generic memory executor remains a contract fixture rather than evidence of UE
+behavior; native C++ declarations and ordinary native defaults remain
+intentionally read-only.

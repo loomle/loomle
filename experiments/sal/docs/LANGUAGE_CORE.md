@@ -236,6 +236,10 @@ graph@G001
 `object@id` is the common cross-query spelling for concrete objects with a
 native UE identifier, but it is always resolved inside the exact request
 target. It is a scoped selector, not a global address. A bare `@id` is invalid.
+The current stable-id token contains no whitespace or `.`; `.` separates a
+following member path. Current typed stable refs map to UE Guid-like ids. If a
+future domain has a native stable id that needs `.` or whitespace, its quoted
+form must be designed explicitly rather than emitted as ambiguous text.
 Domains map the public `id` field to native identity such as BlueprintGuid,
 GraphGuid, VarGuid, VariableGuid, NodeGuid, or PinId. The object word is part of
 the reference and must match the returned object kind; an adapter never guesses

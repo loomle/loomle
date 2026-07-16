@@ -98,6 +98,9 @@ export function tryParseRef(
   const trimmed = text.trim();
   const stable = /^([A-Za-z_][A-Za-z0-9_]*)@([^\.\s]+)(?:\.(.+))?$/.exec(trimmed);
   if (stable) {
+    if (!isLocalIdentifier(stable[1])) {
+      return undefined;
+    }
     const object = { kind: stable[1], id: stable[2] };
     if (!stable[3]) {
       return object;

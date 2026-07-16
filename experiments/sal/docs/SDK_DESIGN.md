@@ -211,8 +211,8 @@ interface TextResult {
 ```ts
 interface SalExecutor {
   readonly interfaces: readonly string[];
-  query(object: Query): Promise<ObjectResult>;
-  patch?(object: Patch): Promise<ObjectResult>;
+  query(object: Query): Promise<Result>;
+  patch?(object: Patch): Promise<MutationResult>;
 }
 ```
 
@@ -231,7 +231,7 @@ semantics.
 Object Text, results, mutation fields, and diagnostics. Generated TypeScript is
 written to `src/generated/sal-object-schema.ts`.
 
-The future UE boundary carries schema-valid normalized JSON in both directions:
+The UE Bridge boundary carries schema-valid normalized JSON in both directions:
 
 ```txt
 TypeScript SDK -> normalized JSON RPC -> UE Bridge -> normalized JSON -> SDK
@@ -239,7 +239,9 @@ TypeScript SDK -> normalized JSON RPC -> UE Bridge -> normalized JSON -> SDK
 
 TypeScript keeps SAL parsing and formatting. C++ owns codecs and every operation
 that depends on UE state. A direct RPC caller must receive the same structural
-validation as an SDK caller.
+validation as an SDK caller. Loomle's UE 5.7 plugin exposes this executor as
+`sal.query` and `sal.patch`; an SDK host supplies the transport-specific
+`SalExecutor` wrapper around those two RPC calls.
 
 ## Diagnostics
 

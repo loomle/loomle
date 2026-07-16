@@ -13,6 +13,7 @@ import type {
   PatchOperation,
   Query,
   Ref,
+  Result,
   SalExecutor,
   StableRef,
   Statement,
@@ -58,7 +59,9 @@ export function createMemoryExecutor(options: CreateMemoryExecutorOptions): Memo
     },
     async patch(patch) {
       const index = documents.findIndex((document) => sameTarget(document.target, patch.target));
-      if (index < 0) return notFound(patch.target);
+      if (index < 0) {
+        return mutationResult(patch, undefined, notFound(patch.target).diagnostics, false, false);
+      }
       const planned = applyPatch(documents[index].object, patch);
       if ("diagnostics" in planned && planned.diagnostics.some((item) => item.severity === "error")) {
         return planned;
@@ -226,12 +229,31 @@ function applyOperation(
       return undefined;
     }
     case "replace": {
-      const binding = declared.get(operation.with.name);
-      if (!binding) return error("resolution.binding_not_found", `Binding ${operation.with.name} was not declared.`);
-      const index = findBindingIndex(object, operation.target);
-      if (index < 0) return error("resolution.object_not_found", `Object ${refKey(operation.target)} was not found.`);
-      object.statements.splice(index, 1, structuredClone(binding));
-      touched.push(structuredClone(binding));
+      const declaredBinding = isLocalRef(operation.with) ? declared.get(operation.with.name) : undefined;
+      let replacement = declaredBinding;
+      let replacementIndex = -1;
+      if (!replacement) {
+        replacementIndex = findBindingIndex(object, operation.with);
+        replacement = replacementIndex >= 0 && isBinding(object.statements[replacementIndex])
+          ? object.statements[replacementIndex] as Binding
+          : undefined;
+      }
+      if (!replacement) {
+        return error(
+          isLocalRef(operation.with) ? "resolution.binding_not_found" : "resolution.object_not_found",
+          `${isLocalRef(operation.with) ? "Binding" : "Object"} ${refKey(operation.with)} was not found.`,
+        );
+      }
+      let targetIndex = findBindingIndex(object, operation.target);
+      if (targetIndex < 0) return error("resolution.object_not_found", `Object ${refKey(operation.target)} was not found.`);
+      if (replacementIndex === targetIndex) return error("validation.replace_same_object", "Replacement and target must be different objects.");
+      const replacementCopy = structuredClone(replacement);
+      if (replacementIndex >= 0) {
+        object.statements.splice(replacementIndex, 1);
+        if (replacementIndex < targetIndex) targetIndex -= 1;
+      }
+      object.statements.splice(targetIndex, 1, replacementCopy);
+      touched.push(replacementCopy);
       return undefined;
     }
     case "invoke":
@@ -322,7 +344,7 @@ function sameTarget(left: Target, right: Target): boolean {
   return JSON.stringify(left.value) === JSON.stringify(right.value);
 }
 
-function notFound(target: Target): ObjectResult {
+function notFound(target: Target): Result {
   return { diagnostics: [error("resolution.target_not_found", `No in-memory object is registered for target ${target.alias}.`)] };
 }
 

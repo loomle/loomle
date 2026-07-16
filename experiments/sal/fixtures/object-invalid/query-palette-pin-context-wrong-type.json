@@ -1,0 +1,15 @@
+{
+  "kind": "query",
+  "target": {
+    "alias": "graph",
+    "value": {
+      "kind": "call",
+      "callee": "graph",
+      "args": { "id": "graph-guid" }
+    }
+  },
+  "operation": {
+    "kind": "palette_entries",
+    "pinContext": "pin@pin-guid"
+  }
+}

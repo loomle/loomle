@@ -1,8 +1,10 @@
 import type {
   Diagnostic,
+  MutationResult,
   ObjectResult,
   Patch,
   Query,
+  Result,
   ResultPage,
   SalObject,
 } from "./generated/sal-object-schema.js";
@@ -111,8 +113,8 @@ export interface CreateSalOptions {
 
 export interface SalExecutor {
   readonly interfaces: readonly string[];
-  query(object: Query): Promise<ObjectResult>;
-  patch?(object: Patch): Promise<ObjectResult>;
+  query(object: Query): Promise<Result>;
+  patch?(object: Patch): Promise<MutationResult>;
 }
 
 export { formatSalObject } from "./formatter.js";

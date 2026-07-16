@@ -110,6 +110,34 @@ const invalidReference = await createSal({ executor: invalidReferenceExecutor })
 assert.equal(invalidReference.diagnostics[0]?.code, "language.invalid_result_shape");
 console.log("[PASS] executor output preserves ordered local-reference semantics");
 
+const queryMutationEnvelope = await createSal({
+  executor: {
+    interfaces: ["graph"],
+    async query() {
+      return {
+        diagnostics: [],
+        isError: false,
+        dryRun: false,
+        valid: true,
+        applied: false,
+        operation: "patch",
+      } as never;
+    },
+  },
+}).query(queryText);
+assert.equal(queryMutationEnvelope.diagnostics[0]?.code, "language.invalid_result_shape");
+console.log("[PASS] query rejects a mutation envelope");
+
+const patchPlainEnvelope = await createSal({
+  executor: {
+    interfaces: ["graph"],
+    async query() { return { diagnostics: [] }; },
+    async patch() { return { diagnostics: [] } as never; },
+  },
+}).patch(patchText);
+assert.equal(patchPlainEnvelope.diagnostics[0]?.code, "language.invalid_result_shape");
+console.log("[PASS] patch requires a mutation envelope");
+
 const inheritedRequestAliasExecutor: SalExecutor = {
   interfaces: ["graph"],
   async query() {

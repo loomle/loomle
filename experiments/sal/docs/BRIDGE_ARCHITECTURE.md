@@ -1,452 +1,443 @@
 # SAL Bridge Architecture
 
-> Target contract. The existing UE Bridge still exposes legacy `lgl.query`,
-> `lgl.patch`, `Private/Lgl`, and `FLgl*` names. Renaming and reimplementing that
-> code belongs to the later Bridge phase; those current identifiers do not
-> define SAL's public naming.
+## Status
+
+This document defines the Unreal Engine Bridge for the implemented SAL SDK
+contract. The Bridge exposes only `sal.query` and `sal.patch`; the former LGL
+runtime and its grouped JSON model have been removed.
+
+The Bridge migration changes no SAL Text syntax. The normative public contract
+remains:
+
+- [`LANGUAGE_CORE.md`](LANGUAGE_CORE.md) for SAL Text and normalized objects;
+- [`SDK_DESIGN.md`](SDK_DESIGN.md) for the SDK and executor boundary;
+- [`DIAGNOSTICS.md`](DIAGNOSTICS.md) for diagnostics;
+- [`interfaces/`](interfaces/) for static interface cards;
+- [`domains/`](domains/) for UE semantics.
 
 ## Intent
 
-The UE bridge executes normalized SAL Object JSON against live Unreal Editor
-state. It does not parse SAL text. Text parsing, pure normalization, source
-spans, and formatting remain in the TypeScript SDK.
+The Bridge is the UE-backed `SalExecutor`. It receives schema-valid normalized
+JSON, resolves it against live Editor state, executes UE-native reads and
+edits, and returns schema-valid ordered Object Text.
 
-The bridge exists to keep UE as the source of truth for assets, graphs, pins,
-palette entries, target-state validation, mutation legality, transactions,
-reconstruction, dirtying, and compile-related feedback. Structural schema
-validation remains tied to the shared SAL object schema.
+The SDK owns SAL Text parsing, pure normalization, formatting, static
+`sal.schema(module?)`, and source spans. The Bridge owns every decision that
+requires UE state: target identity, available interfaces, fields, Palette,
+Graph Schema behavior, Reflection, transactions, reconstruction, compilation,
+save behavior, and final readback.
 
-## Public RPC
+SAL does not replace UE's object model. Bridge code should expose UE state
+through SAL structure while preserving native paths, ids, types, field names,
+enum values, and value text.
 
-The target bridge-facing SAL RPC surface is:
+## RPC Boundary
+
+The Bridge exposes two normalized-object RPC methods:
 
 ```txt
 sal.query
 sal.patch
 ```
 
-The target milestone registers `sal.query` and `sal.patch`. `sal.query`
-performs live readback. `sal.patch` starts with graph palette-node creation and
-direct pin connection: `add` can consume a normalized `palette_node` binding,
-resolve the palette id through UE Action Menu, validate default pins, and
-create the node through UE's node-spawner path; `connect` resolves pin refs,
-validates direct connections through the UE graph schema, and applies them with
-`TryCreateConnection`. Other graph edit operations must return clear
-`not_implemented` diagnostics until they share parse, resolve, validate, plan,
-and apply paths.
-
-`sal.query` and `sal.patch` receive an object envelope:
+Both receive one envelope:
 
 ```json
 {
   "object": {
-    "kind": "query",
-    "target": {}
+    "kind": "query"
   }
 }
 ```
 
-Responses are `ObjectResult` JSON:
+Both return an `ObjectResult` directly:
 
 ```json
 {
-  "object": {},
+  "object": {
+    "statements": []
+  },
   "diagnostics": []
 }
 ```
 
-`ObjectResult.object` is a normalized SAL object such as `graph`,
-`asset_result`, `blueprint_result`, `widget_result`, or `palette_result`.
-`graph` is not a separate response envelope.
+`sal.patch` returns `MutationResult`, which extends the same object and
+diagnostic shape with execution fields. The Bridge never receives or returns
+SAL Text. It does not expose a Bridge RPC for static `sal.schema`; static cards
+remain SDK-owned. Exact `with schema` is an ordinary live Query.
 
-The TypeScript SDK owns the static `sal.schema(module?)` interface.
-`sal.schema()` returns the active-module Text index and
-`sal.schema(module)` returns one registered static interface card; neither
-requires a bridge RPC or live UE state. Dynamic exact-object discovery remains
-a normal `sal.query` request using `with schema` and is executed by the owning
-UE adapter.
+The RPC handler reuses Loomle's existing game-thread dispatch. No SAL service
+may access Editor UObjects from the pipe worker thread.
 
-## Flow
+## End-To-End Flow
 
 ```txt
-TypeScript SDK
-  -> SAL text parse
-  -> pure normalization
-  -> SAL Object JSON
-  -> sal.query / sal.patch
-  -> UE bridge core
-  -> target-domain adapter
-  -> shared UE services
-  -> ObjectResult JSON
-  -> TypeScript formatter
+SAL Text
+  -> SDK parse and pure normalization
+  -> normalized Query or Patch JSON
+  -> sal.query or sal.patch
+  -> Bridge envelope and schema validation
+  -> recursive Target resolution
+  -> interface composition
+  -> one interface-owned Query handler or atomic Patch planner
+  -> UE-native execution
+  -> ordered ObjectText and diagnostics
+  -> Bridge result validation
+  -> normalized ObjectResult JSON
+  -> SDK formatting
 ```
 
-## Layers
+The Bridge repeats normalized-object validation because direct or stale RPC
+callers may bypass the SDK. This does not move Text parsing into C++.
 
-Bridge core owns:
+## Normalized Model
 
-- RPC method registration
-- request envelope decoding
-- structural validation against the SAL object contract
-- adapter dispatch by `target.domain`
-- result and diagnostic encoding
-- response validation before returning across the RPC boundary
+The C++ core decodes the shared schema into one typed internal model matching
+`schema/sal-object.schema.json`:
 
-Domain adapters own target semantics:
+- `Target`: alias plus `Call | Name`;
+- `Expr`: scalar, name, reference, call, array, or inline object;
+- `Query`: target, one operation, and optional clauses;
+- `Patch`: target, dry-run flag, and one ordered statement list;
+- `ObjectText`: one ordered list of Binding, Edge, and Comment;
+- `ObjectResult`: ordinary result or mutation result.
 
-- `asset` adapter: Asset Registry search and asset references
-- `blueprint` adapter: Blueprint class, graph, member, component, and palette
-  semantics
-- `widget` adapter: WidgetBlueprint tree and palette semantics
-- future adapters: Material, PCG, Niagara, Control Rig, and other UE graph
-  systems
+Domain services do not hand-parse the RPC envelope or invent private request
+wrappers. The codec must preserve every Patch and result statement in input
+order.
 
-Shared UE services own editor operations that are genuinely domain-neutral:
+The JSON Schema remains the cross-language source of truth. The first C++
+implementation may use hand-written typed decoding, but structural checks stay
+central and are covered by the same valid and invalid fixtures as the SDK.
+Adapters receive decoded values only after the core has verified required
+fields, union discriminators, reference shapes, and ordered alias safety.
 
-- asset resolution
-- value and pin conversion
-- transaction, dirtying, reconstruction, and compile feedback helpers
+## Target Resolution
 
-Graph resolution, graph readback, graph patch planning, and palette discovery
-belong first to the owning domain adapter, such as Blueprint, Material, PCG, or
-WidgetBlueprint. A helper should move into a shared graph layer only after it no
-longer depends on domain APIs such as Blueprint Action Menu, K2 schemas,
-Material expressions, or PCG settings.
-
-## Core Contracts
-
-The bridge core should keep a narrow internal contract:
-
-```txt
-FLglObjectRequest
-  object: normalized Query or Patch JSON
-
-FLglObjectResult
-  object?: normalized SAL object JSON
-  diagnostics: diagnostics
-  page?: pagination cursor
-```
-
-The first implementation may keep decoded objects as `FJsonObject` plus typed
-accessors. It should still use the same contract boundaries that generated or
-hand-written structs would use later:
-
-```txt
-RPC arguments
-  -> FLglJsonCodec decode envelope
-  -> FLglSchemaValidator validate language-level request object
-  -> FLglAdapterRegistry dispatch
-  -> shared domain capability validation
-  -> FLglDomainAdapter
-  -> FLglObjectResult
-  -> FLglSchemaValidator validate language-level result
-  -> FLglJsonCodec encode response
-```
-
-`FLglJsonCodec` owns JSON field extraction, required-field diagnostics, and
-normalizing error paths such as `object.target.graph`. Domain adapters should
-not hand-parse the RPC envelope.
-
-`FLglSchemaValidator` owns structural contract validation. If a full JSON Schema
-engine is not available in the first pass, the validator should still exist as
-the single validation boundary and perform focused checks for supported objects.
-The exit condition is to replace or extend it with validation against
-`schema/sal-object.schema.json`, not to scatter schema checks through adapters.
-
-`FLglDiagnostics` owns stable diagnostic shape and helper constructors. Domain
-code should return diagnostics through this helper so source paths,
-suggestions, severity, and codes remain consistent. The bridge diagnostic shape
-and code layers are defined in [`DIAGNOSTICS.md`](DIAGNOSTICS.md).
-
-## Validation Boundaries
-
-Validation has three layers. They must stay separate so domain adapters do not
-repeat language checks and the SDK does not need UE state.
-
-### SDK Language Validation
-
-The SDK is the first validation boundary because it owns SAL text parsing and
-pure normalization. It should reject text and normalized JSON that violate
-language-level rules before any adapter or bridge call:
-
-- top-level text kind is object, query, or patch
-- query clauses have valid shape
-- patch operations have valid shape
-- constructor calls use named arguments
-- references, values, arrays, and inline objects are syntactically valid
-- `where` lowers to a valid `Condition` tree
-- `with` lowers to a string detail list
-- `order by` lowers to `{ key, direction }` entries
-- `page` lowers to `limit` and/or `after`
-
-SDK language validation must not decide whether a domain supports a `find`
-kind, `where` field, detail expansion, order key, palette entry, graph node,
-widget class, Blueprint member, or UE asset path. Those are domain or UE-state
-questions.
-
-### Bridge Core Language Validation
-
-The bridge core repeats language-level object validation at the RPC boundary
-because callers may bypass the SDK or send stale JSON. This is not domain
-validation. It protects C++ code from malformed normalized objects:
-
-- request envelope contains an `object`
-- `object.kind` matches the RPC method
-- `target.domain` exists
-- `find`, when present, is an object with `kind`
-- `where`, when present, is a structurally valid `Condition` tree
-- `with`, when present, is an array of non-empty strings
-- `orderBy`, when present, is an array of order entries
-- `page`, when present, has valid `limit` and/or `after` fields
-- result diagnostics and result envelopes have valid shape
-
-Bridge core validation should be implemented once in `FLglSchemaValidator` or
-a generated JSON Schema-backed validator. Domain adapters should not duplicate
-recursive condition validation, order entry validation, page shape validation,
-or RPC-envelope validation.
-
-### Domain Capability Validation
-
-After language validation succeeds, the target domain validates whether the
-language-valid request is supported for that domain and current implementation
-milestone.
+`Target` has no public domain field and no domain-specific union. The Bridge
+resolves `Target.value` recursively.
 
 Examples:
 
-- `asset` may support `find assets`, `where root/type/class/name/path`,
-  `with registryTags`, `order by score/name/path/type/class`, and cursor
-  pagination.
-- `blueprint` may support `find class`, `find members`, `find components`, and
-  graph targets with graph-specific `find` forms.
-- graph-owning domains may return complete Pins for exact Nodes and Palette
-  Entries while keeping collection and traversal results compact.
-
-The shared domain validator should consume a capability declaration rather than
-forcing every adapter to hand-code the same rejections:
-
-```cpp
-struct FLglQueryCapabilities
-{
-    TSet<FString> FindKinds;
-    TSet<FString> WhereFields;
-    TSet<FString> WithDetails;
-    TSet<FString> OrderKeys;
-    bool bSupportsPageAfter = false;
-    bool bSupportsCompare = false;
-};
-```
-
-Adapters should supply capabilities and then execute already validated
-requests:
-
 ```txt
-decode
-  -> bridge language validate
-  -> dispatch domain
-  -> shared capability validate
-  -> domain execution
+asset
+asset(path: "/Game/BP_Door.BP_Door")
+blueprint(asset: "/Game/BP_Door.BP_Door", id: "...")
+class(path: "/Game/BP_Door.BP_Door_C")
+graph(asset: blueprint(...), id: "...")
 ```
 
-Capability validation returns diagnostics such as
-`capability.unsupported_query_feature`,
-`capability.unsupported_where_field`, `capability.unsupported_detail`,
-`capability.unsupported_order_key`, and `capability.unsupported_pagination`, but
-it should not report malformed-language errors.
-Malformed-language errors belong to SDK and bridge core validation.
-Concrete diagnostic objects should follow [`DIAGNOSTICS.md`](DIAGNOSTICS.md),
-including the `language.*`, `capability.*`, `resolution.*`, and `validation.*`
-code prefixes.
+The target resolver dispatches only by the structural root Name or Call
+callee. Each constructor branch:
 
-## Adapter Contract
+1. validates locator fields for that Call;
+2. recursively resolves nested owner Calls;
+3. loads or finds the native UE object;
+4. verifies every supplied native identity;
+5. records the exact owner chain and persistent asset owner;
+6. returns the native object and interfaces it can compose.
 
-Adapters are registered by domain:
+Resolution never treats display text, `name`, `type`, or another convenient
+field as fallback identity. A scoped id is resolved only inside the owner
+established by the complete target.
 
-```cpp
-class ILglDomainAdapter
-{
-public:
-    virtual FString GetDomain() const = 0;
-    virtual FLglObjectResult Query(const FLglQueryRequest& Request) = 0;
-    virtual FLglObjectResult Patch(const FLglPatchRequest& Request) = 0;
-};
-```
+Each resolver consumes only its declared locator fields and ignores descriptive
+state carried by a complete returned binding. Copying full Object Text back
+into a later request therefore remains valid without turning status, layout,
+native type, or other readback fields into implicit assertions.
 
-The concrete C++ signatures may differ, but the semantic contract should not:
+The initial resolvers are:
 
-- adapter dispatch is based only on `target.domain`
-- adapters receive already decoded and structurally validated request objects
-- adapters may reject unsupported domain target shapes, query forms, or patch
-  ops through shared capability validation where possible
-- adapters return normalized SAL result objects, not formatted text
-- adapters do not call public legacy tool handlers
+| Target value | Native result |
+| --- | --- |
+| root `asset` Name | Asset Registry collection scope |
+| `asset(...)` | exact `FAssetData`, UObject when loading is required, and Package |
+| `blueprint(...)` | `UBlueprint` with Asset Path and BlueprintGuid verification |
+| `class(...)` | exact `UClass` |
+| `graph(...)` | exact `UEdGraph` plus its resolved asset-backed owner |
 
-Graph targets are handled by the owning domain adapter. For example,
-`target.domain = "blueprint"` with a graph reference dispatches to the
-Blueprint adapter, which may delegate graph read and patch mechanics to shared
-services.
+GraphGuid, NodeGuid, and PinId remain owner-scoped. BlueprintGuid verifies a
+Blueprint loaded by Asset Path; it is not a project-wide lookup key.
 
-## Dispatch Rule
+## Interface Composition
 
-Adapters are dispatched by `target.domain`.
+Public interface modules organize discoverable behavior; they are not target
+routers. After target resolution, the Bridge derives active interfaces from
+the real UObject Class, inheritance, owner, Graph Schema, and current state.
 
-Graph behavior is not a standalone dispatch target in the bridge. A graph always
-belongs to a UE domain such as Blueprint, Material, PCG, or WidgetBlueprint. The
-domain adapter owns concrete graph read, palette, and patch services for that
-domain. Shared graph helpers must stay protocol-level or truly domain-neutral.
+For example, UE 5.7 defines `UWidgetBlueprint` through
+`UBaseWidgetBlueprint`, `UUserWidgetBlueprint`, and `UBlueprint`. One resolved
+`blueprint(...)` target therefore composes Blueprint and Widget behavior. SAL
+does not need a second Widget target or a public domain selector.
 
-## Code Shape
+Each active interface contributes one closed capability surface for the
+resolved target:
 
-Recommended C++ layout:
+- Query operation handlers;
+- supported `where` fields and operators;
+- supported `with` details;
+- order keys and pagination behavior;
+- Patch statement handlers and operation schemas;
+- direct Palette providers;
+- exact-object dynamic schema providers.
 
-```txt
-Private/Lgl/
-  LglModule.*
-  LglDomainAdapter.*
-  LglAdapterRegistry.*
-  LglObjectModel.*
-  LglJsonCodec.*
-  LglSchemaValidator.*
-  LglDiagnostics.*
-  LglResult.*
+Concrete normalized operations map to exactly one handler. A more specific
+interface may explicitly replace a general operation, such as a
+WidgetBlueprint's combined `summary` and Palette. Dispatch is explicit in the
+SAL module and never depends on map or module registration order.
 
-Private/Lgl/Services/
-  LglAssetRegistry.*
-  LglAssetResolve.*
-  LglGraphResolve.*
-  LglGraphRead.*
-  LglGraphPatch.*
-  LglPalette.*
+An interface may represent this surface as a table or as closed shared
+predicates beside its handlers. In either form, clause validation, execution,
+`with schema`, and diagnostic `supported` lists must derive from the same
+operation definitions rather than four independent guesses.
 
-Private/Lgl/Blueprint/
-  LglBlueprintAdapter.*
-  LglBlueprintQuery.*
-  LglBlueprintPatch.*
-  LglBlueprintDiagnostics.*
-```
+## UE Backends
+
+An interface is a stable agent-facing operation surface. A backend is the
+UE-family-specific implementation selected after native resolution.
+
+Graph is the important case. The public `graph` interface defines Graph,
+Node, Pin, Edge, flow, Palette, and Patch behavior. A resolved Graph selects a
+backend from its owner, `UEdGraphSchema`, and native Node family. The Blueprint
+K2 backend may support Exec and data flow; a future Material or PCG backend may
+compose a different subset without changing Target, Query, Patch, reference,
+or result contracts.
+
+Shared services may contain genuinely reusable mechanics such as:
+
+- Asset Path and Package resolution;
+- Reflection value export and import;
+- ordered Object Text construction;
+- alias generation and scoped reference resolution;
+- transaction and dirty-state helpers;
+- compile and save result handling.
+
+A service must remain in its UE backend when it relies on K2 Action Menu,
+Blueprint spawners, SCS, WidgetTree, Material expressions, PCG settings, or
+another family-specific API.
 
 ## Query Pipeline
 
-`sal.query` should use the same bridge core for every domain:
+Every Query follows one path:
 
 ```txt
-sal.query
-  -> decode ObjectRequest
-  -> validate query language shape
-  -> dispatch target.domain
-  -> validate domain query capabilities
-  -> adapter query
+decode and validate Query
+  -> resolve Target
+  -> resolve active interfaces
+  -> select operation handler
+  -> validate clauses against that operation
+  -> resolve scoped ids and names
+  -> read live UE state
+  -> build ordered ObjectText
   -> validate ObjectResult
 ```
 
-The Blueprint graph query adapter then owns:
+Plural operations enumerate or search. Singular operations resolve exact
+current names. Typed stable references resolve exact native ids inside the
+target. Relationship operations use their explicit target and depth.
+
+`with schema` is valid only where the selected interface declares it. It
+describes the primary exact subject of the Query. It does not recursively add
+schema for child Pins, Properties, Widgets, or other returned context.
+
+Pagination stays in `Result.page`. A cursor is opaque to the SDK and must bind
+to the operation, target, ordering, and filters that produced it.
+
+Composition combines discovery surfaces, not unrelated mutation engines. One
+authored Patch is owned by one interface planner so preflight, apply, and
+rollback remain atomic. A composed target may therefore require separate
+Blueprint and Widget authored Patches; terminal compile/save remains a third,
+independent Blueprint request. The Bridge rejects a mixed-interface Patch
+instead of splitting it into partially committed mutations.
+
+## Ordered Object Text
+
+All interfaces return one `ObjectText.statements` array. A shared result
+builder appends Binding, Edge, and Comment statements in reading order and
+enforces:
+
+1. the result starts with an empty alias scope;
+2. every owner binding precedes member bindings that use it;
+3. every Edge follows both endpoint bindings;
+4. every local alias and binding target is unique;
+5. comments stay immediately after the statement they explain;
+6. the result declares compact target or owner bindings instead of inheriting
+   request aliases;
+7. result bindings contain only identity and state required by this result.
+
+There are no `GraphResult`, `PaletteResult`, `AssetResult`, parallel object
+arrays, or comment arrays. Query and Patch readback use the same builder.
+
+## Scoped Reference Resolution
+
+One request-local resolver owns all stable, local, and member references.
+
+For Query it resolves typed ids inside the target scope. For Patch it also
+tracks each alias through ordered states:
 
 ```txt
-GraphTarget
-  -> resolve Blueprint asset
-  -> resolve UEdGraph by name or id
-  -> interpret find/where/with/page
-  -> read UE graph state
-  -> assemble normalized graph or palette_result object
+declared -> materialized -> removed
 ```
 
-An empty graph query returns a compact graph snippet. A constrained node query
-returns a smaller graph snippet around matched nodes. Palette queries return
-`palette_result`. All result objects must remain schema-valid and formatter
-friendly.
+Palette-backed bindings remain unmaterialized until consumed by `add`,
+`insert`, `wrap`, `replace`, or the owning operation. `invoke` outputs become
+materialized at that statement. Later statements resolve against the same
+provisional state.
+
+Reference resolution is separate from object mutation. Domain services ask the
+resolver for a typed native subject and receive a resolution diagnostic rather
+than reinterpreting JSON references independently.
 
 ## Patch Pipeline
 
-`sal.patch` should be designed before implementation even if it is not the
-first milestone:
+Every Patch follows the shared Mutation Dry Run Contract:
 
 ```txt
-sal.patch
-  -> decode ObjectRequest
-  -> validate patch language shape
-  -> dispatch target.domain
-  -> validate domain patch capabilities
-  -> adapter patch
-  -> validate ObjectResult
+decode and validate ordered Patch
+  -> resolve Target
+  -> select one interface-owned planner
+  -> resolve existing objects and Palette identities
+  -> advance aliases and build provisional state in statement order
+  -> validate every field, operation, relationship, and native side effect
+  -> build one complete plan
+  -> verify live state still matches the plan base
+  -> stop for dry run, or apply as one mutation
+  -> read back actual current state
+  -> validate MutationResult
 ```
 
-Domain patch adapters should follow Loomle's mutation dry-run contract:
+Dry run and apply share decode, resolution, validation, provisional state, and
+plan construction. Dry run never inserts provisional objects into returned
+Object Text as if they existed.
 
-1. Decode patch target, bindings, and ordered ops.
-2. Resolve assets, graphs, members, palette ids, and shortcut constructors.
-3. Build provisional created objects and their pins/properties when needed.
-4. Resolve all references against existing state plus provisional state.
-5. Validate legality through UE schemas and target state.
-6. Build a patch plan.
-7. If `dryRun`, return diagnostics and planned result without mutation.
-8. Otherwise apply inside a UE transaction, mark assets dirty, reconstruct as
-   needed, and return a normalized result.
+Authored edits use one transaction and backend-specific notifications,
+reconstruction, propagation, and dirtying. If a backend cannot predict a
+required generated identity or the complete effects needed for safe planning,
+it rejects the Patch before mutation. It does not guess or silently reduce the
+operation.
 
-Dry run is not a separate adapter path. It stops the same patch pipeline before
-mutation.
+Every interface builds mutation execution fields through `SalRuntime`, which
+delegates the envelope to the shared `LoomleMutation::BuildMutationResult`
+utility. Interfaces supply only ordered readback, diagnostics, plan, resolved
+references, diff, and their native apply behavior.
 
-## Milestones
+Terminal compile and save follow their interface's explicit ordering and
+rollback rules. They are not folded into an authored-edit transaction when the
+domain document defines them as a separate request.
 
-Milestone 1 builds the complete bridge skeleton:
+## Dynamic Schema
 
-- keep `sal.query` registered
-- add the bridge core boundaries above
-- add adapter registry and Blueprint adapter registration
-- add request/result codec
-- add schema validator boundary, even if initially focused on supported shapes
-- add shared query capability validation before adding more domain query
-  features
-- keep `sal.patch` as a planned target, not a registered working tool unless it
-  returns a clear `not_implemented`
+Static interface cards remain SDK resources. Live `with schema` uses the exact
+resolved target or subject and the same interface capability definitions used
+for execution.
 
-Milestone 2 confirms SDK language validation before expanding bridge domain
-features:
+The selected schema provider returns ordinary Object Text followed by a
+structured multi-line Comment describing only executable current behavior:
 
-- audit parser and normalizer rejection of malformed query, patch, condition,
-  detail, order, and page shapes
-- ensure in-memory adapters reject capability issues separately from language
-  issues
-- add missing SDK tests for language-level rejection and normalized object
-  schema validation
-- keep static `sal.schema(module?)` SDK-owned and separate from the internal
-  normalized Object JSON Schema
-- route dynamic exact-object `with schema` through the normal adapter query path
+- accepted Query operations or exact fields;
+- native type and value text;
+- writable/resettable fields and constraints;
+- direct Patch statements;
+- available `invoke` Operations, parameters, outputs, and effects;
+- Palette constructor arguments and determinable future members.
 
-Milestone 3 implements UE-backed asset query:
+Schema discovery must not advertise an operation that the current Bridge
+cannot plan and execute.
 
-- register an `asset` domain adapter
-- query Asset Registry without loading assets by default
-- support `find assets`, primary search text, supported `where` fields,
-  `with registryTags`, ordering, and pagination
-- return schema-valid `asset_result` objects
-- expose shared asset registry and asset resolution services for later domains
+## Diagnostics
 
-Milestone 4 implements Blueprint graph query readback:
+The Bridge produces `language.*` only for malformed normalized JSON or an
+invalid result at the RPC boundary. After decoding:
 
-- accept normalized query object JSON
-- support `GraphTarget` objects where `target.domain = "blueprint"`
-- resolve Blueprint asset and graph references
-- return a compact graph snippet for an empty query
-- support compact Node search and exact Node reads with complete Pins
-- return actionable diagnostics for malformed objects, unsupported domains,
-  missing assets, missing graphs, unknown nodes, and ambiguous nodes
+- `capability.*` means the resolved target does not expose a language-valid
+  operation or clause;
+- `resolution.*` means a target, id, name, reference, or Palette entry is
+  missing or ambiguous;
+- `validation.*` means the resolved operation is illegal in current UE state.
 
-Milestone 5 adds Blueprint palette discovery:
+All codes must exist in the shared diagnostic catalog. Diagnostics should use
+normalized JSON paths and include one copyable next action when it is known.
+Adapters use one shared diagnostic builder and never return legacy Bridge error
+objects as SAL results.
 
-- support `find palette entry`
-- use UE Action Menu and node spawners as the source of truth
-- return `palette_result`
-- return every template Pin and default UE can determine for an exact Palette
-  Entry
+## Code Shape
 
-Milestone 6 adds Blueprint graph patch dry run and mutation:
+The target implementation uses SAL names throughout:
 
-- support graph patch ops through one patch planning pipeline
-- resolve palette ids and shortcut constructors
-- support `add` for palette-node bindings first
-- support direct `connect` operations without auto-inserting conversion or
-  promotion nodes
-- validate one-shot add/connect and insert operations before mutation
-- apply through UE transactions, default-setting, and reconstruction paths
+```txt
+Private/Sal/
+  SalModule.*
+  SalModel.*
+  SalJson.*
+  SalDiagnostics.*
+  SalObjectBuilder.*
+  SalTargetResolver.*
+  SalRuntime.*
 
-Asset, widget, Material, PCG, and other domains should plug into the same core
-after the Blueprint path proves the boundary.
+Private/Sal/Asset/
+Private/Sal/Blueprint/
+Private/Sal/Class/
+Private/Sal/Graph/
+Private/Sal/Widget/
+```
+
+Request-local reference resolution, capability checks, and mutation planning
+remain inside the owning interface while they depend on its provisional native
+state; they do not require empty public wrapper classes. Public C++ classes and
+namespaces use `FSal*` and `Loomle::Sal`.
+
+## Legacy Migration
+
+The migration does not maintain a compatibility adapter for the old LGL JSON
+model. The old surface is not part of the public SAL SDK and preserving it
+would keep two conflicting sources of truth.
+
+Reusable UE mechanics may be extracted from legacy code only after removing
+old JSON assumptions. Likely reusable areas include Asset Registry filtering,
+Blueprint Graph lookup, Action Menu and spawner enumeration, pin conversion,
+and validated Graph application. The following are replaced rather than
+ported:
+
+- `target.domain` dispatch and `ILglDomainAdapter`;
+- `find` objects and legacy query capabilities;
+- grouped Graph, Asset, and Palette result payloads;
+- old binding/operation parallel arrays;
+- `FLglSchemaValidator` and old request-specific JSON readers;
+- public `lgl.query` and `lgl.patch` registration.
+
+The old RPC methods are removed when `sal.query` and `sal.patch` compile and
+the normalized contract tests pass. No dual-mode runtime is required.
+
+## Implemented Slices
+
+The implementation is organized as vertical executable slices:
+
+1. core JSON model, validation, Target resolution, capability composition,
+   ordered result building, diagnostics, and RPC cutover;
+2. Asset Registry discovery and exact asset ownership;
+3. Blueprint-owned Graph summary, Node and Pin reads, traversal, Palette, and
+   dynamic schema;
+4. Graph Patch planning and application;
+5. Blueprint structure and finalization;
+6. Widget composition and tree editing;
+7. Class Reflection and durable Defaults;
+8. cross-interface audit and removal of legacy LGL code.
+
+Every slice shares central normalized-object and result validation, and builds
+against UE 5.7 as one plugin module.
+
+## Acceptance
+
+The Bridge phase is complete when:
+
+- `sal.query` and `sal.patch` accept the SDK's normalized schema without a
+  public domain field;
+- every active static interface operation is either executable for a matching
+  target or absent from the active interface set;
+- nested owner locators and scoped ids resolve without fallback guessing;
+- all Query and Patch responses use self-contained ordered Object Text;
+- exact `with schema` describes the same capabilities the Bridge executes;
+- dry run and apply share one plan path;
+- old `lgl.*`, `Private/Lgl`, grouped results, and old protocol validators are
+  removed;
+- the plugin builds cleanly against the supported UE 5.7 toolchain.

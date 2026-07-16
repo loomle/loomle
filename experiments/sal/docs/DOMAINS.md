@@ -177,7 +177,7 @@ Current interface cards:
   Panel Slot and Named Slot relationships, queries, Palette-backed creation,
   and widget tree patching.
 
-The TypeScript experiment includes the shared parser, formatter, schema,
-fixtures, examples, and in-memory executor coverage for asset, Blueprint,
-graph, and widget interfaces. Class request/result forms use the same schema;
-Reflection-complete behavior and all UE-backed executors remain Bridge work.
+The TypeScript SDK includes the shared parser, formatter, schema, fixtures,
+examples, and deterministic in-memory contract coverage. Loomle's UE 5.7
+Bridge implements the live asset, Blueprint, class, graph, and widget executor
+surfaces over the same normalized request and ordered result model.

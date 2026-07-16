@@ -109,7 +109,15 @@ with schema
 
 The schema comment gives exact fields, constraints, available Operations,
 parameters, outputs, and copyable `invoke` templates for the resolved UE
-context.
+context. It advertises only Operations that the resolved Node or Pin can
+execute now; for example, a non-removable dynamic Pin does not advertise its
+remove Operation.
+
+Timeline remains one compound Graph Node. An exact Timeline Node read flattens
+its paired `UTimelineTemplate` fields, ordered Tracks, internal Curve Keys, and
+external Curve references onto `node(...)`. `with schema` exposes its
+constructor fields and target-local Track, Key, Curve-ownership, duplication,
+and deletion Operations; there is no separate Timeline selector or object.
 
 ## Patch
 
@@ -152,6 +160,20 @@ invoke pin@id Operation(namedArguments) [as alias]
 `disconnect` removes one exact Edge; `break` performs UE Break All Pin Links.
 Do not declare raw Pins or guess constructor names, Classes, Palette ids,
 fields, Pins, or Operation parameters.
+
+Dry run executes the same ordered Patch against an isolated transient duplicate
+of the entire owning Blueprint, including generated Class state, Timeline
+Templates, and detached internal Curves. It returns current live Object Text,
+not transient object ids. Its transient top-level transaction is canceled after
+planning so no undo record survives. Graph Patch requires one available
+top-level UE Editor transaction. Any live apply failure ends that transaction
+and immediately undoes it; live transaction cancellation is used only for a
+successful all-no-op Patch.
+
+Both dry run and apply return the same structured `planned` data: ordered
+operations with source indexes, bindings/references/invoke names, followed by
+safe effects. Created transient objects are represented only by their source
+aliases; only touched ids that resolve back to the live Graph may appear.
 
 ## Palette
 

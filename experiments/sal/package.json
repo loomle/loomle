@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Experimental TypeScript SDK for Structured Agent Language.",
+  "description": "TypeScript SDK and normalized contract for Structured Agent Language.",
   "scripts": {
     "generate:types": "json2ts -i schema/sal-object.schema.json -o src/generated/sal-object-schema.ts --cwd . --unreachableDefinitions --unknownAny false",
     "check:generated": "npm run generate:types && git diff --exit-code -- src/generated/sal-object-schema.ts",

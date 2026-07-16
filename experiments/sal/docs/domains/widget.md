@@ -9,7 +9,8 @@ types.
 
 This document is the normative SAL design. The TypeScript SDK implements its
 shared Query, Patch, ordered Object Text, schema, and in-memory executor forms.
-The UE-backed Widget executor remains deferred Bridge work.
+The UE Bridge executes the same contract against authored WidgetBlueprint
+state.
 
 The current Widget contract covers the authored Widget tree, exact native
 Widget and Slot state, Palette-backed creation, structural editing, and Widget
@@ -25,7 +26,7 @@ The following UE systems are intentionally outside the current contract:
 
 SAL does not currently define discovery, query, or mutation behavior for these
 systems. Widget lifecycle operations must still preserve or report their native
-UE reference and cascade effects; that requirement does not make the deferred
+UE reference and cascade effects; that requirement does not make the excluded
 systems independently readable or editable.
 
 ## UE Object Boundary
@@ -420,6 +421,12 @@ with schema
 The schema applies to the target and its nested `Slot` and `NamedSlots`
 surfaces, not to compact ancestors. It reports exact readable, writable,
 resettable, and default behavior plus currently available adapter Operations.
+Writable and resettable are instance-aware Bridge decisions, not flag-only
+guesses: source Widgets and Panel Slots reject `EditConst`,
+`DisableEditOnTemplate`, `BlueprintReadOnly`, and `CanEditChange` failures;
+reset additionally rejects `NoResetToDefault`. `DisableEditOnInstance` does not
+by itself prohibit editing an authored template. Schema discovery and Patch
+execution use the same predicates.
 
 Missing GUID entries are not synthesized during a read. Zero matches return an
 unknown-object diagnostic; duplicate name or GUID state returns an ambiguity or
@@ -712,10 +719,13 @@ value is part of preflight and mutation effects.
 `NamedSlots` is therefore readable relationship state, not a writable field.
 
 `remove` means native deletion, never detach. It removes the target and its
-authored descendants, clears their Widget GUID records, delegate bindings,
-Desired Focus, and applicable Graph variable nodes, then structurally modifies
-the WidgetBlueprint. Preflight reports the complete determinable subtree and
-reference effects; failure leaves the entire Patch unchanged.
+authored descendants, clears every removed Widget GUID record and applicable
+Graph variable node, removes delegate bindings owned by the selected deletion
+root, clears Desired Focus when it names that root, and then structurally
+modifies the WidgetBlueprint. This is the exact UE 5.7 `DeleteWidgets` cascade;
+SAL does not claim additional descendant-binding cleanup that the native path
+does not perform. Preflight reports the complete determinable subtree and each
+determinable reference effect; failure leaves the entire Patch unchanged.
 
 The complete Widget Patch surface is:
 
@@ -733,6 +743,25 @@ The complete Widget Patch surface is:
 There is no inline `add parent.child = widget(...)` form. A failed validation
 applies nothing, and all mutation results use the same ordered Widget Object
 Text as queries plus the shared mutation diagnostics and effects.
+
+The mutation `planned.effects` array is execution ordered. Each entry carries
+its stable live `widget@id` plus original name when one exists, or the local
+creation alias and relationship path for a new object. Structural entries
+contain before/after Root, Panel-child, or Named Slot placement; Panel placement
+also includes the concrete Slot type and values. `wrap` and `replace` explicitly
+report external placement transfer, newly created internal Slots, preserved
+children, and discarded objects. `remove` includes the full determinable
+subtree and its GUID, delegate, Desired Focus, and Graph-node cascade. Transient
+preflight GUIDs are never returned.
+
+Dry run executes the same ordered native edit path against a fully transient
+WidgetBlueprint sandbox. The sandbox must isolate WidgetTree Widgets, Slots,
+Navigation objects, Graphs, Generated and Skeleton Generated Classes and CDOs,
+Animations and MovieScenes, Bindings, and Blueprint Extensions. If UE cannot
+prove that every object the operation may write is in the sandbox, preflight
+fails instead of touching the live asset. Creation bindings must be consumed
+exactly once by `add`, `wrap`, or `replace`; an unused binding invalidates both
+dry run and live execution through the shared path.
 
 ### Wrap
 

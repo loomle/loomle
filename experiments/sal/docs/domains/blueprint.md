@@ -19,9 +19,10 @@ Components. Timeline differs: `UBlueprint::Timelines` stores the backing
 Node. The Graph domain owns that Node identity; the Blueprint adapter resolves
 and flattens the backing pair.
 
-The TypeScript SDK implements the shared normalized request, ordered Object
-Text, formatter, and in-memory executor contract. Live Blueprint resolution
-and UE-native mutation remain Bridge work.
+The TypeScript SDK defines the shared normalized request and ordered Object
+Text contract. The Bridge resolves that contract directly to UE Blueprint
+objects and executes reads, schema discovery, ordered edits, compile, and save
+through UE-native editor APIs.
 
 ## UE Boundary
 
@@ -118,8 +119,8 @@ itself. A first Query may bind `blueprint(asset: ...)` to discover the Guid.
 Later exact Queries should bind `asset + id`, and every Blueprint Patch must do
 so. Resolution loads by Asset Path and then strictly verifies the Guid; a
 mismatch fails without continuing by Path alone. The normalized Blueprint
-object replacement is intentionally not specified until the shared schema
-phase.
+target is the same `blueprint(asset, id)` Call used by the SDK and Bridge; no
+second Blueprint locator or domain discriminator is introduced.
 
 ## Class Settings
 
@@ -807,11 +808,10 @@ Zero matches return an unknown-object diagnostic. If invalid UE state produces
 more than one match, the adapter returns an ambiguity diagnostic rather than
 guessing from name or object type.
 
-The normalized JSON representation of Blueprint collection, exact-name, and
-typed `<object>@<id>` operations is intentionally not specified in this
-document yet. It must be reviewed before schema work; this text contract does
-not silently introduce new normalized `kind` values. The current experiment
-also does not implement this query model or `with schema`.
+The SDK normalizes these forms into the shared query operation, clause, and
+typed-reference shapes. The Bridge resolves that normalized request directly;
+Blueprint does not add parallel JSON kinds for collection, exact-name, exact-id,
+Palette, or `with schema` reads.
 
 ## Patch
 
@@ -1005,14 +1005,12 @@ can copy into a later Query or Patch. There is no Compiler Message object,
 result constructor, or mutation-only Object Text.
 
 UE's Compilation Manager may additionally compile stale dependencies or
-Blueprints affected by a Macro Library. The result reports the total additional
-count as a comment. Successful additional Blueprints are not expanded. Any
-additional Blueprint ending in warning or error state is returned as a compact
-ordinary Blueprint object with its `Status`, so the agent can inspect or compile
-that target separately. Detailed `FCompilerResultsLog` messages are authoritative
-for the requested Blueprint; the adapter does not invent detailed diagnostics
-for dependents whose internal log it did not receive. A following `save` still
-persists only the requested target's owning Package.
+Blueprints affected by a Macro Library. The public synchronous request and its
+passed `FCompilerResultsLog` do not expose a complete, authoritative set of
+those additional targets. SAL therefore reports the requested Blueprint and
+its received diagnostics only; it does not guess a dependent count or attribute
+unavailable logs to other assets. A following `save` still persists only the
+requested target's owning Package.
 
 #### Schema And Dry Run
 
@@ -1062,12 +1060,13 @@ save
 ```
 
 It resolves the Blueprint, validates compile availability and sequence rules,
-resolves owning Package state, and performs current save, Source Control, file,
-and PIE preflight without compiling, checking out, or writing. It stops before
-the first terminal action and returns `applied: false` with comments such as
-`would compile: full` and `would save: /Game/Blueprints/BP_Door`. It cannot
-predict compiler status or messages and must say so rather than returning
-fabricated counts. External save conditions may still change after preflight.
+resolves owning Package state, and validates the current editor and PIE save
+boundary without compiling, checking out, or writing. It stops before the first
+terminal action and returns `applied: false` with comments such as `would
+compile: full` and `would save: /Game/Blueprints/BP_Door`. It cannot predict
+compiler status or messages and must say so rather than returning fabricated
+counts. Source Control checkout and final file writability belong to the real
+save path and may still fail or change after preflight.
 
 Some domain mutations intrinsically compile because UE's native compound
 operation requires it; reparenting is the confirmed Blueprint example. Such a
@@ -1558,11 +1557,13 @@ reset variable@variable-id.RepNotifyFunc
 `VarName` routes through `FBlueprintEditorUtils::RenameMemberVariable`; the
 adapter must not mutate the description field directly. Compact result text
 continues to express the current name through the Variable binding path rather
-than duplicating `VarName` as a constructor field. `type` routes through
-`FBlueprintEditorUtils::ChangeMemberVariableType`. `id` is read-only. Every
-other native field is writable or resettable only when the exact Variable's
-`with schema` result says so; `reset` is not a blanket assignment of an empty
-value.
+than duplicating `VarName` as a constructor field. The public
+`ChangeMemberVariableType` helper opens an editor confirmation dialog, so SAL
+uses its source-equivalent non-interactive path: update the native Pin type and
+flags, structurally modify the Blueprint and loaded children, and reconstruct
+the same referencing Nodes. `id` is read-only. Every other native field is
+writable or resettable only when the exact Variable's `with schema` result says
+so; `reset` is not a blanket assignment of an empty value.
 
 UE's native rename path opens a confirmation dialog and clears
 `RepNotifyFunc` when the Variable has an associated RepNotify function. SAL
@@ -2239,23 +2240,22 @@ Pure SAL normalization must not:
 - resolve persistent Package ownership, Source Control state, external
   packages, or execute Core `save`
 
-The adapter or bridge owns those UE-dependent responsibilities and must use UE
+The Bridge owns those UE-dependent responsibilities and uses UE
 APIs such as `FKismetEditorUtilities`, `FBlueprintEditorUtils`,
 `USimpleConstructionScript`, `USCS_Node`, `UK2Node_CustomEvent`, and
 `UK2Node_Timeline`. Generated Class and CDO access belongs to the Class
 Reflection and Class Defaults designs.
 
-The current Bridge `addInterface` and `removeInterface` helpers do not yet
-satisfy this contract. Their dry run does not perform live Interface validation,
-addition can inherit UE's partial-Graph failure path, missing or inherited
-removal is treated as success, and removal may enter UE's interactive child-load
-prompt. They must be replaced by the adapter-owned non-interactive planning and
-transaction path above before the UE-backed SAL executor exposes this surface.
+The UE-backed SAL executor implements this boundary as one Blueprint query and
+mutation planner. Authored dry run executes the same ordered operation path on
+a transient Blueprint/SCS copy, then discards it. Real apply runs inside one
+private editor transaction and explicitly undoes that transaction if any later
+native operation fails. Interface removal is non-interactive, explicit compile
+always targets the whole Blueprint with `SkipSave`, and save remains an explicit
+terminal statement.
 
-The current Bridge `CompileBlueprint` helper also does not satisfy this
-contract. Its Graph-name parameter is not a compilation target, and its current
-path refreshes all Nodes, marks the Blueprint structurally modified, dirties the
-Package, omits `FCompilerResultsLog`, and allows native SaveOnCompile behavior.
-The future SAL adapter must replace that path with the exact terminal compile
-and diagnostic contract above; this document does not authorize an incremental
-patch to the legacy helper.
+On a composed target such as `UWidgetBlueprint`, each authored Patch is still
+owned atomically by exactly one interface planner. A request may contain one
+Blueprint-authored batch or one Widget-authored batch, not both. Cross-interface
+work is expressed as two ordered requests so neither planner pretends it can
+roll back the other domain's native side effects.
