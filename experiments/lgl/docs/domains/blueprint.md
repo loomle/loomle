@@ -660,6 +660,21 @@ name, type, and relevant native descriptive fields. Collection results contain
 compact concrete object identities rather than full Graph bodies, component
 templates, or schemas.
 
+All four collections share one closed structured surface:
+
+| Clause | Supported fields or keys | Behavior |
+| --- | --- | --- |
+| `where` | `name`, `id`, `type` | exact `=` and `!=` predicates only |
+| `order by` | `name`, `id`, `type` | ascending or descending |
+| `page` | cursor pagination | default limit 50 |
+
+`name` is the exact current local object name, `id` is the kind-specific stable
+id, and `type` remains exact native UE text. Conditions may combine supported
+predicates through `not`, `and`, `or`, and parentheses. Ordered comparisons and
+`~=` are unsupported; fuzzy discovery belongs to the collection's primary
+search text. Without search or explicit ordering, results preserve UE authored
+order. Search uses adapter relevance unless an explicit order is requested.
+
 Palette enumerates the creation capabilities valid for the bound Blueprint:
 
 ```lgl
