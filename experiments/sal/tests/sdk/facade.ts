@@ -11,7 +11,7 @@ const queryText = `bp = blueprint(asset: "/Game/BP_SALExample.BP_SALExample")
 g = graph(asset: bp, name: "EventGraph")
 query g
 nodes "Branch"
-with pins`;
+with layout`;
 
 const patchText = `bp = blueprint(asset: "/Game/BP_SALExample.BP_SALExample")
 g = graph(asset: bp, name: "EventGraph")

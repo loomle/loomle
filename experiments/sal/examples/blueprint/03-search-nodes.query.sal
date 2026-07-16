@@ -3,12 +3,9 @@ eventGraph = graph(asset: bp, name: "EventGraph")
 query eventGraph
 nodes "Print"
 where type = "/Script/BlueprintGraph.K2Node_CallFunction"
-with pins
 page limit 10
 
 ---
 
-print = node(id: "N3", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "PrintString")
-print.execute = pin(id: "P4", direction: in)
-print.InString = pin(id: "P5", direction: in, DefaultValue: "Ready")
-print.then = pin(id: "P6", direction: out)
+eventGraph = graph(id: "graph-guid")
+print = node(graph: eventGraph, id: "N3", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "PrintString")

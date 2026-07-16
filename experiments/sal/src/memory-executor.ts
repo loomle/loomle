@@ -102,12 +102,32 @@ function executeQuery(object: ObjectText, query: Query): ObjectResult {
   const page = paginate(bindings, query.page?.limit ?? 50, query.page?.after);
   const statements: Statement[] = [];
   const aliases = new Set<string>();
+  const selectedAliases = new Set(
+    page.items
+      .filter((binding) => binding.target.kind === "local")
+      .map((binding) => (binding.target as LocalRef).name),
+  );
+  const referencedOwners = new Set(
+    page.items
+      .filter((binding) => binding.target.kind === "member")
+      .map((binding) => binding.target.kind === "member" ? binding.target.object.name : ""),
+  );
+  for (const owner of referencedOwners) {
+    if (selectedAliases.has(owner)) continue;
+    const ownerBinding = object.statements.find((statement) =>
+      isBinding(statement) && statement.target.kind === "local" && statement.target.name === owner,
+    );
+    if (ownerBinding) {
+      statements.push(structuredClone(ownerBinding));
+      aliases.add(owner);
+    }
+  }
   for (const binding of page.items) {
     statements.push(structuredClone(binding));
     if (binding.target.kind === "local") aliases.add(binding.target.name);
   }
-  if (exact || query.with?.includes("pins")) {
-    statements.push(...object.statements.filter((statement) => isOwnedMemberBinding(statement, aliases)).map((item) => structuredClone(item)));
+  if (exact) {
+    statements.push(...object.statements.filter((statement) => isOwnedMemberBinding(statement, selectedAliases)).map((item) => structuredClone(item)));
   }
   if (query.with?.includes("schema") && bindings.length === 1) {
     statements.push({ kind: "comment", text: "schema\n\nfields:\n  runtime fixture; query the live executor for UE-owned fields" });

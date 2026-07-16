@@ -575,7 +575,7 @@ palette entries "Get Health"
 
 query eventGraph
 palette @P_GetHealth
-with pins, defaults, schema
+with schema
 
 patch eventGraph
 health = node(palette: "P_GetHealth")

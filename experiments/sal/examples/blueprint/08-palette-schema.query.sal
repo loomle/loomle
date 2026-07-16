@@ -1,13 +1,16 @@
 bp = blueprint(asset: "/Game/Doors/BP_Door.BP_Door")
 eventGraph = graph(asset: bp, name: "EventGraph")
 query eventGraph
-palette entries "Branch" from pin@P1
+palette @Branch
 with schema
-page limit 5
 
 ---
 
 branch = node(palette: "Branch", type: "/Script/BlueprintGraph.K2Node_IfThenElse")
+branch.execute = pin(type: "(PinCategory=exec)", direction: in)
+branch.Condition = pin(type: "(PinCategory=bool)", direction: in, DefaultValue: "false")
+branch.then = pin(type: "(PinCategory=exec)", direction: out)
+branch.else = pin(type: "(PinCategory=exec)", direction: out)
 ###
 schema
 

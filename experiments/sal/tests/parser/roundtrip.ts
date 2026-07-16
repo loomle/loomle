@@ -45,7 +45,7 @@ eventGraph = graph(asset: bp, name: "EventGraph")
 query eventGraph
 nodes "Print"
 where type = "/Script/BlueprintGraph.K2Node_CallFunction"
-with pins, schema
+with layout
 page after "offset:10"`,
   },
   {
@@ -54,7 +54,7 @@ page after "offset:10"`,
 eventGraph = graph(asset: bp, name: "EventGraph")
 query eventGraph
 node@4F781A
-with pins`,
+with schema`,
   },
   {
     name: "graph relationship query",

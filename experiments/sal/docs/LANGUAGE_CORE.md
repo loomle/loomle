@@ -629,7 +629,7 @@ literal.
 | `query` | target domain or bound object | `query asset`, `query g` |
 | primary operation | choose one domain-defined read | `assets "door"`, `context node@node-id depth 2` |
 | `where` | structured filter expression | `where type = "/Script/Engine.Blueprint" and not loaded` |
-| `with` | expand beyond the domain default result | `with registryTags`, `with pins, defaults, layout` |
+| `with` | expand beyond the domain default result | `with registryTags`, `with schema, layout` |
 | `order by` | deterministic result ordering | `order by score desc, path asc` |
 | `page limit` | maximum result count | `page limit 50` |
 | `page after` | continue after a returned cursor | `page after "cursor"` |

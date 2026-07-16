@@ -61,8 +61,9 @@ palette @id
 Traversal stays inside the target Graph and depth defaults to 1. `with layout`
 adds stored Node position and size to `nodes`, exact Node or Pin reads,
 `context`, `exec flow`, and `data flow`. `with schema` is valid on an exact
-Graph, Node, Pin, or Palette Entry. Exact Palette Entries may also support
-`with pins` and `with defaults`.
+Graph, Node, Pin, or Palette Entry. Graph defines no `with pins` or
+`with defaults`: exact Nodes return all current Pins, exact Palette Entries
+return all determinable future Pins, and traversal returns only necessary Pins.
 `nodes` supports `=` and `!=` on `type`, `id`, and `NodeComment`, plus `~=` on
 `NodeComment`; ordering keys are `type` and `id`. `palette entries` supports Pin
 context; `widget`, `component`, and `actor` accept only `=` and are mutually
@@ -76,8 +77,9 @@ representatives, and compact counts. It does not expand the whole Graph.
 `node@id` returns the complete Node and its Pins; `pin@id` returns its compact
 owner and the complete Pin without traversing links.
 
-Execution-flow results remain ordinary ordered Object Text: compact Nodes and
-Pins appear before the Edges that reference them.
+Context and flow results remain ordinary ordered Object Text: compact Nodes and
+only the complete target, Edge-endpoint, boundary, or dependency-leaf Pins
+appear before the Edges that reference them.
 
 ## Dynamic Schema
 

@@ -354,7 +354,7 @@ Each primary operation owns its allowed clauses and expansions:
 | `exec flow` | no | no | yes | `layout` |
 | `data flow` | no | no | yes | `layout` |
 | `palette entries` | yes | yes | no | none |
-| `palette @id` | no | no | no | `pins`, `defaults`, `schema` |
+| `palette @id` | no | no | no | `schema` |
 
 Query text uses one clause per line. Unsupported clauses are errors rather than
 ignored options.
@@ -435,8 +435,8 @@ node@node-guid
 
 An exact Node read returns the complete Node and all of its current Pins,
 including Pin ids, native types, directions, and current default values. It does
-not return adjacent Nodes or Edges. Existing Pins are required Node state, so
-there is no `with pins` or `with defaults` expansion for an exact Node.
+not return adjacent Nodes or Edges. Existing Pins are required exact Node state;
+Graph queries define no `with pins` or `with defaults` expansion.
 
 ```sal
 query g
@@ -471,9 +471,10 @@ distance to each object.
 
 A Node target seeds traversal from all its Pins. A Pin target returns its owner
 as required context but seeds the first frontier from only that Pin. Reached
-Nodes are returned with their Pins and all in-range Edges as ordinary interleaved
-Node, Pin, and Edge text. The result does not introduce a context or graph-view
-object.
+Nodes are compact. The result returns only the complete Pins required to express
+the target, every in-range Edge endpoint, and each truncated boundary, followed
+by all in-range Edges as ordinary interleaved Node, Pin, and Edge text. It does
+not introduce a context or graph-view object.
 
 For a Pin on the outer boundary, an immediately following comment reports links
 that continue beyond the requested depth. The Pin id gives the agent a precise
@@ -500,8 +501,10 @@ guessing from display names or serialized Pin fields.
 
 A Node target uses all matching Exec Pins. A Pin target must be an Exec output
 for `from` or an Exec input for `to`; a type or direction mismatch is an error.
-Returned Nodes include all of their Pins so current data defaults remain
-readable, but traversal expands only through Exec Edges.
+Returned Nodes are compact. The result includes the complete Exec Pins required
+for the target, returned Exec Edges, and traversal boundaries; unrelated Exec
+Pins and all data Pins remain omitted. Traversal expands only through Exec
+Edges.
 
 Execution traversal stays inside the current Graph. When a Node refers to a
 Blueprint Function, Macro, or Collapsed Graph that can be inspected separately,
@@ -542,9 +545,11 @@ boundary rather than claiming false Pin-level precision.
 Depth counts crossed data Edges and defaults to one. A Pin target must be a data
 input for `to` or a data output for `from`; Exec Pins and direction mismatches
 are errors. A Node target uses all data Pins for the selected direction. Cycles
-are visited once by stable id. Returned Nodes include all their Pins, but only
-data Edges drive expansion. Traversal does not cross Function, Macro, or other
-Graph boundaries.
+are visited once by stable id. Returned Nodes are compact. The result includes
+the complete data Pins required for the target, returned data Edges, traversal
+boundaries, and unconnected dependency leaves with their current defaults;
+unrelated data Pins and all Exec Pins remain omitted. Traversal does not cross
+Function, Macro, or other Graph boundaries.
 
 `exec flow` and `data flow` are adapter capabilities, not semantics imposed on
 every UE graph type. An adapter without Blueprint-style Exec or data semantics
@@ -867,12 +872,12 @@ hard boundary. Pagination remains in the shared `Result.page` envelope rather
 than becoming SAL object text.
 
 Summary and `nodes` use Graph, Node, and Comment statements as requested. Exact
-Node or Pin reads may add Pin statements. `context`, `exec flow`, and
-`data flow` may also add Edges. Palette search uses Palette bindings and
-comments; exact Palette
-reads may add future Pins. Cross-Graph navigation remains an immediately
-following Comment and never inserts a second Graph binding or a cross-Graph
-Edge.
+Node reads add all current Pins; exact Pin reads add only the selected Pin after
+its compact owner. `context`, `exec flow`, and `data flow` add only necessary
+Pins and Edges. Palette search uses Palette bindings and comments; exact
+Palette reads add every future Pin UE can determine. Cross-Graph navigation
+remains an immediately following Comment and never inserts a second Graph
+binding or a cross-Graph Edge.
 
 The shared schema, parser, and formatter preserve this ordered sequence and use
 the same Object Text for Graph reads, Palette reads, and Patch responses. UE
@@ -946,12 +951,12 @@ sides; two-sided replacement is exactly the role of `insert`. There is no
 form.
 
 Palette-backed bindings are copied from a `palette entries` or exact
-`palette @id` result. An exact read is needed when the agent wants schema,
-defaults, or future Pin details, but it is not a mandatory extra step before
-every Patch. `add` always re-resolves and revalidates the Palette id in the
-current Graph context. Palette creation creates the Node and all base Pins UE
-normally creates; Patch text does not copy future Pin declarations from the
-Palette result and cannot construct a raw `pin(...)`.
+`palette @id` result. An exact read is needed when the agent wants schema or
+future Pin details, but it is not a mandatory extra step before every Patch.
+`add` always re-resolves and revalidates the Palette id in the current Graph
+context. Palette creation creates the Node and all base Pins UE normally
+creates; Patch text does not copy future Pin declarations from the Palette
+result and cannot construct a raw `pin(...)`.
 
 Graph uses the shared Patch envelope. Once the target has been resolved, its
 statements form this ordered union:
@@ -1546,7 +1551,6 @@ mutation dry run:
 ```sal
 query g
 palette @P_Delay
-with pins
 ```
 
 `dry run` follows the same parse, resolve, and validation path and stops before
@@ -1593,13 +1597,14 @@ Exact entry reads use that identity:
 ```sal
 query g
 palette @P_PrintString
-with schema, pins, defaults
+with schema
 ```
 
-The adapter revalidates the entry in the current Graph context. `with pins`
-returns the future Pin shapes UE can determine, and `with defaults` returns
-defaults exposed by UE template nodes, spawners, schemas, or other UE-owned
-metadata. Future Pins have no `id` because no `UEdGraphPin` exists yet.
+The adapter revalidates the entry in the current Graph context and returns every
+future Pin shape and default UE can determine from template Nodes, spawners,
+schemas, or other UE-owned metadata. Future Pins have no `id` because no
+`UEdGraphPin` exists yet. Exact Palette reads are complete and define no
+`with pins` or `with defaults` expansion.
 
 `with schema` describes accepted native creation fields, type text, access,
 required/default behavior, constraints, fixed values, reconstruction behavior,
@@ -1679,8 +1684,8 @@ native delegate to the resulting `UK2Node_ComponentBoundEvent` or
 `UK2Node_ActorBoundEvent`. The query's explicit Graph is the creation target;
 SAL never substitutes UE Editor's last-focused Ubergraph.
 
-An available result is an ordinary Palette-backed Node binding. Future event
-Pins come from the exact entry's `with pins` expansion and are never declared
+An available result is an ordinary Palette-backed Node binding. An exact entry
+read returns every future event Pin UE can determine; Pins are never declared
 manually:
 
 ```sal

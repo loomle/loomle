@@ -218,8 +218,8 @@ Examples:
   pagination.
 - `blueprint` may support `find class`, `find members`, `find components`, and
   graph targets with graph-specific `find` forms.
-- graph-owning domains may support `find nodes`, `find path`, and `find
-  palette entry` with `with pins/defaults`.
+- graph-owning domains may return complete Pins for exact Nodes and Palette
+  Entries while keeping collection and traversal results compact.
 
 The shared domain validator should consume a capability declaration rather than
 forcing every adapter to hand-code the same rejections:
@@ -426,7 +426,7 @@ Milestone 4 implements Blueprint graph query readback:
 - support `GraphTarget` objects where `target.domain = "blueprint"`
 - resolve Blueprint asset and graph references
 - return a compact graph snippet for an empty query
-- support `find nodes where name = <name> with pins, defaults`
+- support compact Node search and exact Node reads with complete Pins
 - return actionable diagnostics for malformed objects, unsupported domains,
   missing assets, missing graphs, unknown nodes, and ambiguous nodes
 
@@ -435,7 +435,8 @@ Milestone 5 adds Blueprint palette discovery:
 - support `find palette entry`
 - use UE Action Menu and node spawners as the source of truth
 - return `palette_result`
-- support `with pins` and `with defaults` when UE can provide template details
+- return every template Pin and default UE can determine for an exact Palette
+  Entry
 
 Milestone 6 adds Blueprint graph patch dry run and mutation:
 
