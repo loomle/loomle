@@ -76,37 +76,8 @@ representatives, and compact counts. It does not expand the whole Graph.
 `node@id` returns the complete Node and its Pins; `pin@id` returns its compact
 owner and the complete Pin without traversing links.
 
-An execution-flow result remains ordinary ordered Object Text:
-
-```lgl
-beginPlay = node(
-  graph: eventGraph,
-  id: "begin-node-guid",
-  type: "/Script/BlueprintGraph.K2Node_Event"
-)
-# Event BeginPlay
-
-beginPlay.then = pin(
-  id: "then-pin-guid",
-  type: "<FEdGraphPinType native text>",
-  direction: out
-)
-
-branch = node(
-  graph: eventGraph,
-  id: "branch-node-guid",
-  type: "/Script/BlueprintGraph.K2Node_IfThenElse"
-)
-# Branch
-
-branch.execute = pin(
-  id: "execute-pin-guid",
-  type: "<FEdGraphPinType native text>",
-  direction: in
-)
-
-beginPlay.then -> branch.execute
-```
+Execution-flow results remain ordinary ordered Object Text: compact Nodes and
+Pins appear before the Edges that reference them.
 
 ## Dynamic Schema
 

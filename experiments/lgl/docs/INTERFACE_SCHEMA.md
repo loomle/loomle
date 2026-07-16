@@ -67,12 +67,6 @@ Possible result:
 # would set door.BlueprintDescription = "Interactive door"
 ```
 
-```text
-dryRun = true
-valid = true
-applied = false
-```
-
 ## Graph Execution Flow
 
 Start from a Graph identity returned by Blueprint `graphs` or `graph <name>`:

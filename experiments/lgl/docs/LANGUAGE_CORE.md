@@ -757,8 +757,6 @@ operations:
     availability: available
     output pin: one Pin
     invoke: invoke node@sequence-id AddExecutionPin() as next
-    UE action: FGraphEditorCommands::AddExecutionPin
-    native: UK2Node_ExecutionSequence::AddInputPin
 ###
 ```
 
@@ -787,9 +785,10 @@ temporarily unavailable remains in its section with the UE-derived reason.
 An Operation name is a stable PascalCase name owned by the adapter and grounded
 in UE editor semantics. Prefer an exact non-localized UE Editor Action identity;
 otherwise use the closest native interface behavior. Do not expose arbitrary
-C++ methods. The schema records the UE Action and native execution path so the
-public semantic name remains traceable even when a Node's implementation method
-has a misleading name or later changes.
+C++ methods. Adapters maintain the UE Action and native execution-path mapping.
+The runtime schema includes optional `UE action:` or `native:` provenance only
+when it disambiguates a non-obvious mapping or explains an availability or
+constraint decision.
 
 An Operation name is resolved inside the exact target object's schema, not in a
 global Operation namespace. Reusing a UE Action or native interface name across
