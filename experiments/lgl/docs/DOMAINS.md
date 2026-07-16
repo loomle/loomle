@@ -157,6 +157,7 @@ Current interface cards:
 - [`interfaces/blueprint.md`](interfaces/blueprint.md)
 - [`interfaces/class.md`](interfaces/class.md)
 - [`interfaces/graph.md`](interfaces/graph.md)
+- [`interfaces/widget.md`](interfaces/widget.md)
 
 ## Current Domains
 

@@ -355,7 +355,8 @@ identity:
 - exact native Class path.
 
 It does not search arbitrary values such as `Text`, `Brush`, or nested native
-properties. Exact value filtering belongs in `where` or a later exact query.
+properties. Exact filtering over the supported discovery fields belongs in
+`where`; other values require a later exact query.
 
 Each result is a compact `widget(id, type)` binding. `DisplayLabel` appears only
 when it is authored and differs meaningfully from the object name. Collection
@@ -363,12 +364,18 @@ bindings are result aliases, not claims that each item is a root. No ancestor,
 descendant, `Slot`, `NamedSlots`, or schema expansion is returned. A detached
 item receives an adjacent ordinary comment.
 
-The first supported `where` fields are `name`, `id`, `type`, `DisplayLabel`,
-`bIsVariable`, and `reachable`. Explicit ordering supports `name`, `type`, and
-`id`, each ascending or descending. Without search text, reachable Widgets use
-tree reading order and detached Widgets follow by name. With search text,
-results order by match score, then reachable tree order, then detached name.
-Pagination uses the shared cursor model and defaults to 50 items.
+The collection has one closed structured surface. String fields `name`, `id`,
+`type`, and `DisplayLabel` support exact `=` and `!=` only. Boolean fields
+`bIsVariable` and `reachable` support `=`, `!=`, and predicate shorthand such
+as `reachable` or `not bIsVariable`. Conditions may combine these predicates
+through `not`, `and`, `or`, and parentheses. Ordered comparisons and `~=` are
+unsupported; fuzzy discovery belongs to the primary search text.
+
+Explicit ordering supports `name`, `type`, and `id`, each ascending or
+descending. Without search text, reachable Widgets use tree reading order and
+detached Widgets follow by name. With search text, results order by match
+score, then reachable tree order, then detached name. Pagination uses the
+shared cursor model and defaults to 50 items.
 
 `widgets` does not accept `with schema`. The agent first discovers the exact
 name or id, then uses an exact Widget query.
