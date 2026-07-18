@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { createMemoryBlueprintExecutor, createSal, parseSalObject, type Query } from "../../src/index.js";
+import { createSal, parseSalObject, type Query } from "../../src/index.js";
+import { createMemoryExecutor } from "../fixtures/memory-executor.js";
+import { testInterfaceCatalog } from "./interface-catalog.js";
 
 const locator = `bp = blueprint(asset: "/Game/BP_Door.BP_Door")`;
 const target = (parseSalObject(`${locator}\nquery bp\nsummary`).object as Query).target;
-const executor = createMemoryBlueprintExecutor({
+const executor = createMemoryExecutor({
+  interfaces: ["blueprint"],
   documents: [{
     target,
     object: { statements: [
@@ -14,7 +17,7 @@ const executor = createMemoryBlueprintExecutor({
 });
 
 assert.deepEqual(executor.interfaces, ["blueprint"]);
-const result = await createSal({ executor }).query(`${locator}\nquery bp\nsummary`);
+const result = await createSal({ executor, catalog: testInterfaceCatalog }).query(`${locator}\nquery bp\nsummary`);
 assert.deepEqual(result.diagnostics, []);
 assert.match(result.text ?? "", /door\.Health = variable/);
-console.log("[PASS] blueprint executor uses the shared normalized document model");
+console.log("[PASS] generic memory executor supports the Blueprint interface fixture");

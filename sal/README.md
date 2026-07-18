@@ -11,8 +11,9 @@ reading, editing, and verification.
 
 ## Implemented Contract
 
-The package currently implements one shared model across asset, Blueprint,
-class, graph, and widget interfaces:
+The package implements one shared language and executor model. Products inject
+their own named interface catalog instead of compiling domain knowledge into
+SAL Core:
 
 ```txt
 SAL Text
@@ -23,7 +24,9 @@ SAL Text
   -> ordered SAL Object Text
 ```
 
-- `createSal({ executor })` exposes `query`, `patch`, and `schema`.
+- `createSal({ executor, catalog })` exposes `query`, `patch`, and `schema`.
+- `catalog` supplies static interface descriptions and Text; the executor's
+  `interfaces` property selects the names active for its current target.
 - Query and Patch use one generic `Target`; there is no public `domain` field.
 - Query has one primary `operation` plus optional `where`, `with`, `orderBy`,
   and `page`.
@@ -42,22 +45,19 @@ SAL Text
 - `src/parser.ts`: unified SAL parser and normalizer.
 - `src/formatter.ts`: unified canonical formatter.
 - `src/sdk.ts`: public facade and executor boundary.
-- `src/memory-executor.ts`: generic in-memory contract fixture.
-- `src/{asset,blueprint,widget}/memory-executor.ts`: thin interface wrappers.
-- `src/interface-schema.ts`: resident static interface cards.
+- `src/interface-schema.ts`: injected catalog selection and index formatting.
 - `schema/sal-object.schema.json`: normalized request/result contract.
 - `src/generated/sal-object-schema.ts`: generated TypeScript model.
 - `../engine/LoomleBridge/Source/LoomleBridge/Private/Sal/`: UE-backed
   executor, target resolution, ordered Object Text, and interface adapters.
 - `fixtures/`: valid and rejected normalized JSON boundaries.
+- `tests/fixtures/`: test-only in-memory executor.
 - `examples/blueprint/`: current SAL Text examples with possible responses.
 - `diagnostics/catalog.json`: current public diagnostic codes.
 
 ## Documents
 
 - [`docs/OVERVIEW.md`](docs/OVERVIEW.md): SAL intent and mental model.
-- [`docs/INTERFACE_SCHEMA.md`](docs/INTERFACE_SCHEMA.md): three-layer schema
-  discovery workflow.
 - [`docs/LANGUAGE_CORE.md`](docs/LANGUAGE_CORE.md): shared text and normalized
   object contract.
 - [`docs/SDK_DESIGN.md`](docs/SDK_DESIGN.md): implemented SDK and executor
@@ -68,8 +68,8 @@ SAL Text
   guidance.
 - [`docs/DOMAINS.md`](docs/DOMAINS.md): domain ownership rules.
 - `docs/domains/`: complete domain semantics.
-- `docs/interfaces/`: compact Text returned by public `sal_schema({ module })`
-  and SDK `sal.schema(module)`.
+- [`../interfaces/`](../interfaces/): Loomle's UE guide and injected static
+  interface catalog.
 
 - [`docs/BRIDGE_ARCHITECTURE.md`](docs/BRIDGE_ARCHITECTURE.md): implemented UE
   executor boundary and native interface mapping.
@@ -86,7 +86,7 @@ npm test
 
 `npm test` checks generated types, JSON fixtures, diagnostic registration,
 invalid syntax, parser/formatter round trips, examples, facade behavior, and
-the generic/domain memory executors.
+the generic memory executor across interface fixtures.
 
 Regenerate schema-derived TypeScript after a schema change:
 
@@ -96,7 +96,7 @@ npm run generate:types
 
 ## Boundaries
 
-- The memory executors are contract fixtures, not UE semantic models.
+- The test-only memory executor is a contract fixture, not a UE semantic model.
 - The SDK does not mutate Unreal assets.
 - UE-backed target resolution, Reflection, Palette execution, graph legality,
   transactions, compile, and save belong to the Bridge implementation.

@@ -107,8 +107,15 @@ export interface Sal {
   schema(module?: string): Promise<TextResult>;
 }
 
+export interface SalInterface {
+  readonly name: string;
+  readonly description: string;
+  readonly text: string;
+}
+
 export interface CreateSalOptions {
   executor: SalExecutor;
+  catalog: readonly SalInterface[];
 }
 
 export interface SalExecutor {
@@ -121,18 +128,3 @@ export { formatSalObject } from "./formatter.js";
 export { parseSalObject } from "./parser.js";
 export { createSal } from "./sdk.js";
 export { objectResultToTextResult } from "./result.js";
-export { loadSalGuide } from "./interface-schema.js";
-export { createMemoryExecutor, createMemoryGraphExecutor } from "./memory-executor.js";
-export type {
-  CreateMemoryExecutorOptions,
-  CreateMemoryGraphExecutorOptions,
-  MemoryDocument,
-  MemoryExecutor,
-  MemoryGraphExecutor,
-} from "./memory-executor.js";
-export { createMemoryAssetExecutor } from "./asset/memory-executor.js";
-export type { CreateMemoryAssetExecutorOptions, MemoryAssetExecutor } from "./asset/memory-executor.js";
-export { createMemoryBlueprintExecutor } from "./blueprint/memory-executor.js";
-export type { CreateMemoryBlueprintExecutorOptions, MemoryBlueprintExecutor } from "./blueprint/memory-executor.js";
-export { createMemoryWidgetExecutor } from "./widget/memory-executor.js";
-export type { CreateMemoryWidgetExecutorOptions, MemoryWidgetExecutor } from "./widget/memory-executor.js";

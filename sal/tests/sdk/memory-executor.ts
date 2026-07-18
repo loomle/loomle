@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import {
-  createMemoryGraphExecutor,
   createSal,
   parseSalObject,
   type ObjectText,
   type Query,
 } from "../../src/index.js";
+import { createMemoryExecutor } from "../fixtures/memory-executor.js";
+import { testInterfaceCatalog } from "./interface-catalog.js";
 
 const locator = `bp = blueprint(asset: "/Game/BP_Test.BP_Test")
 g = graph(asset: bp, name: "EventGraph")`;
@@ -23,8 +24,11 @@ const graph: ObjectText = {
   ],
 };
 
-const executor = createMemoryGraphExecutor({ documents: [{ target: targetRequest.target, object: graph }] });
-const sal = createSal({ executor });
+const executor = createMemoryExecutor({
+  interfaces: ["graph"],
+  documents: [{ target: targetRequest.target, object: graph }],
+});
+const sal = createSal({ executor, catalog: testInterfaceCatalog });
 
 const collection = await sal.query(`${locator}\nquery g\nnodes "Branch"`);
 assert.deepEqual(collection.diagnostics, []);

@@ -12,7 +12,7 @@ remains:
 - [`LANGUAGE_CORE.md`](LANGUAGE_CORE.md) for SAL Text and normalized objects;
 - [`SDK_DESIGN.md`](SDK_DESIGN.md) for the SDK and executor boundary;
 - [`DIAGNOSTICS.md`](DIAGNOSTICS.md) for diagnostics;
-- [`interfaces/`](interfaces/) for static interface cards;
+- [`../../interfaces/`](../../interfaces/) for the injected UE interface catalog;
 - [`domains/`](domains/) for UE semantics.
 
 ## Intent
@@ -327,9 +327,9 @@ domain document defines them as a separate request.
 
 ## Dynamic Schema
 
-Static interface cards remain SDK resources. Live `with schema` uses the exact
-resolved target or subject and the same interface capability definitions used
-for execution.
+Static interface cards remain top-level Interfaces resources. Live
+`with schema` uses the exact resolved target or subject and the same interface
+capability definitions used for execution.
 
 The selected schema provider returns ordinary Object Text followed by a
 structured multi-line Comment describing only executable current behavior:

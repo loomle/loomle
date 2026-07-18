@@ -1,19 +1,12 @@
 import assert from "node:assert/strict";
 import {
   createSal,
-  loadSalGuide,
   type MutationResult,
   type ObjectResult,
   type ObjectText,
   type SalExecutor,
 } from "../../src/index.js";
-
-const residentGuide = await loadSalGuide();
-assert.match(residentGuide, /^# SAL$/m);
-assert.match(residentGuide, /sal_query\(\{ text \}\)/);
-assert.match(residentGuide, /editor_context\(\{\}\)/);
-assert.match(residentGuide, /## Schema Discovery/);
-console.log("[PASS] resident SAL guide is available to MCP clients");
+import { testInterfaceCatalog } from "./interface-catalog.js";
 
 const queryText = `bp = blueprint(asset: "/Game/BP_SALExample.BP_SALExample")
 g = graph(asset: bp, name: "EventGraph")
@@ -56,12 +49,33 @@ const executor: SalExecutor = {
   },
 };
 
-const sal = createSal({ executor });
+const sal = createSal({ executor, catalog: testInterfaceCatalog });
 const schemaIndex = await sal.schema();
 assert.match(schemaIndex.text ?? "", /^blueprint$/m);
 assert.match(schemaIndex.text ?? "", /^graph$/m);
 assert.equal(calls, 0);
-console.log("[PASS] sal.schema is static and interface-scoped");
+const graphSchema = await sal.schema("graph");
+assert.equal(graphSchema.text, "# Test Graph Interface\n");
+const inactiveSchema = await sal.schema("widget");
+assert.equal(inactiveSchema.diagnostics[0]?.code, "capability.interface_unavailable");
+assert.deepEqual(inactiveSchema.diagnostics[0]?.supported, ["blueprint", "graph"]);
+console.log("[PASS] sal.schema uses the injected catalog and active executor interfaces");
+
+assert.throws(
+  () => createSal({
+    executor: { interfaces: ["missing"], async query() { return { diagnostics: [] }; } },
+    catalog: testInterfaceCatalog,
+  }),
+  /Unknown SAL interface module: missing/,
+);
+assert.throws(
+  () => createSal({
+    executor: { interfaces: ["graph"], async query() { return { diagnostics: [] }; } },
+    catalog: [testInterfaceCatalog[2], testInterfaceCatalog[2]],
+  }),
+  /Duplicate SAL interface module: graph/,
+);
+console.log("[PASS] createSal rejects inconsistent interface catalogs");
 
 const queryResult = await sal.query(queryText);
 assert.deepEqual(queryResult.diagnostics, []);
@@ -84,7 +98,7 @@ assert.equal(wrongKind.diagnostics[0]?.code, "language.wrong_document_kind");
 console.log("[PASS] query rejects Patch Text");
 
 const queryOnly: SalExecutor = { interfaces: ["graph"], async query() { return { object, diagnostics: [] }; } };
-const unavailable = await createSal({ executor: queryOnly }).patch(patchText);
+const unavailable = await createSal({ executor: queryOnly, catalog: testInterfaceCatalog }).patch(patchText);
 assert.equal(unavailable.diagnostics[0]?.code, "capability.patch_unavailable");
 console.log("[PASS] patch reports executor capability");
 
@@ -94,7 +108,7 @@ const invalidResultExecutor: SalExecutor = {
     return { object: { statements: [{ kind: "unknown" }] }, diagnostics: [] } as unknown as ObjectResult;
   },
 };
-const invalidResult = await createSal({ executor: invalidResultExecutor }).query(queryText);
+const invalidResult = await createSal({ executor: invalidResultExecutor, catalog: testInterfaceCatalog }).query(queryText);
 assert.equal(invalidResult.diagnostics[0]?.code, "language.invalid_result_shape");
 console.log("[PASS] executor output is schema-validated");
 
@@ -114,11 +128,12 @@ const invalidReferenceExecutor: SalExecutor = {
     };
   },
 };
-const invalidReference = await createSal({ executor: invalidReferenceExecutor }).query(queryText);
+const invalidReference = await createSal({ executor: invalidReferenceExecutor, catalog: testInterfaceCatalog }).query(queryText);
 assert.equal(invalidReference.diagnostics[0]?.code, "language.invalid_result_shape");
 console.log("[PASS] executor output preserves ordered local-reference semantics");
 
 const queryMutationEnvelope = await createSal({
+  catalog: testInterfaceCatalog,
   executor: {
     interfaces: ["graph"],
     async query() {
@@ -137,6 +152,7 @@ assert.equal(queryMutationEnvelope.diagnostics[0]?.code, "language.invalid_resul
 console.log("[PASS] query rejects a mutation envelope");
 
 const patchPlainEnvelope = await createSal({
+  catalog: testInterfaceCatalog,
   executor: {
     interfaces: ["graph"],
     async query() { return { diagnostics: [] }; },
@@ -170,6 +186,9 @@ const inheritedRequestAliasExecutor: SalExecutor = {
     };
   },
 };
-const inheritedRequestAlias = await createSal({ executor: inheritedRequestAliasExecutor }).query(queryText);
+const inheritedRequestAlias = await createSal({
+  executor: inheritedRequestAliasExecutor,
+  catalog: testInterfaceCatalog,
+}).query(queryText);
 assert.equal(inheritedRequestAlias.diagnostics[0]?.code, "language.invalid_result_shape");
 console.log("[PASS] result Text must declare compact bindings instead of inheriting request aliases");

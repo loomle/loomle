@@ -51,6 +51,7 @@ the local config file.
 ## 0.7 Validation
 
 - SAL SDK: `npm run test --workspace @loomle/sal`
+- Loomle interfaces: `npm run test --workspace @loomle/interfaces`
 - TypeScript Client: `cd client && npm test`
 - UE Bridge: UE 5.7 `RunUAT BuildPlugin`
 

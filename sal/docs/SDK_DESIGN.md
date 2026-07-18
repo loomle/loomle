@@ -18,6 +18,13 @@ interface Sal {
 
 interface CreateSalOptions {
   executor: SalExecutor;
+  catalog: readonly SalInterface[];
+}
+
+interface SalInterface {
+  readonly name: string;
+  readonly description: string;
+  readonly text: string;
 }
 
 declare function createSal(options: CreateSalOptions): Sal;
@@ -26,9 +33,17 @@ declare function createSal(options: CreateSalOptions): Sal;
 `query` and `patch` accept self-contained SAL Text. Target locators, Query
 clauses, Patch order, and dry-run intent are in that Text, not side parameters.
 
-`schema()` returns the compact active-module index. `schema(module)` returns
-one static interface card. Neither form calls the executor. Current-instance
-discovery remains a normal exact Query using `with schema`.
+`schema()` returns the compact active-interface index. `schema(module)` returns
+one static interface card. Both are selected from the injected `catalog` using
+the names declared by `executor.interfaces`; neither form calls the executor or
+reads package files. Current-instance discovery remains a normal exact Query
+using `with schema`.
+
+SAL Core defines the catalog contract, but its schema discovery has no built-in
+interface catalog or domain Text. Loomle's UE interface package owns the
+resident guide and static Asset, Blueprint, Class, Graph, and Widget cards.
+Other products may inject a different catalog without changing the language or
+normalized schema.
 
 ## Pipeline
 
@@ -216,14 +231,15 @@ interface SalExecutor {
 }
 ```
 
-The facade calls exactly one executor. It does not route by a public domain
-field. The executor may internally compose domain services after resolving the
-generic target against real object state.
+The facade calls exactly one executor. `interfaces` contains active catalog
+names; `createSal` rejects a name absent from the injected catalog. It does not
+route by a public domain field. The executor may internally compose domain
+services after resolving the generic target against real object state.
 
-The generic in-memory executor and its graph, asset, Blueprint, and widget
-wrappers are deterministic SDK fixtures. They prove request/result, ordering,
-pagination, dry-run, and facade behavior; they do not claim UE-complete
-semantics.
+The generic in-memory executor is a deterministic contract fixture. Tests
+configure it with different interface names and documents to prove
+request/result, ordering, pagination, dry-run, and facade behavior; it does not
+claim UE-complete semantics.
 
 ## Schema And RPC Boundary
 
@@ -261,4 +277,4 @@ The default test gate checks:
 - Text -> Object -> Text round trips;
 - current example requests;
 - facade result validation and mutation-field preservation;
-- generic and interface-specific memory executor loops.
+- generic memory-executor loops configured with multiple interface fixtures.

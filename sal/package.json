@@ -13,9 +13,7 @@
   },
   "files": [
     "dist/src",
-    "schema",
-    "docs/INTERFACE_SCHEMA.md",
-    "docs/interfaces"
+    "schema"
   ],
   "description": "TypeScript SDK and normalized contract for Structured Agent Language.",
   "scripts": {

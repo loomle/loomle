@@ -1,65 +1,59 @@
-import { readFile } from "node:fs/promises";
-import type { Diagnostic, TextResult } from "./index.js";
+import type { Diagnostic, SalInterface, TextResult } from "./index.js";
 
-const interfaceModules = [
-  ["asset", "Find UE assets and exact Asset Paths."],
-  ["blueprint", "Inspect and edit Blueprint-owned structure and finalize changes."],
-  ["class", "Inspect UE Reflection and edit durable Blueprint Class Defaults."],
-  ["graph", "Inspect and edit Graph Nodes, Pins, Edges, flow, and Node creation."],
-  ["widget", "Inspect and edit WidgetBlueprint trees, Widgets, placement, and events."],
-] as const;
+export function selectActiveInterfaces(
+  catalog: readonly SalInterface[],
+  activeNames: readonly string[],
+): SalInterface[] {
+  const byName = new Map<string, SalInterface>();
+  for (const entry of catalog) {
+    if (byName.has(entry.name)) {
+      throw new Error(`Duplicate SAL interface module: ${entry.name}.`);
+    }
+    byName.set(entry.name, entry);
+  }
 
-const moduleDescriptions = new Map<string, string>(interfaceModules);
-
-export function normalizeInterfaceModules(interfaces: readonly string[]): string[] {
-  const requested = new Set(interfaces);
-  const unknown = [...requested].filter((name) => !moduleDescriptions.has(name));
+  const requested = new Set(activeNames);
+  const unknown = [...requested].filter((name) => !byName.has(name));
   if (unknown.length > 0) {
     throw new Error(`Unknown SAL interface module${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}.`);
   }
-  return interfaceModules.map(([name]) => name).filter((name) => requested.has(name));
+  return catalog.filter((entry) => requested.has(entry.name));
 }
 
 export async function loadInterfaceSchema(
-  interfaces: readonly string[],
+  interfaces: readonly SalInterface[],
   module?: string,
 ): Promise<TextResult> {
   if (module === undefined) {
     return { text: formatInterfaceIndex(interfaces), diagnostics: [] };
   }
 
-  if (!moduleDescriptions.has(module) || !interfaces.includes(module)) {
+  const selected = interfaces.find((entry) => entry.name === module);
+  if (!selected) {
     return {
       diagnostics: [interfaceUnavailable(module, interfaces)],
     };
   }
 
-  const url = new URL(`../../docs/interfaces/${module}.md`, import.meta.url);
-  return { text: await readFile(url, "utf8"), diagnostics: [] };
+  return { text: selected.text, diagnostics: [] };
 }
 
-/** Loads the compact resident SAL guide intended for MCP server instructions. */
-export async function loadSalGuide(): Promise<string> {
-  const url = new URL("../../docs/INTERFACE_SCHEMA.md", import.meta.url);
-  return readFile(url, "utf8");
-}
-
-function formatInterfaceIndex(interfaces: readonly string[]): string {
-  const entries = interfaces.map((name) => `${name}\n  ${moduleDescriptions.get(name)}`);
+function formatInterfaceIndex(interfaces: readonly SalInterface[]): string {
+  const entries = interfaces.map(({ name, description }) => `${name}\n  ${description}`);
   return [
     ...entries,
-    "Use sal_schema({ module: \"<module>\" }) in MCP or sal.schema(\"<module>\") in the TypeScript SDK.",
+    "Request one module by name to read its static interface.",
     "Use exact with schema for current Query operations, fields, Patch statements, and Operations.",
   ].join("\n\n") + "\n";
 }
 
-function interfaceUnavailable(module: string, interfaces: readonly string[]): Diagnostic {
+function interfaceUnavailable(module: string, interfaces: readonly SalInterface[]): Diagnostic {
   return {
     severity: "error",
     code: "capability.interface_unavailable",
     message: `SAL interface module ${module} is not active in this executor.`,
     actual: module,
-    supported: [...interfaces],
-    suggestion: "Run sal_schema({}) in MCP or sal.schema() in the TypeScript SDK to list active interface modules.",
+    supported: interfaces.map((entry) => entry.name),
+    suggestion: "List active interface modules, then request a supported module by name.",
   };
 }

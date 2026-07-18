@@ -2,9 +2,10 @@
 
 ## Goal
 
-Loomle 0.7 has three product components:
+Loomle 0.7 has four product components:
 
-- `sal/`: the Structured Agent Language, parser, schemas, and SDK;
+- `sal/`: the Structured Agent Language, parser, schemas, and TypeScript library;
+- `interfaces/`: Loomle's static UE interface guide and catalog;
 - `client/`: the standalone MCP Client that presents agent-facing tools;
 - `engine/LoomleBridge/`: the Unreal Engine plugin that performs UE work.
 
@@ -16,6 +17,7 @@ repository root. Packaging combines them only when producing release artifacts.
 ```text
 loomle/
   sal/
+  interfaces/
   client/
   engine/LoomleBridge/
   packaging/
@@ -28,8 +30,14 @@ loomle/
   site/
 ```
 
-`sal/` and `client/` are npm workspaces controlled by the root `package.json`
-and lockfile. `engine/LoomleBridge/` follows Unreal's plugin layout.
+`sal/`, `interfaces/`, and `client/` are npm workspaces controlled by the root
+`package.json` and lockfile. `engine/LoomleBridge/` follows Unreal's plugin
+layout.
+
+`sal/` owns generic language mechanics and a catalog-injection contract. Its
+schema discovery has no built-in Loomle interface catalog. `interfaces/` owns
+the resident guide, interface descriptions, and the static Asset, Blueprint,
+Class, Graph, and Widget cards. `client/` composes both packages for MCP.
 
 `packaging/` owns executable construction, Fab assembly, versioned artifacts,
 and release verification. Platform binaries and staged plugins are build
@@ -65,7 +73,7 @@ tests exercise the source.
 The release path is:
 
 ```text
-SAL + Client source
+SAL + Interfaces + Client source
   -> client/dist/main.js
   -> .tmp/client/<platform-arch>/loomle(.exe)
   -> staged LoomleBridge Fab plugin
@@ -83,13 +91,14 @@ The future `packaging/client/` implementation owns how that executable is
 built. Callers must not infer Cargo `target/` paths, npm internals, or another
 private build location.
 
-## Embedded SAL Resources
+## Embedded Static Resources
 
 The standalone program must not depend on repository-relative files at
-runtime. Its build must embed the static SAL resources needed by the resident
-guide, `sal_schema`, parsing, and result validation, including:
+runtime. `interfaces/` generates its guide and static cards into a TypeScript
+catalog consumed by the Client. The final Client build must also embed the SAL
+JSON Schema needed by parsing and result validation, including:
 
-- the interface index and interface documents;
+- the generated interface catalog;
 - the normalized SAL JSON Schema;
 - any generated data required by the SAL SDK.
 
@@ -150,14 +159,15 @@ source.
 
 ## Migration Order
 
-1. Establish clean SAL and Client workspace boundaries.
+1. Establish clean SAL, Interfaces, and Client workspace boundaries.
 2. Separate Client production and test compilation.
-3. Centralize product-version injection and embed SAL runtime resources.
-4. Build one platform-neutral Client bundle.
-5. Produce the standalone program at the canonical artifact path.
-6. Assemble the program into the Fab plugin.
-7. Replace release and verification workflows.
-8. Retire the Python MCP, Cargo paths, and website bootstrap chain.
+3. Inject the static UE interface catalog into generic SAL discovery.
+4. Centralize product-version injection and embed the SAL runtime schema.
+5. Build one platform-neutral Client bundle.
+6. Produce the standalone program at the canonical artifact path.
+7. Assemble the program into the Fab plugin.
+8. Replace release and verification workflows.
+9. Retire the Python MCP, Cargo paths, and website bootstrap chain.
 
 Each increment must preserve workspace tests and must not activate tag-driven
 release workflows before the complete 0.7 artifact path exists.

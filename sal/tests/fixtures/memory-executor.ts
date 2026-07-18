@@ -18,7 +18,7 @@ import type {
   StableRef,
   Statement,
   Target,
-} from "./index.js";
+} from "../../src/index.js";
 
 export interface MemoryDocument {
   target: Target;
@@ -32,16 +32,6 @@ export interface CreateMemoryExecutorOptions {
 
 export interface MemoryExecutor extends SalExecutor {
   getDocuments(): MemoryDocument[];
-}
-
-export interface CreateMemoryGraphExecutorOptions {
-  documents: MemoryDocument[];
-}
-
-export type MemoryGraphExecutor = MemoryExecutor;
-
-export function createMemoryGraphExecutor(options: CreateMemoryGraphExecutorOptions): MemoryGraphExecutor {
-  return createMemoryExecutor({ interfaces: ["graph"], documents: options.documents });
 }
 
 export function createMemoryExecutor(options: CreateMemoryExecutorOptions): MemoryExecutor {

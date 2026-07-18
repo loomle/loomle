@@ -144,22 +144,23 @@ The formal domain documents below preserve design intent, UE mapping, complete
 semantics, and implementation boundaries. They are not returned directly by
 `sal.schema("<module>")`.
 
-Each active module has a compact interface card under `interfaces/`. The card
-is the normative static Text returned by `sal.schema("<module>")`. It assumes
-the resident Core guide, contains only operational target, Query, Object Text,
-Palette, Patch, and handoff information, and should remain approximately
-800–1200 model Tokens. It never loads UE state; exact instance capabilities
-remain the role of `with schema`.
+Each active module has a compact interface card in the top-level
+`@loomle/interfaces` workspace. The card is the normative static Text injected
+into SAL and returned by `sal.schema("<module>")`. It assumes the resident Core
+guide, contains only operational target, Query, Object Text, Palette, Patch,
+and handoff information, and should remain approximately 800–1200 model
+Tokens. It never loads UE state; exact instance capabilities remain the role of
+`with schema`.
 
 Current interface cards:
 
-- [`interfaces/README.md`](interfaces/README.md): zero-argument active-module
-  index
-- [`interfaces/asset.md`](interfaces/asset.md)
-- [`interfaces/blueprint.md`](interfaces/blueprint.md)
-- [`interfaces/class.md`](interfaces/class.md)
-- [`interfaces/graph.md`](interfaces/graph.md)
-- [`interfaces/widget.md`](interfaces/widget.md)
+- [`../../interfaces/README.md`](../../interfaces/README.md): catalog ownership
+  and generation
+- [`../../interfaces/asset.md`](../../interfaces/asset.md)
+- [`../../interfaces/blueprint.md`](../../interfaces/blueprint.md)
+- [`../../interfaces/class.md`](../../interfaces/class.md)
+- [`../../interfaces/graph.md`](../../interfaces/graph.md)
+- [`../../interfaces/widget.md`](../../interfaces/widget.md)
 
 ## Current Domains
 

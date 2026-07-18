@@ -277,6 +277,6 @@ Diagnostics should close the same discovery loop:
 - stale ids point to the relevant summary, collection, or tree;
 - unavailable capabilities give a reason and copyable next query when possible.
 
-The initial interface modules are `asset`, `blueprint`, `class`, `graph`, and
-`widget` when declared by `executor.interfaces`. Module names organize
-documentation; they are not target-routing fields.
+The initial Loomle interface modules are `asset`, `blueprint`, `class`, `graph`,
+and `widget` when enabled by the Client. Module names organize documentation;
+they are not target-routing fields.

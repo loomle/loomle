@@ -7,10 +7,10 @@ The Widget domain describes the authored `UWidget` objects inside a
 document object or translate Widget Classes and properties into SAL-specific
 types.
 
-This document is the normative SAL design. The TypeScript SDK implements its
-shared Query, Patch, ordered Object Text, schema, and in-memory executor forms.
-The UE Bridge executes the same contract against authored WidgetBlueprint
-state.
+This document is the normative SAL design. The TypeScript library implements
+its shared Query, Patch, ordered Object Text, and schema forms; its test suite
+uses a test-only generic memory executor. The UE Bridge executes the same
+contract against authored WidgetBlueprint state.
 
 The current Widget contract covers the authored Widget tree, exact native
 Widget and Slot state, Palette-backed creation, structural editing, and Widget

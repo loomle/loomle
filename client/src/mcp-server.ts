@@ -1,4 +1,4 @@
-import { loadSalGuide } from "@loomle/sal";
+import { guide } from "@loomle/interfaces";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -12,13 +12,11 @@ import { SalToolService, toolDefinitions } from "./tools.js";
 const publicToolNames = new Set<string>(toolDefinitions.map((tool) => tool.name));
 
 export async function createMcpServer(service: SalToolService): Promise<Server> {
-  const instructions = await loadSalGuide();
-
   const server = new Server(
     { name: "loomle", version: "0.7.0-dev.1" },
     {
       capabilities: { tools: {} },
-      instructions,
+      instructions: guide,
     },
   );
 

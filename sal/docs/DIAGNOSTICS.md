@@ -246,9 +246,9 @@ schema validation. Parser-specific `ParseError` values should be converted into
 the shared diagnostic shape.
 
 The SDK executor boundary may produce `capability.*`, `resolution.*`, and
-`validation.*` diagnostics through in-memory executors. These executors are
-contract fixtures for a UE-backed executor, so their diagnostic behavior
-should follow the same layer boundaries.
+`validation.*` diagnostics. Its test-only generic memory executor is a
+contract fixture for a UE-backed executor, so its diagnostic behavior should
+follow the same layer boundaries.
 
 The SDK should validate normalized objects before executor calls and validate
 executor results before formatting. Schema validation failures should become

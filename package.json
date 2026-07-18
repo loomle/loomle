@@ -5,10 +5,11 @@
   "type": "module",
   "workspaces": [
     "sal",
+    "interfaces",
     "client"
   ],
   "scripts": {
     "build": "npm run build --workspace @loomle/client",
-    "test": "npm run test --workspace @loomle/sal && npm run test --workspace @loomle/client"
+    "test": "npm run test --workspace @loomle/sal && npm run test --workspace @loomle/interfaces && npm run test --workspace @loomle/client"
   }
 }

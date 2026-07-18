@@ -10,9 +10,10 @@ initialized UE process. It should not load assets by default. Search should
 return canonical asset identities and lightweight registry metadata that agents
 can feed into later SAL queries or patches.
 
-The TypeScript SDK implements the shared `assets` Query operation, ordered
-Object Text result, schema contract, formatter, and in-memory executor. The UE
-Bridge executes the same contract against the live Asset Registry.
+The TypeScript library implements the shared `assets` Query operation, ordered
+Object Text result, schema contract, and formatter. Its test suite exercises
+the contract through a test-only generic memory executor. The UE Bridge
+executes the same contract against the live Asset Registry.
 
 ## Basic Form
 

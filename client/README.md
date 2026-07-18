@@ -1,8 +1,12 @@
 # Loomle Client
 
 This directory contains the standalone TypeScript MCP Client for Loomle 0.7.
-It translates compact SAL Text through the shared SAL SDK and connects to one
-running Unreal Editor Bridge over its local JSON-RPC socket.
+It translates compact SAL Text through the shared SAL library and connects to
+one running Unreal Editor Bridge over its local JSON-RPC socket.
+
+The Client composes the generic `@loomle/sal` language package with the
+UE-specific static catalog from `@loomle/interfaces`. It does not own or
+duplicate either contract.
 
 ## Public Tools
 
@@ -19,11 +23,11 @@ step, not the final 0.7 inventory of retained non-SAL utilities. The existing
 screenshot capabilities still require explicit TypeScript Client adapters.
 `jobs` is intentionally not being migrated.
 
-The MCP server instructions are the resident guide from the SAL SDK. Query,
-Patch, and Editor Context results share the same validated ordered Object Text.
-Mutation execution fields and diagnostics follow that Object Text inside
-ordinary SAL comments, so the complete MCP text remains directly readable and
-copyable without a parallel JSON payload.
+The MCP server instructions are the resident guide from `@loomle/interfaces`.
+Query, Patch, and Editor Context results share the same validated ordered
+Object Text. Mutation execution fields and diagnostics follow that Object Text
+inside ordinary SAL comments, so the complete MCP text remains directly
+readable and copyable without a parallel JSON payload.
 
 ## Runtime Selection
 
@@ -50,9 +54,10 @@ npm ci
 npm test --workspace @loomle/client
 ```
 
-`npm test` builds the shared SAL SDK, compiles the Client with strict
-TypeScript settings, and runs the Client unit tests. Production code is emitted
-to `client/dist/`; test code is emitted separately under `.tmp/client-tests/`.
+`npm test` builds the shared SAL library and UE interface catalog, compiles the
+Client with strict TypeScript settings, and runs the Client unit tests.
+Production code is emitted to `client/dist/`; test code is emitted separately
+under `.tmp/client-tests/`.
 
 Run the stdio MCP server from a checkout with:
 

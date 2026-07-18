@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { guide } from "@loomle/interfaces";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
@@ -16,7 +17,7 @@ class CountingRpc implements RpcInvoker {
   }
 }
 
-test("unknown MCP tool names are protocol errors and never reach the service", async () => {
+test("publishes the interface guide and rejects unknown MCP tools before service dispatch", async () => {
   const rpc = new CountingRpc();
   const server = await createMcpServer(new SalToolService(rpc));
   const client = new Client({ name: "loomle-test", version: "1.0.0" });
@@ -25,6 +26,7 @@ test("unknown MCP tool names are protocol errors and never reach the service", a
   await client.connect(clientTransport);
 
   try {
+    assert.equal(client.getInstructions(), guide);
     await assert.rejects(
       client.callTool({ name: "missing_tool", arguments: {} }),
       (error: unknown) => error instanceof McpError

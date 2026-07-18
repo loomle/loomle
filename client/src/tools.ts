@@ -8,6 +8,7 @@ import {
   type Sal,
   type TextResult,
 } from "@loomle/sal";
+import { catalog } from "@loomle/interfaces";
 import { RuntimeRpcError, type RpcInvoker } from "./runtime-rpc.js";
 
 export type PublicToolName = "sal_query" | "sal_patch" | "sal_schema" | "editor_context";
@@ -34,7 +35,7 @@ export interface McpToolResult {
   isError?: boolean;
 }
 
-const interfaces = ["asset", "blueprint", "class", "graph", "widget"] as const;
+const interfaceNames = catalog.map(({ name }) => name);
 
 export const toolDefinitions: readonly ToolDefinition[] = [
   {
@@ -57,7 +58,7 @@ export const toolDefinitions: readonly ToolDefinition[] = [
       properties: {
         module: {
           type: "string",
-          enum: [...interfaces],
+          enum: [...interfaceNames],
           description: "Optional interface module.",
         },
       },
@@ -78,8 +79,9 @@ export class SalToolService {
 
   constructor(private readonly rpc: RpcInvoker) {
     this.sal = createSal({
+      catalog,
       executor: {
-        interfaces,
+        interfaces: interfaceNames,
         query: async (object: Query) => this.rpc.invoke("sal.query", { object }) as Promise<Result>,
         patch: async (object) => this.rpc.invoke("sal.patch", { object }) as Promise<MutationResult>,
       },

@@ -1,4 +1,4 @@
-import { loadInterfaceSchema, normalizeInterfaceModules } from "./interface-schema.js";
+import { loadInterfaceSchema, selectActiveInterfaces } from "./interface-schema.js";
 import { parseSalObject } from "./parser.js";
 import { formatValidatedObjectResult } from "./result.js";
 import { validateSalObject, validateObjectResult } from "./schema-validator.js";
@@ -16,7 +16,7 @@ import type {
 
 export function createSal(options: CreateSalOptions): Sal {
   const executor = options.executor;
-  const interfaces = normalizeInterfaceModules(executor.interfaces);
+  const interfaces = selectActiveInterfaces(options.catalog, executor.interfaces);
 
   return {
     query(text) {

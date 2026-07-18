@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { createMemoryAssetExecutor, createSal, type Target } from "../../src/index.js";
+import { createSal, type Target } from "../../src/index.js";
+import { createMemoryExecutor } from "../fixtures/memory-executor.js";
+import { testInterfaceCatalog } from "./interface-catalog.js";
 
 const target: Target = { alias: "asset", value: { kind: "name", name: "asset" } };
-const executor = createMemoryAssetExecutor({
+const executor = createMemoryExecutor({
+  interfaces: ["asset"],
   documents: [{
     target,
     object: { statements: [
@@ -13,10 +16,10 @@ const executor = createMemoryAssetExecutor({
 });
 
 assert.deepEqual(executor.interfaces, ["asset"]);
-const result = await createSal({ executor }).query(`query asset
+const result = await createSal({ executor, catalog: testInterfaceCatalog }).query(`query asset
 assets "Door"
 where type = "UBlueprint"`);
 assert.deepEqual(result.diagnostics, []);
 assert.match(result.text ?? "", /BP_Door/);
 assert.doesNotMatch(result.text ?? "", /WBP_Menu/);
-console.log("[PASS] asset executor is a thin interface wrapper over Object Text");
+console.log("[PASS] generic memory executor supports the Asset interface fixture");
