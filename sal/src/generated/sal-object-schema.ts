@@ -22,30 +22,11 @@ export type QueryOperation =
   | FlowOperation
   | PaletteEntriesOperation;
 export type Condition =
-  | EqCondition
-  | NeCondition
-  | ContainsCondition
-  | CompareCondition
-  | NotCondition
-  | AndCondition
-  | OrCondition;
+  EqCondition | NeCondition | ContainsCondition | CompareCondition | NotCondition | AndCondition | OrCondition;
 export type PatchStatement = Binding | PatchOperation;
 export type BindingTarget = LocalRef | BindingMemberRef;
 export type PatchOperation =
-  | Add
-  | Remove
-  | Set
-  | Reset
-  | Move
-  | Connect
-  | Disconnect
-  | Break
-  | Insert
-  | Wrap
-  | Replace
-  | Invoke
-  | Compile
-  | Save;
+  Add | Remove | Set | Reset | Move | Connect | Disconnect | Break | Insert | Wrap | Replace | Invoke | Compile | Save;
 /**
  * @minItems 2
  * @maxItems 2

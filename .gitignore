@@ -27,6 +27,8 @@ mcp/client/target/
 
 # Local scratch/build output
 .tmp/
+node_modules/
+dist/
 
 # Local developer project-root config
 tools/dev.project-root.local.json

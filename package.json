@@ -1,0 +1,13 @@
+{
+  "name": "loomle",
+  "version": "0.7.0-dev.1",
+  "private": true,
+  "workspaces": [
+    "sal",
+    "client"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @loomle/client",
+    "test": "npm run test --workspace @loomle/sal && npm run test --workspace @loomle/client"
+  }
+}

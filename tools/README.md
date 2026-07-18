@@ -50,7 +50,7 @@ the local config file.
 
 ## 0.7 Validation
 
-- SAL SDK: `cd experiments/sal && npm test`
+- SAL SDK: `npm run test --workspace @loomle/sal`
 - TypeScript Client: `cd client && npm test`
 - UE Bridge: UE 5.7 `RunUAT BuildPlugin`
 

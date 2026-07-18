@@ -47,7 +47,7 @@ SAL Text
 - `src/interface-schema.ts`: resident static interface cards.
 - `schema/sal-object.schema.json`: normalized request/result contract.
 - `src/generated/sal-object-schema.ts`: generated TypeScript model.
-- `../../engine/LoomleBridge/Source/LoomleBridge/Private/Sal/`: UE-backed
+- `../engine/LoomleBridge/Source/LoomleBridge/Private/Sal/`: UE-backed
   executor, target resolution, ordered Object Text, and interface adapters.
 - `fixtures/`: valid and rejected normalized JSON boundaries.
 - `examples/blueprint/`: current SAL Text examples with possible responses.

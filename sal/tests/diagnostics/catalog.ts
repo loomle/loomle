@@ -21,7 +21,7 @@ const catalogSchemaPath = join(packageRoot, "diagnostics/catalog.schema.json");
 const sourceRoots = [
   join(packageRoot, "src"),
   join(packageRoot, "tests"),
-  join(packageRoot, "../../engine/LoomleBridge/Source/LoomleBridge/Private/Sal"),
+  join(packageRoot, "../engine/LoomleBridge/Source/LoomleBridge/Private/Sal"),
 ];
 
 const catalog = JSON.parse(await readFile(catalogPath, "utf8")) as DiagnosticCatalog;

@@ -9,11 +9,7 @@
     "skipLibCheck": true,
     "declaration": true,
     "outDir": "dist",
-    "rootDir": ".",
-    "baseUrl": ".",
-    "paths": {
-      "@loomle/sal-experiment": ["../experiments/sal/dist/src/index.d.ts"]
-    }
+    "rootDir": "."
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"]
 }

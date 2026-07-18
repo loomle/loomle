@@ -1,4 +1,4 @@
-import { loadSalGuide } from "@loomle/sal-experiment";
+import { loadSalGuide } from "@loomle/sal";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {

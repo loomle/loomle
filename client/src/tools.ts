@@ -7,7 +7,7 @@ import {
   type Result,
   type Sal,
   type TextResult,
-} from "@loomle/sal-experiment";
+} from "@loomle/sal";
 import { RuntimeRpcError, type RpcInvoker } from "./runtime-rpc.js";
 
 export type PublicToolName = "sal_query" | "sal_patch" | "sal_schema" | "editor_context";

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { parseSalObject } from "@loomle/sal-experiment";
+import { parseSalObject } from "@loomle/sal";
 import test from "node:test";
 import { RuntimeRpcError, type RpcInvoker } from "../src/runtime-rpc.js";
 import { SalToolService, toolDefinitions } from "../src/tools.js";
