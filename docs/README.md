@@ -17,6 +17,8 @@ interface contract.
 
 ## Current Documents
 
+- `LOOMLE_070_REPOSITORY_AND_DISTRIBUTION.md`: canonical 0.7 component,
+  artifact, Fab, and legacy-retirement boundaries.
 - `BLUEPRINT_INTERFACE_DESIGN.md`: current Blueprint interface design.
 - `BLUEPRINT_USER_DEFINED_STRUCT_DESIGN.md`: planned Blueprint
   UserDefinedStruct asset create/inspect/edit design.

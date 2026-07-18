@@ -20,7 +20,6 @@ runtime/dev-verify-install/
 runtime/local-release-*/
 
 # Rust test build artifacts
-client/target/
 mcp_server/target/
 mcp/server/target/
 mcp/client/target/

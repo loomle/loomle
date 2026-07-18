@@ -5,13 +5,14 @@
   "type": "module",
   "description": "Standalone Loomle SAL MCP client.",
   "bin": {
-    "loomle": "dist/src/main.js"
+    "loomle": "dist/main.js"
   },
   "scripts": {
     "clean": "node scripts/clean.mjs",
     "build:sal": "npm run build --workspace @loomle/sal",
     "build": "npm run clean && npm run build:sal && tsc -p tsconfig.json",
-    "test": "npm run build && node --test dist/tests/*.test.js"
+    "build:test": "tsc -p tsconfig.test.json",
+    "test": "npm run build && npm run build:test && node scripts/run-tests.mjs"
   },
   "engines": {
     "node": ">=20"

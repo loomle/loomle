@@ -2,6 +2,7 @@
   "name": "loomle",
   "version": "0.7.0-dev.1",
   "private": true,
+  "type": "module",
   "workspaces": [
     "sal",
     "client"

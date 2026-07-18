@@ -46,18 +46,18 @@ reached UE.
 Node.js 20 or newer is required.
 
 ```bash
-cd client
 npm ci
-npm test
+npm test --workspace @loomle/client
 ```
 
 `npm test` builds the shared SAL SDK, compiles the Client with strict
-TypeScript settings, and runs the Client unit tests.
+TypeScript settings, and runs the Client unit tests. Production code is emitted
+to `client/dist/`; test code is emitted separately under `.tmp/client-tests/`.
 
 Run the stdio MCP server from a checkout with:
 
 ```bash
-node client/dist/src/main.js mcp
+node client/dist/main.js mcp
 ```
 
 The `loomle` executable bundle and installer migration are separate 0.7
