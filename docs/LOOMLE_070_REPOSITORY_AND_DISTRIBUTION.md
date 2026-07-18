@@ -95,11 +95,12 @@ private build location.
 
 The standalone program must not depend on repository-relative files at
 runtime. `interfaces/` generates its guide and static cards into a TypeScript
-catalog consumed by the Client. The final Client build must also embed the SAL
-JSON Schema needed by parsing and result validation, including:
+catalog consumed by the Client. SAL likewise generates its canonical JSON
+Schema into an internal TypeScript text module used by result validation.
+Static resources carried into the final Client are therefore:
 
 - the generated interface catalog;
-- the normalized SAL JSON Schema;
+- the generated runtime text of the normalized SAL JSON Schema;
 - any generated data required by the SAL SDK.
 
 This keeps the published Client self-contained and avoids a parallel runtime

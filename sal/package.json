@@ -18,9 +18,11 @@
   "description": "TypeScript SDK and normalized contract for Structured Agent Language.",
   "scripts": {
     "generate:types": "json2ts -i schema/sal-object.schema.json -o src/generated/sal-object-schema.ts --cwd . --unreachableDefinitions --unknownAny false",
-    "check:generated": "npm run generate:types && git diff --exit-code -- src/generated/sal-object-schema.ts",
+    "generate:schema-data": "node scripts/generate-schema-data.mjs",
+    "generate": "npm run generate:types && npm run generate:schema-data",
+    "check:generated": "git ls-files --error-unmatch src/generated/sal-object-schema.ts src/generated/sal-object-schema-data.ts && npm run generate && git diff --exit-code -- src/generated/sal-object-schema.ts src/generated/sal-object-schema-data.ts",
     "build": "tsc -p tsconfig.json",
-    "test:schema": "npm run build && node dist/tests/schema/validate-fixtures.js",
+    "test:schema": "npm run build && node dist/tests/schema/embedded-schema.js && node dist/tests/schema/validate-fixtures.js",
     "test:diagnostics": "npm run build && node dist/tests/diagnostics/catalog.js",
     "test:invalid": "npm run build && node dist/tests/parser/invalid.js",
     "test:roundtrip": "npm run build && node dist/tests/parser/roundtrip.js",

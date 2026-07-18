@@ -244,8 +244,15 @@ claim UE-complete semantics.
 ## Schema And RPC Boundary
 
 `schema/sal-object.schema.json` is the source of truth for normalized requests,
-Object Text, results, mutation fields, and diagnostics. Generated TypeScript is
-written to `src/generated/sal-object-schema.ts`.
+Object Text, results, mutation fields, and diagnostics. Generation produces:
+
+- `src/generated/sal-object-schema.ts` for TypeScript types;
+- `src/generated/sal-object-schema-data.ts` for the exact runtime Schema text.
+
+The validator statically imports the generated text, parses it once, and
+compiles both request and result validators from it. Runtime code never reads a
+repository-relative or package-relative Schema file. The generated data module
+is internal and does not become a second public contract.
 
 The UE Bridge boundary carries schema-valid normalized JSON in both directions:
 
@@ -270,7 +277,8 @@ formatting.
 
 The default test gate checks:
 
-- generated schema types are current;
+- generated schema types and runtime Schema text are current;
+- embedded Schema text exactly matches the canonical JSON file;
 - valid and invalid normalized fixtures;
 - diagnostic registration;
 - invalid syntax and source spans;

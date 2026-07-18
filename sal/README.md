@@ -48,6 +48,7 @@ SAL Text
 - `src/interface-schema.ts`: injected catalog selection and index formatting.
 - `schema/sal-object.schema.json`: normalized request/result contract.
 - `src/generated/sal-object-schema.ts`: generated TypeScript model.
+- `src/generated/sal-object-schema-data.ts`: generated runtime Schema text.
 - `../engine/LoomleBridge/Source/LoomleBridge/Private/Sal/`: UE-backed
   executor, target resolution, ordered Object Text, and interface adapters.
 - `fixtures/`: valid and rejected normalized JSON boundaries.
@@ -84,15 +85,20 @@ npm run build
 npm test
 ```
 
-`npm test` checks generated types, JSON fixtures, diagnostic registration,
-invalid syntax, parser/formatter round trips, examples, facade behavior, and
-the generic memory executor across interface fixtures.
+`npm test` checks generated types and runtime Schema text, JSON fixtures,
+diagnostic registration, invalid syntax, parser/formatter round trips,
+examples, facade behavior, and the generic memory executor across interface
+fixtures.
 
-Regenerate schema-derived TypeScript after a schema change:
+Regenerate both Schema-derived TypeScript files after a Schema change:
 
 ```sh
-npm run generate:types
+npm run generate
 ```
+
+`schema/sal-object.schema.json` is the only maintained Schema. Runtime
+validation imports its generated text module and never reads the JSON file by
+path.
 
 ## Boundaries
 

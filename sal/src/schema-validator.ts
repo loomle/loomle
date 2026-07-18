@@ -1,5 +1,5 @@
 import { Ajv2020 } from "ajv/dist/2020.js";
-import { readFile } from "node:fs/promises";
+import { salObjectSchemaText } from "./generated/sal-object-schema-data.js";
 import type {
   Binding,
   BindingTarget,
@@ -16,11 +16,15 @@ import type {
 } from "./index.js";
 
 type SchemaValidator = (value: unknown) => boolean;
+interface SchemaValidators {
+  object: SchemaValidator;
+  result: SchemaValidator;
+}
 
-let validatorsPromise: Promise<{ object: SchemaValidator; result: SchemaValidator }> | undefined;
+let validators: SchemaValidators | undefined;
 
 export async function validateSalObject(object: SalObject): Promise<Diagnostic | undefined> {
-  const validate = (await loadValidators()).object;
+  const validate = loadValidators().object;
   return validate(object) && isReferenceSafeSalObject(object) ? undefined : diagnostic(
     "language.invalid_object_shape",
     "Normalized SAL object failed schema validation.",
@@ -28,7 +32,7 @@ export async function validateSalObject(object: SalObject): Promise<Diagnostic |
 }
 
 export async function validateObjectResult(result: unknown): Promise<Diagnostic | undefined> {
-  const validate = (await loadValidators()).result;
+  const validate = loadValidators().result;
   const objectResult = result as ObjectResult;
   return validate(result) && (!objectResult.object || isReferenceSafeObjectText(objectResult.object)) ? undefined : diagnostic(
     "language.invalid_result_shape",
@@ -36,18 +40,17 @@ export async function validateObjectResult(result: unknown): Promise<Diagnostic 
   );
 }
 
-function loadValidators(): Promise<{ object: SchemaValidator; result: SchemaValidator }> {
-  validatorsPromise ??= (async () => {
-    const url = new URL("../../schema/sal-object.schema.json", import.meta.url);
-    const schema = JSON.parse(await readFile(url, "utf8")) as { $id: string };
-    const ajv = new Ajv2020({ allErrors: true, strict: false });
-    ajv.addSchema(schema);
-    return {
-      object: ajv.compile({ $ref: `${schema.$id}#/$defs/SalObject` }) as SchemaValidator,
-      result: ajv.compile({ $ref: `${schema.$id}#/$defs/ObjectResult` }) as SchemaValidator,
-    };
-  })();
-  return validatorsPromise;
+function loadValidators(): SchemaValidators {
+  if (validators) return validators;
+
+  const schema = JSON.parse(salObjectSchemaText) as { $id: string };
+  const ajv = new Ajv2020({ allErrors: true, strict: false });
+  ajv.addSchema(schema);
+  validators = {
+    object: ajv.compile({ $ref: `${schema.$id}#/$defs/SalObject` }) as SchemaValidator,
+    result: ajv.compile({ $ref: `${schema.$id}#/$defs/ObjectResult` }) as SchemaValidator,
+  };
+  return validators;
 }
 
 function diagnostic(code: string, message: string): Diagnostic {
