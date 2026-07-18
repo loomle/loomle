@@ -10,6 +10,7 @@
 #include "Graph/SalGraphInterface.h"
 #include "Misc/Base64.h"
 #include "Misc/SecureHash.h"
+#include "Serialization/JsonSerializer.h"
 #include "SalDiagnostics.h"
 #include "SalJson.h"
 #include "SalModel.h"
@@ -21,6 +22,8 @@ namespace Loomle::Sal
 {
 namespace
 {
+constexpr int64 MaxQueryResultUtf8Bytes = 128 * 1024;
+
 TSharedPtr<FJsonObject> InterfaceError(const FString& Operation, const FSalResolvedTarget& Target)
 {
     TArray<FString> Interfaces;
@@ -43,6 +46,63 @@ TSharedPtr<FJsonObject> ValidateOutgoing(const TSharedPtr<FJsonObject>& Result)
         return ValidationError;
     }
     return Result;
+}
+
+TOptional<int64> CondensedJsonUtf8Size(const TSharedPtr<FJsonObject>& Result)
+{
+    if (!Result.IsValid())
+    {
+        return {};
+    }
+    FString Serialized;
+    const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+        TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Serialized);
+    if (!FJsonSerializer::Serialize(Result.ToSharedRef(), Writer))
+    {
+        return {};
+    }
+    const FTCHARToUTF8 Utf8(*Serialized);
+    return Utf8.Length();
+}
+
+TSharedPtr<FJsonObject> EnforceQueryResultSize(
+    const TSharedPtr<FJsonObject>& Result,
+    const FSalQuery& Query)
+{
+    const TOptional<int64> SizeBytes = CondensedJsonUtf8Size(Result);
+    FString Operation;
+    if (Query.Operation.IsValid())
+    {
+        Query.Operation->TryGetStringField(TEXT("kind"), Operation);
+    }
+    if (!SizeBytes.IsSet())
+    {
+        FSalDiagnosticBuilder Diagnostic = FSalDiagnostics::Error(
+            TEXT("language.invalid_result_shape"),
+            TEXT("Query result could not be serialized for output-size validation."))
+            .Suggestion(TEXT("Retry with a narrower Query; report the failure if it persists."));
+        if (!Operation.IsEmpty())
+        {
+            Diagnostic.Operation(Operation);
+        }
+        return FSalDiagnostics::Result(Diagnostic.Build());
+    }
+    if (SizeBytes.GetValue() <= MaxQueryResultUtf8Bytes)
+    {
+        return Result;
+    }
+    FSalDiagnosticBuilder Diagnostic = FSalDiagnostics::Error(
+        TEXT("validation.result_too_large"),
+        FString::Printf(
+            TEXT("Query produced %lld bytes of condensed UTF-8 JSON, exceeding the %lld-byte safety limit."),
+            static_cast<long long>(SizeBytes.GetValue()),
+            static_cast<long long>(MaxQueryResultUtf8Bytes)))
+        .Suggestion(TEXT("Narrow the Query with search, filters, pagination, depth, or an exact object reference."));
+    if (!Operation.IsEmpty())
+    {
+        Diagnostic.Operation(Operation);
+    }
+    return FSalDiagnostics::Result(Diagnostic.Build());
 }
 
 TSharedPtr<FJsonObject> MutationFailure(
@@ -681,17 +741,21 @@ TSharedPtr<FJsonObject> DispatchPatch(const FSalPatch& Patch, const FSalResolved
 TSharedPtr<FJsonObject> FSalModule::BuildQueryResult(const TSharedPtr<FJsonObject>& Arguments)
 {
     FSalQuery Query;
+    const auto FinalizeQueryResult = [&Query](const TSharedPtr<FJsonObject>& Result)
+    {
+        return ValidateOutgoing(EnforceQueryResultSize(ValidateOutgoing(Result), Query));
+    };
     TSharedPtr<FJsonObject> Error;
     if (!FSalJson::DecodeQuery(Arguments, Query, Error))
     {
-        return Error;
+        return FinalizeQueryResult(Error);
     }
     FSalResolvedTarget Target;
     if (!FSalTargetResolver().Resolve(Query.Alias, Query.TargetValue, false, Target, Error))
     {
-        return Error;
+        return FinalizeQueryResult(Error);
     }
-    return ValidateOutgoing(DispatchQuery(Query, Target));
+    return FinalizeQueryResult(DispatchQuery(Query, Target));
 }
 
 TSharedPtr<FJsonObject> FSalModule::BuildPatchResult(const TSharedPtr<FJsonObject>& Arguments)

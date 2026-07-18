@@ -31,10 +31,24 @@ Path, and selected Registry Tags. Structured filters are:
 
 Conditions may use `not`, `and`, `or`, and parentheses. Ordered comparisons are
 unsupported. Ordering keys are `score`, `name`, `path`, and `type`. Cursor
-pagination defaults to 50 results. `with registryTags` adds Registry Tags whose
-keys can be represented as SAL inline fields. Any remaining native key/value
-pairs follow that Asset binding in a lossless Comment instead of being renamed
-or dropped.
+pagination defaults to 50 results and is capped at 200. `with registryTags`
+adds Registry Tags whose keys can be represented as SAL inline fields. Any
+remaining safe native key/value pairs follow that Asset binding in a lossless
+Comment instead of being renamed or dropped.
+
+UE's opaque `FiBData` and legacy `FiB` Blueprint-search indexes are never
+materialized. Other Registry Tag values whose UE resource size exceeds 8 KiB
+are protected the same way. They are absent from inline tags, fallback JSON,
+and free-text search. Explicit `where registryTag.FiBData` and legacy `FiB`
+conditions are rejected; other explicitly named Tag conditions stay exact,
+including values above the output threshold. A bounded Comment adjacent to the
+Asset reports the omitted native key, `ue_internal_index` or `value_too_large`
+reason, and `resourceSizeBytes`; it never substitutes a fake tag value. Query
+results over 128 KiB of condensed UTF-8 JSON fail atomically
+with `validation.result_too_large` instead of returning truncated data. Narrow
+the Query with search, filters, pagination, depth, or an exact reference. A
+serialization failure during measurement fails closed with
+`language.invalid_result_shape`.
 
 Example:
 
@@ -58,6 +72,10 @@ door = asset(
   score: 98,
   registryTags: {ParentClass: "/Script/Engine.Actor"}
 )
+###
+registryTags omitted
+FiBData: reason=ue_internal_index, resourceSizeBytes=842391
+###
 ###
 registryTags not representable as SAL inline fields; exact native key/value JSON:
 {"Display Name":"Door"}

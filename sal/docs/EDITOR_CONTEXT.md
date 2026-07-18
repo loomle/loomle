@@ -106,6 +106,10 @@ concrete workflow justifies them.
 
 The Bridge maintains a lightweight Context Tracker so the result does not
 depend on whether UE still has operating-system focus when the agent calls.
+When Slate still has a keyboard-focused Widget, every call first rebuilds its
+current Focus Path and treats that current structural evidence as newer than
+the retained record. Startup follows the same rule instead of beginning from
+only UE's last active minor Tab.
 
 The tracker listens to real Slate focus changes and Dock Tab activation. It
 records only the last UE interaction source:
@@ -124,6 +128,19 @@ editor.
 UE deliberately excludes Major Tabs from `FGlobalTabmanager`'s active minor
 Tab pointer. A real Major-Tab foreground event is therefore retained and is
 not overwritten by an older minor Tab merely because those pointers differ.
+Likewise, a pathless Tab activation event is only a fallback. It must not
+replace a richer Focus-Path record when it repeats the same Tab or merely
+foregrounds that Editor's owner Major Tab. A different minor Tab is a real
+surface change even when its content does not take keyboard focus.
+
+A pathless event is accepted only when the event Tab is foreground in its Tab
+Well and belongs to Slate's active top-level regular window. A local Tab Well
+in a background window can emit the same foreground event during programmatic
+restoration and is not user interaction evidence. When the Tab belongs to an
+Asset Editor, its associated TabManager must also have the same registered
+foreground owner Major Tab. Focus-Path records do not require UE to retain
+operating-system focus; this active-window guard applies only while admitting
+a new pathless event.
 
 ### Surface Resolution
 
@@ -134,6 +151,33 @@ Surface identity comes from structural state:
 - Asset Editor `EditorName` associated with the exact Dock Tab;
 - Slate `FTagMetaData`;
 - editor-specific public selection state.
+
+A foreground `SDockTab` found in the current Focus Path is the primary host
+signal; an inactive Tab's retained keyboard focus is stale evidence. Some
+auxiliary editor surfaces place keyboard focus in a separate normal docking
+window whose generated path contains no `SDockTab`. In that case Context may
+recover the host through UE 5.7's native docking relationship only when all of
+the following are true:
+
+- the focused window is a normal Slate window;
+- it is visible, not minimized, and is not the owner Major Tab's root window;
+- `FGlobalTabmanager::GetSubTabManagerForWindow()` returns the manager owned by
+  a foreground Major Tab, and that manager owns a Docking Area for the exact
+  auxiliary window;
+- exactly one open Asset Editor has an `AssociatedTabManager` exactly equal to
+  that manager;
+- that Editor owns exactly one edited Asset.
+
+The recovered owner Major Tab becomes the retained structural locator. The
+owner/root window is deliberately excluded because UE 5.7 returns the first
+foreground matching child TabManager there and does not prove which root
+subtree owns the Focus Path. A world-centric Editor, a shared manager,
+multiple matching Editors, or multiple edited Assets likewise remains
+unavailable. Context never substitutes window titles, last-activation
+timestamps, or the first open Editor. When this window-level recovery is
+needed, a short ordinary comment may preserve the focused leaf Widget type,
+for example `focus: SMultiLineEditableText`; the leaf is diagnostic context
+and never an object locator.
 
 Localized window titles, visible asset names, widget text, and heuristic
 scoring are not identity.
@@ -187,14 +231,21 @@ result contract.
 
 ## Blueprint Graph
 
-The Provider uses:
+Once the exact Blueprint Editor host is structurally established, the
+Provider uses:
 
 - `FBlueprintEditor::GetUISelectionState()`;
 - `FBlueprintEditor::GetFocusedGraph()`;
 - `FBlueprintEditor::GetSelectedNodes()`.
 
-It does not scan the active window for `SGraphEditor` widgets or score multiple
-Graph Editors.
+It does not require the focused leaf to be one of a fixed set of Blueprint
+panels. `GetUISelectionState()` determines Graph, My Blueprint, Components,
+Class Settings, or Class Defaults, and the corresponding native selection API
+determines the selected object. This lets a search box, Details value editor,
+or multiline text field retain its owning Blueprint context without scanning
+the active window for `SGraphEditor` widgets or scoring multiple Graph
+Editors. The focused Graph and selected objects are still validated against
+the Blueprint returned by `GetBlueprintObj()`.
 
 No Node selection returns the Blueprint and focused Graph:
 
@@ -386,10 +437,15 @@ focused value widget.
 
 ## Widget Designer
 
-The Provider accepts only UE 5.7 Designer mode (`DesignerName`) and its native
-`SlatePreview`, `SlateHierarchy`, and `WidgetDetails` Tabs. Animation,
-Navigation, Preview, and Graph surfaces do not inherit a stale Designer
-selection.
+After the exact Widget Blueprint Editor host is structurally established, the
+Provider accepts UE 5.7 Designer mode (`DesignerName`) and reads its native
+selection regardless of which auxiliary leaf Widget currently has keyboard
+focus. Graph mode is handled by the Blueprint Provider instead, and Preview
+mode does not inherit a stale Designer selection. Animation and Navigation are
+auxiliary panels inside UE's Designer application mode rather than separate
+modes. Focusing them may therefore retain the exact Widget Blueprint owner and
+current native Widget selection, but Context does not claim to discover an
+Animation or Navigation object until those domains are designed.
 
 The Provider uses `FWidgetBlueprintEditor::GetSelectedWidgets()` and resolves
 each `FWidgetReference` through `GetTemplate()`. The template is serialized
@@ -589,8 +645,8 @@ owns the surface:
 ## Generic Asset Editor
 
 The Provider derives editor-to-asset ownership from the exact Toolkit owner
-Tab, or from a unique associated Tab Manager when no owner-Tab match exists,
-and `UAssetEditorSubsystem`; it never uses window-title comparison or picks the
+Tab, or from the guarded focused-window recovery described above, and
+`UAssetEditorSubsystem`; it never uses window-title comparison or picks the
 first editor from an ambiguous match.
 
 For a world-centric Asset Editor, UE intentionally exposes no associated
@@ -734,13 +790,18 @@ Implementation is acceptable only if it demonstrates that:
 
 The implemented Provider registry, tracker, Object Result projection, internal
 `editor.context` RPC, and public `editor_context` Client tool compile against
-UE 5.7. The shared SAL contract tests and all 28 Client unit tests pass.
+UE 5.7. The shared SAL contract tests and all 32 Client unit tests pass.
 
 Source audit confirmed the important conservative boundaries: recorded Asset
 Editor pointers are re-resolved through the recorded Dock Tab before use;
 world-centric ownership is not inferred from the Level Editor's shared
 TabManager; selected Widgets must be unique source Widgets in the current
 Blueprint; and multiple selection never degrades to an arbitrary first item.
+Each read also rebuilds the current keyboard Focus Path when one exists. A
+focus path without an `SDockTab` can recover an Asset Editor only through UE's
+foreground Major Tab and an exact auxiliary-window Docking Area, with exactly
+one Editor and one edited Asset. Hidden, minimized, and owner/root windows are
+not accepted for this recovery.
 
 Per the confirmed implementation scope, this audit did not launch Unreal
 Editor or run live interaction scenarios. The behavioral checklist above is

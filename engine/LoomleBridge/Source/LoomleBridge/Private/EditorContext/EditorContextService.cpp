@@ -7,7 +7,6 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetViewTypes.h"
 #include "BlueprintEditor.h"
-#include "BlueprintEditorTabs.h"
 #include "ContentBrowserItem.h"
 #include "Dom/JsonObject.h"
 #include "EdGraph/EdGraph.h"
@@ -111,6 +110,7 @@ FString CommentScalar(FString Text);
 FString CommentPath(const TArray<FString>& Segments);
 TSharedPtr<FJsonObject> Args();
 void AddSurface(FContextOutput& Out, const FString& Surface);
+void AddRecoveredFocus(FContextOutput& Out, const FInteractionRecord& Record);
 void AddNoSelection(FContextOutput& Out);
 void AddMultipleSelection(FContextOutput& Out, int32 Count);
 FString GraphTypeText(const UEdGraph* Graph);
@@ -125,6 +125,9 @@ UObject* FindNearestAsset(UObject* Object);
 bool IsOpenAssetEditor(IAssetEditorInstance* Editor);
 TArray<UObject*> AssetsEditedBy(IAssetEditorInstance* Editor);
 IAssetEditorInstance* FindAssetEditorForTab(const TSharedPtr<SDockTab>& Tab);
+IAssetEditorInstance* FindAssetEditorForWindow(
+    const TSharedPtr<SWindow>& Window,
+    TSharedPtr<SDockTab>& OutOwnerTab);
 IAssetEditorInstance* ResolveTrackedAssetEditor(const FInteractionRecord& Record);
 TSharedPtr<SDockTab> FindDockTab(const FWidgetPath& Path);
 TSharedPtr<IDetailsView> FindDetailsView(const FWidgetPath& Path);
@@ -369,57 +372,35 @@ public:
             return false;
         }
 
-        const bool bWidgetDesignSurface = Input.EditorName == FName(TEXT("WidgetBlueprintEditor"))
-            && (Input.TabId == FName(TEXT("SlatePreview"))
-                || Input.TabId == FName(TEXT("SlateHierarchy"))
-                || Input.TabId == FName(TEXT("WidgetDetails"))
-                || Input.HasTag(FName(TEXT("Designer")))
-                || Input.HasTag(FName(TEXT("Hierarchy")))
-                || Input.HasWidgetType(FName(TEXT("SDesignerView"))));
-        if (bWidgetDesignSurface)
+        if (Input.EditorName == FName(TEXT("WidgetBlueprintEditor"))
+            && static_cast<FWidgetBlueprintEditor*>(Input.AssetEditor)->IsModeCurrent(FName(TEXT("DesignerName"))))
         {
+            // Designer mode has its own native selection model. The exact
+            // editor association is already structural, so a low-level focus
+            // leaf does not turn Designer selection into Graph selection.
             return false;
         }
 
         FBlueprintEditor* Editor = static_cast<FBlueprintEditor*>(Input.AssetEditor);
         const FName SelectionState = Editor->GetUISelectionState();
-        // Tab activation is itself an exact structural signal and has no
-        // focus path from which to recover IDetailsView. The current native
-        // Blueprint selection state disambiguates what this shared tab edits.
-        const bool bDetails = Input.TabId == FBlueprintEditorTabs::DetailsID
-            || Input.TabId == FBlueprintEditorTabs::DefaultEditorID;
         FName Surface;
-        if (SelectionState == FBlueprintEditor::SelectionState_Graph
-            && (Input.TabId == FBlueprintEditorTabs::GraphEditorID
-                || Input.HasWidgetType(FName(TEXT("SGraphEditor")))
-                || bDetails))
+        if (SelectionState == FBlueprintEditor::SelectionState_Graph)
         {
             Surface = SurfaceBlueprintGraph;
         }
-        else if (SelectionState == FBlueprintEditor::SelectionState_MyBlueprint
-            && (Input.TabId == FBlueprintEditorTabs::MyBlueprintID
-                || Input.HasWidgetType(FName(TEXT("SMyBlueprint")))
-                || bDetails))
+        else if (SelectionState == FBlueprintEditor::SelectionState_MyBlueprint)
         {
             Surface = SurfaceMyBlueprint;
         }
-        else if (SelectionState == FBlueprintEditor::SelectionState_Components
-            && (Input.TabId == FBlueprintEditorTabs::ConstructionScriptEditorID
-                || Input.TabId == FBlueprintEditorTabs::SCSViewportID
-                || Input.HasWidgetType(FName(TEXT("SSubobjectEditor")))
-                || Input.HasWidgetType(FName(TEXT("SSCSEditor")))
-                || bDetails))
+        else if (SelectionState == FBlueprintEditor::SelectionState_Components)
         {
             Surface = SurfaceBlueprintComponents;
         }
-        else if (SelectionState == FBlueprintEditor::SelectionState_ClassSettings && bDetails)
+        else if (SelectionState == FBlueprintEditor::SelectionState_ClassSettings)
         {
             Surface = SurfaceClassSettings;
         }
-        else if (SelectionState == FBlueprintEditor::SelectionState_ClassDefaults
-            && (bDetails
-                || Input.TabId == FBlueprintEditorTabs::ConstructionScriptEditorID
-                || Input.TabId == FBlueprintEditorTabs::DefaultEditorID))
+        else if (SelectionState == FBlueprintEditor::SelectionState_ClassDefaults)
         {
             Surface = SurfaceClassDefaults;
         }
@@ -446,6 +427,14 @@ public:
         {
             return InvalidTrackedSurface(Record, TEXT("The tracked Blueprint Editor no longer owns exactly one Blueprint."));
         }
+        const TArray<UObject*> EditedAssets = AssetsEditedBy(Editor);
+        if (!EditedAssets.Contains(Blueprint)
+            || (Record.bRecoveredHostFromWindow && EditedAssets.Num() != 1))
+        {
+            return InvalidTrackedSurface(
+                Record,
+                TEXT("The structurally resolved Blueprint Editor does not uniquely own its reported Blueprint."));
+        }
         if (!SurfaceMatchesSelectionState(Record.Surface, Editor->GetUISelectionState()))
         {
             return InvalidTrackedSurface(
@@ -455,20 +444,21 @@ public:
 
         if (Record.Surface == SurfaceBlueprintGraph)
         {
-            return BuildGraph(Editor, Blueprint);
+            return BuildGraph(Editor, Blueprint, Record);
         }
         if (Record.Surface == SurfaceMyBlueprint)
         {
-            return BuildMyBlueprint(Editor, Blueprint);
+            return BuildMyBlueprint(Editor, Blueprint, Record);
         }
         if (Record.Surface == SurfaceBlueprintComponents)
         {
-            return BuildComponents(Editor, Blueprint);
+            return BuildComponents(Editor, Blueprint, Record);
         }
         if (Record.Surface == SurfaceClassSettings)
         {
             FContextOutput Out;
             AddSurface(Out, TEXT("Blueprint Editor / Class Settings"));
+            AddRecoveredFocus(Out, Record);
             EmitBlueprint(Out, Blueprint);
             return Out.Finish();
         }
@@ -476,6 +466,7 @@ public:
         {
             FContextOutput Out;
             AddSurface(Out, TEXT("Blueprint Editor / Class Defaults"));
+            AddRecoveredFocus(Out, Record);
             if (Blueprint->GeneratedClass != nullptr)
             {
                 EmitClass(Out, Blueprint->GeneratedClass, Blueprint->GetName() + TEXT("Class"));
@@ -517,10 +508,14 @@ private:
         return false;
     }
 
-    static TSharedPtr<FJsonObject> BuildGraph(FBlueprintEditor* Editor, UBlueprint* Blueprint)
+    static TSharedPtr<FJsonObject> BuildGraph(
+        FBlueprintEditor* Editor,
+        UBlueprint* Blueprint,
+        const FInteractionRecord& Record)
     {
         FContextOutput Out;
         AddSurface(Out, TEXT("Blueprint Editor / Graph"));
+        AddRecoveredFocus(Out, Record);
         const FString BlueprintAlias = EmitBlueprint(Out, Blueprint);
         UEdGraph* Graph = Editor->GetFocusedGraph();
         if (Graph == nullptr || FBlueprintEditorUtils::FindBlueprintForGraph(Graph) != Blueprint)
@@ -568,10 +563,14 @@ private:
         return Out.Finish();
     }
 
-    static TSharedPtr<FJsonObject> BuildMyBlueprint(FBlueprintEditor* Editor, UBlueprint* Blueprint)
+    static TSharedPtr<FJsonObject> BuildMyBlueprint(
+        FBlueprintEditor* Editor,
+        UBlueprint* Blueprint,
+        const FInteractionRecord& Record)
     {
         FContextOutput Out;
         AddSurface(Out, TEXT("Blueprint Editor / My Blueprint"));
+        AddRecoveredFocus(Out, Record);
         const FString BlueprintAlias = EmitBlueprint(Out, Blueprint);
         const TSharedPtr<SMyBlueprint> MyBlueprint = Editor->GetMyBlueprintWidget();
         if (!MyBlueprint.IsValid())
@@ -712,10 +711,14 @@ private:
         return Out.Finish();
     }
 
-    static TSharedPtr<FJsonObject> BuildComponents(FBlueprintEditor* Editor, UBlueprint* Blueprint)
+    static TSharedPtr<FJsonObject> BuildComponents(
+        FBlueprintEditor* Editor,
+        UBlueprint* Blueprint,
+        const FInteractionRecord& Record)
     {
         FContextOutput Out;
         AddSurface(Out, TEXT("Blueprint Editor / Components"));
+        AddRecoveredFocus(Out, Record);
         const TArray<TSharedPtr<FSubobjectEditorTreeNode>> Selected = Editor->GetSelectedSubobjectEditorTreeNodes();
         if (Selected.IsEmpty())
         {
@@ -991,17 +994,7 @@ public:
     {
         if (Input.AssetEditor == nullptr
             || Input.EditorName != FName(TEXT("WidgetBlueprintEditor"))
-            || !(Input.TabId == FName(TEXT("SlatePreview"))
-                || Input.TabId == FName(TEXT("SlateHierarchy"))
-                || Input.TabId == FName(TEXT("WidgetDetails"))
-                || Input.HasTag(FName(TEXT("Designer")))
-                || Input.HasTag(FName(TEXT("Hierarchy")))
-                || Input.HasWidgetType(FName(TEXT("SDesignerView")))))
-        {
-            return false;
-        }
-        FWidgetBlueprintEditor* Editor = static_cast<FWidgetBlueprintEditor*>(Input.AssetEditor);
-        if (!Editor->IsModeCurrent(FName(TEXT("DesignerName"))))
+            || !static_cast<FWidgetBlueprintEditor*>(Input.AssetEditor)->IsModeCurrent(FName(TEXT("DesignerName"))))
         {
             return false;
         }
@@ -1027,9 +1020,18 @@ public:
         {
             return InvalidTrackedSurface(Record, TEXT("The tracked Widget Designer no longer owns a WidgetBlueprint."));
         }
+        const TArray<UObject*> EditedAssets = AssetsEditedBy(Editor);
+        if (!EditedAssets.Contains(Blueprint)
+            || (Record.bRecoveredHostFromWindow && EditedAssets.Num() != 1))
+        {
+            return InvalidTrackedSurface(
+                Record,
+                TEXT("The structurally resolved Widget Blueprint Editor does not uniquely own its reported WidgetBlueprint."));
+        }
 
         FContextOutput Out;
         AddSurface(Out, TEXT("Widget Designer"));
+        AddRecoveredFocus(Out, Record);
 
         const TOptional<FNamedSlotSelection> NamedSlot = Editor->GetSelectedNamedSlot();
         if (NamedSlot.IsSet())
@@ -1623,6 +1625,7 @@ public:
         }
         FContextOutput Out;
         AddSurface(Out, TEXT("Details"));
+        AddRecoveredFocus(Out, Record);
         const TArray<TWeakObjectPtr<UObject>>& Selected = Details->GetSelectedObjects();
         const auto EmitUniqueEditorOwner = [&Out, &Record]()
         {
@@ -1696,6 +1699,7 @@ public:
         }
         FContextOutput Out;
         AddSurface(Out, Record.EditorName.IsNone() ? TEXT("Asset Editor") : Record.EditorName.ToString());
+        AddRecoveredFocus(Out, Record);
         const TArray<UObject*> Assets = AssetsEditedBy(Record.AssetEditor);
         if (Assets.IsEmpty())
         {
@@ -1830,6 +1834,14 @@ TSharedPtr<FJsonObject> Args()
 void AddSurface(FContextOutput& Out, const FString& Surface)
 {
     Out.Builder.AddComment(Surface);
+}
+
+void AddRecoveredFocus(FContextOutput& Out, const FInteractionRecord& Record)
+{
+    if (Record.bRecoveredHostFromWindow && !Record.LeafWidgetType.IsNone())
+    {
+        Out.Builder.AddComment(TEXT("focus: ") + Record.LeafWidgetType.ToString());
+    }
 }
 
 void AddNoSelection(FContextOutput& Out)
@@ -2151,6 +2163,63 @@ IAssetEditorInstance* FindAssetEditorForTab(const TSharedPtr<SDockTab>& Tab)
     return nullptr;
 }
 
+IAssetEditorInstance* FindAssetEditorForWindow(
+    const TSharedPtr<SWindow>& Window,
+    TSharedPtr<SDockTab>& OutOwnerTab)
+{
+    OutOwnerTab.Reset();
+    if (GEditor == nullptr
+        || !Window.IsValid()
+        || Window->GetType() != EWindowType::Normal)
+    {
+        return nullptr;
+    }
+
+    const TSharedRef<FGlobalTabmanager> GlobalManager = FGlobalTabmanager::Get();
+    const TSharedPtr<FTabManager> WindowManager = GlobalManager->GetSubTabManagerForWindow(Window.ToSharedRef());
+    if (!WindowManager.IsValid())
+    {
+        return nullptr;
+    }
+    const TSharedPtr<SDockTab> OwnerTab = WindowManager->GetOwnerTab();
+    const TSharedPtr<SDockTab> RegisteredMajorTab = GlobalManager->GetMajorTabForTabManager(WindowManager.ToSharedRef());
+    const TSharedPtr<SWindow> OwnerWindow = OwnerTab.IsValid() ? OwnerTab->GetParentWindow() : nullptr;
+    // UE resolves either the owner/root window or a Docking Area owned by the
+    // manager. Rejecting the owner window leaves only the exact auxiliary
+    // Docking Area path; the root-window branch is not structurally unique.
+    if (!OwnerTab.IsValid()
+        || OwnerTab != RegisteredMajorTab
+        || OwnerTab->GetTabRole() != ETabRole::MajorTab
+        || !OwnerTab->IsForeground()
+        || !OwnerWindow.IsValid()
+        || OwnerWindow == Window)
+    {
+        return nullptr;
+    }
+
+    UAssetEditorSubsystem* Editors = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+    if (Editors == nullptr)
+    {
+        return nullptr;
+    }
+    TArray<IAssetEditorInstance*> Matches;
+    for (IAssetEditorInstance* Editor : Editors->GetAllOpenEditors())
+    {
+        if (Editor != nullptr
+            && Editor->GetAssociatedTabManager() == WindowManager)
+        {
+            Matches.AddUnique(Editor);
+        }
+    }
+    if (Matches.Num() != 1 || AssetsEditedBy(Matches[0]).Num() != 1)
+    {
+        return nullptr;
+    }
+
+    OutOwnerTab = OwnerTab;
+    return Matches[0];
+}
+
 IAssetEditorInstance* ResolveTrackedAssetEditor(const FInteractionRecord& Record)
 {
     if (Record.AssetEditor == nullptr || !Record.bHadTab)
@@ -2168,6 +2237,18 @@ IAssetEditorInstance* ResolveTrackedAssetEditor(const FInteractionRecord& Record
         || Resolved->GetEditorName() != Record.EditorName)
     {
         return nullptr;
+    }
+    if (Record.bRecoveredHostFromWindow)
+    {
+        const TSharedPtr<FTabManager> Manager = Resolved->GetAssociatedTabManager();
+        if (!Manager.IsValid()
+            || Manager->GetOwnerTab() != Tab
+            || Tab->GetTabRole() != ETabRole::MajorTab
+            || !Tab->IsForeground()
+            || AssetsEditedBy(Resolved).Num() != 1)
+        {
+            return nullptr;
+        }
     }
     return Resolved;
 }
@@ -2270,6 +2351,8 @@ void CopyRecognition(const FRecognitionInput& Input, FInteractionRecord& Out)
     Out.DetailsView = Input.DetailsView;
     Out.AssetEditor = Input.AssetEditor;
     Out.bHadTab = Input.ActiveTab.IsValid();
+    Out.bHadFocusPath = Input.FocusPath != nullptr && Input.FocusPath->IsValid();
+    Out.bRecoveredHostFromWindow = Input.bRecoveredHostFromWindow;
     Out.LeafWidgetType = Input.FocusPath != nullptr && Input.FocusPath->IsValid()
         ? Input.FocusPath->Widgets[Input.FocusPath->Widgets.Num() - 1].Widget->GetType()
         : NAME_None;
@@ -2326,7 +2409,10 @@ public:
         TabForegroundedHandle = FGlobalTabmanager::Get()->OnTabForegrounded_Subscribe(
             FOnActiveTabChanged::FDelegate::CreateRaw(this, &FImpl::HandleTabForegrounded));
 
-        Observe(nullptr, FGlobalTabmanager::Get()->GetActiveTab());
+        if (!ObserveCurrentFocus())
+        {
+            Observe(nullptr, FGlobalTabmanager::Get()->GetActiveTab());
+        }
     }
 
     void Shutdown()
@@ -2398,7 +2484,11 @@ public:
                 }
             }
         }
-        if (FSlateApplication::IsInitialized() && bHasRecord && Current.bHadTab)
+        const bool bObservedCurrentFocus = ObserveCurrentFocus();
+        if (!bObservedCurrentFocus
+            && FSlateApplication::IsInitialized()
+            && bHasRecord
+            && Current.bHadTab)
         {
             const TSharedPtr<SDockTab> TrackedTab = Current.Tab.Pin();
             const TSharedPtr<SDockTab> ActiveTab = FGlobalTabmanager::Get()->GetActiveTab();
@@ -2457,6 +2547,40 @@ public:
     }
 
 private:
+    bool ObserveCurrentFocus()
+    {
+        if (!FSlateApplication::IsInitialized()
+            || FSlateApplication::Get().GetActiveModalWindow().IsValid())
+        {
+            return false;
+        }
+        const TSharedPtr<SWidget> FocusedWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
+        if (!FocusedWidget.IsValid())
+        {
+            return false;
+        }
+        FWidgetPath FocusPath;
+        if (!FSlateApplication::Get().GeneratePathToWidgetUnchecked(FocusedWidget.ToSharedRef(), FocusPath)
+            || !FocusPath.IsValid())
+        {
+            return false;
+        }
+        const TSharedRef<SWindow> FocusWindow = FocusPath.GetDeepestWindow();
+        if (FocusWindow->GetType() != EWindowType::Normal
+            || !FocusWindow->IsVisible()
+            || FocusWindow->IsWindowMinimized())
+        {
+            return false;
+        }
+        const TSharedPtr<SDockTab> FocusTab = FindDockTab(FocusPath);
+        if (FocusTab.IsValid() && !FocusTab->IsForeground())
+        {
+            return false;
+        }
+        Observe(&FocusPath, nullptr);
+        return true;
+    }
+
     FRecognitionInput MakeInput(const FWidgetPath* Path, TSharedPtr<SDockTab> Tab) const
     {
         FRecognitionInput Input;
@@ -2465,7 +2589,21 @@ private:
             && FSlateApplication::Get().GetActiveModalWindow().IsValid();
         if (Path != nullptr && Path->IsValid())
         {
-            Tab = FindDockTab(*Path);
+            const TSharedPtr<SDockTab> PathTab = FindDockTab(*Path);
+            if (PathTab.IsValid())
+            {
+                Tab = PathTab;
+            }
+            else
+            {
+                TSharedPtr<SDockTab> RecoveredOwnerTab;
+                Input.AssetEditor = FindAssetEditorForWindow(Path->GetDeepestWindow(), RecoveredOwnerTab);
+                if (Input.AssetEditor != nullptr)
+                {
+                    Tab = RecoveredOwnerTab;
+                    Input.bRecoveredHostFromWindow = true;
+                }
+            }
             CollectStructuralPath(*Path, Input.Tags, Input.WidgetTypes);
             Input.DetailsView = FindDetailsView(*Path);
         }
@@ -2474,7 +2612,10 @@ private:
         {
             Input.TabId = Tab->GetLayoutIdentifier().TabType;
         }
-        Input.AssetEditor = FindAssetEditorForTab(Tab);
+        if (Input.AssetEditor == nullptr)
+        {
+            Input.AssetEditor = FindAssetEditorForTab(Tab);
+        }
         if (Input.AssetEditor != nullptr)
         {
             Input.EditorName = Input.AssetEditor->GetEditorName();
@@ -2485,6 +2626,65 @@ private:
     void Observe(const FWidgetPath* Path, const TSharedPtr<SDockTab>& Tab)
     {
         const FRecognitionInput Input = MakeInput(Path, Tab);
+        if (Path == nullptr && Tab.IsValid())
+        {
+            if (!FSlateApplication::IsInitialized())
+            {
+                return;
+            }
+            const TSharedPtr<SWindow> ActiveWindow = FSlateApplication::Get().GetActiveTopLevelRegularWindow();
+            const TSharedPtr<SWindow> TabWindow = Tab->GetParentWindow();
+            if (!ActiveWindow.IsValid()
+                || !TabWindow.IsValid()
+                || TabWindow != ActiveWindow
+                || !Tab->IsForeground()
+                || !TabWindow->IsVisible()
+                || TabWindow->IsWindowMinimized())
+            {
+                // Local tab wells can foreground tabs in a background window.
+                // A pathless event is interaction evidence only in Slate's
+                // active regular window.
+                return;
+            }
+            if (Input.AssetEditor != nullptr)
+            {
+                const TSharedPtr<FTabManager> EditorManager = Input.AssetEditor->GetAssociatedTabManager();
+                const TSharedPtr<SDockTab> OwnerTab = EditorManager.IsValid()
+                    ? EditorManager->GetOwnerTab()
+                    : nullptr;
+                const TSharedPtr<SDockTab> RegisteredMajorTab = EditorManager.IsValid()
+                    ? FGlobalTabmanager::Get()->GetMajorTabForTabManager(EditorManager.ToSharedRef())
+                    : nullptr;
+                if (!OwnerTab.IsValid()
+                    || OwnerTab != RegisteredMajorTab
+                    || !OwnerTab->IsForeground())
+                {
+                    return;
+                }
+            }
+        }
+        if (Path == nullptr && bHasRecord && Current.bHadFocusPath && Tab.IsValid())
+        {
+            const TSharedPtr<SDockTab> CurrentTab = Current.Tab.Pin();
+            const bool bSameTab = CurrentTab == Tab && Current.AssetEditor == Input.AssetEditor;
+            bool bOwnerMajorTabForSameEditor = false;
+            if (Current.AssetEditor != nullptr
+                && Current.AssetEditor == Input.AssetEditor
+                && Tab->GetTabRole() == ETabRole::MajorTab
+                && Tab->IsForeground())
+            {
+                const TSharedPtr<FTabManager> EditorManager = Input.AssetEditor->GetAssociatedTabManager();
+                bOwnerMajorTabForSameEditor = EditorManager.IsValid() && EditorManager->GetOwnerTab() == Tab;
+            }
+            if (bSameTab || bOwnerMajorTabForSameEditor)
+            {
+                // A pathless activation broadcast is weaker than the current
+                // Focus Path only when it repeats that exact Tab or foregrounds
+                // the same Editor's owner Major Tab. A different minor Tab is
+                // a real surface change even when its content takes no focus.
+                return;
+            }
+        }
         for (const TSharedRef<IEditorContextProvider>& Provider : Providers)
         {
             FInteractionRecord Candidate;

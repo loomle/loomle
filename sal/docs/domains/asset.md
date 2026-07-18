@@ -132,7 +132,8 @@ Supported `order by` keys:
 Asset query has no `select` clause. The default result includes identity,
 path, type, domains, and loaded state. `with registryTags` expands Asset
 Registry tags. Cursor pagination defaults to 50 results when `page limit` is
-omitted.
+omitted and the Asset adapter clamps every requested page to at most 200
+results.
 
 `assets` is the Asset collection root's only primary operation. The domain
 defines no `summary`, Palette, `asset@id`, singular Asset operation, or
@@ -202,6 +203,54 @@ The JSON inside the Comment is data carried by a Comment, not a second request
 or result syntax. A native Registry Tag key that cannot be written as a SAL
 field path is also unavailable to `where registryTag.<key>` until SAL gains a
 general quoted field-path design.
+
+Registry metadata is not assumed to be small or human-readable. In particular,
+UE's `FiBData` and legacy `FiB` tags contain the opaque Find in Blueprints
+index. The adapter must identify those keys before calling
+`FAssetTagValueRef::AsString()` and never expose, search, or filter their raw
+values. The same output rule applies to any other tag whose
+`FAssetTagValueRef::GetResourceSize()` exceeds 8 KiB. Ordinary values at or
+below that bound remain exact and lossless.
+
+Omitted values are not replaced by sentinel strings inside `registryTags`.
+Instead, an immediately following ordinary Comment reports bounded metadata in
+stable native-key order:
+
+```sal
+menu = asset(path: "/Game/UI/WBP_Menu.WBP_Menu", type: "/Script/UMGEditor.WidgetBlueprint", registryTags: {ParentClass: "/Script/UMG.UserWidget"})
+###
+registryTags omitted
+FiBData: reason=ue_internal_index, resourceSizeBytes=842391
+LargeCustomTag: reason=value_too_large, resourceSizeBytes=32776
+###
+```
+
+The Comment reports at most 64 omitted keys and then reports the remaining
+count, so disclosure cannot itself become an unbounded result. The byte count
+is UE's resource-size measurement for that native value; it is useful for
+scale, but it is not a promise about the exact UTF-8 length of a localized
+display string.
+
+Opaque indexes and over-limit values are excluded from the free-text
+`assets "text"` scan. An explicit `where registryTag.FiBData` or
+`where registryTag.FiB` condition is rejected because those native values are
+not queryable metadata. Other explicitly named Registry Tag conditions remain
+exact even when their values exceed the output threshold: the adapter may read
+that one requested value for comparison, but `with registryTags` still omits it
+from the result. This keeps deliberate structured filtering available without
+letting broad search materialize every large Tag.
+
+As a final bridge-wide safety boundary, every read-only Query result is
+serialized as condensed JSON and measured as UTF-8 before it leaves the SAL
+module. A result larger than 128 KiB is replaced in full by a small
+`validation.result_too_large` diagnostic that asks the agent to narrow the
+query with pagination, depth, search, or an exact object reference. Results are
+never byte-truncated, so the returned JSON and Object Text remain valid. This
+post-query fuse does not run on Patch results because a mutation may already
+have been applied before its readback is built. If the normalized Query result
+cannot itself be serialized for measurement, the boundary fails closed with a
+small `language.invalid_result_shape` diagnostic rather than treating its size
+as zero.
 
 ## UE Capability Boundary
 
@@ -280,3 +329,15 @@ Pure SAL normalization must not:
   execute `save`
 
 The adapter or bridge owns those UE-dependent responsibilities.
+
+## Implementation Audit — 2026-07-18
+
+The Registry Tag admission policy, bounded omission comments, Asset page cap,
+and read-only Query result fuse compile against UE 5.7. SAL diagnostic and
+schema tests, the generated interface catalog check, interface validation, and
+Client tests pass. Patch results do not enter the Query fuse.
+
+This audit did not replace the installed plugin or launch Unreal Editor while
+the packaged build was under user testing. Live verification still needs to
+cover real `FiBData`, an over-limit ordinary Tag, a requested page above 200,
+and a deterministic result above 128 KiB in the next integration cycle.

@@ -31,6 +31,7 @@ struct FRecognitionInput
     FName TabId;
     FName EditorName;
     bool bModal = false;
+    bool bRecoveredHostFromWindow = false;
 
     bool HasTag(FName Tag) const;
     bool HasWidgetType(FName Type) const;
@@ -55,6 +56,8 @@ struct FInteractionRecord
     IAssetEditorInstance* AssetEditor = nullptr;
     bool bHadTab = false;
     bool bHadSurfaceWidget = false;
+    bool bHadFocusPath = false;
+    bool bRecoveredHostFromWindow = false;
 };
 
 /** Bridge-internal extraction unit ordered by Priority (larger values win). */

@@ -135,6 +135,7 @@
     { "code": "validation.placement_invalid", "layer": "validation", "defaultSeverity": "error", "title": "Placement invalid" },
     { "code": "validation.preflight_failed", "layer": "validation", "defaultSeverity": "error", "title": "Preflight failed" },
     { "code": "validation.remove_invalid", "layer": "validation", "defaultSeverity": "error", "title": "Remove invalid" },
+    { "code": "validation.result_too_large", "layer": "validation", "defaultSeverity": "error", "title": "Query result too large" },
     { "code": "validation.rollback_failed", "layer": "validation", "defaultSeverity": "error", "title": "Rollback failed" },
     { "code": "validation.save_failed", "layer": "validation", "defaultSeverity": "error", "title": "Save failed" },
     { "code": "validation.signature_edit_failed", "layer": "validation", "defaultSeverity": "error", "title": "Signature edit failed" },

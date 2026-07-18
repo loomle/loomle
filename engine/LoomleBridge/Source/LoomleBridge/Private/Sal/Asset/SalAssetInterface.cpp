@@ -8,6 +8,7 @@
 #include "AssetRegistry/AssetData.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
+#include "Blueprint/BlueprintSupport.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Engine/Blueprint.h"
@@ -24,6 +25,16 @@ namespace Loomle::Sal
 namespace
 {
 constexpr int32 DefaultPageLimit = 50;
+constexpr int32 MaxPageLimit = 200;
+constexpr int64 MaxRegistryTagResourceSizeBytes = 8 * 1024;
+constexpr int32 MaxRegistryTagOmissionEntries = 64;
+
+struct FRegistryTagOmission
+{
+    FString Key;
+    FString Reason;
+    int64 ResourceSizeBytes = 0;
+};
 
 struct FAssetMatch
 {
@@ -65,15 +76,30 @@ FString AssetRoot(const FAssetData& Data)
     return Slash == INDEX_NONE ? PackageName : PackageName.Left(Slash);
 }
 
-FString TagValue(const FAssetData& Data, const FString& Key)
+bool IsOpaqueRegistryTag(const FName Key)
 {
-    const FAssetTagValueRef Value = Data.TagsAndValues.FindTag(FName(*Key));
-    return Value.IsSet() ? Value.AsString() : FString();
+    return Key == FBlueprintTags::FindInBlueprintsData
+        || Key == FBlueprintTags::UnversionedFindInBlueprintsData;
 }
 
-bool HasTag(const FAssetData& Data, const FString& Key)
+bool IsProtectedRegistryTag(
+    const FName Key,
+    const FAssetTagValueRef& Value,
+    FString* OutReason = nullptr,
+    int64* OutResourceSizeBytes = nullptr)
 {
-    return Data.TagsAndValues.Contains(FName(*Key));
+    const int64 ResourceSizeBytes = FMath::Max<int64>(0, Value.GetResourceSize());
+    const bool bOpaque = IsOpaqueRegistryTag(Key);
+    const bool bTooLarge = ResourceSizeBytes > MaxRegistryTagResourceSizeBytes;
+    if (OutResourceSizeBytes != nullptr)
+    {
+        *OutResourceSizeBytes = ResourceSizeBytes;
+    }
+    if (OutReason != nullptr)
+    {
+        *OutReason = bOpaque ? TEXT("ue_internal_index") : bTooLarge ? TEXT("value_too_large") : FString();
+    }
+    return bOpaque || bTooLarge;
 }
 
 bool TryReadBool(const TSharedPtr<FJsonValue>& Value, bool& OutValue)
@@ -147,6 +173,17 @@ bool ValidateCondition(const TSharedPtr<FJsonObject>& Condition, FString& OutErr
     {
         OutError = FString::Printf(TEXT("Asset filter field is unsupported: %s."), *Field);
         return false;
+    }
+    if (bRegistryTag)
+    {
+        const FString TagKey = Field.Mid(12);
+        if (IsOpaqueRegistryTag(FName(*TagKey)))
+        {
+            OutError = FString::Printf(
+                TEXT("Asset Registry Tag %s is an opaque UE search index and cannot be compared."),
+                *TagKey);
+            return false;
+        }
     }
     if (Kind == TEXT("contains") && bEqualityOnly)
     {
@@ -249,13 +286,13 @@ bool MatchesCondition(const FAssetData& Data, const TSharedPtr<FJsonObject>& Con
     else
     {
         const FString Key = Field.Mid(12);
-        const bool bPresent = HasTag(Data, Key);
+        const FAssetTagValueRef Value = Data.TagsAndValues.FindTag(FName(*Key));
         const FString Right = ExprString(Condition->TryGetField(TEXT("value")));
-        if (!bPresent)
+        if (!Value.IsSet())
         {
             return Kind == TEXT("ne");
         }
-        return MatchString(TagValue(Data, Key), Right, Kind);
+        return MatchString(Value.AsString(), Right, Kind);
     }
     return MatchString(Left, ExprString(Condition->TryGetField(TEXT("value"))), Kind);
 }
@@ -276,8 +313,11 @@ bool FindText(const FAssetData& Data, const FString& Text, bool& bTagMatch)
     }
     Data.TagsAndValues.ForEach([&](const TPair<FName, FAssetTagValueRef>& Pair)
     {
-        bTagMatch |= Pair.Key.ToString().Contains(Text, ESearchCase::IgnoreCase)
-            || Pair.Value.AsString().Contains(Text, ESearchCase::IgnoreCase);
+        if (!bTagMatch && !IsProtectedRegistryTag(Pair.Key, Pair.Value))
+        {
+            bTagMatch = Pair.Key.ToString().Contains(Text, ESearchCase::IgnoreCase)
+                || Pair.Value.AsString().Contains(Text, ESearchCase::IgnoreCase);
+        }
     });
     return bTagMatch;
 }
@@ -332,15 +372,27 @@ TArray<FString> DomainsFor(const FAssetData& Data)
 
 TSharedPtr<FJsonObject> RegistryTags(
     const FAssetData& Data,
-    TSharedPtr<FJsonObject>& OutUnrepresentableTags)
+    TSharedPtr<FJsonObject>& OutUnrepresentableTags,
+    TArray<FRegistryTagOmission>& OutOmissions)
 {
     TArray<TPair<FString, FString>> Tags;
     Tags.Reserve(Data.TagsAndValues.Num());
     Data.TagsAndValues.ForEach([&](const TPair<FName, FAssetTagValueRef>& Pair)
     {
+        FString Reason;
+        int64 ResourceSizeBytes = 0;
+        if (IsProtectedRegistryTag(Pair.Key, Pair.Value, &Reason, &ResourceSizeBytes))
+        {
+            OutOmissions.Add({Pair.Key.ToString(), MoveTemp(Reason), ResourceSizeBytes});
+            return;
+        }
         Tags.Emplace(Pair.Key.ToString(), Pair.Value.AsString());
     });
     Tags.Sort([](const TPair<FString, FString>& Left, const TPair<FString, FString>& Right)
+    {
+        return Left.Key < Right.Key;
+    });
+    OutOmissions.Sort([](const FRegistryTagOmission& Left, const FRegistryTagOmission& Right)
     {
         return Left.Key < Right.Key;
     });
@@ -379,12 +431,39 @@ FString RegistryTagFallbackComment(const TSharedPtr<FJsonObject>& Tags)
     return TEXT("registryTags not representable as SAL inline fields; exact native key/value JSON:\n") + Json;
 }
 
+FString RegistryTagOmissionComment(const TArray<FRegistryTagOmission>& Omissions)
+{
+    if (Omissions.IsEmpty())
+    {
+        return FString();
+    }
+    TArray<FString> Lines;
+    const int32 Count = FMath::Min(Omissions.Num(), MaxRegistryTagOmissionEntries);
+    Lines.Reserve(Count + 2);
+    Lines.Add(TEXT("registryTags omitted"));
+    for (int32 Index = 0; Index < Count; ++Index)
+    {
+        const FRegistryTagOmission& Omission = Omissions[Index];
+        Lines.Add(FString::Printf(
+            TEXT("%s: reason=%s, resourceSizeBytes=%lld"),
+            *Omission.Key,
+            *Omission.Reason,
+            static_cast<long long>(Omission.ResourceSizeBytes)));
+    }
+    if (Count < Omissions.Num())
+    {
+        Lines.Add(FString::Printf(TEXT("... %d more omitted Registry Tags"), Omissions.Num() - Count));
+    }
+    return FString::Join(Lines, TEXT("\n"));
+}
+
 TSharedPtr<FJsonValue> AssetValue(
     const FAssetData& Data,
     const double Score,
     const bool bIncludeScore,
     const bool bRegistryTags,
-    TSharedPtr<FJsonObject>* OutUnrepresentableTags = nullptr)
+    TSharedPtr<FJsonObject>* OutUnrepresentableTags = nullptr,
+    TArray<FRegistryTagOmission>* OutOmissions = nullptr)
 {
     TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
     Args->SetStringField(TEXT("path"), AssetPath(Data));
@@ -403,10 +482,15 @@ TSharedPtr<FJsonValue> AssetValue(
     if (bRegistryTags)
     {
         TSharedPtr<FJsonObject> UnrepresentableTags;
-        Args->SetObjectField(TEXT("registryTags"), RegistryTags(Data, UnrepresentableTags));
+        TArray<FRegistryTagOmission> Omissions;
+        Args->SetObjectField(TEXT("registryTags"), RegistryTags(Data, UnrepresentableTags, Omissions));
         if (OutUnrepresentableTags != nullptr)
         {
             *OutUnrepresentableTags = MoveTemp(UnrepresentableTags);
+        }
+        if (OutOmissions != nullptr)
+        {
+            *OutOmissions = MoveTemp(Omissions);
         }
     }
     return Value::Call(TEXT("asset"), Args);
@@ -626,7 +710,7 @@ TSharedPtr<FJsonObject> FSalAssetInterface::Query(const FSalQuery& Query, const 
         return CompareMatch(Left, Right, Query) < 0;
     });
 
-    const int32 Limit = FMath::Max(1, Query.PageLimit > 0 ? Query.PageLimit : DefaultPageLimit);
+    const int32 Limit = FMath::Clamp(Query.PageLimit > 0 ? Query.PageLimit : DefaultPageLimit, 1, MaxPageLimit);
     const int32 End = static_cast<int32>(FMath::Min<int64>(static_cast<int64>(Offset) + Limit, Matches.Num()));
     FSalObjectBuilder Builder;
     const bool bRegistryTags = HasDetail(Query, TEXT("registryTags"));
@@ -635,9 +719,15 @@ TSharedPtr<FJsonObject> FSalAssetInterface::Query(const FSalQuery& Query, const 
         const FAssetMatch& Match = Matches[Index];
         const FString Alias = Builder.UniqueAlias(Match.Data.AssetName.ToString());
         TSharedPtr<FJsonObject> UnrepresentableTags;
+        TArray<FRegistryTagOmission> Omissions;
         Builder.AddLocalBinding(
             Alias,
-            AssetValue(Match.Data, Match.Score, true, bRegistryTags, &UnrepresentableTags));
+            AssetValue(Match.Data, Match.Score, true, bRegistryTags, &UnrepresentableTags, &Omissions));
+        const FString Omission = RegistryTagOmissionComment(Omissions);
+        if (!Omission.IsEmpty())
+        {
+            Builder.AddComment(Omission);
+        }
         const FString Fallback = RegistryTagFallbackComment(UnrepresentableTags);
         if (!Fallback.IsEmpty())
         {
