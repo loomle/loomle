@@ -1,6 +1,6 @@
 {
   "name": "@loomle/client",
-  "version": "0.7.0-dev.1",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
   "description": "Standalone Loomle SAL MCP client.",
@@ -9,9 +9,10 @@
   },
   "scripts": {
     "clean": "node scripts/clean.mjs",
+    "check:version": "node ../packaging/tools/product-version.mjs check",
     "build:sal": "npm run build --workspace @loomle/sal",
     "build:interfaces": "npm run build --workspace @loomle/interfaces",
-    "build": "npm run clean && npm run build:sal && npm run build:interfaces && tsc -p tsconfig.json",
+    "build": "npm run check:version && npm run clean && npm run build:sal && npm run build:interfaces && tsc -p tsconfig.json",
     "build:test": "tsc -p tsconfig.test.json",
     "test": "npm run build && npm run build:test && node scripts/run-tests.mjs"
   },

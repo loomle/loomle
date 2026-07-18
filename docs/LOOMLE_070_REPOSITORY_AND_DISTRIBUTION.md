@@ -131,17 +131,39 @@ project-local Client copy.
 
 ## Version Boundary
 
-The 0.7 release target is to use the root `package.json` version as the product
-version source. Release construction must inject it into the Client and verify
-the staged plugin's `VersionName`.
+The root `package.json` is the only manually maintained product-version source.
+`sal/`, `interfaces/`, and `client/` are private implementation workspaces and
+keep the non-product package version `0.0.0`.
 
-During the current migration, `client/package.json` and the MCP Server still
-contain matching transitional values. They are not additional sources of
-truth. Version injection and removal of the runtime literal must land before
-the standalone executable becomes a release artifact.
+The product-version generator derives and checks two runtime values:
 
-RPC protocol compatibility remains independent from product versioning and
-changes only when the protocol contract changes.
+- the Client's generated MCP Server version module;
+- `LoomleBridge.uplugin` `VersionName`.
+
+The root entries in `package-lock.json` are npm-managed mirrors of the same
+source. A release or local build must fail when any derived value is stale.
+Fab staging must verify the copied plugin descriptor again rather than invent
+another version source.
+
+The following values are deliberately independent:
+
+- RPC protocol and runtime schema versions change only with their contracts;
+- `LoomleBridge.uplugin` `FileVersion` follows the UE descriptor format;
+- `LoomleBridge.uplugin` integer `Version` is a monotonic Fab build number;
+- `LoomleBridge.uplugin` `EngineVersion` states the UE compatibility target.
+
+Changing the product version therefore never increments the Fab build number
+or changes protocol compatibility. Change it with npm without creating a tag,
+then regenerate and verify the derived values:
+
+```sh
+npm version <version> --no-git-tag-version
+npm run generate:version
+npm test
+```
+
+The `--no-git-tag-version` flag is required while the old tag-triggered 0.6
+workflows remain in the repository.
 
 ## Legacy Retirement
 

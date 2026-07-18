@@ -131,7 +131,10 @@ test("rejects an incompatible Bridge before invoking a tool", async () => {
     client.requireTools(["sal.query", "sal.patch", "editor.context"]),
     (error: unknown) => error instanceof RuntimeRpcError
       && error.code === "runtime.incompatible"
-      && error.message.includes("editor.context"),
+      && error.message === (
+        "The selected Loomle runtime does not support: editor.context. "
+        + "Upgrade to a LoomleBridge version that provides these tools."
+      ),
   );
   client.close();
 });

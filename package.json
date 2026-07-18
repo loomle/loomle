@@ -9,7 +9,9 @@
     "client"
   ],
   "scripts": {
-    "build": "npm run build --workspace @loomle/client",
-    "test": "npm run test --workspace @loomle/sal && npm run test --workspace @loomle/interfaces && npm run test --workspace @loomle/client"
+    "generate:version": "node packaging/tools/product-version.mjs generate",
+    "check:version": "node packaging/tools/product-version.mjs check",
+    "build": "npm run check:version && npm run build --workspace @loomle/client",
+    "test": "npm run check:version && node --test packaging/tools/product-version.test.mjs && npm run test --workspace @loomle/sal && npm run test --workspace @loomle/interfaces && npm run test --workspace @loomle/client"
   }
 }

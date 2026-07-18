@@ -75,7 +75,7 @@ export class RuntimeRpcClient implements RpcInvoker {
     if (missing.length > 0) {
       throw new RuntimeRpcError(
         "runtime.incompatible",
-        `The selected Loomle runtime does not support: ${missing.join(", ")}. Update LoomleBridge to the matching 0.7 version.`,
+        `The selected Loomle runtime does not support: ${missing.join(", ")}. Upgrade to a LoomleBridge version that provides these tools.`,
         false,
       );
     }

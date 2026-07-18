@@ -7,13 +7,14 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
+import { productVersion } from "./generated/product-version.js";
 import { SalToolService, toolDefinitions } from "./tools.js";
 
 const publicToolNames = new Set<string>(toolDefinitions.map((tool) => tool.name));
 
 export async function createMcpServer(service: SalToolService): Promise<Server> {
   const server = new Server(
-    { name: "loomle", version: "0.7.0-dev.1" },
+    { name: "loomle", version: productVersion },
     {
       capabilities: { tools: {} },
       instructions: guide,

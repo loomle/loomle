@@ -1,21 +1,22 @@
-# LOOMLE Release Scripts
+# Loomle Release Work
 
-This directory contains source-checkout release helpers.
+The root `package.json` is the only product-version source on `main`. Change it
+without creating a tag, then regenerate and check its derived values:
 
-Primary entrypoints:
+```sh
+npm version <version> --no-git-tag-version
+npm run generate:version
+npm test
+```
 
-- `../tools/bump_release_version.py`
-  - update `client/Cargo.toml`
-  - update `client/Cargo.lock`
-  - update `LoomleBridge.uplugin` `VersionName`
-  - increment `LoomleBridge.uplugin` `Version`
-- `build_local_release.py`
-  - build the Rust server and client
-  - assemble a release bundle
-  - generate a local manifest
-  - emit a zip archive for the assembled bundle
+`npm run generate:version` updates the generated Client version module and
+`LoomleBridge.uplugin` `VersionName`. It does not change the independent Fab
+build number in `LoomleBridge.uplugin` `Version`.
 
-These scripts are for maintainers and local source-checkout workflows, not for the installed project workspace.
+The remaining Python bundle, installer, and tag-driven workflow scripts belong
+to the frozen 0.6 distribution path. They are not 0.7 release entrypoints and
+must not be used from `main`. The complete 0.7 executable and Fab artifact path
+will replace them as one release boundary.
 
 ## Release Branches
 

@@ -32,7 +32,7 @@ const emptyObjectResult = {
   diagnostics: [],
 };
 
-test("exposes only the four 0.7 SAL tools", () => {
+test("exposes only the four public SAL tools", () => {
   assert.deepEqual(toolDefinitions.map((tool) => tool.name), [
     "sal_query",
     "sal_patch",

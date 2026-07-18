@@ -1,6 +1,11 @@
 # Loomle Client
 
 This directory contains the standalone TypeScript MCP Client for Loomle 0.7.
+
+The workspace package version is intentionally `0.0.0`. The product version
+comes only from the repository root and is compiled into the MCP Server through
+the generated `src/generated/product-version.ts` module.
+
 It translates compact SAL Text through the shared SAL library and connects to
 one running Unreal Editor Bridge over its local JSON-RPC socket.
 

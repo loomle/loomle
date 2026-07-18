@@ -4,6 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import test from "node:test";
+import { productVersion } from "../src/generated/product-version.js";
 import { createMcpServer } from "../src/mcp-server.js";
 import type { RpcInvoker } from "../src/runtime-rpc.js";
 import { SalToolService } from "../src/tools.js";
@@ -26,6 +27,10 @@ test("publishes the interface guide and rejects unknown MCP tools before service
   await client.connect(clientTransport);
 
   try {
+    assert.deepEqual(client.getServerVersion(), {
+      name: "loomle",
+      version: productVersion,
+    });
     assert.equal(client.getInstructions(), guide);
     await assert.rejects(
       client.callTool({ name: "missing_tool", arguments: {} }),
