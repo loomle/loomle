@@ -4,7 +4,8 @@ This workspace owns Loomle's static Unreal Engine interface definitions. It is
 the layer between the general-purpose SAL language and the UE behavior exposed
 by Loomle Bridge.
 
-- [`GUIDE.md`](GUIDE.md) is the compact resident guide supplied to agents.
+- [`GUIDE.md`](GUIDE.md) is the compact resident guide published exactly once
+  as the `sal_schema` MCP tool description.
 - `asset.md`, `blueprint.md`, `class.md`, `graph.md`, and `widget.md` define the
   corresponding static Query and Patch interfaces.
 - `src/generated/catalog.ts` embeds those documents for the standalone Client.

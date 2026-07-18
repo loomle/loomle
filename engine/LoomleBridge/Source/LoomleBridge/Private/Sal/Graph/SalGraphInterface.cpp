@@ -51,6 +51,7 @@
 #include "K2Node_Timeline.h"
 #include "K2Node_Tunnel.h"
 #include "Kismet2/BlueprintEditorUtils.h"
+#include "Logging/TokenizedMessage.h"
 #include "Misc/Crc.h"
 #include "ScopedTransaction.h"
 #include "Sal/SalDiagnostics.h"
@@ -3575,30 +3576,172 @@ TSharedPtr<FJsonValue> PinValue(const UEdGraphPin* Pin, const bool bFuture = fal
     return Value::Call(TEXT("pin"), Args);
 }
 
-void AddNodeComment(FSalObjectBuilder& Builder, const UEdGraphNode* Node)
+bool HasNodeCompilerMessage(const UEdGraphNode* Node)
+{
+    return Node != nullptr && Node->bHasCompilerMessage && !Node->ErrorMsg.IsEmpty();
+}
+
+FString NodeCompilerSeverityText(const int32 ErrorType)
+{
+    if (ErrorType == 0) return TEXT("CriticalError");
+    switch (ErrorType)
+    {
+    case EMessageSeverity::Error: return TEXT("Error");
+    case EMessageSeverity::PerformanceWarning: return TEXT("PerformanceWarning");
+    case EMessageSeverity::Warning: return TEXT("Warning");
+    case EMessageSeverity::Info: return TEXT("Info");
+    default: return FString::Printf(TEXT("ErrorType=%d"), ErrorType);
+    }
+}
+
+FString HealthComment(const FString& Header, const FString& Message)
+{
+    return Message.Contains(TEXT("\n"))
+        ? Header + TEXT("\n") + Message
+        : Header + TEXT(": ") + Message;
+}
+
+bool HasNodeUpgradeMessage(const UEdGraphNode* Node)
+{
+#if WITH_EDITORONLY_DATA
+    return Node != nullptr && !Node->NodeUpgradeMessage.IsEmpty();
+#else
+    return false;
+#endif
+}
+
+bool HasNodeVisualWarning(const UEdGraphNode* Node)
+{
+    return Node != nullptr && Node->ShowVisualWarning();
+}
+
+bool HasPinDeprecation(const UEdGraphPin* Pin)
+{
+#if WITH_EDITORONLY_DATA
+    return Pin != nullptr && Pin->bDeprecated && !Pin->DeprecationMessage.IsEmpty();
+#else
+    return false;
+#endif
+}
+
+FString StaleBlueprintStatusText(const UBlueprint* Blueprint)
+{
+    if (Blueprint == nullptr) return FString();
+    if (Blueprint->Status == BS_Dirty) return TEXT("BS_Dirty");
+    if (Blueprint->Status == BS_Unknown) return TEXT("BS_Unknown");
+    return FString();
+}
+
+TArray<FString> NodeHealthLabels(const UEdGraphNode* Node, bool& bHasCompilerMessage)
+{
+    TArray<FString> Labels;
+    bHasCompilerMessage = HasNodeCompilerMessage(Node);
+    if (bHasCompilerMessage)
+    {
+        Labels.Add(TEXT("compiler ") + NodeCompilerSeverityText(Node->ErrorType));
+    }
+    if (HasNodeUpgradeMessage(Node))
+    {
+        Labels.Add(TEXT("upgrade note"));
+    }
+    if (HasNodeVisualWarning(Node))
+    {
+        Labels.Add(TEXT("visual warning"));
+    }
+    if (Node != nullptr)
+    {
+        for (const UEdGraphPin* Pin : Node->Pins)
+        {
+            if (HasPinDeprecation(Pin))
+            {
+                Labels.Add(TEXT("pin deprecation"));
+                break;
+            }
+        }
+    }
+    return Labels;
+}
+
+bool AddNodeComments(
+    FSalObjectBuilder& Builder,
+    const UEdGraphNode* Node,
+    const bool bIncludeHealthComments)
 {
     const FString Title = NodeTitle(Node);
     if (!Title.IsEmpty())
     {
         Builder.AddComment(Title);
     }
-    if (Node != nullptr && Node->bHasCompilerMessage && !Node->ErrorMsg.IsEmpty())
+    if (!bIncludeHealthComments)
     {
-        Builder.AddComment(FString::Printf(TEXT("Compiler: %s"), *Node->ErrorMsg));
+        return false;
     }
+    const bool bHasCompilerMessage = HasNodeCompilerMessage(Node);
+    if (bHasCompilerMessage)
+    {
+        Builder.AddComment(
+            FString::Printf(TEXT("UE node diagnostic: %s\n%s"), *NodeCompilerSeverityText(Node->ErrorType), *Node->ErrorMsg));
+    }
+#if WITH_EDITORONLY_DATA
+    if (HasNodeUpgradeMessage(Node))
+    {
+        Builder.AddComment(HealthComment(TEXT("UE node upgrade note"), Node->NodeUpgradeMessage.ToString()));
+    }
+#endif
+    if (HasNodeVisualWarning(Node))
+    {
+        const FString Message = Node->GetVisualWarningTooltipText().ToString();
+        Builder.AddComment(Message.IsEmpty()
+            ? TEXT("UE node visual warning")
+            : HealthComment(TEXT("UE node visual warning"), Message));
+    }
+    return bHasCompilerMessage;
+}
+
+void AddPinComments(FSalObjectBuilder& Builder, const UEdGraphPin* Pin)
+{
+    if (!HasPinDeprecation(Pin)) return;
+#if WITH_EDITORONLY_DATA
+    Builder.AddComment(HealthComment(TEXT("UE pin deprecation"), Pin->DeprecationMessage));
+#endif
 }
 
 struct FEncodedGraph
 {
     FSalObjectBuilder Builder;
     FString GraphAlias;
+    UBlueprint* Blueprint = nullptr;
+    bool bAddedCompilerStaleNote = false;
+    bool bIncludeHealthComments = true;
     TMap<const UEdGraphNode*, FString> NodeAliases;
     TMap<const UEdGraphPin*, TSharedPtr<FJsonObject>> PinRefs;
 
-    explicit FEncodedGraph(const FSalResolvedTarget& Target, const bool bFullGraph = false)
+    explicit FEncodedGraph(
+        const FSalResolvedTarget& Target,
+        const bool bFullGraph = false,
+        const bool bInIncludeHealthComments = true)
     {
+        Blueprint = Target.Blueprint;
+        bIncludeHealthComments = bInIncludeHealthComments;
         GraphAlias = Builder.UniqueAlias(TEXT("g"));
         Builder.AddLocalBinding(GraphAlias, GraphValue(Target, bFullGraph));
+    }
+
+    void AddCompilerStaleNoteIfNeeded(const bool bHasCompilerMessage)
+    {
+        if (!bHasCompilerMessage || bAddedCompilerStaleNote || Blueprint == nullptr)
+        {
+            return;
+        }
+        const FString Status = StaleBlueprintStatusText(Blueprint);
+        if (Status.IsEmpty())
+        {
+            return;
+        }
+        Builder.AddComment(FString::Printf(
+            TEXT("UE node compiler messages may be stale: owning Blueprint Status is %s. Run an explicit Blueprint compile to refresh them."),
+            *Status));
+        bAddedCompilerStaleNote = true;
     }
 
     FString AddNode(const UEdGraphNode* Node, const bool bFull, const bool bLayout)
@@ -3610,7 +3753,7 @@ struct FEncodedGraph
         const FString Preferred = NodeTitle(Node).IsEmpty() ? (Node != nullptr ? Node->GetClass()->GetName() : TEXT("node")) : NodeTitle(Node);
         const FString Alias = Builder.UniqueAlias(Preferred);
         Builder.AddLocalBinding(Alias, NodeValue(Node, GraphAlias, bFull, bLayout));
-        AddNodeComment(Builder, Node);
+        AddCompilerStaleNoteIfNeeded(AddNodeComments(Builder, Node, bIncludeHealthComments));
         NodeAliases.Add(Node, Alias);
         return Alias;
     }
@@ -3630,6 +3773,7 @@ struct FEncodedGraph
             (*EncodedObject)->GetObjectField(TEXT("args"))->SetStringField(TEXT("PinName"), NativeName);
         }
         Builder.AddMemberBinding(NodeAlias, {Member}, Encoded);
+        if (!bFuture && bIncludeHealthComments) AddPinComments(Builder, Pin);
         TSharedPtr<FJsonObject> Ref = Value::MemberObject(Value::LocalObject(NodeAlias), {Member});
         PinRefs.Add(Pin, Ref);
         return Ref;
@@ -4747,9 +4891,37 @@ TSharedPtr<FJsonObject> EncodeTraversal(const FSalQuery& Query, const FSalResolv
     return Out.Builder.BuildResult();
 }
 
+void AddGraphHealthIndex(FEncodedGraph& Out, const UEdGraph* Graph)
+{
+    if (Graph == nullptr) return;
+    TArray<FString> Lines = {TEXT("UE graph diagnostics")};
+    bool bHasCompilerMessage = false;
+    for (const UEdGraphNode* Node : Graph->Nodes)
+    {
+        bool bNodeHasCompilerMessage = false;
+        const TArray<FString> Labels = NodeHealthLabels(Node, bNodeHasCompilerMessage);
+        if (Labels.IsEmpty()) continue;
+        const FString Id = NodeId(Node);
+        if (Id.IsEmpty()) continue;
+        Lines.Add(TEXT("node@") + Id + TEXT(": ") + FString::Join(Labels, TEXT(", ")));
+        bHasCompilerMessage |= bNodeHasCompilerMessage;
+    }
+    if (Lines.Num() == 1) return;
+
+    const FString Status = bHasCompilerMessage ? StaleBlueprintStatusText(Out.Blueprint) : FString();
+    if (!Status.IsEmpty())
+    {
+        Lines.Add(FString::Printf(
+            TEXT("compiler messages may be stale: owning Blueprint Status is %s; run an explicit Blueprint compile to refresh them"),
+            *Status));
+        Out.bAddedCompilerStaleNote = true;
+    }
+    Out.Builder.AddComment(FString::Join(Lines, TEXT("\n")));
+}
+
 TSharedPtr<FJsonObject> QuerySummary(const FSalResolvedTarget& Target)
 {
-    FEncodedGraph Out(Target);
+    FEncodedGraph Out(Target, false, false);
     TArray<UEdGraphNode*> SemanticNodes;
     TArray<UEdGraphNode*> Entries;
     int32 EdgeCount = 0;
@@ -4809,6 +4981,7 @@ TSharedPtr<FJsonObject> QuerySummary(const FSalResolvedTarget& Target)
         Out.Builder.AddComment(FString::Printf(TEXT("Disconnected semantic region: %d node%s"), RegionSize, RegionSize == 1 ? TEXT("") : TEXT("s")));
         ++DisconnectedRegions;
     }
+    AddGraphHealthIndex(Out, Target.Graph);
     Out.Builder.AddComment(FString::Printf(
         TEXT("summary:\n  nodes: %d\n  edges: %d\n  entry nodes: %d\n  disconnected regions: %d"),
         Target.Graph->Nodes.Num(),

@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { copyFile, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { guide } from "@loomle/interfaces";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import test from "node:test";
@@ -76,6 +77,7 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
       name: "loomle",
       version: productVersion,
     });
+    assert.equal(client.getInstructions(), undefined);
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name), [
       "sal_query",
@@ -83,6 +85,14 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
       "sal_schema",
       "editor_context",
     ]);
+    assert.equal(
+      tools.tools.find((tool) => tool.name === "sal_schema")?.description,
+      guide,
+    );
+    assert.equal(
+      tools.tools.filter((tool) => tool.description?.includes(guide)).length,
+      1,
+    );
 
     // A valid Query forces the embedded AJV validators to compile before the
     // isolated runtime lookup fails. This catches hidden package loads that a

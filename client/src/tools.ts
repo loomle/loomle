@@ -8,7 +8,7 @@ import {
   type Sal,
   type TextResult,
 } from "@loomle/sal";
-import { catalog } from "@loomle/interfaces";
+import { catalog, guide } from "@loomle/interfaces";
 import { RuntimeRpcError, type RpcInvoker } from "./runtime-rpc.js";
 
 export type PublicToolName = "sal_query" | "sal_patch" | "sal_schema" | "editor_context";
@@ -52,7 +52,7 @@ export const toolDefinitions: readonly ToolDefinition[] = [
   },
   {
     name: "sal_schema",
-    description: "Return the compact SAL interface index or one static interface guide. Omit module to discover active modules.",
+    description: guide,
     inputSchema: {
       type: "object",
       properties: {

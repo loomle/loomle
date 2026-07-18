@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { guide } from "@loomle/interfaces";
 import { parseSalObject } from "@loomle/sal";
 import test from "node:test";
 import { RuntimeRpcError, type RpcInvoker } from "../src/runtime-rpc.js";
@@ -41,6 +42,20 @@ test("exposes only the four public SAL tools", () => {
   ]);
 });
 
+test("keeps the resident guide only on sal_schema", () => {
+  const schema = toolDefinitions.find((tool) => tool.name === "sal_schema");
+  assert.equal(schema?.description, guide);
+  assert.equal(
+    toolDefinitions.filter((tool) => tool.description.includes(guide)).length,
+    1,
+  );
+  assert.ok(
+    toolDefinitions
+      .filter((tool) => tool.name !== "sal_schema")
+      .every((tool) => tool.description.length < 200),
+  );
+});
+
 test("sal_query parses and normalizes Text before invoking Bridge", async () => {
   const rpc = new MockRpc(emptyObjectResult);
   const service = new SalToolService(rpc);
@@ -60,6 +75,73 @@ test("sal_query parses and normalizes Text before invoking Bridge", async () => 
       operation: { kind: "assets", text: "BP_Door" },
     },
   });
+});
+
+test("sal_query preserves multiline node diagnostics as ordered Object Text comments", async () => {
+  const rpc = new MockRpc({
+    object: {
+      statements: [
+        {
+          target: { kind: "local", name: "g" },
+          value: { kind: "call", callee: "graph", args: { id: "G1" } },
+        },
+        {
+          target: { kind: "local", name: "Get_Participant_Entry" },
+          value: {
+            kind: "call",
+            callee: "node",
+            args: {
+              graph: { kind: "local", name: "g" },
+              id: "N1",
+              type: "/Script/BlueprintGraph.K2Node_CallFunction",
+            },
+          },
+        },
+        { kind: "comment", text: "Get Participant Entry" },
+        {
+          kind: "comment",
+          text: [
+            "UE node diagnostic: Error",
+            "In use pin Controller no longer exists on node Get Participant Entry.",
+            "Could not find a function named \"GetParticipantEntry\".",
+          ].join("\n"),
+        },
+        {
+          target: {
+            kind: "member",
+            object: { kind: "local", name: "Get_Participant_Entry" },
+            path: ["Controller"],
+          },
+          value: {
+            kind: "call",
+            callee: "pin",
+            args: {
+              id: "P1",
+              direction: { kind: "name", name: "in" },
+            },
+          },
+        },
+      ],
+    },
+    diagnostics: [],
+  });
+  const result = await new SalToolService(rpc).call("sal_query", {
+    text: "g = graph(id: \"G1\")\n\nquery g\nnode@N1",
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, [
+    "g = graph(id: \"G1\")",
+    "Get_Participant_Entry = node(graph: g, id: \"N1\", type: \"/Script/BlueprintGraph.K2Node_CallFunction\")",
+    "# Get Participant Entry",
+    "###",
+    "UE node diagnostic: Error",
+    "In use pin Controller no longer exists on node Get Participant Entry.",
+    "Could not find a function named \"GetParticipantEntry\".",
+    "###",
+    "Get_Participant_Entry.Controller = pin(id: \"P1\", direction: in)",
+  ].join("\n"));
+  assert.deepEqual(parseSalObject(result.content[0].text).diagnostics, []);
 });
 
 test("invalid SAL never reaches Bridge", async () => {

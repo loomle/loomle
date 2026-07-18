@@ -85,7 +85,7 @@ try {
       name: "loomle",
       version: product.version,
     });
-    assert.equal(client.getInstructions(), guide);
+    assert.equal(client.getInstructions(), undefined);
 
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name), [
@@ -94,6 +94,14 @@ try {
       "sal_schema",
       "editor_context",
     ]);
+    assert.equal(
+      tools.tools.find((tool) => tool.name === "sal_schema")?.description,
+      guide,
+    );
+    assert.equal(
+      tools.tools.filter((tool) => tool.description?.includes(guide)).length,
+      1,
+    );
 
     const schema = await client.callTool({ name: "sal_schema", arguments: {} });
     assert.notEqual(schema.isError, true);

@@ -19,7 +19,8 @@ The Client exposes only four MCP tools:
 
 - `sal_query`: parse, validate, execute, and format SAL Query Text;
 - `sal_patch`: parse, validate, execute, and format SAL Patch Text;
-- `sal_schema`: read the resident interface index or one static interface;
+- `sal_schema`: expose the resident SAL guide, then return the active interface
+  index or one static interface when called;
 - `editor_context`: discover the user's current UE interaction target.
 
 This is the implemented SAL and Context surface for the current migration
@@ -28,11 +29,17 @@ step, not the final 0.7 inventory of retained non-SAL utilities. The existing
 screenshot capabilities still require explicit TypeScript Client adapters.
 `jobs` is intentionally not being migrated.
 
-The MCP server instructions are the resident guide from `@loomle/interfaces`.
-Query, Patch, and Editor Context results share the same validated ordered
-Object Text. Mutation execution fields and diagnostics follow that Object Text
-inside ordinary SAL comments, so the complete MCP text remains directly
-readable and copyable without a parallel JSON payload.
+The `sal_schema` tool description carries the resident guide from
+`@loomle/interfaces` exactly once. MCP server instructions remain empty because
+clients may expand them into every tool definition. The other three tool
+descriptions stay short and specific to routing. Calling `sal_schema` still
+returns only the active interface index or the requested static interface; it
+does not repeat the resident guide.
+
+Query, Patch, and Editor Context results share the same validated ordered Object
+Text. Mutation execution fields and diagnostics follow that Object Text inside
+ordinary SAL comments, so the complete MCP text remains directly readable and
+copyable without a parallel JSON payload.
 
 ## Runtime Selection
 

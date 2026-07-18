@@ -73,13 +73,30 @@ collections use cursor pagination with a default limit of 50. Ordered
 comparisons are unsupported.
 
 Graph Summary returns semantic entry Nodes, disconnected-region
-representatives, and compact counts. It does not expand the whole Graph.
+representatives, compact counts, and a compact Comment index of every Node in
+the complete Graph that currently carries UE health state. The index includes
+`node@id` for exact follow-up without expanding the whole Graph.
 `node@id` returns the complete Node and its Pins; `pin@id` returns its compact
 owner and the complete Pin without traversing links.
 
 Context and flow results remain ordinary ordered Object Text: compact Nodes and
 only the complete target, Edge-endpoint, boundary, or dependency-leaf Pins
 appear before the Edges that reference them.
+
+Outside Summary, every Graph Query automatically places current UE health
+comments beside each returned existing Node or Pin. Summary keeps its returned
+representatives compact and reports all Graph health only through its index.
+Node health includes compiler messages with their `ErrorType` severity,
+`NodeUpgradeMessage`, and visual warnings from `ShowVisualWarning()` /
+`GetVisualWarningTooltipText()`; Pin health includes `DeprecationMessage`.
+These are existing Comments, not fields, objects, operations, or execution
+diagnostics, and require no `with` clause.
+
+Graph Query does not compile or refresh its owner. For a Blueprint-owned Graph
+whose native Status is `BS_Dirty` or `BS_Unknown`, a result that returns or
+indexes stored Node compiler annotations warns once that they may be stale. Use
+a separate exact Blueprint Patch containing `compile` to obtain fresh complete
+ordered compiler diagnostics.
 
 ## Dynamic Schema
 

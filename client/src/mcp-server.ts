@@ -1,4 +1,3 @@
-import { guide } from "@loomle/interfaces";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -17,7 +16,6 @@ export async function createMcpServer(service: SalToolService): Promise<Server> 
     { name: "loomle", version: productVersion },
     {
       capabilities: { tools: {} },
-      instructions: guide,
     },
   );
 

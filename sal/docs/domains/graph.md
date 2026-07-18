@@ -113,7 +113,6 @@ print = node(
 )
 
 # Print String
-# Warning: node is disabled
 ```
 
 The binding is a readable document-local alias, `graph` identifies ownership,
@@ -143,9 +142,10 @@ returned under their UE names.
 
 `Pins`, `DeprecatedPins`, mapped layout fields, compiler messages, upgrade
 messages, intermediate state, transient data, deprecated data, and internal
-control or cache fields are not repeated as Node fields. Compiler and upgrade
-diagnostics are immediately following comments. Capabilities such as rename or
-resize support are schema constraints rather than authored fields.
+control or cache fields are not repeated as Node fields. UE-reported health is
+returned as immediately following comments under the diagnostic rules below.
+Capabilities such as rename or resize support are schema constraints rather
+than authored fields.
 
 If a concrete Node property collides with `graph`, `id`, `type`, `at`, or
 `size`, the adapter reports an ambiguity and identifies both sources through
@@ -216,6 +216,62 @@ delay.Duration = pin("<FEdGraphPinType native text>", in, "1.0")
 ```
 
 Pins have enough optional native fields that named arguments are required.
+
+## Graph Health And Diagnostic Comments
+
+Outside Summary, every Graph Query automatically reports the current UE health
+state of every existing Node or Pin that it returns. Health is part of faithful
+object readback, so it requires no `with` clause. Diagnostic Comments form an
+adjacent following run after their affected Node or Pin and use only the
+existing single-line or multi-line Comment forms. Summary suppresses detailed
+health Comments on its representative Nodes and uses only its compact complete
+Graph index below. Graph health introduces no SAL field, object, selector,
+result constructor, or operation.
+
+Node health includes the following states UE exposes beside a Graph Node in
+the editor:
+
+- when `bHasCompilerMessage` is true and `ErrorMsg` is non-empty, the comment
+  includes the severity represented by `ErrorType` and preserves UE's message;
+- non-empty `NodeUpgradeMessage` is reported as an upgrade note;
+- when `ShowVisualWarning()` is true, the comment reports
+  `GetVisualWarningTooltipText()` as a visual warning.
+
+Pin health includes a non-empty `UEdGraphPin::DeprecationMessage` on a
+deprecated Pin, immediately after that Pin. These values are observed, not
+exposed as editable native fields. Multiple states on one object may share one
+adjacent multi-line Comment as long as their kinds and severities remain
+distinguishable. Loomle preserves the UE message text and ordering; it does not
+silently deduplicate repeated lines already stored in `ErrorMsg`.
+
+For example, the following labels are ordinary Comment text, not another
+grammar:
+
+```sal
+call = node(graph: g, id: "node-guid", type: "/Script/BlueprintGraph.K2Node_CallFunction")
+###
+UE node diagnostic: Error
+<UE ErrorMsg text>
+###
+
+call.LegacyValue = pin(id: "pin-guid", type: "<FEdGraphPinType native text>", direction: in)
+# UE pin deprecation: <UE DeprecationMessage text>
+```
+
+A Graph Query is read-only and never compiles, reconstructs, or refreshes its
+owning asset merely to produce these comments. In particular, a Node compiler
+comment is the current state already stored by UE on that Node, not a diagnostic
+created by this Query. When the owning asset is a Blueprint whose native
+`Status` is `BS_Dirty` or `BS_Unknown`, a result that returns or indexes stored
+compiler annotations includes one result-level Comment warning that they may
+be stale. The warning is emitted once, not repeated after every Node.
+
+Fresh and complete Blueprint compiler output remains the responsibility of an
+explicit Blueprint terminal Patch containing `compile`. That operation compiles
+the whole Blueprint and returns its ordered `FCompilerResultsLog`; it is not a
+Graph Query side effect. Graph health comments are object state and therefore
+do not become execution `Result.diagnostics` or turn an otherwise successful
+Query into an error.
 
 ## Edges
 
@@ -303,6 +359,18 @@ Node, followed by a comment identifying it as a disconnected region and giving
 its node count. A single unconnected semantic Node represents itself. Pure
 editor-presentation objects do not become topology regions merely because they
 have no Pins.
+
+Summary also scans the complete Graph for UE health state and returns one
+compact Comment index containing every affected `node@id`, including Nodes not
+chosen as entry or disconnected-region representatives. Each affected Node
+appears once with enough severity and kind information to guide an exact
+`node@id` read; a Pin deprecation is indexed through its owning Node. Summary
+does not repeat full messages inside the index or expand affected Nodes and
+Pins solely for diagnostics. Representative Nodes remain compact and do not
+repeat their detailed health Comments. When the index contains stored compiler
+annotations and the owning Blueprint is `BS_Dirty` or `BS_Unknown`, the index
+Comment warns once that those annotations may be stale and points to explicit
+Blueprint `compile` for fresh complete diagnostics.
 
 Summary returns ordinary Graph, Node, and comment text in adapter-defined
 reading order. It does not introduce a summary object, and there is no separate
@@ -563,6 +631,15 @@ statement inherits an owner or Graph alias from the request. The result does
 not repeat the complete target merely to add context. `with layout` has one
 meaning across Graph queries: add stored position and size to every returned
 existing Node. It is not valid for Palette Entries because no Node exists yet.
+
+Every returned existing Node and Pin outside Summary carries its adjacent
+current UE health comments as defined above, whether it came from search, an
+exact read, Context, or Flow. Summary uses only its complete compact health
+index. Palette Entries describe objects that do not exist yet and therefore
+have no live health state. For Blueprint-owned Graphs in `BS_Dirty` or
+`BS_Unknown`, a result containing stored compiler messages places the
+stale-state warning once after the first such message or inside Summary's
+health index, rather than once per returned object.
 
 The normalized operation and ordered result models are defined below. They add
 no Graph result constructor to SAL text. The shared SDK implements these forms,

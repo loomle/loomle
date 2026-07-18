@@ -18,7 +18,7 @@ class CountingRpc implements RpcInvoker {
   }
 }
 
-test("publishes the interface guide and rejects unknown MCP tools before service dispatch", async () => {
+test("publishes the interface guide exactly once and rejects unknown tools before dispatch", async () => {
   const rpc = new CountingRpc();
   const server = await createMcpServer(new SalToolService(rpc));
   const client = new Client({ name: "loomle-test", version: "1.0.0" });
@@ -31,7 +31,14 @@ test("publishes the interface guide and rejects unknown MCP tools before service
       name: "loomle",
       version: productVersion,
     });
-    assert.equal(client.getInstructions(), guide);
+    assert.equal(client.getInstructions(), undefined);
+    const tools = await client.listTools();
+    const schema = tools.tools.find((tool) => tool.name === "sal_schema");
+    assert.equal(schema?.description, guide);
+    assert.equal(
+      tools.tools.filter((tool) => tool.description?.includes(guide)).length,
+      1,
+    );
     await assert.rejects(
       client.callTool({ name: "missing_tool", arguments: {} }),
       (error: unknown) => error instanceof McpError
