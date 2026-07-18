@@ -52,7 +52,8 @@ reached UE.
 
 ## Build And Test
 
-Node.js 20 or newer is required.
+Node.js 20 or newer is required for development. The published platform
+program embeds the exact Node.js 24 LTS runtime pinned by the packaging layer.
 
 ```bash
 npm ci
@@ -70,7 +71,15 @@ Run the stdio MCP server from a checkout with:
 node client/dist/main.cjs mcp
 ```
 
-The platform executable and installer migration are separate 0.7 release work.
-The existing `install.sh`, `install.ps1`, Cargo-based workflows, and legacy UE
-smoke tests still describe the frozen 0.6 distribution and must not be treated
-as validation of this Client.
+From the repository root, build and test the currently accepted native program:
+
+```bash
+npm run build:executable
+npm run test:executable
+```
+
+The first accepted executable target is `darwin-arm64`. Remaining platforms,
+Fab assembly, and release signing are separate 0.7 release work. The existing
+`install.sh`, `install.ps1`, Cargo-based workflows, and legacy UE smoke tests
+still describe the frozen 0.6 distribution and must not be treated as
+validation of this Client.

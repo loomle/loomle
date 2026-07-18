@@ -1,0 +1,11 @@
+{
+  "nodeVersion": "24.18.0",
+  "targets": {
+    "darwin-arm64": {
+      "url": "https://nodejs.org/download/release/v24.18.0/node-v24.18.0-darwin-arm64.tar.gz",
+      "sha256": "e1a97e14c99c803e96c7339403282ea05a499c32f8d83defe9ef5ec66f979ed1",
+      "archiveRoot": "node-v24.18.0-darwin-arm64",
+      "nodePath": "bin/node"
+    }
+  }
+}

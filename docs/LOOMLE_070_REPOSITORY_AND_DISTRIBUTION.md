@@ -83,10 +83,11 @@ SAL + Interfaces + Client source
 `client/dist/main.cjs` is one platform-neutral Node.js bundle. It contains the
 Client, SAL, Interfaces, and all non-built-in runtime dependencies. It must run
 without the repository or `node_modules`; only Node built-in modules remain
-external. CommonJS gives this intermediate the module format required by the
-planned Node 20 single-executable path. Actual SEA compatibility is accepted
-only after building and running the platform program with its selected Node
-runtime.
+external. CommonJS gives this intermediate the module format required by
+Node's single-executable application path. Executable construction pins an
+exact Node.js 24 LTS runtime and verifies its official archive checksum. SEA
+compatibility is accepted per platform only after building and running the
+final platform program.
 
 The only platform program path consumed by Fab packaging, release workflows,
 and executable tests is:
@@ -95,9 +96,15 @@ and executable tests is:
 .tmp/client/<platform-arch>/loomle(.exe)
 ```
 
-The future `packaging/client/` implementation owns how that executable is
-built. Callers must not infer Cargo `target/` paths, npm internals, or another
-private build location.
+`packaging/client/` owns how that executable is built. Its first accepted
+target is `darwin-arm64`; other targets are not implied until they pass the
+same native executable tests. Callers must not infer Cargo `target/` paths, npm
+internals, or another private build location.
+
+```sh
+npm run build:executable
+npm run test:executable
+```
 
 ## Embedded Static Resources
 
