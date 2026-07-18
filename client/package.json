@@ -5,14 +5,16 @@
   "type": "module",
   "description": "Standalone Loomle SAL MCP client.",
   "bin": {
-    "loomle": "dist/main.js"
+    "loomle": "dist/main.cjs"
   },
   "scripts": {
     "clean": "node scripts/clean.mjs",
     "check:version": "node ../packaging/tools/product-version.mjs check",
     "build:sal": "npm run build --workspace @loomle/sal",
     "build:interfaces": "npm run build --workspace @loomle/interfaces",
-    "build": "npm run check:version && npm run clean && npm run build:sal && npm run build:interfaces && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "bundle": "node scripts/build.mjs",
+    "build": "npm run check:version && npm run clean && npm run build:sal && npm run build:interfaces && npm run typecheck && npm run bundle",
     "build:test": "tsc -p tsconfig.test.json",
     "test": "npm run build && npm run build:test && node scripts/run-tests.mjs"
   },
@@ -27,6 +29,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "esbuild": "^0.28.1",
     "typescript": "^5.6.0"
   }
 }

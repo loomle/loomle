@@ -59,18 +59,18 @@ npm ci
 npm test --workspace @loomle/client
 ```
 
-`npm test` builds the shared SAL library and UE interface catalog, compiles the
-Client with strict TypeScript settings, and runs the Client unit tests.
-Production code is emitted to `client/dist/`; test code is emitted separately
+`npm test` builds the shared SAL library and UE interface catalog, type-checks
+the Client, produces the self-contained `client/dist/main.cjs` bundle, and runs
+both source-level and isolated-bundle tests. Test code is emitted separately
 under `.tmp/client-tests/`.
 
 Run the stdio MCP server from a checkout with:
 
 ```bash
-node client/dist/main.js mcp
+node client/dist/main.cjs mcp
 ```
 
-The `loomle` executable bundle and installer migration are separate 0.7
-release work. The existing `install.sh`, `install.ps1`, Cargo-based workflows,
-and legacy UE smoke tests still describe the frozen 0.6 distribution and must
-not be treated as validation of this Client.
+The platform executable and installer migration are separate 0.7 release work.
+The existing `install.sh`, `install.ps1`, Cargo-based workflows, and legacy UE
+smoke tests still describe the frozen 0.6 distribution and must not be treated
+as validation of this Client.

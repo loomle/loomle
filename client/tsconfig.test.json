@@ -1,6 +1,7 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "noEmit": false,
     "declaration": false,
     "outDir": "../.tmp/client-tests",
     "rootDir": "."

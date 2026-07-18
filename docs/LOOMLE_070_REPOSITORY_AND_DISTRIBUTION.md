@@ -63,10 +63,11 @@ The current source is intentionally flat while it remains small. New
 subdirectories should be introduced only when retained tools make a concrete
 module too large or mix unrelated responsibilities.
 
-Production compilation contains only `src/` and emits `client/dist/main.js`.
-Test compilation is separate and emits temporary files outside `client/dist/`.
-This keeps the production input free of test code without changing how unit
-tests exercise the source.
+Production type checking contains only `src/`. The production build then uses
+that single entry point to emit only `client/dist/main.cjs`. Test compilation is
+separate and emits temporary files outside `client/dist/`. This keeps tests out
+of the release input while making the exact bundled artifact part of normal
+verification.
 
 ## Artifact Contract
 
@@ -74,14 +75,21 @@ The release path is:
 
 ```text
 SAL + Interfaces + Client source
-  -> client/dist/main.js
+  -> client/dist/main.cjs
   -> .tmp/client/<platform-arch>/loomle(.exe)
   -> staged LoomleBridge Fab plugin
 ```
 
-`client/dist/main.js` is a platform-neutral production intermediate. The only
-platform program path consumed by packaging, workflows, and executable tests
-is:
+`client/dist/main.cjs` is one platform-neutral Node.js bundle. It contains the
+Client, SAL, Interfaces, and all non-built-in runtime dependencies. It must run
+without the repository or `node_modules`; only Node built-in modules remain
+external. CommonJS gives this intermediate the module format required by the
+planned Node 20 single-executable path. Actual SEA compatibility is accepted
+only after building and running the platform program with its selected Node
+runtime.
+
+The only platform program path consumed by Fab packaging, release workflows,
+and executable tests is:
 
 ```text
 .tmp/client/<platform-arch>/loomle(.exe)
