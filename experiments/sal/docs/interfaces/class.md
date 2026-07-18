@@ -4,6 +4,10 @@ Inspect UE Class Reflection and effective Class Defaults. Reflection remains
 read-only; Blueprint Generated Class Defaults may be edited through their
 durable Blueprint source. This interface assumes the resident SAL Core guide.
 
+A native Default name outside SAL identifier syntax is readable through a
+local value plus its exact-name Comment, but cannot currently be patched; it is
+never silently renamed into a member path.
+
 ## Target
 
 Bind the exact native Class Path:

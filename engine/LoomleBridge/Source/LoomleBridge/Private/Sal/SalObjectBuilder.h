@@ -29,6 +29,9 @@ TSharedPtr<FJsonObject> CallObject(const FString& Callee, const TSharedPtr<FJson
 class FSalObjectBuilder
 {
 public:
+    static bool IsIdentifier(const FString& Text);
+    static FString SanitizeIdentifier(const FString& Text, const FString& Fallback = TEXT("item"));
+
     FString UniqueAlias(const FString& Preferred);
 
     void AddLocalBinding(const FString& Alias, const TSharedPtr<FJsonValue>& Value);
@@ -40,8 +43,6 @@ public:
     TSharedPtr<FJsonObject> BuildResult(const TArray<TSharedPtr<FJsonObject>>& Diagnostics = {}) const;
 
 private:
-    static FString SanitizeAlias(const FString& Preferred);
-
     TArray<TSharedPtr<FJsonValue>> Statements;
     TSet<FString> Aliases;
     TSet<FString> BindingTargets;

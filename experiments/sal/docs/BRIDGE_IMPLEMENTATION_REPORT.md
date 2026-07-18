@@ -3,8 +3,10 @@
 ## Result
 
 Loomle Bridge now implements the normalized SAL executor contract for UE 5.7.
-The public runtime surface is `sal.query` and `sal.patch`; the former LGL
-runtime, grouped result models, and `lgl.*` RPC methods have been removed.
+The SAL executor RPC surface is `sal.query` and `sal.patch`; the separate
+read-only discovery RPC is `editor.context`. Static `sal.schema` text remains
+Client-side. The former LGL runtime, grouped result models, and `lgl.*` RPC
+methods have been removed.
 
 SAL Text remains entirely SDK-owned:
 
@@ -28,6 +30,7 @@ The C++ Bridge does not introduce a second SAL parser or any new public syntax.
 | Class | Summary, properties, functions, metadata, inherited views, schema | Native property defaults, fixed arrays, sparse class data, metadata, set/reset |
 | Graph | Summary, nodes, exact Node/Pin, exec/data flow, context, Palette, schema | Palette creation, connect/disconnect/break, add/insert/remove/move/set/reset, invoke, dynamic Pins, Timeline tracks and keys |
 | Widget | Combined summary and Palette, tree, widgets, exact Widget, schema | Add/move/remove/wrap/replace/rename/duplicate, Widget and Slot fields, event creation |
+| Editor Context | Exact current surface, owner, and at most one selected target as ordinary Object Text | Read-only |
 
 All Query and Patch readback uses the same ordered `ObjectText.statements`
 model. Patch adds the shared mutation envelope, ordered plan, resolved
@@ -86,6 +89,13 @@ following contract clarifications and SDK hardening:
 10. A Class default explicitly set equal to its inherited value is rejected
     when UE 5.7 cannot preserve that distinction durably. The Bridge does not
     claim an override that UE would later collapse.
+11. Reflected UE fields whose native names cannot be SAL member paths, or
+    collide with structural fields, are never renamed. Query and schema retain
+    their exact native name/value in Comments and Patch reports them
+    unavailable.
+12. Editor Context resolves ownership from exact tabs and native editor APIs.
+    It does not infer a world-centric Asset Editor from the Level Editor's
+    shared TabManager, and it revalidates recorded editor pointers before use.
 
 ## Safety and Failure Semantics
 
@@ -124,6 +134,12 @@ slice. The final package therefore uses the distribution's supported
 installation that includes x64 Engine binaries.
 
 Per the requested scope, no live Unreal integration test was run.
+
+The 0.7 Client and Editor Context increment was additionally verified on
+2026-07-18 with the complete SAL TypeScript test suite, all 28 Client unit
+tests, `git diff --check`, and an incremental UE 5.7 Editor module build that
+compiled and linked `UnrealEditor-LoomleBridge.dylib` successfully. This is a
+compile and contract audit, not a live Editor interaction test.
 
 ## Deliberate Boundaries
 

@@ -101,7 +101,11 @@ indentation, Markdown, constructors, or references inside it. Multi-line
 comments do not nest, and a content line containing only `###` closes the
 comment. An unclosed multi-line comment is a syntax error at its opening
 delimiter. A formatter uses `# text` for a one-line `Comment.text` and the
-`###` form when `Comment.text` contains a newline.
+`###` form when `Comment.text` contains a newline. Consequently, normalized
+multi-line `Comment.text` cannot itself contain a line that trims to `###`;
+an adapter must escape such opaque native or user text, or preserve it in a
+string field, before constructing the normalized result. The one-line comment
+value `###` remains representable as `# ###`.
 
 Bindings name objects or values so later statements can reference them. The
 binding target is usually a local identifier:
@@ -1245,9 +1249,11 @@ ordered object comments and structured diagnostics identify the exact boundary.
 `Comment.text` stores the content without text delimiters. A one-line value
 formats as `# text`; a value containing a newline formats between depth-zero
 `###` delimiter lines. The delimiters and a block's final line ending are not
-part of `text`. Comments are data in the ordered object, not an auxiliary
-comments array. Schema is one use of an ordinary multi-line Comment, not a new
-result statement type.
+part of `text`. A normalized multi-line value cannot contain its own standalone
+delimiter line; result builders escape that opaque input before formatting.
+Comments are data in the ordered object, not an auxiliary comments array.
+Schema is one use of an ordinary multi-line Comment, not a new result statement
+type.
 
 Every result serializes its Object Text in one `statements` array. Bindings,
 Edges, and Comments are interleaved in exact formatter order. It must not use

@@ -110,7 +110,7 @@ Example:
   "message": "The resolved target does not support data_flow.",
   "operation": "data_flow",
   "supported": ["summary", "nodes", "context"],
-  "suggestion": "Use sal.schema(\"graph\") to inspect the active interface."
+  "suggestion": "Use sal_schema({ module: \"graph\" }) to inspect the active interface."
 }
 ```
 
@@ -284,6 +284,6 @@ and expected target state.
 
 Diagnostics also close the interface-discovery loop without adding another
 reference field: unsupported Query or Patch syntax should name the relevant
-`sal.schema("<module>")` call in `suggestion`; unknown fields and Operations
+`sal_schema({ module: "<module>" })` call in `suggestion`; unknown fields and Operations
 should give the exact Query to retry `with schema`; and stale ids should point
 to the relevant summary, collection, or tree operation.

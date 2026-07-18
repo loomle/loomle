@@ -1,6 +1,6 @@
-import { formatSalObject } from "./formatter.js";
 import { loadInterfaceSchema, normalizeInterfaceModules } from "./interface-schema.js";
 import { parseSalObject } from "./parser.js";
+import { formatValidatedObjectResult } from "./result.js";
 import { validateSalObject, validateObjectResult } from "./schema-validator.js";
 import type {
   CreateSalOptions,
@@ -93,15 +93,7 @@ async function run(
     };
   }
 
-  return objectResultToTextResult(result);
-}
-
-function objectResultToTextResult(result: ObjectResult): TextResult {
-  const { object, ...fields } = result;
-  return {
-    ...fields,
-    ...(object ? { text: formatSalObject(object) } : {}),
-  };
+  return formatValidatedObjectResult(result);
 }
 
 export function diagnostic(

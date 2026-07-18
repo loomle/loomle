@@ -120,6 +120,8 @@ export interface SalExecutor {
 export { formatSalObject } from "./formatter.js";
 export { parseSalObject } from "./parser.js";
 export { createSal } from "./sdk.js";
+export { objectResultToTextResult } from "./result.js";
+export { loadSalGuide } from "./interface-schema.js";
 export { createMemoryExecutor, createMemoryGraphExecutor } from "./memory-executor.js";
 export type {
   CreateMemoryExecutorOptions,

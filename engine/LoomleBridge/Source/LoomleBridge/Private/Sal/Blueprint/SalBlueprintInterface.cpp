@@ -75,6 +75,39 @@ FString GuidText(const FGuid& Guid)
     return Guid.ToString(EGuidFormats::DigitsWithHyphensLower);
 }
 
+FString CommentScalar(FString Text)
+{
+    Text.ReplaceInline(TEXT("\\"), TEXT("\\\\"));
+    Text.ReplaceInline(TEXT("\r"), TEXT("\\r"));
+    Text.ReplaceInline(TEXT("\n"), TEXT("\\n"));
+    Text.ReplaceInline(TEXT("\""), TEXT("\\\""));
+    return TEXT("\"") + Text + TEXT("\"");
+}
+
+FString CommentPath(const TArray<FString>& Path)
+{
+    TArray<FString> Encoded;
+    Encoded.Reserve(Path.Num());
+    for (const FString& Segment : Path)
+    {
+        Encoded.Add(CommentScalar(Segment));
+    }
+    return TEXT("[") + FString::Join(Encoded, TEXT(", ")) + TEXT("]");
+}
+
+FString UniqueMemberAlias(const FString& Preferred, TSet<FString>& Used)
+{
+    const FString Base = FSalObjectBuilder::SanitizeIdentifier(Preferred, TEXT("pin"));
+    FString Alias = Base;
+    int32 Suffix = 2;
+    while (Used.Contains(Alias))
+    {
+        Alias = FString::Printf(TEXT("%s_%d"), *Base, Suffix++);
+    }
+    Used.Add(Alias);
+    return Alias;
+}
+
 FString EnumName(const UEnum* Enum, const int64 Value)
 {
     if (Enum == nullptr)
@@ -756,7 +789,40 @@ bool CanResetNativeTemplateField(const UObject* Object, const FProperty* Propert
         && Object->GetClass()->GetDefaultObject() != nullptr;
 }
 
-TSharedPtr<FJsonValue> ComponentValue(USCS_Node* Node, const bool bComplete)
+const TSet<FString>& ComponentReservedFields()
+{
+    static const TSet<FString> Fields = {
+        TEXT("palette"),
+        TEXT("id"),
+        TEXT("type"),
+        TEXT("name"),
+        TEXT("VarName"),
+        TEXT("CategoryName"),
+        TEXT("AttachToName"),
+        TEXT("ParentComponentOrVariableName"),
+        TEXT("ParentComponentOwnerClassName"),
+        TEXT("bIsParentComponentNative"),
+        TEXT("MetaDataArray")};
+    return Fields;
+}
+
+FString ComponentFieldUnavailabilityReason(const FString& Name)
+{
+    if (!FSalObjectBuilder::IsIdentifier(Name))
+    {
+        return TEXT("native name is not a SAL identifier");
+    }
+    if (ComponentReservedFields().Contains(Name))
+    {
+        return TEXT("native name collides with a reserved Component field");
+    }
+    return FString();
+}
+
+TSharedPtr<FJsonValue> ComponentValue(
+    USCS_Node* Node,
+    const bool bComplete,
+    TArray<FString>* OutUnavailableFields = nullptr)
 {
     TSharedPtr<FJsonObject> Args = CallArgs();
     SetArg(Args, TEXT("id"), Value::String(GuidText(Node->VariableGuid)));
@@ -772,6 +838,36 @@ TSharedPtr<FJsonValue> ComponentValue(USCS_Node* Node, const bool bComplete)
     {
         SetArg(Args, TEXT("AttachToName"), Value::String(Node->AttachToName.ToString()));
     }
+    if (!Node->ParentComponentOrVariableName.IsNone())
+    {
+        SetArg(
+            Args,
+            TEXT("ParentComponentOrVariableName"),
+            Value::String(Node->ParentComponentOrVariableName.ToString()));
+    }
+    if (!Node->ParentComponentOwnerClassName.IsNone())
+    {
+        SetArg(
+            Args,
+            TEXT("ParentComponentOwnerClassName"),
+            Value::String(Node->ParentComponentOwnerClassName.ToString()));
+    }
+    if (Node->bIsParentComponentNative)
+    {
+        SetArg(Args, TEXT("bIsParentComponentNative"), Value::Bool(true));
+    }
+    if (!Node->MetaDataArray.IsEmpty())
+    {
+        TArray<TSharedPtr<FJsonValue>> MetaData;
+        for (const FBPVariableMetaDataEntry& Entry : Node->MetaDataArray)
+        {
+            TSharedPtr<FJsonObject> Item = MakeShared<FJsonObject>();
+            Item->SetStringField(TEXT("DataKey"), Entry.DataKey.ToString());
+            Item->SetStringField(TEXT("DataValue"), Entry.DataValue);
+            MetaData.Add(MakeShared<FJsonValueObject>(Item));
+        }
+        Args->SetArrayField(TEXT("MetaDataArray"), MetaData);
+    }
     if (bComplete && Node->ComponentTemplate != nullptr)
     {
         UObject* Template = Node->ComponentTemplate;
@@ -785,7 +881,21 @@ TSharedPtr<FJsonValue> ComponentValue(USCS_Node* Node, const bool bComplete)
             {
                 continue;
             }
-            if (!Args->HasField(Property->GetName()))
+            const FString UnavailabilityReason = ComponentFieldUnavailabilityReason(Property->GetName());
+            if (Args->HasField(Property->GetName()) || !UnavailabilityReason.IsEmpty())
+            {
+                if (OutUnavailableFields != nullptr)
+                {
+                    OutUnavailableFields->Add(FString::Printf(
+                        TEXT("%s = %s (%s)"),
+                        *Property->GetName(),
+                        *ExportPropertyValue(Property, Template),
+                        Args->HasField(Property->GetName())
+                            ? TEXT("native name collides with a returned Component field")
+                            : *UnavailabilityReason));
+                }
+            }
+            else
             {
                 Args->SetField(Property->GetName(), PropertyValue(Property, Template));
             }
@@ -800,10 +910,18 @@ void AddVariableBinding(
     const FBPVariableDescription& Variable,
     const bool bDispatcher)
 {
-    Builder.AddMemberBinding(
-        BlueprintAlias,
-        {Variable.VarName.ToString()},
-        VariableValue(Variable, bDispatcher));
+    const FString Name = Variable.VarName.ToString();
+    const TSharedPtr<FJsonValue> Value = VariableValue(Variable, bDispatcher);
+    if (FSalObjectBuilder::IsIdentifier(Name))
+    {
+        Builder.AddMemberBinding(BlueprintAlias, {Name}, Value);
+        return;
+    }
+    Builder.AddLocalBinding(Builder.UniqueAlias(Name), Value);
+    Builder.AddComment(FString::Printf(
+        TEXT("owner: %s\nmember path: unavailable in SAL identifier syntax\nnative name: %s"),
+        *BlueprintAlias,
+        *CommentScalar(Name)));
 }
 
 void AddGraphBinding(
@@ -830,10 +948,41 @@ void AddComponentBinding(
             ? Blueprint->SimpleConstructionScript->FindParentNode(Current)
             : nullptr;
     }
-    Builder.AddMemberBinding(
-        BlueprintAlias,
-        Path,
-        ComponentValue(Node, bComplete));
+    TArray<FString> UnavailableFields;
+    const TSharedPtr<FJsonValue> EncodedComponent = ComponentValue(
+        Node,
+        bComplete,
+        &UnavailableFields);
+    if (Path.ContainsByPredicate([](const FString& Segment)
+        {
+            return !FSalObjectBuilder::IsIdentifier(Segment);
+        }))
+    {
+        Builder.AddLocalBinding(
+            Builder.UniqueAlias(Node->GetVariableName().ToString()),
+            EncodedComponent);
+        Builder.AddComment(FString::Printf(
+            TEXT("owner: %s\nmember path: unavailable in SAL identifier syntax\nnative path: %s"),
+            *BlueprintAlias,
+            *CommentPath(Path)));
+    }
+    else
+    {
+        Builder.AddMemberBinding(BlueprintAlias, Path, EncodedComponent);
+    }
+    if (!UnavailableFields.IsEmpty())
+    {
+        TArray<FString> EncodedFields;
+        EncodedFields.Reserve(UnavailableFields.Num());
+        for (const FString& Field : UnavailableFields)
+        {
+            EncodedFields.Add(CommentScalar(Field));
+        }
+        Builder.AddComment(FString::Printf(
+            TEXT("component fields: not representable as SAL Call fields\nowner: component@%s\nnative fields: [%s]\nPatch: unavailable"),
+            *GuidText(Node->VariableGuid),
+            *FString::Join(EncodedFields, TEXT(", "))));
+    }
 }
 
 bool IsBlueprintCompileAllowedDuringPIE(const UBlueprint* Blueprint);
@@ -1031,11 +1180,33 @@ FString ComponentSchema(USCS_Node* Node)
     Text += TEXT("  id: FGuid; read\n  type: UClass; read\n  name: FName; read, write\n");
     if (Node != nullptr && Node->ComponentTemplate != nullptr)
     {
+        const UObject* Defaults = Node->ComponentTemplate->GetClass()->GetDefaultObject();
         for (TFieldIterator<FProperty> It(Node->ComponentTemplate->GetClass()); It; ++It)
         {
             FProperty* Property = *It;
             if (IsPersistentNativeField(Property))
             {
+                const FString UnavailabilityReason = ComponentFieldUnavailabilityReason(Property->GetName());
+                if (!UnavailabilityReason.IsEmpty())
+                {
+                    Text += TEXT("  native field:\n");
+                    Text += FString::Printf(TEXT("    name: %s\n"), *CommentScalar(Property->GetName()));
+                    Text += FString::Printf(TEXT("    type: %s\n"), *CommentScalar(Property->GetCPPType()));
+                    Text += FString::Printf(
+                        TEXT("    current: %s\n"),
+                        *CommentScalar(ExportPropertyValue(Property, Node->ComponentTemplate)));
+                    if (Defaults != nullptr)
+                    {
+                        Text += FString::Printf(
+                            TEXT("    reset: %s\n"),
+                            *CommentScalar(ExportPropertyValue(Property, Defaults)));
+                    }
+                    Text += TEXT("    readable: true\n");
+                    Text += TEXT("    writable: false\n");
+                    Text += TEXT("    resettable: false\n");
+                    Text += FString::Printf(TEXT("    reason: %s\n"), *UnavailabilityReason);
+                    continue;
+                }
                 const bool bWritable = CanWriteNativeTemplateField(Node->ComponentTemplate, Property);
                 const bool bResettable = CanResetNativeTemplateField(Node->ComponentTemplate, Property);
                 Text += FString::Printf(
@@ -2128,6 +2299,13 @@ bool ValidateConstructorFields(const FPendingBinding& Binding, FString& OutMessa
         {
             continue;
         }
+        if (Binding.Callee == TEXT("component") && ComponentReservedFields().Contains(Pair.Key))
+        {
+            OutMessage = FString::Printf(
+                TEXT("Component constructor field collides with a reserved Component field: %s. Set structural state through its owning operation after creation."),
+                *Pair.Key);
+            return false;
+        }
         if (Pair.Key == TEXT("id") || Pair.Key == TEXT("name") || Pair.Key == TEXT("VarName"))
         {
             OutMessage = FString::Printf(TEXT("Constructor field is derived from the binding and cannot be assigned: %s."), *Pair.Key);
@@ -2796,15 +2974,36 @@ bool ResolveExistingField(
         {
             Out.Component = FindComponent(Blueprint, Identity);
         }
+        FProperty* TemplateProperty = Out.bPlanned
+            ? Out.Property
+            : Out.Component != nullptr && Out.Component->ComponentTemplate != nullptr
+            ? FindFProperty<FProperty>(Out.Component->ComponentTemplate->GetClass(), *Out.Field)
+            : nullptr;
+        if (ComponentReservedFields().Contains(Out.Field) && TemplateProperty != nullptr)
+        {
+            OutMessage = FString::Printf(
+                TEXT("Component field is ambiguous: native template property %s collides with a reserved Component field."),
+                *Out.Field);
+            return false;
+        }
         if (Out.Field == TEXT("name"))
         {
             return Out.Component != nullptr;
         }
-        if (!Out.bPlanned && Out.Component != nullptr && Out.Component->ComponentTemplate != nullptr)
+        if (Out.bPlanned && ComponentReservedFields().Contains(Out.Field))
+        {
+            Out.Object = nullptr;
+            Out.Container = nullptr;
+            Out.Property = nullptr;
+        }
+        if (!Out.bPlanned
+            && !ComponentReservedFields().Contains(Out.Field)
+            && Out.Component != nullptr
+            && Out.Component->ComponentTemplate != nullptr)
         {
             Out.Object = Out.Component->ComponentTemplate;
             Out.Container = Out.Object;
-            Out.Property = FindFProperty<FProperty>(Out.Object->GetClass(), *Out.Field);
+            Out.Property = TemplateProperty;
         }
         if (!Out.bPlanned && Out.Property == nullptr && Out.Component != nullptr)
         {
@@ -5487,14 +5686,8 @@ void AddPatchReadback(
             {
                 continue;
             }
-            FString Member = Pin->PinName.IsNone() ? TEXT("pin") : Pin->PinName.ToString();
-            const FString BaseMember = Member;
-            int32 Suffix = 2;
-            while (PinMembers.Contains(Member))
-            {
-                Member = BaseMember + LexToString(Suffix++);
-            }
-            PinMembers.Add(Member);
+            const FString NativeName = Pin->PinName.IsNone() ? TEXT("pin") : Pin->PinName.ToString();
+            const FString Member = UniqueMemberAlias(NativeName, PinMembers);
             TSharedPtr<FJsonObject> PinArgs = CallArgs();
             SetArg(PinArgs, TEXT("id"), Value::String(GuidText(Pin->PinId)));
             SetArg(PinArgs, TEXT("type"), Value::String(PinTypeText(Pin->PinType)));
@@ -5502,6 +5695,10 @@ void AddPatchReadback(
             if (!Pin->DefaultValue.IsEmpty())
             {
                 SetArg(PinArgs, TEXT("DefaultValue"), Value::String(Pin->DefaultValue));
+            }
+            if (Member != NativeName)
+            {
+                SetArg(PinArgs, TEXT("PinName"), Value::String(NativeName));
             }
             Builder.AddMemberBinding(NodeAlias, {Member}, Call(TEXT("pin"), PinArgs));
         }
@@ -5609,15 +5806,9 @@ struct FCompilerReadbackContext
         {
             return false;
         }
-        FString Member = Pin->PinName.IsNone() ? TEXT("pin") : Pin->PinName.ToString();
         TSet<FString>& UsedMembers = PinMembers.FindOrAdd(Node);
-        const FString BaseMember = Member;
-        int32 Suffix = 2;
-        while (UsedMembers.Contains(Member))
-        {
-            Member = BaseMember + LexToString(Suffix++);
-        }
-        UsedMembers.Add(Member);
+        const FString NativeName = Pin->PinName.IsNone() ? TEXT("pin") : Pin->PinName.ToString();
+        const FString Member = UniqueMemberAlias(NativeName, UsedMembers);
         TSharedPtr<FJsonObject> Args = CallArgs();
         SetArg(Args, TEXT("id"), Value::String(GuidText(Pin->PinId)));
         SetArg(Args, TEXT("type"), Value::String(PinTypeText(Pin->PinType)));
@@ -5625,6 +5816,10 @@ struct FCompilerReadbackContext
         if (!Pin->DefaultValue.IsEmpty())
         {
             SetArg(Args, TEXT("DefaultValue"), Value::String(Pin->DefaultValue));
+        }
+        if (Member != NativeName)
+        {
+            SetArg(Args, TEXT("PinName"), Value::String(NativeName));
         }
         Builder.AddMemberBinding(NodeAlias, {Member}, Call(TEXT("pin"), Args));
         Pins.Add(Pin->PinId);

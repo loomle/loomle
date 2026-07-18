@@ -108,7 +108,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
 
     Result->SetArrayField(TEXT("methods"), MakeStringArray({TEXT("rpc.health"), TEXT("rpc.capabilities"), TEXT("rpc.invoke")}));
     Result->SetArrayField(TEXT("tools"), MakeStringArray({
-        TEXT("context"), TEXT("jobs"), TEXT("profiling"), TEXT("play"), TEXT("asset.create"), TEXT("asset.edit"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), TEXT("execute"),
+        TEXT("jobs"), TEXT("profiling"), TEXT("play"), TEXT("asset.create"), TEXT("asset.edit"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), LoomleBridgeConstants::EditorContextToolName, TEXT("execute"),
         TEXT("blueprint.inspect"), TEXT("blueprint.class.inspect"), TEXT("blueprint.class.edit"), TEXT("blueprint.enum.inspect"), TEXT("blueprint.enum.edit"), TEXT("blueprint.member.edit"),
         TEXT("blueprint.graph.list"), TEXT("blueprint.graph.inspect"), TEXT("blueprint.graph.edit"), TEXT("blueprint.node.inspect"), TEXT("blueprint.node.edit"), TEXT("blueprint.compile"), TEXT("blueprint.palette"),
         TEXT("sal.query"), TEXT("sal.patch"),
@@ -289,7 +289,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
         return Payload;
     }
 
-    if (Name.Equals(TEXT("context")))
+    if (Name.Equals(LoomleBridgeConstants::EditorContextToolName))
+    {
+        Payload = Loomle::EditorContext::FEditorContextService::Get().BuildResult();
+    }
+    else if (Name.Equals(TEXT("context")))
     {
         Payload = BuildGetContextToolResult(Arguments);
     }
@@ -495,7 +499,13 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     }
 
     bool bIsErrorField = false;
-    if (Payload.IsValid() && Payload->TryGetBoolField(TEXT("isError"), bIsErrorField))
+    // A SAL MutationResult uses isError to describe validation/application
+    // diagnostics. It is still a successful RPC payload that the SDK must
+    // format for the agent. Transport and dispatch failures continue to use
+    // the JSON-RPC error channel.
+    if (!Name.Equals(TEXT("sal.patch"))
+        && Payload.IsValid()
+        && Payload->TryGetBoolField(TEXT("isError"), bIsErrorField))
     {
         bOutIsError = bIsErrorField;
     }

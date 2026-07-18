@@ -154,6 +154,12 @@ set widget@start-guid.Slot.Padding = "<FMargin native text>"
 reset widget@start-guid.Slot.Padding
 ```
 
+Dynamic Widget and Panel Slot field names must fit SAL identifier syntax and
+must not collide with structural fields such as `id`, `type`, `Slot`, or
+`NamedSlots`. Unrepresentable or colliding fields remain visible with their
+exported UE values in an adjacent Comment; they are not silently renamed and
+cannot currently be patched through a member path.
+
 There is no `slot` query, stable Slot id, Slot Palette entry, or Slot
 constructor. UE creates and owns the concrete Slot as part of the parent-child
 operation.
@@ -189,6 +195,14 @@ type. It losslessly records the relationship exposed by `GetSlotNames` and
 `GetContentForSlot`. A stable reference may point to a Widget binding emitted
 later in the same ordered result because it resolves existing target state;
 document-local aliases still require an earlier binding.
+
+SAL member paths use identifier segments. If a native Named Slot name contains
+spaces, Unicode, or other characters outside that syntax, the adapter does not
+sanitize it into a false writable path. The addressable entries remain in
+`NamedSlots`; each unaddressable native name and its current `widget@id` or
+`null` content is preserved in an adjacent structured Comment. Reading remains
+valid, while assigning that particular slot is unavailable until member-path
+syntax is designed explicitly.
 
 Inherited Named Slot content stored directly by the current WidgetTree has no
 local host Widget. In that case the owning `blueprint(...)` carries the same

@@ -74,7 +74,7 @@ FString PinId(const UEdGraphPin* Pin);
 UEdGraphNode* FindNode(const UEdGraph* Graph, const FString& Id);
 UEdGraphPin* FindPin(const UEdGraph* Graph, const FString& Id);
 FString SanitizeIdentifier(const FString& Source, const FString& Fallback);
-TSharedPtr<FJsonObject> ErrorResult(
+TSharedPtr<FJsonObject> GraphErrorResult(
     const FString& Code,
     const FString& Message,
     const FString& Operation,
@@ -2811,18 +2811,18 @@ TSharedPtr<FJsonObject> FSalGraphInterface::Patch(const FSalPatch& Patch, const 
 {
     if (Target.Graph == nullptr || Target.Blueprint == nullptr)
     {
-        return ErrorResult(TEXT("resolution.graph_not_found"), TEXT("A Blueprint-owned Graph target is required for Graph patch."), TEXT("patch"));
+        return GraphErrorResult(TEXT("resolution.graph_not_found"), TEXT("A Blueprint-owned Graph target is required for Graph patch."), TEXT("patch"));
     }
     if (GEditor == nullptr || !GEditor->CanTransact() || GEditor->IsTransactionActive())
     {
-        return ErrorResult(TEXT("capability.transaction_unavailable"), TEXT("Graph Patch requires one available top-level Editor transaction, including for isolated native dry run."), TEXT("patch"));
+        return GraphErrorResult(TEXT("capability.transaction_unavailable"), TEXT("Graph Patch requires one available top-level Editor transaction, including for isolated native dry run."), TEXT("patch"));
     }
 
     FSalResolvedTarget SandboxTarget;
     FString SandboxError;
     if (!BuildSandboxTarget(Target, SandboxTarget, SandboxError))
     {
-        return ErrorResult(TEXT("capability.operation_unavailable"), SandboxError, TEXT("patch"));
+        return GraphErrorResult(TEXT("capability.operation_unavailable"), SandboxError, TEXT("patch"));
     }
     FPatchState Preflight(SandboxTarget, true);
     bool bValid = false;
@@ -3096,7 +3096,7 @@ FString UniqueMemberAlias(const FString& Preferred, TSet<FString>& Used)
     return Alias;
 }
 
-TSharedPtr<FJsonObject> ErrorResult(
+TSharedPtr<FJsonObject> GraphErrorResult(
     const FString& Code,
     const FString& Message,
     const FString& Operation,
@@ -3273,27 +3273,27 @@ TSharedPtr<FJsonObject> ValidateGraphQuery(const FSalQuery& Query, const FString
 
     if (bWhere && !bAllowWhere)
     {
-        return ErrorResult(TEXT("capability.clause_unavailable"), TEXT("where is unavailable for this Graph query operation."), Kind);
+        return GraphErrorResult(TEXT("capability.clause_unavailable"), TEXT("where is unavailable for this Graph query operation."), Kind);
     }
     if ((bOrder || bPage) && !bAllowOrderPage)
     {
-        return ErrorResult(TEXT("capability.clause_unavailable"), TEXT("order by and page are unavailable for this Graph query operation."), Kind);
+        return GraphErrorResult(TEXT("capability.clause_unavailable"), TEXT("order by and page are unavailable for this Graph query operation."), Kind);
     }
     FString InvalidDetail;
     if (!HasOnlyDetails(Query, Details, InvalidDetail))
     {
-        return ErrorResult(TEXT("capability.detail_unavailable"), TEXT("Requested with detail is unavailable for this Graph query operation."), Kind, InvalidDetail);
+        return GraphErrorResult(TEXT("capability.detail_unavailable"), TEXT("Requested with detail is unavailable for this Graph query operation."), Kind, InvalidDetail);
     }
     if (Kind == TEXT("nodes") && bWhere)
     {
         FString Message;
-        if (!ValidateNodeCondition(Query.Where, Message)) return ErrorResult(TEXT("capability.condition_unavailable"), Message, Kind);
+        if (!ValidateNodeCondition(Query.Where, Message)) return GraphErrorResult(TEXT("capability.condition_unavailable"), Message, Kind);
     }
     if (Kind == TEXT("palette_entries") && bWhere)
     {
         TSet<FString> ObjectFields;
         FString Message;
-        if (!ValidatePaletteCondition(Query.Where, ObjectFields, Message)) return ErrorResult(TEXT("capability.condition_unavailable"), Message, Kind);
+        if (!ValidatePaletteCondition(Query.Where, ObjectFields, Message)) return GraphErrorResult(TEXT("capability.condition_unavailable"), Message, Kind);
     }
     const TSet<FString> OrderKeys = Kind == TEXT("nodes")
         ? TSet<FString>{TEXT("type"), TEXT("id")}
@@ -3304,7 +3304,7 @@ TSharedPtr<FJsonObject> ValidateGraphQuery(const FSalQuery& Query, const FString
         Order->TryGetStringField(TEXT("key"), Key);
         if (!OrderKeys.Contains(Key))
         {
-            return ErrorResult(TEXT("capability.order_unavailable"), TEXT("Unsupported order key for this Graph collection."), Kind, Key);
+            return GraphErrorResult(TEXT("capability.order_unavailable"), TEXT("Unsupported order key for this Graph collection."), Kind, Key);
         }
     }
     return nullptr;
@@ -3345,7 +3345,7 @@ bool DecodeGraphPage(
         || !Parts[1].Equals(ExpectedHash, ESearchCase::IgnoreCase)
         || !ParseNonNegativeInt32(Parts[2], OutPage.Offset))
     {
-        OutError = ErrorResult(
+        OutError = GraphErrorResult(
             TEXT("validation.invalid_cursor"),
             TEXT("Graph cursor does not belong to this target, operation, filter, detail, or ordering."),
             TEXT("page"),
@@ -3913,7 +3913,7 @@ bool BuildPaletteContextFromQuery(
         const EEdGraphPinDirection ExpectedDirection = Direction == TEXT("from") ? EGPD_Output : EGPD_Input;
         if (Pin == nullptr || Pin->Direction != ExpectedDirection)
         {
-            OutError = ErrorResult(TEXT("resolution.pin_not_found"), TEXT("Palette Pin context is missing or has the wrong direction."), TEXT("palette entries"), Id);
+            OutError = GraphErrorResult(TEXT("resolution.pin_not_found"), TEXT("Palette Pin context is missing or has the wrong direction."), TEXT("palette entries"), Id);
             return false;
         }
         Out.Pins.Add(Pin);
@@ -3932,7 +3932,7 @@ bool BuildPaletteContextFromQuery(
         FString Message;
         if (!AddPaletteObjectContext(Target, ObjectKind, RefKind, Identity, Out, StableId, Message))
         {
-            OutError = ErrorResult(TEXT("resolution.object_not_found"), Message, TEXT("palette entries"), Identity);
+            OutError = GraphErrorResult(TEXT("resolution.object_not_found"), Message, TEXT("palette entries"), Identity);
             return false;
         }
         Out.Descriptor += FString::Printf(TEXT(";%s.%s"), *ObjectKind, *StableId);
@@ -4153,12 +4153,12 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
         if (!SplitPaletteId(ExactId, ExactToken, ExactDescriptor)
             || !BuildPaletteContextFromDescriptor(Target, ExactDescriptor, Context, Message))
         {
-            return ErrorResult(TEXT("resolution.palette_not_found"), Message.IsEmpty() ? TEXT("Palette id is malformed or stale.") : Message, TEXT("palette"), ExactId, TEXT("Run palette entries again in the same Graph context."));
+            return GraphErrorResult(TEXT("resolution.palette_not_found"), Message.IsEmpty() ? TEXT("Palette id is malformed or stale.") : Message, TEXT("palette"), ExactId, TEXT("Run palette entries again in the same Graph context."));
         }
     }
     else if (!BuildPaletteContextFromQuery(Query, Target, Context, ContextError))
     {
-        return ContextError.IsValid() ? ContextError : ErrorResult(TEXT("validation.palette_context_invalid"), TEXT("Palette context could not be resolved."), TEXT("palette entries"));
+        return ContextError.IsValid() ? ContextError : GraphErrorResult(TEXT("validation.palette_context_invalid"), TEXT("Palette context could not be resolved."), TEXT("palette entries"));
     }
 
     FBlueprintActionMenuBuilder Menu;
@@ -4188,7 +4188,7 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
             const FString Navigation = BoundEventNavigation(Target, Existing, Label);
             if (bExact)
             {
-                return ErrorResult(
+                return GraphErrorResult(
                     TEXT("resolution.palette_not_found"),
                     TEXT("Bound Event Palette entry is no longer available because the event already exists."),
                     TEXT("palette"),
@@ -4225,7 +4225,7 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
     }
     if (bExact && Matches.IsEmpty())
     {
-        return ErrorResult(TEXT("resolution.palette_not_found"), TEXT("Palette entry was not found in the current Graph context."), TEXT("palette"), ExactId, TEXT("Run palette entries again in the same Graph context."));
+        return GraphErrorResult(TEXT("resolution.palette_not_found"), TEXT("Palette entry was not found in the current Graph context."), TEXT("palette"), ExactId, TEXT("Run palette entries again in the same Graph context."));
     }
 
     FSalObjectBuilder Out;
@@ -4535,7 +4535,7 @@ TSharedPtr<FJsonObject> QueryExact(const FSalQuery& Query, const FSalResolvedTar
     {
         if (!Target.Id.Equals(Id, ESearchCase::IgnoreCase))
         {
-            return ErrorResult(TEXT("resolution.graph_not_found"), TEXT("The scoped Graph id does not match the bound Graph."), TEXT("graph"), Id);
+            return GraphErrorResult(TEXT("resolution.graph_not_found"), TEXT("The scoped Graph id does not match the bound Graph."), TEXT("graph"), Id);
         }
         if (HasDetail(Query, TEXT("schema")))
         {
@@ -4552,25 +4552,25 @@ TSharedPtr<FJsonObject> QueryExact(const FSalQuery& Query, const FSalResolvedTar
     if (Kind == TEXT("node"))
     {
         UEdGraphNode* Node = FindNode(Target.Graph, Id);
-        if (Node == nullptr) return ErrorResult(TEXT("resolution.node_not_found"), TEXT("Node was not found in the bound Graph."), TEXT("node"), Id);
+        if (Node == nullptr) return GraphErrorResult(TEXT("resolution.node_not_found"), TEXT("Node was not found in the bound Graph."), TEXT("node"), Id);
         if (UK2Node_Timeline* Timeline = Cast<UK2Node_Timeline>(Node))
         {
             FString PairError;
             UTimelineTemplate* Template = FindTimelineTemplate(Target.Blueprint, Timeline, &PairError);
             if (Template == nullptr)
             {
-                return ErrorResult(TEXT("validation.timeline_inconsistent"), PairError, TEXT("node"), Id);
+                return GraphErrorResult(TEXT("validation.timeline_inconsistent"), PairError, TEXT("node"), Id);
             }
             if (!ValidateTimelineStructure(Timeline, Template, PairError))
             {
-                return ErrorResult(TEXT("validation.timeline_inconsistent"), PairError, TEXT("node"), Id);
+                return GraphErrorResult(TEXT("validation.timeline_inconsistent"), PairError, TEXT("node"), Id);
             }
         }
         AddExactNode(Out, Node, HasDetail(Query, TEXT("layout")), HasDetail(Query, TEXT("schema")));
         return Out.Builder.BuildResult();
     }
     UEdGraphPin* Pin = FindPin(Target.Graph, Id);
-    if (Pin == nullptr) return ErrorResult(TEXT("resolution.pin_not_found"), TEXT("Pin was not found in the bound Graph."), TEXT("pin"), Id);
+    if (Pin == nullptr) return GraphErrorResult(TEXT("resolution.pin_not_found"), TEXT("Pin was not found in the bound Graph."), TEXT("pin"), Id);
     UEdGraphNode* Owner = Pin->GetOwningNode();
     const FString Alias = Out.AddNode(Owner, false, HasDetail(Query, TEXT("layout")));
     TSet<FString> UsedMembers;
@@ -4713,7 +4713,7 @@ TSharedPtr<FJsonObject> EncodeTraversal(const FSalQuery& Query, const FSalResolv
     const FTraversal Traversal = Traverse(Query, Target, Kind, Error);
     if (!Error.IsEmpty())
     {
-        return ErrorResult(TEXT("resolution.invalid_traversal_target"), Error, Kind);
+        return GraphErrorResult(TEXT("resolution.invalid_traversal_target"), Error, Kind);
     }
     FEncodedGraph Out(Target);
     TMap<UEdGraphNode*, TSet<FString>> UsedMembers;
@@ -4864,7 +4864,7 @@ TSharedPtr<FJsonObject> FSalGraphInterface::Query(const FSalQuery& Query, const 
 {
     if (Target.Graph == nullptr || !Query.Operation.IsValid())
     {
-        return ErrorResult(TEXT("resolution.graph_not_found"), TEXT("A resolved Graph is required."), TEXT("query"));
+        return GraphErrorResult(TEXT("resolution.graph_not_found"), TEXT("A resolved Graph is required."), TEXT("query"));
     }
     FString Kind;
     Query.Operation->TryGetStringField(TEXT("kind"), Kind);
@@ -4875,12 +4875,12 @@ TSharedPtr<FJsonObject> FSalGraphInterface::Query(const FSalQuery& Query, const 
     if (Kind == TEXT("context") || Kind == TEXT("exec_flow") || Kind == TEXT("data_flow")) return EncodeTraversal(Query, Target, Kind);
     if (Kind == TEXT("palette_entries")) return QueryPalette(Query, Target, false);
     if (Kind == TEXT("palette")) return QueryPalette(Query, Target, true);
-    return ErrorResult(
+    return GraphErrorResult(
         TEXT("capability.operation_unavailable"),
         FString::Printf(TEXT("Graph does not support query operation %s."), *Kind),
         Kind,
         FString(),
-        TEXT("Use graph@id with schema or sal.schema(\"graph\") to inspect supported operations."));
+        TEXT("Use graph@id with schema or sal_schema({ module: \"graph\" }) to inspect supported operations."));
 }
 
 // Patch implementation follows the query implementation so the same live

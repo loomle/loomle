@@ -550,6 +550,13 @@ result reports a native edit path; returning a field does not by itself make it
 writable. Parent-child structure is edited through Component lifecycle
 operations rather than by assigning cached SCS relationship fields.
 
+Dynamic reflected field names must also fit SAL identifier syntax and must not
+collide with structural `component(...)` fields such as `id` or `type`. An
+unrepresentable or colliding native field is omitted from Call arguments and
+preserved with its exported UE value in an adjacent Comment; SAL does not
+sanitize it into a false writable field, and Patch for that field is currently
+unavailable.
+
 If a native `USCS_Node` field and a component-template property have the same
 name, the adapter reports an ambiguity instead of inventing a path syntax.
 `with schema` identifies each usable field's source.

@@ -10,7 +10,7 @@ namespace Loomle::Sal
 {
 namespace
 {
-bool IsIdentifier(const FString& Text)
+bool IsSalJsonIdentifier(const FString& Text)
 {
     auto IsAsciiAlpha = [](const TCHAR Character)
     {
@@ -37,7 +37,7 @@ bool IsIdentifier(const FString& Text)
 
 bool IsLocalIdentifier(const FString& Text)
 {
-    return IsIdentifier(Text)
+    return IsSalJsonIdentifier(Text)
         && Text != TEXT("true")
         && Text != TEXT("false")
         && Text != TEXT("null");
@@ -73,7 +73,7 @@ bool IsFieldPath(const FString& Text)
     }
     for (const FString& Segment : Segments)
     {
-        if (!IsIdentifier(Segment))
+        if (!IsSalJsonIdentifier(Segment))
         {
             return false;
         }
@@ -138,7 +138,7 @@ bool ValidateStringPath(const TSharedPtr<FJsonObject>& Object, const TCHAR* Fiel
     for (const TSharedPtr<FJsonValue>& SegmentValue : *Path)
     {
         FString Segment;
-        if (!SegmentValue.IsValid() || !SegmentValue->TryGetString(Segment) || !IsIdentifier(Segment))
+        if (!SegmentValue.IsValid() || !SegmentValue->TryGetString(Segment) || !IsSalJsonIdentifier(Segment))
         {
             OutMessage = FString::Printf(TEXT("%s contains an invalid path segment."), Field);
             return false;
@@ -153,7 +153,7 @@ bool ValidateCall(const TSharedPtr<FJsonObject>& Object, FString& OutMessage)
     const TSharedPtr<FJsonObject>* Args = nullptr;
     if (!HasOnly(Object, {TEXT("kind"), TEXT("callee"), TEXT("args")})
         || !ReadRequiredString(Object, TEXT("callee"), Callee)
-        || !IsIdentifier(Callee)
+        || !IsSalJsonIdentifier(Callee)
         || !Object->TryGetObjectField(TEXT("args"), Args)
         || Args == nullptr
         || !(*Args).IsValid())
@@ -163,7 +163,7 @@ bool ValidateCall(const TSharedPtr<FJsonObject>& Object, FString& OutMessage)
     }
     for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Args)->Values)
     {
-        if (!IsIdentifier(Pair.Key) || !ValidateExpr(Pair.Value, OutMessage))
+        if (!IsSalJsonIdentifier(Pair.Key) || !ValidateExpr(Pair.Value, OutMessage))
         {
             if (OutMessage.IsEmpty())
             {
@@ -302,7 +302,7 @@ bool ValidateExpr(const TSharedPtr<FJsonValue>& Value, FString& OutMessage)
     }
     for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Object)->Values)
     {
-        if (!IsIdentifier(Pair.Key) || !ValidateExpr(Pair.Value, OutMessage))
+        if (!IsSalJsonIdentifier(Pair.Key) || !ValidateExpr(Pair.Value, OutMessage))
         {
             OutMessage = TEXT("Inline object contains an invalid field or value.");
             return false;
@@ -661,7 +661,7 @@ bool ValidateOrderAndPage(const TSharedPtr<FJsonObject>& Object, FSalQuery& OutQ
         for (const TSharedPtr<FJsonValue>& DetailValue : *With)
         {
             FString Detail;
-            if (!DetailValue.IsValid() || !DetailValue->TryGetString(Detail) || !IsIdentifier(Detail) || Seen.Contains(Detail))
+            if (!DetailValue.IsValid() || !DetailValue->TryGetString(Detail) || !IsSalJsonIdentifier(Detail) || Seen.Contains(Detail))
             {
                 OutMessage = TEXT("with contains an invalid or duplicate detail.");
                 return false;
@@ -824,7 +824,7 @@ bool ValidatePatchOperation(const TSharedPtr<FJsonObject>& Object, FString& OutM
         if (!HasOnly(Object, {TEXT("kind"), TEXT("target"), TEXT("operation"), TEXT("args"), TEXT("outputs")})
             || !RefField(TEXT("target"))
             || !ReadRequiredString(Object, TEXT("operation"), Operation)
-            || !IsIdentifier(Operation)
+            || !IsSalJsonIdentifier(Operation)
             || !Object->TryGetObjectField(TEXT("args"), Args)
             || Args == nullptr
             || !Object->TryGetArrayField(TEXT("outputs"), Outputs)
@@ -834,7 +834,7 @@ bool ValidatePatchOperation(const TSharedPtr<FJsonObject>& Object, FString& OutM
         }
         for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Args)->Values)
         {
-            if (!IsIdentifier(Pair.Key) || !ValidateExpr(Pair.Value, OutMessage))
+            if (!IsSalJsonIdentifier(Pair.Key) || !ValidateExpr(Pair.Value, OutMessage))
             {
                 return false;
             }
@@ -1107,7 +1107,10 @@ bool IsValidCommentText(const FString& Text)
     if (Text == TEXT("###")) return true;
     TArray<FString> Lines;
     Text.ParseIntoArrayLines(Lines, false);
-    return !Lines.Contains(TEXT("###"));
+    return !Lines.ContainsByPredicate([](const FString& Line)
+    {
+        return Line.TrimStartAndEnd() == TEXT("###");
+    });
 }
 
 bool ValidateObjectText(const TSharedPtr<FJsonObject>& Object, FString& OutMessage)

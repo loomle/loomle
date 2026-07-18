@@ -68,7 +68,8 @@ with schema
 ```
 
 When `query door` selects `graph@id`, schema describes Blueprint-owned Graph
-lifecycle. Bind that Graph as its own target and use `sal.schema("graph")` for
+lifecycle. Bind that Graph as its own target and use
+`sal_schema({ module: "graph" })` for
 Node, Pin, Edge, flow, and Graph-body operations.
 
 ## Palette And Creation

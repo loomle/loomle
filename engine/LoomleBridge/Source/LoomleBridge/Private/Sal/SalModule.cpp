@@ -31,7 +31,7 @@ TSharedPtr<FJsonObject> InterfaceError(const FString& Operation, const FSalResol
             FString::Printf(TEXT("No resolved target interface accepts operation %s."), *Operation))
             .Operation(Operation)
             .Supported(Interfaces)
-            .Suggestion(TEXT("Query the exact object with schema or call sal.schema() in the SDK."))
+            .Suggestion(TEXT("Query the exact object with schema or call sal_schema({})."))
             .Build());
 }
 

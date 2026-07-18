@@ -276,6 +276,12 @@ they survive recompilation.
 Class Defaults are effective values attached to the bound Class. The CDO is an
 implementation container, not a public SAL object and not a stable identity:
 
+SAL member paths use identifier segments. A legal UE Property name outside
+that syntax is still returned as a local value with its exact native name in an
+adjacent Comment, so the result remains readable and valid. SAL does not invent
+a sanitized Class member: Patch for that Default is unavailable until member
+path syntax is designed explicitly.
+
 ```sal
 query doorClass
 defaults ["text"]

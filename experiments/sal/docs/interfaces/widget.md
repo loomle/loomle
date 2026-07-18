@@ -77,6 +77,9 @@ stack.start = widget(
 A host or the Blueprint exposes Named Slot relationships through
 `NamedSlots: {Header: widget@id, Body: null}`. Panel Slot and Named Slot are not
 independent objects and have no query, id, constructor, or Palette entry.
+Native slot names outside SAL identifier syntax are reported with their current
+content in an adjacent Comment and are not silently renamed into writable
+member paths.
 
 ## Palette And Patch
 

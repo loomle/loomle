@@ -1,11 +1,19 @@
 import assert from "node:assert/strict";
 import {
   createSal,
+  loadSalGuide,
   type MutationResult,
   type ObjectResult,
   type ObjectText,
   type SalExecutor,
 } from "../../src/index.js";
+
+const residentGuide = await loadSalGuide();
+assert.match(residentGuide, /^# SAL$/m);
+assert.match(residentGuide, /sal_query\(\{ text \}\)/);
+assert.match(residentGuide, /editor_context\(\{\}\)/);
+assert.match(residentGuide, /## Schema Discovery/);
+console.log("[PASS] resident SAL guide is available to MCP clients");
 
 const queryText = `bp = blueprint(asset: "/Game/BP_SALExample.BP_SALExample")
 g = graph(asset: bp, name: "EventGraph")

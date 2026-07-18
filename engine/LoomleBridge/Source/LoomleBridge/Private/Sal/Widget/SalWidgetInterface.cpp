@@ -77,9 +77,78 @@ constexpr const TCHAR* ImagePalettePrefix = TEXT("widget.image:");
 
 FWidgetBlueprintEditor* FindOpenWidgetBlueprintEditor(UWidgetBlueprint* Blueprint);
 
-FString GuidText(const FGuid& Guid)
+FString WidgetGuidText(const FGuid& Guid)
 {
     return Guid.ToString(EGuidFormats::DigitsWithHyphensLower);
+}
+
+FString CommentScalar(FString Text)
+{
+    Text.ReplaceInline(TEXT("\\"), TEXT("\\\\"));
+    Text.ReplaceInline(TEXT("\r"), TEXT("\\r"));
+    Text.ReplaceInline(TEXT("\n"), TEXT("\\n"));
+    Text.ReplaceInline(TEXT("\""), TEXT("\\\""));
+    return TEXT("\"") + Text + TEXT("\"");
+}
+
+FString CommentPath(const TArray<FString>& Path)
+{
+    TArray<FString> Encoded;
+    Encoded.Reserve(Path.Num());
+    for (const FString& Segment : Path)
+    {
+        Encoded.Add(CommentScalar(Segment));
+    }
+    return TEXT("[") + FString::Join(Encoded, TEXT(", ")) + TEXT("]");
+}
+
+bool IsSalPath(const TArray<FString>& Path)
+{
+    return !Path.ContainsByPredicate([](const FString& Segment)
+    {
+        return !FSalObjectBuilder::IsIdentifier(Segment);
+    });
+}
+
+void AddUnavailableMemberPathComment(
+    FSalObjectBuilder& Builder,
+    const FString& OwnerAlias,
+    const TArray<FString>& NativePath)
+{
+    Builder.AddComment(FString::Printf(
+        TEXT("owner: %s\nmember path: unavailable in SAL identifier syntax\nnative path: %s"),
+        *OwnerAlias,
+        *CommentPath(NativePath)));
+}
+
+void AddUnavailableNamedSlotsComment(
+    FSalObjectBuilder& Builder,
+    const FString& Host,
+    const TArray<FString>& NativeEntries)
+{
+    if (NativeEntries.IsEmpty())
+    {
+        return;
+    }
+    Builder.AddComment(FString::Printf(
+        TEXT("named slot member paths: unavailable in SAL identifier syntax\nhost: %s\nnative entries: %s"),
+        *Host,
+        *CommentPath(NativeEntries)));
+}
+
+void AddUnavailableNativeFieldsComment(
+    FSalObjectBuilder& Builder,
+    const FString& Host,
+    const TArray<FString>& NativeFields)
+{
+    if (NativeFields.IsEmpty())
+    {
+        return;
+    }
+    Builder.AddComment(FString::Printf(
+        TEXT("native fields: not representable as SAL object fields\nhost: %s\nvalues: %s\nPatch: unavailable"),
+        *Host,
+        *CommentPath(NativeFields)));
 }
 
 UWidgetBlueprint* WidgetBlueprint(const FSalResolvedTarget& Target)
@@ -138,7 +207,7 @@ TSharedPtr<FJsonObject> MutationError(
 FString WidgetQuerySignature(const FSalQuery& Query, UWidgetBlueprint* Blueprint)
 {
     FString Signature = Blueprint != nullptr
-        ? Blueprint->GetPathName() + TEXT("|") + GuidText(Blueprint->GetBlueprintGuid())
+        ? Blueprint->GetPathName() + TEXT("|") + WidgetGuidText(Blueprint->GetBlueprintGuid())
         : FString();
     FString Operation;
     const TSharedRef<TJsonWriter<>> OperationWriter = TJsonWriterFactory<>::Create(&Operation);
@@ -263,7 +332,7 @@ bool HasExactPatchTargetId(const FSalResolvedTarget& Target)
     return Target.Kind == ESalTargetKind::Blueprint
         && Target.Blueprint != nullptr
         && !Target.Id.IsEmpty()
-        && Target.Id.Equals(GuidText(Target.Blueprint->GetBlueprintGuid()), ESearchCase::IgnoreCase);
+        && Target.Id.Equals(WidgetGuidText(Target.Blueprint->GetBlueprintGuid()), ESearchCase::IgnoreCase);
 }
 
 TArray<UWidget*> SourceWidgets(UWidgetBlueprint* Blueprint)
@@ -288,7 +357,7 @@ bool ValidateWidgetIds(UWidgetBlueprint* Blueprint, FString& OutError)
         }
         if (Guids.Contains(*Guid))
         {
-            OutError = FString::Printf(TEXT("Source Widget GUID is duplicated: %s."), *GuidText(*Guid));
+            OutError = FString::Printf(TEXT("Source Widget GUID is duplicated: %s."), *WidgetGuidText(*Guid));
             return false;
         }
         Guids.Add(*Guid);
@@ -304,7 +373,7 @@ FString WidgetId(UWidgetBlueprint* Blueprint, const UWidget* Widget)
     }
     if (const FGuid* Guid = Blueprint->WidgetVariableNameToGuidMap.Find(Widget->GetFName()))
     {
-        return GuidText(*Guid);
+        return WidgetGuidText(*Guid);
     }
     return FString();
 }
@@ -428,7 +497,84 @@ bool CanResetNativeWidgetField(const FProperty* Property, const UObject* Contain
         && Container->GetClass()->GetDefaultObject() != nullptr;
 }
 
-void AddNonDefaultFields(const TSharedPtr<FJsonObject>& Args, UObject* Object)
+const TSet<FString>& WidgetReservedFields()
+{
+    static const TSet<FString> Fields = {
+        TEXT("palette"),
+        TEXT("id"),
+        TEXT("type"),
+        TEXT("DisplayLabel"),
+        TEXT("bIsVariable"),
+        TEXT("Slot"),
+        TEXT("NamedSlots")};
+    return Fields;
+}
+
+const TSet<FString>& SlotReservedFields()
+{
+    static const TSet<FString> Fields = {
+        TEXT("kind"),
+        TEXT("id"),
+        TEXT("type")};
+    return Fields;
+}
+
+FString NativeFieldUnavailabilityReason(
+    const FString& Name,
+    const TSet<FString>& ReservedFields,
+    const FString& Subject)
+{
+    if (!FSalObjectBuilder::IsIdentifier(Name))
+    {
+        return TEXT("native name is not a SAL identifier");
+    }
+    if (ReservedFields.Contains(Name))
+    {
+        return FString::Printf(TEXT("native name collides with a reserved %s field"), *Subject);
+    }
+    return FString();
+}
+
+void AddUnavailableNativeFieldSchema(
+    TArray<FString>& Lines,
+    const FProperty* Property,
+    const UObject* Container,
+    const TSet<FString>& ReservedFields,
+    const FString& Subject,
+    const FString& ValueLabel = TEXT("current"))
+{
+    const FString Reason = NativeFieldUnavailabilityReason(Property->GetName(), ReservedFields, Subject);
+    if (Reason.IsEmpty())
+    {
+        return;
+    }
+    const UObject* Defaults = Container != nullptr ? Container->GetClass()->GetDefaultObject() : nullptr;
+    Lines.Add(TEXT("  native field:"));
+    Lines.Add(FString::Printf(TEXT("    owner: %s"), *CommentScalar(Subject)));
+    Lines.Add(FString::Printf(TEXT("    name: %s"), *CommentScalar(Property->GetName())));
+    Lines.Add(FString::Printf(TEXT("    type: %s"), *CommentScalar(Property->GetCPPType())));
+    Lines.Add(FString::Printf(
+        TEXT("    %s: %s"),
+        *ValueLabel,
+        *CommentScalar(ExportPropertyValue(Property, Container))));
+    if (Defaults != nullptr)
+    {
+        Lines.Add(FString::Printf(
+            TEXT("    reset: %s"),
+            *CommentScalar(ExportPropertyValue(Property, Defaults))));
+    }
+    Lines.Add(TEXT("    readable: true"));
+    Lines.Add(TEXT("    writable: false"));
+    Lines.Add(TEXT("    resettable: false"));
+    Lines.Add(FString::Printf(TEXT("    reason: %s"), *Reason));
+}
+
+void AddNonDefaultFields(
+    const TSharedPtr<FJsonObject>& Args,
+    UObject* Object,
+    const TSet<FString>& ReservedFields,
+    TArray<FString>* OutUnavailableFields = nullptr,
+    const FString& Prefix = FString())
 {
     if (!Args.IsValid() || Object == nullptr)
     {
@@ -442,17 +588,46 @@ void AddNonDefaultFields(const TSharedPtr<FJsonObject>& Args, UObject* Object)
         {
             continue;
         }
+        if (Object->IsA<UWidget>() && Property->GetName() == TEXT("bIsVariable"))
+        {
+            continue;
+        }
         const void* Current = Property->ContainerPtrToValuePtr<void>(Object);
         const void* Default = Defaults != nullptr ? Property->ContainerPtrToValuePtr<void>(Defaults) : nullptr;
         if (Default != nullptr && Property->Identical(Current, Default, PPF_None))
         {
             continue;
         }
-        Args->SetField(Property->GetName(), PropertyValue(Property, Object));
+        if (Args->HasField(Property->GetName()) || ReservedFields.Contains(Property->GetName()))
+        {
+            if (OutUnavailableFields != nullptr)
+            {
+                OutUnavailableFields->Add(FString::Printf(
+                    TEXT("%s%s = %s (reserved SAL field collision)"),
+                    *Prefix,
+                    *Property->GetName(),
+                    *ExportPropertyValue(Property, Object)));
+            }
+        }
+        else if (FSalObjectBuilder::IsIdentifier(Property->GetName()))
+        {
+            Args->SetField(Property->GetName(), PropertyValue(Property, Object));
+        }
+        else if (OutUnavailableFields != nullptr)
+        {
+            OutUnavailableFields->Add(FString::Printf(
+                TEXT("%s%s = %s"),
+                *Prefix,
+                *Property->GetName(),
+                *ExportPropertyValue(Property, Object)));
+        }
     }
 }
 
-TSharedPtr<FJsonObject> SlotValue(UPanelSlot* Slot, const bool bComplete)
+TSharedPtr<FJsonObject> SlotValue(
+    UPanelSlot* Slot,
+    const bool bComplete,
+    TArray<FString>* OutUnavailableFields = nullptr)
 {
     if (Slot == nullptr)
     {
@@ -462,18 +637,21 @@ TSharedPtr<FJsonObject> SlotValue(UPanelSlot* Slot, const bool bComplete)
     Object->SetStringField(TEXT("type"), Slot->GetClass()->GetPathName());
     if (bComplete)
     {
-        AddNonDefaultFields(Object, Slot);
+        AddNonDefaultFields(Object, Slot, SlotReservedFields(), OutUnavailableFields, TEXT("Slot."));
     }
     else
     {
-        AddNonDefaultFields(Object, Slot);
+        AddNonDefaultFields(Object, Slot, SlotReservedFields(), OutUnavailableFields, TEXT("Slot."));
     }
     Object->RemoveField(TEXT("Parent"));
     Object->RemoveField(TEXT("Content"));
     return Object;
 }
 
-TSharedPtr<FJsonObject> NamedSlotsValue(UWidgetBlueprint* Blueprint, UObject* Host)
+TSharedPtr<FJsonObject> NamedSlotsValue(
+    UWidgetBlueprint* Blueprint,
+    UObject* Host,
+    TArray<FString>* OutUnavailableNames = nullptr)
 {
     INamedSlotInterface* Named = Cast<INamedSlotInterface>(Host);
     if (Named == nullptr)
@@ -489,13 +667,27 @@ TSharedPtr<FJsonObject> NamedSlotsValue(UWidgetBlueprint* Blueprint, UObject* Ho
     TSharedPtr<FJsonObject> Slots = MakeShared<FJsonObject>();
     for (const FName SlotName : SlotNames)
     {
+        const FString NativeName = SlotName.ToString();
         UWidget* Content = Named->GetContentForSlot(SlotName);
         const FString Id = WidgetId(Blueprint, Content);
+        if (!FSalObjectBuilder::IsIdentifier(NativeName))
+        {
+            if (OutUnavailableNames != nullptr)
+            {
+                OutUnavailableNames->Add(FString::Printf(
+                    TEXT("%s -> %s"),
+                    *NativeName,
+                    Content != nullptr && !Id.IsEmpty()
+                        ? *(TEXT("widget@") + Id)
+                        : TEXT("null")));
+            }
+            continue;
+        }
         Slots->SetField(
-            SlotName.ToString(),
+            NativeName,
             Content != nullptr && !Id.IsEmpty() ? Value::Stable(TEXT("widget"), Id) : Value::Null());
     }
-    return Slots;
+    return Slots->Values.IsEmpty() ? nullptr : Slots;
 }
 
 enum class EWidgetDetail : uint8
@@ -505,7 +697,12 @@ enum class EWidgetDetail : uint8
     Complete
 };
 
-TSharedPtr<FJsonValue> WidgetValue(UWidgetBlueprint* Blueprint, UWidget* Widget, const EWidgetDetail Detail)
+TSharedPtr<FJsonValue> WidgetValue(
+    UWidgetBlueprint* Blueprint,
+    UWidget* Widget,
+    const EWidgetDetail Detail,
+    TArray<FString>* OutUnavailableNamedSlots = nullptr,
+    TArray<FString>* OutUnavailableFields = nullptr)
 {
     TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
     Args->SetStringField(TEXT("id"), WidgetId(Blueprint, Widget));
@@ -521,15 +718,18 @@ TSharedPtr<FJsonValue> WidgetValue(UWidgetBlueprint* Blueprint, UWidget* Widget,
     }
     if (Detail == EWidgetDetail::Complete)
     {
-        AddNonDefaultFields(Args, Widget);
+        AddNonDefaultFields(Args, Widget, WidgetReservedFields(), OutUnavailableFields);
     }
     if (Detail != EWidgetDetail::Compact)
     {
-        if (TSharedPtr<FJsonObject> Slot = SlotValue(Widget->Slot, Detail == EWidgetDetail::Complete))
+        if (TSharedPtr<FJsonObject> Slot = SlotValue(
+            Widget->Slot,
+            Detail == EWidgetDetail::Complete,
+            OutUnavailableFields))
         {
             Args->SetObjectField(TEXT("Slot"), Slot);
         }
-        if (TSharedPtr<FJsonObject> NamedSlots = NamedSlotsValue(Blueprint, Widget))
+        if (TSharedPtr<FJsonObject> NamedSlots = NamedSlotsValue(Blueprint, Widget, OutUnavailableNamedSlots))
         {
             Args->SetObjectField(TEXT("NamedSlots"), NamedSlots);
         }
@@ -537,13 +737,19 @@ TSharedPtr<FJsonValue> WidgetValue(UWidgetBlueprint* Blueprint, UWidget* Widget,
     return Value::Call(TEXT("widget"), Args);
 }
 
-TSharedPtr<FJsonValue> BlueprintValue(UWidgetBlueprint* Blueprint, const bool bNamedSlots)
+TSharedPtr<FJsonValue> BlueprintValue(
+    UWidgetBlueprint* Blueprint,
+    const bool bNamedSlots,
+    TArray<FString>* OutUnavailableNamedSlots = nullptr)
 {
     TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
-    Args->SetStringField(TEXT("id"), GuidText(Blueprint->GetBlueprintGuid()));
+    Args->SetStringField(TEXT("id"), WidgetGuidText(Blueprint->GetBlueprintGuid()));
     if (bNamedSlots)
     {
-        if (TSharedPtr<FJsonObject> NamedSlots = NamedSlotsValue(Blueprint, Blueprint->WidgetTree))
+        if (TSharedPtr<FJsonObject> NamedSlots = NamedSlotsValue(
+            Blueprint,
+            Blueprint->WidgetTree,
+            OutUnavailableNamedSlots))
         {
             Args->SetObjectField(TEXT("NamedSlots"), NamedSlots);
         }
@@ -626,14 +832,39 @@ void EmitSubtree(
         return;
     }
     Seen.Add(Widget);
+    FString EffectiveOwner = OwnerAlias;
+    TArray<FString> EffectivePath = Path;
+    TArray<FString> UnavailableNamedSlots;
+    TArray<FString> UnavailableFields;
+    const TSharedPtr<FJsonValue> EncodedWidget = WidgetValue(
+        Blueprint,
+        Widget,
+        EWidgetDetail::Skeleton,
+        &UnavailableNamedSlots,
+        &UnavailableFields);
     if (Path.IsEmpty())
     {
-        Builder.AddLocalBinding(OwnerAlias, WidgetValue(Blueprint, Widget, EWidgetDetail::Skeleton));
+        Builder.AddLocalBinding(OwnerAlias, EncodedWidget);
+    }
+    else if (!IsSalPath(Path))
+    {
+        EffectiveOwner = Builder.UniqueAlias(Widget->GetName());
+        EffectivePath.Reset();
+        Builder.AddLocalBinding(EffectiveOwner, EncodedWidget);
+        AddUnavailableMemberPathComment(Builder, OwnerAlias, Path);
     }
     else
     {
-        Builder.AddMemberBinding(OwnerAlias, Path, WidgetValue(Blueprint, Widget, EWidgetDetail::Skeleton));
+        Builder.AddMemberBinding(OwnerAlias, Path, EncodedWidget);
     }
+    AddUnavailableNamedSlotsComment(
+        Builder,
+        TEXT("widget@") + WidgetId(Blueprint, Widget),
+        UnavailableNamedSlots);
+    AddUnavailableNativeFieldsComment(
+        Builder,
+        TEXT("widget@") + WidgetId(Blueprint, Widget),
+        UnavailableFields);
     const TArray<UWidget*> Children = DirectChildren(Widget);
     if (Depth >= MaxDepth)
     {
@@ -645,9 +876,9 @@ void EmitSubtree(
     }
     for (UWidget* Child : Children)
     {
-        TArray<FString> ChildPath = Path;
+        TArray<FString> ChildPath = EffectivePath;
         ChildPath.Add(Child->GetName());
-        EmitSubtree(Builder, Blueprint, Child, OwnerAlias, ChildPath, Depth + 1, MaxDepth, Seen);
+        EmitSubtree(Builder, Blueprint, Child, EffectiveOwner, ChildPath, Depth + 1, MaxDepth, Seen);
     }
 }
 
@@ -675,7 +906,11 @@ TSharedPtr<FJsonObject> FullTreeResult(UWidgetBlueprint* Blueprint, const int32 
     if (!NamedSlotNames.IsEmpty())
     {
         BlueprintAlias = Builder.UniqueAlias(Blueprint->GetName());
-        Builder.AddLocalBinding(BlueprintAlias, BlueprintValue(Blueprint, true));
+        TArray<FString> UnavailableNamedSlots;
+        Builder.AddLocalBinding(
+            BlueprintAlias,
+            BlueprintValue(Blueprint, true, &UnavailableNamedSlots));
+        AddUnavailableNamedSlotsComment(Builder, BlueprintAlias, UnavailableNamedSlots);
     }
     if (UWidget* Root = Blueprint->WidgetTree->RootWidget)
     {
@@ -706,16 +941,16 @@ void AddEventOwnerLocator(
 {
     Lines.Add(TEXT("      eventOwner = blueprint("));
     Lines.Add(FString::Printf(TEXT("        asset: \"%s\","), *Blueprint->GetPathName()));
-    Lines.Add(FString::Printf(TEXT("        id: \"%s\""), *GuidText(Blueprint->GetBlueprintGuid())));
+    Lines.Add(FString::Printf(TEXT("        id: \"%s\""), *WidgetGuidText(Blueprint->GetBlueprintGuid())));
     Lines.Add(TEXT("      )"));
     Lines.Add(TEXT("      eventGraph = graph("));
     Lines.Add(TEXT("        asset: eventOwner,"));
-    Lines.Add(FString::Printf(TEXT("        id: \"%s\""), *GuidText(Graph->GraphGuid)));
+    Lines.Add(FString::Printf(TEXT("        id: \"%s\""), *WidgetGuidText(Graph->GraphGuid)));
     Lines.Add(TEXT("      )"));
     Lines.Add(TEXT("      query eventGraph"));
     if (Node != nullptr)
     {
-        Lines.Add(FString::Printf(TEXT("      node@%s"), *GuidText(Node->NodeGuid)));
+        Lines.Add(FString::Printf(TEXT("      node@%s"), *WidgetGuidText(Node->NodeGuid)));
     }
 }
 
@@ -813,6 +1048,24 @@ FString WidgetSchema(UWidgetBlueprint* Blueprint, UWidget* Widget)
         {
             continue;
         }
+        if (Property->GetName() == TEXT("bIsVariable"))
+        {
+            continue;
+        }
+        const FString UnavailabilityReason = NativeFieldUnavailabilityReason(
+            Property->GetName(),
+            WidgetReservedFields(),
+            TEXT("Widget"));
+        if (!UnavailabilityReason.IsEmpty())
+        {
+            AddUnavailableNativeFieldSchema(
+                Lines,
+                Property,
+                Widget,
+                WidgetReservedFields(),
+                TEXT("Widget"));
+            continue;
+        }
         const bool bWritable = CanWriteNativeWidgetField(Property, Widget);
         const bool bResettable = CanResetNativeWidgetField(Property, Widget);
         const UObject* Defaults = Widget->GetClass()->GetDefaultObject();
@@ -843,6 +1096,20 @@ FString WidgetSchema(UWidgetBlueprint* Blueprint, UWidget* Widget)
                 && Property->GetName() != TEXT("Parent")
                 && Property->GetName() != TEXT("Content"))
             {
+                const FString UnavailabilityReason = NativeFieldUnavailabilityReason(
+                    Property->GetName(),
+                    SlotReservedFields(),
+                    TEXT("Widget Slot"));
+                if (!UnavailabilityReason.IsEmpty())
+                {
+                    AddUnavailableNativeFieldSchema(
+                        Lines,
+                        Property,
+                        Widget->Slot,
+                        SlotReservedFields(),
+                        TEXT("Widget Slot"));
+                    continue;
+                }
                 const bool bWritable = CanWriteNativeWidgetField(Property, Widget->Slot);
                 const bool bResettable = CanResetNativeWidgetField(Property, Widget->Slot);
                 const UObject* Defaults = Widget->Slot->GetClass()->GetDefaultObject();
@@ -925,27 +1192,68 @@ void EmitExactWidget(FSalObjectBuilder& Builder, UWidgetBlueprint* Blueprint, UW
     if (bTreeNamed)
     {
         OwnerAlias = Builder.UniqueAlias(Blueprint->GetName());
-        Builder.AddLocalBinding(OwnerAlias, BlueprintValue(Blueprint, true));
+        TArray<FString> UnavailableNamedSlots;
+        Builder.AddLocalBinding(
+            OwnerAlias,
+            BlueprintValue(Blueprint, true, &UnavailableNamedSlots));
+        AddUnavailableNamedSlotsComment(Builder, OwnerAlias, UnavailableNamedSlots);
     }
     else
     {
         OwnerAlias = Builder.UniqueAlias(Top->GetName());
+        TArray<FString> UnavailableNamedSlots;
+        TArray<FString> UnavailableFields;
         Builder.AddLocalBinding(
             OwnerAlias,
-            WidgetValue(Blueprint, Top, TargetToRoot.Num() == 1 ? EWidgetDetail::Complete : EWidgetDetail::Skeleton));
+            WidgetValue(
+                Blueprint,
+                Top,
+                TargetToRoot.Num() == 1 ? EWidgetDetail::Complete : EWidgetDetail::Skeleton,
+                &UnavailableNamedSlots,
+                &UnavailableFields));
+        AddUnavailableNamedSlotsComment(
+            Builder,
+            TEXT("widget@") + WidgetId(Blueprint, Top),
+            UnavailableNamedSlots);
+        AddUnavailableNativeFieldsComment(
+            Builder,
+            TEXT("widget@") + WidgetId(Blueprint, Top),
+            UnavailableFields);
         StartIndex = 1;
     }
     for (int32 Index = StartIndex; Index < TargetToRoot.Num(); ++Index)
     {
         UWidget* ChainWidget = TargetToRoot[Index];
         Path.Add(ChainWidget->GetName());
-        Builder.AddMemberBinding(
-            OwnerAlias,
-            Path,
-            WidgetValue(
-                Blueprint,
-                ChainWidget,
-                Index == TargetToRoot.Num() - 1 ? EWidgetDetail::Complete : EWidgetDetail::Skeleton));
+        TArray<FString> UnavailableNamedSlots;
+        TArray<FString> UnavailableFields;
+        const TSharedPtr<FJsonValue> Value = WidgetValue(
+            Blueprint,
+            ChainWidget,
+            Index == TargetToRoot.Num() - 1 ? EWidgetDetail::Complete : EWidgetDetail::Skeleton,
+            &UnavailableNamedSlots,
+            &UnavailableFields);
+        if (IsSalPath(Path))
+        {
+            Builder.AddMemberBinding(OwnerAlias, Path, Value);
+        }
+        else
+        {
+            const FString PreviousOwner = OwnerAlias;
+            const TArray<FString> NativePath = Path;
+            OwnerAlias = Builder.UniqueAlias(ChainWidget->GetName());
+            Path.Reset();
+            Builder.AddLocalBinding(OwnerAlias, Value);
+            AddUnavailableMemberPathComment(Builder, PreviousOwner, NativePath);
+        }
+        AddUnavailableNamedSlotsComment(
+            Builder,
+            TEXT("widget@") + WidgetId(Blueprint, ChainWidget),
+            UnavailableNamedSlots);
+        AddUnavailableNativeFieldsComment(
+            Builder,
+            TEXT("widget@") + WidgetId(Blueprint, ChainWidget),
+            UnavailableFields);
     }
     if (Top != Blueprint->WidgetTree->RootWidget && !bTreeNamed)
     {
@@ -1375,6 +1683,30 @@ FString PaletteSchema(UWidgetBlueprint* Blueprint, const FPaletteEntry& Entry)
     for (TFieldIterator<FProperty> It(Preview->GetClass()); It; ++It)
     {
         FProperty* Property = *It;
+        if (!IsNativeWidgetField(Property))
+        {
+            continue;
+        }
+        if (Property->GetName() == TEXT("bIsVariable"))
+        {
+            Lines.Add(TEXT("  bIsVariable: bool; initial: false; writable, resettable; structural"));
+            continue;
+        }
+        const FString UnavailabilityReason = NativeFieldUnavailabilityReason(
+            Property->GetName(),
+            WidgetReservedFields(),
+            TEXT("Widget"));
+        if (!UnavailabilityReason.IsEmpty())
+        {
+            AddUnavailableNativeFieldSchema(
+                Lines,
+                Property,
+                Preview,
+                WidgetReservedFields(),
+                TEXT("Widget"),
+                TEXT("initial"));
+            continue;
+        }
         if (CanWriteNativeWidgetField(Property, Preview))
         {
             Lines.Add(CanResetNativeWidgetField(Property, Preview)
@@ -1489,7 +1821,7 @@ TSharedPtr<FJsonObject> FSalWidgetInterface::Query(const FSalQuery& Query, const
         const TArray<UWidget*> Reachable = ReachableWidgets(Blueprint);
         FSalObjectBuilder Builder;
         TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
-        Args->SetStringField(TEXT("id"), GuidText(Blueprint->GetBlueprintGuid()));
+        Args->SetStringField(TEXT("id"), WidgetGuidText(Blueprint->GetBlueprintGuid()));
         Args->SetField(
             TEXT("type"),
             Value::Name(StaticEnum<EBlueprintType>()->GetNameStringByValue(static_cast<int64>(Blueprint->BlueprintType))));
@@ -2334,9 +2666,23 @@ bool ApplyField(FWidgetPatchContext& Context, const TSharedPtr<FJsonObject>& Sta
         Container = Widget->Slot;
         Path.RemoveAt(0);
     }
-    if (Container == nullptr || Path.Num() != 1 || Path[0] == TEXT("NamedSlots"))
+    if (Container == nullptr || Path.Num() != 1)
     {
         OutError = TEXT("Widget field path is unavailable or structural.");
+        return false;
+    }
+    const TSet<FString>& ReservedFields = Container == Widget
+        ? WidgetReservedFields()
+        : SlotReservedFields();
+    const bool bStructuralSlotField = Container != Widget
+        && (Path[0] == TEXT("Parent") || Path[0] == TEXT("Content"));
+    if ((ReservedFields.Contains(Path[0]) || bStructuralSlotField)
+        && !(Container == Widget && Path[0] == TEXT("bIsVariable")))
+    {
+        OutError = FString::Printf(
+            TEXT("Native field collides with a reserved %s field and cannot be patched: %s."),
+            Container == Widget ? TEXT("Widget") : TEXT("Widget Slot"),
+            *Path[0]);
         return false;
     }
     if (Container == Widget && Path[0] == TEXT("bIsVariable"))
@@ -2548,8 +2894,8 @@ TSharedPtr<FJsonObject> RemoveCascadePlan(
                 TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
                 Entry->SetObjectField(TEXT("widget"), PlanIdentity(Context, Widget));
                 Entry->SetStringField(TEXT("graphName"), Graph->GetName());
-                if (Graph->GraphGuid.IsValid()) Entry->SetStringField(TEXT("graphRef"), TEXT("graph@") + GuidText(Graph->GraphGuid));
-                if (Node->NodeGuid.IsValid()) Entry->SetStringField(TEXT("nodeRef"), TEXT("node@") + GuidText(Node->NodeGuid));
+                if (Graph->GraphGuid.IsValid()) Entry->SetStringField(TEXT("graphRef"), TEXT("graph@") + WidgetGuidText(Graph->GraphGuid));
+                if (Node->NodeGuid.IsValid()) Entry->SetStringField(TEXT("nodeRef"), TEXT("node@") + WidgetGuidText(Node->NodeGuid));
                 else Entry->SetStringField(TEXT("nodeName"), Node->GetName());
                 VariableNodes.Add(MakeShared<FJsonValueObject>(Entry));
             }
@@ -3343,6 +3689,21 @@ bool ParseDeclaration(
         OutError = FString::Printf(TEXT("Widget binding alias is duplicated: %s."), *Alias);
         return false;
     }
+    for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Args)->Values)
+    {
+        if (Pair.Key == TEXT("palette"))
+        {
+            continue;
+        }
+        OutError = WidgetReservedFields().Contains(Pair.Key)
+            ? FString::Printf(
+                TEXT("Widget constructor field collides with a reserved Widget field: %s."),
+                *Pair.Key)
+            : FString::Printf(
+                TEXT("Widget constructors accept only palette; set %s after materialization."),
+                *Pair.Key);
+        return false;
+    }
     Context.Declarations.Add(Alias, Palette);
     return true;
 }
@@ -3618,20 +3979,45 @@ TSharedPtr<FJsonObject> PatchObject(UWidgetBlueprint* Blueprint, const FWidgetPa
             {
                 return;
             }
+            FString EffectiveOwner = OwnerAlias;
+            TArray<FString> EffectivePath = Path;
+            TArray<FString> UnavailableNamedSlots;
+            TArray<FString> UnavailableFields;
+            const TSharedPtr<FJsonValue> EncodedWidget = WidgetValue(
+                Blueprint,
+                Widget,
+                EWidgetDetail::Complete,
+                &UnavailableNamedSlots,
+                &UnavailableFields);
             if (Path.IsEmpty())
             {
-                Builder.AddLocalBinding(OwnerAlias, WidgetValue(Blueprint, Widget, EWidgetDetail::Complete));
+                Builder.AddLocalBinding(OwnerAlias, EncodedWidget);
+            }
+            else if (!IsSalPath(Path))
+            {
+                EffectiveOwner = Builder.UniqueAlias(Widget->GetName());
+                EffectivePath.Reset();
+                Builder.AddLocalBinding(EffectiveOwner, EncodedWidget);
+                AddUnavailableMemberPathComment(Builder, OwnerAlias, Path);
             }
             else
             {
-                Builder.AddMemberBinding(OwnerAlias, Path, WidgetValue(Blueprint, Widget, EWidgetDetail::Complete));
+                Builder.AddMemberBinding(OwnerAlias, Path, EncodedWidget);
             }
+            AddUnavailableNamedSlotsComment(
+                Builder,
+                TEXT("widget@") + WidgetId(Blueprint, Widget),
+                UnavailableNamedSlots);
+            AddUnavailableNativeFieldsComment(
+                Builder,
+                TEXT("widget@") + WidgetId(Blueprint, Widget),
+                UnavailableFields);
             Emitted.Add(Widget);
             for (UWidget* Child : DirectChildren(Widget))
             {
-                TArray<FString> ChildPath = Path;
+                TArray<FString> ChildPath = EffectivePath;
                 ChildPath.Add(Child->GetName());
-                EmitCreatedSubtree(Child, OwnerAlias, ChildPath);
+                EmitCreatedSubtree(Child, EffectiveOwner, ChildPath);
             }
         };
         for (const FString& Alias : Context->LocalOrder)

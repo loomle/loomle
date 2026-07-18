@@ -330,7 +330,9 @@ TArray<FString> DomainsFor(const FAssetData& Data)
     return Domains;
 }
 
-TSharedPtr<FJsonObject> RegistryTags(const FAssetData& Data)
+TSharedPtr<FJsonObject> RegistryTags(
+    const FAssetData& Data,
+    TSharedPtr<FJsonObject>& OutUnrepresentableTags)
 {
     TArray<TPair<FString, FString>> Tags;
     Tags.Reserve(Data.TagsAndValues.Num());
@@ -345,16 +347,44 @@ TSharedPtr<FJsonObject> RegistryTags(const FAssetData& Data)
     TSharedPtr<FJsonObject> Object = MakeShared<FJsonObject>();
     for (const TPair<FString, FString>& Pair : Tags)
     {
-        Object->SetStringField(Pair.Key, Pair.Value);
+        // Inline SAL objects require identifier keys. `kind` is also reserved
+        // because its value can make the object indistinguishable from a SAL
+        // reference or Call in the normalized object contract.
+        if (FSalObjectBuilder::IsIdentifier(Pair.Key) && Pair.Key != TEXT("kind"))
+        {
+            Object->SetStringField(Pair.Key, Pair.Value);
+        }
+        else
+        {
+            if (!OutUnrepresentableTags.IsValid())
+            {
+                OutUnrepresentableTags = MakeShared<FJsonObject>();
+            }
+            OutUnrepresentableTags->SetStringField(Pair.Key, Pair.Value);
+        }
     }
     return Object;
+}
+
+FString RegistryTagFallbackComment(const TSharedPtr<FJsonObject>& Tags)
+{
+    if (!Tags.IsValid() || Tags->Values.IsEmpty())
+    {
+        return FString();
+    }
+    FString Json;
+    const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+        TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Json);
+    FJsonSerializer::Serialize(Tags.ToSharedRef(), Writer);
+    return TEXT("registryTags not representable as SAL inline fields; exact native key/value JSON:\n") + Json;
 }
 
 TSharedPtr<FJsonValue> AssetValue(
     const FAssetData& Data,
     const double Score,
     const bool bIncludeScore,
-    const bool bRegistryTags)
+    const bool bRegistryTags,
+    TSharedPtr<FJsonObject>* OutUnrepresentableTags = nullptr)
 {
     TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
     Args->SetStringField(TEXT("path"), AssetPath(Data));
@@ -372,7 +402,12 @@ TSharedPtr<FJsonValue> AssetValue(
     }
     if (bRegistryTags)
     {
-        Args->SetObjectField(TEXT("registryTags"), RegistryTags(Data));
+        TSharedPtr<FJsonObject> UnrepresentableTags;
+        Args->SetObjectField(TEXT("registryTags"), RegistryTags(Data, UnrepresentableTags));
+        if (OutUnrepresentableTags != nullptr)
+        {
+            *OutUnrepresentableTags = MoveTemp(UnrepresentableTags);
+        }
     }
     return Value::Call(TEXT("asset"), Args);
 }
@@ -599,7 +634,15 @@ TSharedPtr<FJsonObject> FSalAssetInterface::Query(const FSalQuery& Query, const 
     {
         const FAssetMatch& Match = Matches[Index];
         const FString Alias = Builder.UniqueAlias(Match.Data.AssetName.ToString());
-        Builder.AddLocalBinding(Alias, AssetValue(Match.Data, Match.Score, true, bRegistryTags));
+        TSharedPtr<FJsonObject> UnrepresentableTags;
+        Builder.AddLocalBinding(
+            Alias,
+            AssetValue(Match.Data, Match.Score, true, bRegistryTags, &UnrepresentableTags));
+        const FString Fallback = RegistryTagFallbackComment(UnrepresentableTags);
+        if (!Fallback.IsEmpty())
+        {
+            Builder.AddComment(Fallback);
+        }
     }
     if (Builder.BuildObject()->GetArrayField(TEXT("statements")).IsEmpty())
     {

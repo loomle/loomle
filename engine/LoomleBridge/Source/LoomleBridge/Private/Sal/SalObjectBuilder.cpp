@@ -103,26 +103,51 @@ TSharedPtr<FJsonValue> Call(const FString& Callee, const TSharedPtr<FJsonObject>
 }
 }
 
-FString FSalObjectBuilder::SanitizeAlias(const FString& Preferred)
+bool FSalObjectBuilder::IsIdentifier(const FString& Text)
 {
-    auto IsAsciiAlpha = [](const TCHAR Character)
+    const auto IsAsciiAlpha = [](const TCHAR Character)
     {
         return (Character >= TEXT('A') && Character <= TEXT('Z'))
             || (Character >= TEXT('a') && Character <= TEXT('z'));
     };
-    auto IsAsciiDigit = [](const TCHAR Character)
+    const auto IsAsciiDigit = [](const TCHAR Character)
+    {
+        return Character >= TEXT('0') && Character <= TEXT('9');
+    };
+    if (Text.IsEmpty() || !(IsAsciiAlpha(Text[0]) || Text[0] == TEXT('_')))
+    {
+        return false;
+    }
+    for (const TCHAR Character : Text)
+    {
+        if (!(IsAsciiAlpha(Character) || IsAsciiDigit(Character) || Character == TEXT('_')))
+        {
+            return false;
+        }
+    }
+    return Text != TEXT("true") && Text != TEXT("false") && Text != TEXT("null");
+}
+
+FString FSalObjectBuilder::SanitizeIdentifier(const FString& Text, const FString& Fallback)
+{
+    const auto IsAsciiAlpha = [](const TCHAR Character)
+    {
+        return (Character >= TEXT('A') && Character <= TEXT('Z'))
+            || (Character >= TEXT('a') && Character <= TEXT('z'));
+    };
+    const auto IsAsciiDigit = [](const TCHAR Character)
     {
         return Character >= TEXT('0') && Character <= TEXT('9');
     };
     FString Alias;
-    Alias.Reserve(Preferred.Len());
-    for (const TCHAR Character : Preferred)
+    Alias.Reserve(Text.Len());
+    for (const TCHAR Character : Text)
     {
         Alias.AppendChar(IsAsciiAlpha(Character) || IsAsciiDigit(Character) || Character == TEXT('_') ? Character : TEXT('_'));
     }
     if (Alias.IsEmpty())
     {
-        Alias = TEXT("item");
+        Alias = Fallback.IsEmpty() ? TEXT("item") : Fallback;
     }
     if (IsAsciiDigit(Alias[0]))
     {
@@ -137,7 +162,7 @@ FString FSalObjectBuilder::SanitizeAlias(const FString& Preferred)
 
 FString FSalObjectBuilder::UniqueAlias(const FString& Preferred)
 {
-    const FString Base = SanitizeAlias(Preferred);
+    const FString Base = SanitizeIdentifier(Preferred);
     FString Alias = Base;
     int32 Suffix = 2;
     while (Aliases.Contains(Alias))
@@ -201,8 +226,23 @@ void FSalObjectBuilder::AddComment(const FString& Text)
     {
         return;
     }
+    FString SafeText = Text;
+    if (SafeText != TEXT("###"))
+    {
+        TArray<FString> Lines;
+        SafeText.ParseIntoArrayLines(Lines, false);
+        for (FString& Line : Lines)
+        {
+            if (Line.TrimStartAndEnd() == TEXT("###"))
+            {
+                const int32 Delimiter = Line.Find(TEXT("###"));
+                Line.InsertAt(Delimiter, TEXT('\\'));
+            }
+        }
+        SafeText = FString::Join(Lines, TEXT("\n"));
+    }
     TSharedPtr<FJsonObject> Comment = MakeKindObject(TEXT("comment"));
-    Comment->SetStringField(TEXT("text"), Text);
+    Comment->SetStringField(TEXT("text"), SafeText);
     Statements.Add(MakeShared<FJsonValueObject>(Comment));
 }
 

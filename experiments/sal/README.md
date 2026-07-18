@@ -62,11 +62,14 @@ SAL Text
   object contract.
 - [`docs/SDK_DESIGN.md`](docs/SDK_DESIGN.md): implemented SDK and executor
   boundary.
+- [`docs/EDITOR_CONTEXT.md`](docs/EDITOR_CONTEXT.md): confirmed design for
+  exact Unreal Editor interaction discovery and SAL handoff.
 - [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md): diagnostic layers and repair
   guidance.
 - [`docs/DOMAINS.md`](docs/DOMAINS.md): domain ownership rules.
 - `docs/domains/`: complete domain semantics.
-- `docs/interfaces/`: compact Text returned by `sal.schema(module)`.
+- `docs/interfaces/`: compact Text returned by public `sal_schema({ module })`
+  and SDK `sal.schema(module)`.
 
 - [`docs/BRIDGE_ARCHITECTURE.md`](docs/BRIDGE_ARCHITECTURE.md): implemented UE
   executor boundary and native interface mapping.

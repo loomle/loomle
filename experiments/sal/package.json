@@ -3,6 +3,20 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist/src",
+    "schema",
+    "docs/INTERFACE_SCHEMA.md",
+    "docs/interfaces"
+  ],
   "description": "TypeScript SDK and normalized contract for Structured Agent Language.",
   "scripts": {
     "generate:types": "json2ts -i schema/sal-object.schema.json -o src/generated/sal-object-schema.ts --cwd . --unreachableDefinitions --unknownAny false",
@@ -16,15 +30,18 @@
     "test:examples:extended": "npm run build && node dist/tests/parser/extended-examples.js",
     "test:examples:reference": "npm run build && node dist/tests/parser/reference-examples.js",
     "test:facade": "npm run build && node dist/tests/sdk/facade.js",
+    "test:result": "npm run build && node dist/tests/sdk/result-conversion.js",
     "test:memory": "npm run build && node dist/tests/sdk/memory-executor.js",
     "test:memory:asset": "npm run build && node dist/tests/sdk/memory-asset-executor.js",
     "test:memory:blueprint": "npm run build && node dist/tests/sdk/memory-blueprint-executor.js",
     "test:memory:widget": "npm run build && node dist/tests/sdk/memory-widget-executor.js",
-    "test": "npm run check:generated && npm run test:schema && npm run test:diagnostics && npm run test:invalid && npm run test:roundtrip && npm run test:examples && npm run test:examples:extended && npm run test:examples:reference && npm run test:facade && npm run test:memory && npm run test:memory:asset && npm run test:memory:blueprint && npm run test:memory:widget"
+    "test": "npm run check:generated && npm run test:schema && npm run test:diagnostics && npm run test:invalid && npm run test:roundtrip && npm run test:examples && npm run test:examples:extended && npm run test:examples:reference && npm run test:facade && npm run test:result && npm run test:memory && npm run test:memory:asset && npm run test:memory:blueprint && npm run test:memory:widget"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "ajv": "^8.20.0",
     "json-schema-to-typescript": "^15.0.4",
     "typescript": "^5.6.0"
   }

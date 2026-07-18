@@ -85,6 +85,25 @@ bool ReadStringArg(const TSharedPtr<FJsonObject>& Args, const TCHAR* Name, FStri
     return Args.IsValid() && Args->TryGetStringField(Name, OutValue) && !OutValue.IsEmpty();
 }
 
+bool ReadStringOrNameArg(const TSharedPtr<FJsonObject>& Args, const TCHAR* Name, FString& OutValue)
+{
+    if (ReadStringArg(Args, Name, OutValue))
+    {
+        return true;
+    }
+    const TSharedPtr<FJsonObject>* Expression = nullptr;
+    FString Kind;
+    OutValue.Reset();
+    return Args.IsValid()
+        && Args->TryGetObjectField(Name, Expression)
+        && Expression != nullptr
+        && (*Expression).IsValid()
+        && (*Expression)->TryGetStringField(TEXT("kind"), Kind)
+        && Kind == TEXT("name")
+        && (*Expression)->TryGetStringField(TEXT("name"), OutValue)
+        && !OutValue.IsEmpty();
+}
+
 UObject* LoadExactObject(const FString& InputPath)
 {
     const FString ObjectPath = NormalizeObjectPath(InputPath);
@@ -288,7 +307,7 @@ bool FSalTargetResolver::ResolveValue(
             || OwnerCall == nullptr
             || !(*OwnerCall).IsValid())
         {
-            OutError = InvalidTarget(TEXT("graph target accepts one nested asset-backed owner and exactly one of id or name."));
+            OutError = InvalidTarget(TEXT("graph target requires one nested asset-backed owner and at least one of id or name."));
             return false;
         }
         FSalResolvedTarget Owner;
@@ -310,14 +329,20 @@ bool FSalTargetResolver::ResolveValue(
             OutError = InvalidTarget(TEXT("graph id must be a non-empty string when present."));
             return false;
         }
-        if (Args->HasField(TEXT("name")) && !ReadStringArg(Args, TEXT("name"), Name))
+        if (Args->HasField(TEXT("name")) && !ReadStringOrNameArg(Args, TEXT("name"), Name))
         {
             OutError = InvalidTarget(TEXT("graph name must be a non-empty string when present."));
             return false;
         }
-        if (Id.IsEmpty() == Name.IsEmpty())
+        if (Id.IsEmpty() && Name.IsEmpty())
         {
-            OutError = InvalidTarget(TEXT("graph target requires exactly one of id or name."));
+            OutError = InvalidTarget(TEXT("graph target requires at least one of id or name."));
+            return false;
+        }
+        if (bForPatch && Id.IsEmpty())
+        {
+            OutError = InvalidTarget(
+                TEXT("graph Patch target requires its stable id; use an exact-name Query only for discovery, then reuse the returned Graph id."));
             return false;
         }
         TArray<UEdGraph*> Graphs;
@@ -329,9 +354,10 @@ bool FSalTargetResolver::ResolveValue(
             {
                 continue;
             }
-            const bool bMatchesId = !Id.IsEmpty() && GuidText(Candidate->GraphGuid).Equals(Id, ESearchCase::IgnoreCase);
-            const bool bMatchesName = !Name.IsEmpty() && Candidate->GetName() == Name;
-            if (bMatchesId || bMatchesName)
+            const bool bMatches = !Id.IsEmpty()
+                ? GuidText(Candidate->GraphGuid).Equals(Id, ESearchCase::IgnoreCase)
+                : Candidate->GetName() == Name;
+            if (bMatches)
             {
                 if (Graph != nullptr)
                 {
@@ -347,6 +373,14 @@ bool FSalTargetResolver::ResolveValue(
                 TEXT("Graph was not found in its Blueprint owner."),
                 !Id.IsEmpty() ? Id : Name,
                 TEXT("Query the Blueprint graphs collection and reuse the returned Graph id."));
+            return false;
+        }
+        if (!Name.IsEmpty() && Graph->GetName() != Name)
+        {
+            OutError = ResolutionError(
+                FString::Printf(TEXT("Graph name mismatch for id %s."), *Id),
+                Name,
+                TEXT("Query the Blueprint graphs collection again and reuse the current Graph binding."));
             return false;
         }
         OutTarget.Kind = ESalTargetKind::Graph;
@@ -366,7 +400,7 @@ bool FSalTargetResolver::ResolveValue(
         FSalDiagnostics::Error(TEXT("capability.interface_unavailable"), FString::Printf(TEXT("Unknown target constructor %s."), *Callee))
             .Actual(Callee)
             .Supported({TEXT("asset"), TEXT("blueprint"), TEXT("class"), TEXT("graph")})
-            .Suggestion(TEXT("Run sal.schema() to inspect active target locators."))
+            .Suggestion(TEXT("Run sal_schema({}) to inspect active target locators."))
             .Build());
     return false;
 }

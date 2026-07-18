@@ -2,27 +2,29 @@
 
 Developer-facing entrypoints and benchmark scripts.
 
-## Current Tools
+## 0.6 Legacy Tools
 
-- `dev_verify.py`: canonical local development verification flow
+- `dev_verify.py`: frozen 0.6 local verification flow
 - `perf_bridge_latency.py`: latency benchmark for a selected MCP tool call
 - `perf_graph_rw_temp_asset.py`: temporary-asset graph read/write benchmark
 - `benchmarks/create_temp_blueprint_asset.py`: helper for benchmark fixtures
 - `benchmarks/run_graph_query_benchmark.py`: wrapper for stable graph-query
   benchmark invocations
 
-## Canonical Dev Flow
+## Legacy Dev Flow
 
-Use:
+Historical command:
 
 ```bash
 python3 tools/dev_verify.py --project-root /path/to/MyProject
 ```
 
-`dev_verify.py` builds the checkout `loomle` binary, syncs the
-`engine/LoomleBridge` plugin source into the dev project, builds the dev
-project's Editor target, starts Unreal Editor, waits for the bridge runtime,
-then runs the smoke check through the checkout-built global-client path.
+`dev_verify.py` still builds the removed Rust Client and exercises the 0.6 tool
+surface. It is retained as migration reference and is not a valid 0.7
+verification command. The old flow synced the `engine/LoomleBridge` plugin
+source into the dev project, built the project's Editor target, started Unreal
+Editor, waited for the Bridge Runtime, and ran the smoke check through the
+checkout-built Client.
 
 This is a local development loop. It does not run `RunUAT BuildPlugin -Rocket`
 or package the plugin. Release/package verification lives in the GitHub
@@ -46,7 +48,18 @@ python3 tools/dev_verify.py --project-root /path/to/MyProject --install-only
 If `--project-root` is omitted, dev and E2E scripts read `project_root` from
 the local config file.
 
-## Tests
+## 0.7 Validation
+
+- SAL SDK: `cd experiments/sal && npm test`
+- TypeScript Client: `cd client && npm test`
+- UE Bridge: UE 5.7 `RunUAT BuildPlugin`
+
+The 0.6 UE smoke/regression suites require the former tool surface and will be
+redesigned around SAL instead of being redirected to the current four-tool
+SAL/Context Client. Retained non-SAL utilities will be migrated explicitly;
+the current Client surface is not their compatibility adapter.
+
+## Legacy Tests
 
 - UE-independent Rust tests: `cd client && cargo test`
 - UE smoke: `tests/e2e/test_bridge_smoke.py`

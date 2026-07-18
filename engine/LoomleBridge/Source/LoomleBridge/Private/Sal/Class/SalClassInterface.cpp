@@ -1455,15 +1455,23 @@ void AddPropertySchema(
     const bool bWritable,
     const bool bSparse)
 {
-    const bool bResettable = bWritable && !Property->HasMetaData(TEXT("NoResetToDefault"));
+    const bool bMemberRepresentable = !bDefault || FSalObjectBuilder::IsIdentifier(Property->GetName());
+    const bool bEffectiveWritable = bWritable && bMemberRepresentable;
+    const bool bResettable = bEffectiveWritable && !Property->HasMetaData(TEXT("NoResetToDefault"));
     const FString Source = PropertySource(Property);
     FString Text = FString::Printf(
         TEXT("schema:\n  subject: %s\n  type: %s\n  source: %s\n  writable: %s\n  resettable: %s"),
         bDefault ? TEXT("default") : TEXT("property"),
         *PropertyTypeText(Property),
         *Source,
-        bWritable ? TEXT("true") : TEXT("false"),
+        bEffectiveWritable ? TEXT("true") : TEXT("false"),
         bResettable ? TEXT("true") : TEXT("false"));
+    if (!bMemberRepresentable)
+    {
+        Text += FString::Printf(
+            TEXT("\n  native name: %s\n  reason: native name is not a SAL identifier; Class Default member path and Patch are unavailable"),
+            *CommentScalar(Property->GetName()));
+    }
     if (Property->ArrayDim > 1)
     {
         Text += FString::Printf(
@@ -1751,10 +1759,23 @@ void AddDefaultGroup(
         const FString PropertyAlias = Builder.UniqueAlias(Entry.Property->GetAuthoredName());
         Builder.AddLocalBinding(PropertyAlias, PropertyValue(Entry.Property, false));
     }
-    Builder.AddMemberBinding(
-        ClassAlias,
-        {Entry.Property->GetName()},
-        NativePropertyValues(ExportPropertyValues(Entry.Property, Entry.Container)));
+    const FString NativeName = Entry.Property->GetName();
+    const TSharedPtr<FJsonValue> DefaultValue = NativePropertyValues(
+        ExportPropertyValues(Entry.Property, Entry.Container));
+    if (FSalObjectBuilder::IsIdentifier(NativeName))
+    {
+        Builder.AddMemberBinding(ClassAlias, {NativeName}, DefaultValue);
+    }
+    else
+    {
+        Builder.AddLocalBinding(
+            Builder.UniqueAlias(Entry.Property->GetAuthoredName() + TEXT("Default")),
+            DefaultValue);
+        Builder.AddComment(FString::Printf(
+            TEXT("owner: %s\nClass Default member path: unavailable in SAL identifier syntax\nnative name: %s\nPatch: unavailable"),
+            *ClassAlias,
+            *CommentScalar(NativeName)));
+    }
     if (!Action.IsEmpty())
     {
         Builder.AddComment(TEXT("applied: ") + Action);

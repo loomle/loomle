@@ -26,13 +26,15 @@ Path, and selected Registry Tags. Structured filters are:
 | `type` | `=`, `!=` |
 | `name` | `=`, `!=`, `~=` |
 | `path` | `=`, `!=`, `~=` |
-| `registryTag.<key>` | `=`, `!=`, `~=` |
+| `registryTag.<key>` | `=`, `!=`, `~=`; `<key>` must be expressible as a SAL field path |
 | `loaded` | `=`, `!=`, `loaded`, `not loaded` |
 
 Conditions may use `not`, `and`, `or`, and parentheses. Ordered comparisons are
 unsupported. Ordering keys are `score`, `name`, `path`, and `type`. Cursor
-pagination defaults to 50 results. `with registryTags` adds the complete
-Registry Tag map returned by `FAssetData`.
+pagination defaults to 50 results. `with registryTags` adds Registry Tags whose
+keys can be represented as SAL inline fields. Any remaining native key/value
+pairs follow that Asset binding in a lossless Comment instead of being renamed
+or dropped.
 
 Example:
 
@@ -56,6 +58,10 @@ door = asset(
   score: 98,
   registryTags: {ParentClass: "/Script/Engine.Actor"}
 )
+###
+registryTags not representable as SAL inline fields; exact native key/value JSON:
+{"Display Name":"Door"}
+###
 ```
 
 `path` is the global locator and `type` is the exact native
@@ -101,3 +107,5 @@ interface.
 
 Asset has no `summary`, Palette, singular Asset query, or Asset-object
 `with schema`. Use `with registryTags` only when Registry metadata is needed.
+SAL does not invent aliases for native Registry Tag names: a key that cannot be
+written as a SAL field path is not available to `where registryTag.<key>` yet.

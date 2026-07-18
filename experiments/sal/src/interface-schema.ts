@@ -38,11 +38,17 @@ export async function loadInterfaceSchema(
   return { text: await readFile(url, "utf8"), diagnostics: [] };
 }
 
+/** Loads the compact resident SAL guide intended for MCP server instructions. */
+export async function loadSalGuide(): Promise<string> {
+  const url = new URL("../../docs/INTERFACE_SCHEMA.md", import.meta.url);
+  return readFile(url, "utf8");
+}
+
 function formatInterfaceIndex(interfaces: readonly string[]): string {
   const entries = interfaces.map((name) => `${name}\n  ${moduleDescriptions.get(name)}`);
   return [
     ...entries,
-    "Use sal.schema(\"<module>\") for one static interface.",
+    "Use sal_schema({ module: \"<module>\" }) in MCP or sal.schema(\"<module>\") in the TypeScript SDK.",
     "Use exact with schema for current Query operations, fields, Patch statements, and Operations.",
   ].join("\n\n") + "\n";
 }
@@ -54,6 +60,6 @@ function interfaceUnavailable(module: string, interfaces: readonly string[]): Di
     message: `SAL interface module ${module} is not active in this executor.`,
     actual: module,
     supported: [...interfaces],
-    suggestion: "Run sal.schema() to list active interface modules.",
+    suggestion: "Run sal_schema({}) in MCP or sal.schema() in the TypeScript SDK to list active interface modules.",
   };
 }

@@ -27,10 +27,17 @@ function formatObjectText(object: ObjectText): string {
   return object.statements.map((statement) => {
     if ("target" in statement && "value" in statement) return formatBinding(statement);
     if ("from" in statement) return `${formatRef(statement.from)} -> ${formatRef(statement.to)}`;
-    return statement.text.includes("\n") || /^\s|\s$/.test(statement.text)
-      ? `###\n${statement.text}\n###`
-      : `# ${statement.text}`;
+    return formatComment(statement.text);
   }).join("\n");
+}
+
+function formatComment(text: string): string {
+  if (text !== "###" && text.split(/\r?\n/).some((line) => line.trim() === "###")) {
+    throw new Error("A normalized SAL comment cannot contain a block-delimiter line.");
+  }
+  return text.includes("\n") || /^\s|\s$/.test(text)
+    ? `###\n${text}\n###`
+    : `# ${text}`;
 }
 
 function formatQuery(query: Query): string {

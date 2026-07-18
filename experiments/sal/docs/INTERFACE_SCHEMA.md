@@ -18,10 +18,19 @@ their own complete locator chains.
 
 ## Calls
 
-- `sal.query(text)` executes one Query Text.
-- `sal.patch(text)` executes one ordered Patch Text.
-- `sal.schema()` returns only the active interface-module index.
-- `sal.schema("<module>")` returns one static query and patch interface.
+- `sal_query({ text })` executes one self-contained Query Text.
+- `sal_patch({ text })` executes one self-contained ordered Patch Text.
+- `sal_schema({})` returns only the active interface-module index.
+- `sal_schema({ module: "<module>" })` returns one static Query and Patch
+  interface.
+- `editor_context({})` returns the user's current UE interaction target as
+  ordinary ordered Object Text.
+
+These are MCP tool calls. The `text` value contains the SAL shown in the code
+blocks below; the tool-call wrapper is not part of SAL syntax.
+Mutation execution state and diagnostics are appended as ordinary SAL comments,
+so the complete MCP text remains valid ordered Object Text rather than a second
+result language.
 
 ## Blueprint Query
 
@@ -187,7 +196,7 @@ name. Typed references resolve stable identity. Domains may add operations such
 as `context`, `exec flow`, and `data flow`.
 
 Conditions support `=`, `!=`, `~=`, `>`, `>=`, `<`, `<=`, `not`, `and`, `or`,
-and parentheses. `sal.schema("<module>")` lists the operations, fields,
+and parentheses. `sal_schema({ module: "<module>" })` lists the operations, fields,
 expansions, ordering, pagination, depth, and clauses supported by that domain.
 
 ## Patch Text
@@ -212,7 +221,8 @@ save
 
 Patch statements execute in written order. The complete Patch is resolved and
 validated before mutation. Domain operations such as Graph `connect`, Widget
-`wrap`, or Blueprint `compile` come from `sal.schema("<module>")`.
+`wrap`, or Blueprint `compile` come from
+`sal_schema({ module: "<module>" })`.
 
 Every object created directly through `add` starts from Palette:
 
@@ -237,8 +247,8 @@ operation parameters.
 Schema discovery has three layers:
 
 1. This resident guide provides the minimum SAL mental model.
-2. Static interface discovery uses `sal.schema()` to list active modules and
-   `sal.schema("<module>")` to return one compact interface card.
+2. Static interface discovery uses `sal_schema({})` to list active modules and
+   `sal_schema({ module: "<module>" })` to return one compact interface card.
 3. Dynamic discovery uses an exact object, exact object-backed value surface,
    or exact Palette Entry with `with schema`.
 
@@ -262,7 +272,7 @@ and ambiguous Palette searches do not accept `with schema`.
 
 Diagnostics should close the same discovery loop:
 
-- unknown syntax points to `sal.schema("<module>")`;
+- unknown syntax points to `sal_schema({ module: "<module>" })`;
 - unknown fields or Operations point to exact `with schema`;
 - stale ids point to the relevant summary, collection, or tree;
 - unavailable capabilities give a reason and copyable next query when possible.

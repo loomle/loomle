@@ -1,0 +1,28 @@
+{
+  "name": "@loomle/client",
+  "version": "0.7.0-dev.1",
+  "private": true,
+  "type": "module",
+  "description": "Standalone Loomle SAL MCP client.",
+  "bin": {
+    "loomle": "dist/src/main.js"
+  },
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "build:sal": "node scripts/build-sal.mjs",
+    "build": "npm run clean && npm run build:sal && tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@loomle/sal-experiment": "file:../experiments/sal",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

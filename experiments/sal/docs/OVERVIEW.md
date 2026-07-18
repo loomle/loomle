@@ -226,6 +226,8 @@ language categories.
   and agent repair guidance.
 - [`DOMAINS.md`](DOMAINS.md): domain document contract and normalization
   boundary.
+- [`EDITOR_CONTEXT.md`](EDITOR_CONTEXT.md): exact Editor interaction discovery,
+  native selection mapping, and SAL handoff.
 - [`domains/graph.md`](domains/graph.md): graph domain design.
 - [`domains/asset.md`](domains/asset.md): asset domain design.
 - [`domains/blueprint.md`](domains/blueprint.md): Blueprint domain design.

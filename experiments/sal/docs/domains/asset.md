@@ -50,7 +50,7 @@ summary
 | Object | Syntax | Example |
 | --- | --- | --- |
 | Asset binding | `name = asset(path: "...", type: nativeClassPath, metadata...)` | `door = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")` |
-| Registry tags | `registryTags: {key: value}` | `registryTags: {ParentClass: "/Script/Engine.Actor"}` |
+| Registry tags | `registryTags: {key: value}` plus Comment fallback | `registryTags: {ParentClass: "/Script/Engine.Actor"}` |
 | Domain list | `domains: [symbol, symbol]` | `domains: [asset, blueprint]` |
 | Loaded flag | `loaded: boolean` | `loaded: false` |
 
@@ -114,7 +114,7 @@ The filter surface is closed:
 | `type` | exact native `FAssetData::AssetClassPath` | `=`, `!=` |
 | `name` | Asset name | `=`, `!=`, `~=` |
 | `path` | canonical object path | `=`, `!=`, `~=` |
-| `registryTag.<key>` | one Asset Registry tag value | `=`, `!=`, `~=` |
+| `registryTag.<key>` | one Asset Registry tag value; key must be a SAL field path | `=`, `!=`, `~=` |
 | `loaded` | whether the Asset is currently loaded | `=`, `!=`, bare Boolean predicate |
 
 `loaded` and `not loaded` are the compact Boolean predicate forms. Ordered
@@ -184,7 +184,23 @@ door = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint", re
 ```
 
 `{}` is allowed here because it is an inline value object. It is not a
-structural block.
+structural block. Inline object keys follow SAL identifier rules, and `kind` is
+reserved because it can collide with the normalized reference discriminator.
+The Bridge leaves those native names unchanged and places every key/value pair
+that cannot be represented inline in an adjacent lossless Comment:
+
+```sal
+door = asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint", registryTags: {ParentClass: "/Script/Engine.Actor"})
+###
+registryTags not representable as SAL inline fields; exact native key/value JSON:
+{"Display Name":"Door"}
+###
+```
+
+The JSON inside the Comment is data carried by a Comment, not a second request
+or result syntax. A native Registry Tag key that cannot be written as a SAL
+field path is also unavailable to `where registryTag.<key>` until SAL gains a
+general quoted field-path design.
 
 ## UE Capability Boundary
 

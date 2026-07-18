@@ -27,9 +27,10 @@ export async function validateSalObject(object: SalObject): Promise<Diagnostic |
   );
 }
 
-export async function validateObjectResult(result: ObjectResult): Promise<Diagnostic | undefined> {
+export async function validateObjectResult(result: unknown): Promise<Diagnostic | undefined> {
   const validate = (await loadValidators()).result;
-  return validate(result) && (!result.object || isReferenceSafeObjectText(result.object)) ? undefined : diagnostic(
+  const objectResult = result as ObjectResult;
+  return validate(result) && (!objectResult.object || isReferenceSafeObjectText(objectResult.object)) ? undefined : diagnostic(
     "language.invalid_result_shape",
     "Executor result failed schema validation.",
   );

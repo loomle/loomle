@@ -126,6 +126,7 @@
 #include "MeshSelectors/PCGMeshSelectorWeightedByCategory.h"
 #include "MeshSelectors/PCGSkinnedMeshSelector.h"
 #include "LoomleBlueprintAdapter.h"
+#include "EditorContext/EditorContextService.h"
 #include "Sal/SalModule.h"
 #include "LoomleMutationResult.h"
 #include "LoomlePipeServer.h"
@@ -209,6 +210,7 @@ namespace LoomleBridgeConstants
     static const TCHAR* EditorOpenToolName = TEXT("editor.open");
     static const TCHAR* EditorFocusToolName = TEXT("editor.focus");
     static const TCHAR* EditorScreenshotToolName = TEXT("editor.screenshot");
+    static const TCHAR* EditorContextToolName = TEXT("editor.context");
     static const TCHAR* DiagnosticTailToolName = TEXT("diagnostic.tail");
     static const TCHAR* LogTailToolName = TEXT("log.tail");
     static const FName SlateStyleSetName(TEXT("LoomleBridgeStyle"));
@@ -5776,6 +5778,7 @@ void FLoomleBridgeModule::StopBridgeRuntime(bool bWaitForWorkers)
 void FLoomleBridgeModule::HandlePreExit()
 {
     bIsShuttingDown.Store(true);
+    Loomle::EditorContext::FEditorContextService::Get().Shutdown();
     StopBridgeRuntime(false);
     CleanupExecutePythonGlobalsForShutdown();
 }
@@ -6033,6 +6036,7 @@ void FLoomleBridgeModule::StartupModule()
     {
         BlueprintCompiledHandle = GEditor->OnBlueprintCompiled().AddRaw(this, &FLoomleBridgeModule::HandleBlueprintCompiled);
     }
+    Loomle::EditorContext::FEditorContextService::Get().Startup();
     HealthSnapshotTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
         FTickerDelegate::CreateRaw(this, &FLoomleBridgeModule::TickHealthSnapshot),
         0.1f);
@@ -6064,6 +6068,7 @@ void FLoomleBridgeModule::ShutdownModule()
     }
 
     StopBridgeRuntime(true);
+    Loomle::EditorContext::FEditorContextService::Get().Shutdown();
 
     if (StatusBarStartupHandle.IsValid())
     {
