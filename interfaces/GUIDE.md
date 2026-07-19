@@ -187,13 +187,17 @@ summary
 <objects> ["text"]
 <object> <name>
 <object>@<id>
+references to <typed-ref>[.<native-member-path>] [in project]
 palette entries ["text"]
 palette @<id>
 ```
 
 Plural operations enumerate or search. Singular operations resolve a current
-name. Typed references resolve stable identity. Domains may add operations such
-as `context`, `exec flow`, and `data flow`.
+name. Typed references resolve stable identity. `references` finds factual
+authored use-sites, accepts only cursor `page` clauses, and returns ordinary
+Object Text rather than a new result object; its local scope is defined by the
+bound domain, while `in project` selects project-owned authored content.
+Domains may add operations such as `context`, `exec flow`, and `data flow`.
 
 Conditions support `=`, `!=`, `~=`, `>`, `>=`, `<`, `<=`, `not`, `and`, `or`,
 and parentheses. `sal_schema({ module: "<module>" })` lists the operations, fields,

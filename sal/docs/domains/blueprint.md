@@ -855,8 +855,15 @@ ordinary references.
 Without `in project`, the complete bound Blueprint authored state is the
 search scope. `in project` uses project-owned Blueprint containers and the
 incremental shared cursor contract. The declaration is not returned as its own
-use-site. Existing matching Blueprint, Graph, Node, Component, or Widget text
-remains the result; Blueprint does not add a reference result object.
+use-site. The current UE 5.7 provider emits matching Node, RepNotify Variable,
+source Widget, and containing Blueprint use-sites. The Blueprint form is used
+when Blueprint-owned native state, such as a Widget binding destination,
+contains the reference but has no independent public SAL object. Compact Asset,
+Blueprint, and Graph bindings may also precede other results only to make each
+page independently locatable. Component declarations resolve through SCS
+identity, while their current uses are returned as the authored Nodes that
+store those references; no Component, Binding, or Reference result object is
+introduced.
 
 ## Patch
 

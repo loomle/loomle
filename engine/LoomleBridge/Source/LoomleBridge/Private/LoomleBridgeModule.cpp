@@ -128,6 +128,7 @@
 #include "LoomleBlueprintAdapter.h"
 #include "EditorContext/EditorContextService.h"
 #include "Sal/SalModule.h"
+#include "Sal/Reference/SalReferenceInterface.h"
 #include "LoomleMutationResult.h"
 #include "LoomlePipeServer.h"
 #include "ScopedTransaction.h"
@@ -5778,6 +5779,7 @@ void FLoomleBridgeModule::StopBridgeRuntime(bool bWaitForWorkers)
 void FLoomleBridgeModule::HandlePreExit()
 {
     bIsShuttingDown.Store(true);
+    Loomle::Sal::FSalReferenceInterface::Shutdown();
     Loomle::EditorContext::FEditorContextService::Get().Shutdown();
     StopBridgeRuntime(false);
     CleanupExecutePythonGlobalsForShutdown();
@@ -6020,6 +6022,7 @@ void FLoomleBridgeModule::StartupModule()
         return;
     }
 
+    Loomle::Sal::FSalReferenceInterface::Startup();
     UpdateHealthSnapshot();
     InitializeDiagnosticStore();
     InitializeLogStore();
@@ -6060,6 +6063,8 @@ void FLoomleBridgeModule::StartupModule()
 void FLoomleBridgeModule::ShutdownModule()
 {
     bIsShuttingDown.Store(true);
+
+    Loomle::Sal::FSalReferenceInterface::Shutdown();
 
     if (PreExitHandle.IsValid())
     {

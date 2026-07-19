@@ -35,7 +35,8 @@ SAL Text
 - Query and Patch return the same ordered `ObjectText` made from bindings,
   edges, and comments.
 - `references to object@id[.member] [in project]` normalizes as one shared
-  factual-reference Query operation; Bridge execution remains pending.
+  factual-reference Query operation. The UE 5.7 Bridge implements factual
+  local and project Blueprint reference scans with cursor pagination.
 - Patch results add mutation state around that ordinary Object Text.
 - Typed stable references use `object@id`; new objects use local aliases.
 - Constructors and fields preserve UE-native text. SAL does not define a

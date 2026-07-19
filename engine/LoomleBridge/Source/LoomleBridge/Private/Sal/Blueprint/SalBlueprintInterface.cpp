@@ -75,6 +75,18 @@ FString GuidText(const FGuid& Guid)
     return Guid.ToString(EGuidFormats::DigitsWithHyphensLower);
 }
 
+FString BlueprintContainerPath(const UBlueprint* Blueprint)
+{
+    const UObject* Container = Blueprint;
+    while (Container != nullptr && !Container->IsAsset())
+    {
+        Container = Container->GetOuter();
+    }
+    return Container != nullptr
+        ? Container->GetPathName()
+        : (Blueprint != nullptr ? Blueprint->GetPathName() : FString());
+}
+
 FString CommentScalar(FString Text)
 {
     Text.ReplaceInline(TEXT("\\"), TEXT("\\\\"));
@@ -599,7 +611,7 @@ FBlueprintOutputContext AddBlueprintObject(
     FBlueprintOutputContext Context;
     Context.AssetAlias = Builder.UniqueAlias(PreferredAlias + TEXT("Asset"));
     TSharedPtr<FJsonObject> AssetArgs = CallArgs();
-    SetArg(AssetArgs, TEXT("path"), Value::String(Blueprint->GetPathName()));
+    SetArg(AssetArgs, TEXT("path"), Value::String(BlueprintContainerPath(Blueprint)));
     SetArg(AssetArgs, TEXT("type"), Value::String(Blueprint->GetClass()->GetPathName()));
     Builder.AddLocalBinding(Context.AssetAlias, Call(TEXT("asset"), AssetArgs));
 
@@ -1610,7 +1622,7 @@ void AppendCanonicalJson(FString& Out, const TSharedPtr<FJsonValue>& Json)
 FString BlueprintCursorFingerprint(UBlueprint* Blueprint, const FSalQuery& Query)
 {
     FString Canonical;
-    AppendCursorToken(Canonical, TEXT('t'), Blueprint != nullptr ? Blueprint->GetPathName() : FString());
+    AppendCursorToken(Canonical, TEXT('t'), BlueprintContainerPath(Blueprint));
     AppendCursorToken(Canonical, TEXT('g'), Blueprint != nullptr ? GuidText(Blueprint->GetBlueprintGuid()) : FString());
     AppendCanonicalJson(Canonical, MakeShared<FJsonValueObject>(Query.Operation));
     AppendCanonicalJson(Canonical, Query.Where.IsValid()

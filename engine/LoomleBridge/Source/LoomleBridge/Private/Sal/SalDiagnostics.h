@@ -23,6 +23,7 @@ public:
     FSalDiagnosticBuilder& Actual(const TSharedPtr<FJsonValue>& Value);
     FSalDiagnosticBuilder& Actual(const FString& Value);
     FSalDiagnosticBuilder& Supported(const TArray<FString>& Values);
+    FSalDiagnosticBuilder& Matches(const TArray<FString>& Values);
     FSalDiagnosticBuilder& Suggestion(const FString& Value);
     TSharedPtr<FJsonObject> Build() const;
 

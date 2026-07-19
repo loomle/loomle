@@ -181,10 +181,14 @@ resolved target:
 - direct Palette providers;
 - exact-object dynamic schema providers.
 
-Concrete normalized operations map to exactly one handler. A more specific
-interface may explicitly replace a general operation, such as a
-WidgetBlueprint's combined `summary` and Palette. Dispatch is explicit in the
-SAL module and never depends on map or module registration order.
+Every interface-owned normalized operation maps to exactly one interface
+handler. Explicit shared relationships defined by SAL Core, currently
+`references`, route through one shared service after Target resolution and
+before interface-specific dispatch. This does not create a public Reference
+domain or interface module. A more specific interface may explicitly replace a
+general operation, such as a WidgetBlueprint's combined `summary` and Palette.
+Dispatch is explicit in the SAL module and never depends on map or module
+registration order.
 
 An interface may represent this surface as a table or as closed shared
 predicates beside its handlers. In either form, clause validation, execution,
@@ -209,6 +213,8 @@ Shared services may contain genuinely reusable mechanics such as:
 - Reflection value export and import;
 - ordered Object Text construction;
 - alias generation and scoped reference resolution;
+- factual declaration resolution, native use-site extraction, and state-bound
+  reference pagination;
 - transaction and dirty-state helpers;
 - compile and save result handling.
 
@@ -421,7 +427,8 @@ The implementation is organized as vertical executable slices:
 5. Blueprint structure and finalization;
 6. Widget composition and tree editing;
 7. Class Reflection and durable Defaults;
-8. cross-interface audit and removal of legacy LGL code.
+8. factual local and project Reference queries;
+9. cross-interface audit and removal of legacy LGL code.
 
 Every slice shares central normalized-object and result validation, and builds
 against UE 5.7 as one plugin module.

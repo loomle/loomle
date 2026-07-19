@@ -1,7 +1,9 @@
 # SAL Reference Queries
 
-> Status: confirmed SAL and UE 5.7 design; normalized SDK Schema, Parser, and
-> Formatter are implemented; Bridge execution is not implemented yet.
+> Status: implemented for the confirmed UE 5.7 Blueprint, Graph, and Widget
+> scopes in the normalized SDK and Bridge. Contract tests and a full UE 5.7
+> Mac arm64 `BuildPlugin` compile pass; live Editor integration remains to be
+> exercised against representative project assets.
 
 ## Intent
 
@@ -156,6 +158,14 @@ scope. A Graph target searches that Graph. A Blueprint target searches its
 owned authored state. Other domains must document their corresponding target
 scope. The operation never silently ascends to an owner or expands to other
 assets.
+
+Search scope and declaration ownership are distinct. Under a Graph target,
+Blueprint-owned subjects such as member Variables, Dispatchers, Components,
+source Widgets, and Function or Macro Graphs still resolve in the owning
+Blueprint; this does not expand the use-site scan beyond the bound Graph. A
+`node@id` remains Graph-owned, and a local `variable@id` resolves through the
+bound Graph's top-level Function Graph so Collapsed Graphs retain the real UE
+local scope.
 
 `in project` selects project-owned authored content instead of the local target
 scope:
@@ -363,7 +373,8 @@ Diagnostics must distinguish at least these situations:
 - a use-site has several targets and requires one member-path candidate from
   the diagnostic's compact `matches`;
 - native reference state is stale or cannot resolve;
-- corrupted state resolves ambiguously, such as a duplicate Graph GUID;
+- corrupted state makes the requested declaration or an emitted stable
+  use-site identity ambiguous;
 - an opaque cursor no longer matches project state;
 - project enumeration, loading, extraction, or verification failed before
   completeness was established.
@@ -375,6 +386,36 @@ Multi-target ambiguity reuses `Diagnostic.matches`. Its entries are complete,
 copyable primary-operation strings under the current Query binding, for
 example `references to node@id.FunctionReference`. No candidate or Reference
 result object is introduced.
+
+## Implementation Audit — 2026-07-19
+
+The UE 5.7 Bridge implements synchronous local Graph and Blueprint-backed
+scans. Project scope freezes the result of `GetAllAssets(false)`, project
+content roots, and the registered `FBlueprintAssetHandler` set. It currently
+scans every supported Blueprint-bearing container in that snapshot; FiB and
+Package dependency closure are not used to narrow candidates.
+
+Asset Registry enumeration, root filtering, handler verification, and stable
+sorting happen synchronously while the first project page is established.
+Subsequent container loading and native fact extraction advance incrementally
+behind `page.next`, with bounded work per request. Local matches are collected
+synchronously and use the same cursor only when their returned objects require
+more than one page.
+
+The cursor is process-local, single-sequence scan state. It binds the request,
+canonical declaration, effective page limit, project roots, handler set,
+container snapshot, and authored generation. Any observed authored change is
+treated conservatively and invalidates an active cursor; an expired, replayed,
+or invalidated cursor must restart at the first page. Asset Registry
+`OnAssetUpdated` is deliberately not an authored-generation signal: UE 5.7
+also emits it when Loomle's own asset load refreshes PostLoad registry data.
+Live edits remain covered by object modification and in-memory asset events;
+external disk refreshes use `OnAssetUpdatedOnDisk`.
+
+Verification includes the complete SAL and Client contract suites, generated
+interface validation, and a full UE 5.7 Mac arm64 Unity `BuildPlugin` compile
+and link. No live Editor Reference query or project-pagination integration test
+was run in this increment.
 
 ## Deferred Relationships
 

@@ -451,6 +451,43 @@ bool ValidateStableRefField(const TSharedPtr<FJsonObject>& Object, const TCHAR* 
         && (*Ref)->HasField(TEXT("id"));
 }
 
+bool ValidateStableOrStableMemberRefField(
+    const TSharedPtr<FJsonObject>& Object,
+    const TCHAR* Field,
+    FString& OutMessage)
+{
+    const TSharedPtr<FJsonObject>* Ref = nullptr;
+    if (!Object->TryGetObjectField(Field, Ref)
+        || Ref == nullptr
+        || !(*Ref).IsValid()
+        || !ValidateRef(*Ref, false, OutMessage))
+    {
+        if (OutMessage.IsEmpty())
+        {
+            OutMessage = FString::Printf(TEXT("%s must be a stable reference or stable member reference."), Field);
+        }
+        return false;
+    }
+    if ((*Ref)->HasField(TEXT("id")))
+    {
+        return true;
+    }
+
+    FString Kind;
+    const TSharedPtr<FJsonObject>* Owner = nullptr;
+    if (!(*Ref)->TryGetStringField(TEXT("kind"), Kind)
+        || Kind != TEXT("member")
+        || !(*Ref)->TryGetObjectField(TEXT("object"), Owner)
+        || Owner == nullptr
+        || !(*Owner).IsValid()
+        || !(*Owner)->HasField(TEXT("id")))
+    {
+        OutMessage = FString::Printf(TEXT("%s must be a stable reference or a member of a stable reference."), Field);
+        return false;
+    }
+    return true;
+}
+
 bool ValidateOperation(const TSharedPtr<FJsonObject>& Operation, FString& OutMessage)
 {
     FString Kind;
@@ -498,6 +535,26 @@ bool ValidateOperation(const TSharedPtr<FJsonObject>& Operation, FString& OutMes
     {
         OutMessage = TEXT("Exact operation requires exactly one supported name or id selector.");
         return false;
+    }
+    if (Kind == TEXT("references"))
+    {
+        if (!HasOnly(Operation, {TEXT("kind"), TEXT("target"), TEXT("scope")})
+            || !ValidateStableOrStableMemberRefField(Operation, TEXT("target"), OutMessage))
+        {
+            if (OutMessage.IsEmpty())
+            {
+                OutMessage = TEXT("References operation requires exactly one stable target.");
+            }
+            return false;
+        }
+        FString Scope;
+        if (Operation->HasField(TEXT("scope"))
+            && (!Operation->TryGetStringField(TEXT("scope"), Scope) || Scope != TEXT("project")))
+        {
+            OutMessage = TEXT("References scope must be project when present.");
+            return false;
+        }
+        return true;
     }
     if (Kind == TEXT("tree"))
     {

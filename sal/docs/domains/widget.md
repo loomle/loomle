@@ -579,19 +579,18 @@ references to widget@button-guid in project
 page limit 50
 ```
 
-Referenceability is a separate fact. The adapter must resolve a real generated
-or Skeleton Class Property and map it back to that Widget GUID before treating
-the Widget as a declaration subject. `bIsVariable` is one common sufficient
-condition, but it is not necessary: Named Slots, binding destinations, and
-inherited `BindWidget` Properties can also require generated members. A source
-Widget without a generated member remains a structural object and returns a
-capability diagnostic rather than a false empty reference set. Panel Slot and
-Named Slot placement themselves are not independent reference subjects.
+A direct `widget@id` subject uses the source Widget's authored identity: owning
+Widget Blueprint plus `WidgetVariableNameToGuidMap` GUID. It therefore remains
+resolvable for dirty or newly created Widgets before GeneratedClass refresh.
+Panel Slot and Named Slot placement themselves are not independent reference
+subjects.
 
-When an inherited `BindWidget` Property supplies the generated member, its
-actual declaring owner remains part of canonical identity. `widget@id` is a
-local convenience subject for the resolved Property; the adapter does not
-pretend the current Widget Blueprint declared that inherited field.
+When mapping a stored `FMemberReference` back to a Widget declaration, the
+provider requires a real generated or Skeleton-Class object Property and never
+falls back by name or `bIsVariable`. An inherited `BindWidget` Property keeps
+the identity of its actual declaring Class Property; the adapter does not
+collapse that native declaration into the current source Widget's authored
+GUID.
 
 Widget bindings are compound use-sites. A binding may refer to its destination
 Widget, destination Property or Delegate, source Function, and every native
@@ -600,8 +599,8 @@ native binding field or path provenance; it does not collapse the binding to
 one guessed target. Component Bound Event Nodes follow the Graph reference
 provider and may independently match the Widget member and its native Delegate.
 
-Reference results remain existing ordered Widget, Graph, and Node Object Text
-under the shared contract in
+Reference results remain existing ordered Blueprint, Widget, Graph, and Node
+Object Text under the shared contract in
 [`../REFERENCE_QUERIES.md`](../REFERENCE_QUERIES.md). No Widget binding or
 reference result object is introduced.
 

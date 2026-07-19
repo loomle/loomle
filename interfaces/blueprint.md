@@ -47,6 +47,7 @@ variable@id
 dispatcher@id
 graph@id
 component@id
+references to <typed-ref>[.<native-member-path>] [in project]
 palette entries ["text"]
 palette @id
 ```
@@ -60,6 +61,16 @@ those same keys. Fuzzy matching belongs to the optional primary search text.
 Exact-name queries discover the current object and id. Both exact-name and
 exact-id reads return complete compact state and may use `with schema`. Exact
 reads do not accept `where`, ordering, or pagination.
+
+`references` is the shared factual use-site query. It accepts only cursor
+`page` clauses, with a default limit of 50: no `where`, `order by`, `with`, or
+`depth`. Without `in project`, it searches exactly the bound Blueprint's
+authored state and does not expand to another asset. Its results exclude the
+declaration itself and remain ordinary ordered Object Text containing the
+matching use-site objects; project pages include the compact owner bindings
+needed to read each page independently. An unavailable or incomplete native
+extractor must report a diagnostic instead of guessing or returning a false
+complete zero result.
 
 ```sal
 query door

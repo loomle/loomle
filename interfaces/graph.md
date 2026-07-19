@@ -52,6 +52,9 @@ query eventGraph
 data flow from|to node@id|pin@id [depth N]
 
 query eventGraph
+references to <typed-ref>[.<native-member-path>] [in project]
+
+query eventGraph
 palette entries ["text"] [from|to pin@id]
 
 query eventGraph
@@ -82,6 +85,15 @@ owner and the complete Pin without traversing links.
 Context and flow results remain ordinary ordered Object Text: compact Nodes and
 only the complete target, Edge-endpoint, boundary, or dependency-leaf Pins
 appear before the Edges that reference them.
+
+`references` accepts only cursor `page` clauses, with a default limit of 50: no
+`where`, `order by`, `with`, or `depth`. Without `in project`, its complete
+local scope is exactly the bound Graph; it never silently ascends to the owning
+Blueprint or another Graph. Results exclude the declaration itself and remain
+ordinary ordered Object Text containing compact matching use-site objects.
+Project pages add the compact owner bindings required to read each page
+independently. An unavailable or incomplete native extractor must report a
+diagnostic rather than guess or claim a complete zero result.
 
 Outside Summary, every Graph Query automatically places current UE health
 comments beside each returned existing Node or Pin. Summary keeps its returned

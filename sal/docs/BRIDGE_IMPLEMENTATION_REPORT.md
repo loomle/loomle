@@ -30,6 +30,7 @@ The C++ Bridge does not introduce a second SAL parser or any new public syntax.
 | Class | Summary, properties, functions, metadata, inherited views, schema | Native property defaults, fixed arrays, sparse class data, metadata, set/reset |
 | Graph | Summary, nodes, exact Node/Pin, exec/data flow, context, Palette, schema | Palette creation, connect/disconnect/break, add/insert/remove/move/set/reset, invoke, dynamic Pins, Timeline tracks and keys |
 | Widget | Combined summary and Palette, tree, widgets, exact Widget, schema | Add/move/remove/wrap/replace/rename/duplicate, Widget and Slot fields, event creation |
+| References | Exact declaration resolution; local Blueprint/Graph/Widget authored use-sites; incremental project scan, cursor paging, and completeness diagnostics | Read-only |
 | Editor Context | Exact current surface, owner, and at most one selected target as ordinary Object Text | Read-only |
 
 All Query and Patch readback uses the same ordered `ObjectText.statements`
@@ -44,13 +45,18 @@ parallel semantic model. The main native paths reviewed and used include:
 - Asset Registry and package save APIs;
 - `FBlueprintEditorUtils`, Blueprint compilation, compiler diagnostics, SCS,
   Subobject Data, and loaded Blueprint hierarchy traversal;
+- `FBlueprintAssetHandler`, `GetAllAssets(false)`, `FMemberReference`, and
+  `FGraphReference` for exact Blueprint container and declaration identity;
 - `UEdGraphSchema_K2`, K2 Action Menu spawners, Graph utilities, dynamic K2
   Nodes, Timeline Node/Template and curve APIs;
 - Reflection property import/export, metadata, inherited Class Defaults, sparse
   class data, and UE transactions;
 - `UWidgetBlueprint`, `UWidgetTree`, Widget Blueprint editor utilities, Panel
   Slots, Named Slots, navigation/reference maintenance, generated classes,
-  animations, extensions, and delegate Graph integration.
+  animations, extensions, and delegate Graph integration;
+- native Reference extractors for SCS Components, RepNotify functions, Widget
+  bindings and source paths, Component Bound Events, Create Delegate, Macro
+  instances, and Class Defaults.
 
 Constructors, types, property names, paths, enum values, and native value text
 remain UE-native. SAL supplies structure, identity, references, operations, and
@@ -96,6 +102,15 @@ following contract clarifications and SDK hardening:
 12. Editor Context resolves ownership from exact tabs and native editor APIs.
     It does not infer a world-centric Asset Editor from the Level Editor's
     shared TabManager, and it revalidates recorded editor pointers before use.
+13. Reference queries preserve canonical UE declaration identity internally
+    and return existing authored objects through ordinary Object Text. Project
+    scans freeze their roots, Blueprint handler set, container snapshot, and
+    authored generation behind the shared cursor; unsupported or unresolved
+    native facts fail explicitly instead of producing a false complete zero.
+14. Embedded Blueprints remain addressed through their top-level asset
+    container plus Blueprint GUID. This lets the same Target and readback model
+    cover ordinary Blueprint assets, World Level Scripts, and other registered
+    Blueprint-bearing containers without adding public syntax.
 
 ## Safety and Failure Semantics
 
@@ -140,6 +155,12 @@ The 0.7 Client and Editor Context increment was additionally verified on
 tests, `git diff --check`, and an incremental UE 5.7 Editor module build that
 compiled and linked `UnrealEditor-LoomleBridge.dylib` successfully. This is a
 compile and contract audit, not a live Editor interaction test.
+
+The factual Reference Query increment was verified on 2026-07-19 with the
+complete SAL TypeScript suite, all 32 Client unit tests, all five generated
+interface documents, and a clean UE 5.7 Mac arm64 `BuildPlugin` run that
+compiled and linked the full Unity build. No plugin was installed or replaced,
+and no live Editor integration test was run during this increment.
 
 ## Deliberate Boundaries
 

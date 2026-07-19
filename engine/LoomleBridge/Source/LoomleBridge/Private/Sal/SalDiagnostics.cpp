@@ -95,6 +95,18 @@ FSalDiagnosticBuilder& FSalDiagnosticBuilder::Supported(const TArray<FString>& V
     return *this;
 }
 
+FSalDiagnosticBuilder& FSalDiagnosticBuilder::Matches(const TArray<FString>& Values)
+{
+    TArray<TSharedPtr<FJsonValue>> Encoded;
+    Encoded.Reserve(Values.Num());
+    for (const FString& Value : Values)
+    {
+        Encoded.Add(MakeShared<FJsonValueString>(Value));
+    }
+    Diagnostic->SetArrayField(TEXT("matches"), Encoded);
+    return *this;
+}
+
 FSalDiagnosticBuilder& FSalDiagnosticBuilder::Suggestion(const FString& Value)
 {
     Diagnostic->SetStringField(TEXT("suggestion"), Value);

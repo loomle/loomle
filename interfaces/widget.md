@@ -30,6 +30,7 @@ tree [widget@id] [depth N]
 widgets ["text"]
 widget <name>
 widget@id
+references to <typed-ref>[.<native-member-path>] [in project]
 palette entries ["text"]
 palette @id
 ```
@@ -57,6 +58,15 @@ Conditions may use `not`, `and`, `or`, and parentheses. Ordered comparisons and
 identity. Both return the shortest ancestor chain, then the target's readable
 native state and relationships. Exact Widget and Palette Entry reads may use
 `with schema`; collections, `tree`, and `summary` may not.
+
+`references` accepts only cursor `page` clauses, with a default limit of 50: no
+`where`, `order by`, `with`, or `depth`. Without `in project`, it searches
+exactly the bound Widget Blueprint's authored state and does not expand to
+another asset. Results exclude the declaration itself and remain ordinary
+ordered Object Text containing the matching use-site objects; project pages
+include the compact owner bindings needed to read each page independently. An
+unavailable or incomplete native extractor must report a diagnostic instead
+of guessing or returning a false complete zero result.
 
 ## Object Relationships
 

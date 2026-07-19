@@ -10,6 +10,7 @@
 #include "Graph/SalGraphInterface.h"
 #include "Misc/Base64.h"
 #include "Misc/SecureHash.h"
+#include "Reference/SalReferenceInterface.h"
 #include "Serialization/JsonSerializer.h"
 #include "SalDiagnostics.h"
 #include "SalJson.h"
@@ -691,6 +692,10 @@ bool PatchUsesWidget(const FSalPatch& Patch)
 
 TSharedPtr<FJsonObject> DispatchQuery(const FSalQuery& Query, const FSalResolvedTarget& Target)
 {
+    if (OperationKind(Query.Operation) == TEXT("references"))
+    {
+        return FSalReferenceInterface::Query(Query, Target);
+    }
     switch (Target.Kind)
     {
     case ESalTargetKind::AssetRoot:

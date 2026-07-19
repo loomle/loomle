@@ -3,6 +3,7 @@
 #include "SalTargetResolver.h"
 
 #include "AssetRegistry/AssetData.h"
+#include "BlueprintAssetHandler.h"
 #include "Blueprint/UserWidgetBlueprint.h"
 #include "Dom/JsonObject.h"
 #include "EdGraph/EdGraph.h"
@@ -233,13 +234,41 @@ bool FSalTargetResolver::ResolveValue(
             OutError = InvalidTarget(TEXT("Blueprint Patch requires the BlueprintGuid returned by Query as id."));
             return false;
         }
-        UBlueprint* Blueprint = Cast<UBlueprint>(LoadExactObject(Path));
+        UObject* BlueprintContainer = LoadExactObject(Path);
+        if (BlueprintContainer == nullptr)
+        {
+            OutError = ResolutionError(
+                FString::Printf(TEXT("Blueprint container was not found: %s."), *Path),
+                Path,
+                TEXT("Run an Asset query before binding the Blueprint."));
+            return false;
+        }
+        UBlueprint* Blueprint = Cast<UBlueprint>(BlueprintContainer);
+        if (Blueprint == nullptr)
+        {
+            const IBlueprintAssetHandler* Handler =
+                FBlueprintAssetHandler::Get().FindHandler(BlueprintContainer->GetClass());
+            if (Handler == nullptr)
+            {
+                OutError = FSalDiagnostics::Result(
+                    FSalDiagnostics::Error(
+                        TEXT("capability.interface_unavailable"),
+                        FString::Printf(
+                            TEXT("Asset type %s has no active Blueprint container provider."),
+                            *BlueprintContainer->GetClass()->GetPathName()))
+                        .Ref(Path)
+                        .Suggestion(TEXT("Bind a Blueprint asset, or enable the editor module that owns this container type."))
+                        .Build());
+                return false;
+            }
+            Blueprint = Handler->RetrieveBlueprint(BlueprintContainer);
+        }
         if (Blueprint == nullptr)
         {
             OutError = ResolutionError(
-                FString::Printf(TEXT("Blueprint was not found: %s."), *Path),
+                FString::Printf(TEXT("The Blueprint container has no retrievable Blueprint in its current authored state: %s."), *Path),
                 Path,
-                TEXT("Run an Asset query before binding the Blueprint."));
+                TEXT("Open or author the embedded Blueprint, then query the container again."));
             return false;
         }
         const FString ActualId = GuidText(Blueprint->GetBlueprintGuid());
@@ -253,7 +282,10 @@ bool FSalTargetResolver::ResolveValue(
         }
         OutTarget.Kind = ESalTargetKind::Blueprint;
         OutTarget.Alias = Alias;
-        OutTarget.AssetPath = Blueprint->GetPathName();
+        // A Blueprint may be embedded in another top-level asset (for example,
+        // a World Level Script or a Level Sequence Director Blueprint). Keep
+        // the public locator anchored to that durable container asset.
+        OutTarget.AssetPath = BlueprintContainer->GetPathName();
         OutTarget.Id = ActualId;
         OutTarget.Name = Blueprint->GetName();
         OutTarget.Object = Blueprint;
@@ -385,7 +417,7 @@ bool FSalTargetResolver::ResolveValue(
         }
         OutTarget.Kind = ESalTargetKind::Graph;
         OutTarget.Alias = Alias;
-        OutTarget.AssetPath = Blueprint->GetPathName();
+        OutTarget.AssetPath = Owner.AssetPath;
         OutTarget.Id = GuidText(Graph->GraphGuid);
         OutTarget.Name = Graph->GetName();
         OutTarget.Object = Graph;
