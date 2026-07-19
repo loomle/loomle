@@ -1,0 +1,11 @@
+{
+  "kind": "query",
+  "target": {
+    "alias": "eventGraph",
+    "value": { "kind": "name", "name": "eventGraph" }
+  },
+  "operation": {
+    "kind": "references",
+    "target": { "kind": "local", "name": "eventGraph" }
+  }
+}

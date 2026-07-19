@@ -222,6 +222,8 @@ language categories.
 
 - [`LANGUAGE_CORE.md`](LANGUAGE_CORE.md): shared SAL syntax and text-to-JSON
   principles.
+- [`REFERENCE_QUERIES.md`](REFERENCE_QUERIES.md): factual authored-reference
+  queries, exact declaration resolution, project scope, and completion rules.
 - [`DIAGNOSTICS.md`](DIAGNOSTICS.md): shared diagnostic shape, error layers,
   and agent repair guidance.
 - [`DOMAINS.md`](DOMAINS.md): domain document contract and normalization

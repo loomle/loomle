@@ -1,0 +1,12 @@
+{
+  "kind": "query",
+  "target": {
+    "alias": "eventGraph",
+    "value": { "kind": "name", "name": "eventGraph" }
+  },
+  "operation": {
+    "kind": "references",
+    "target": { "kind": "node", "id": "call-guid" },
+    "scope": "engine"
+  }
+}

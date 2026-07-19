@@ -31,6 +31,21 @@ const cases: Array<{ name: string; text: string; code: string }> = [
     code: "language.expected_stable_reference",
   },
   {
+    name: "references query rejects a local alias",
+    text: `${graph}\nquery g\nreferences to g`,
+    code: "language.expected_stable_reference",
+  },
+  {
+    name: "references query rejects a local member",
+    text: `${graph}\nquery g\nreferences to g.FunctionReference`,
+    code: "language.expected_stable_reference",
+  },
+  {
+    name: "references query rejects an unsupported scope",
+    text: `${graph}\nquery g\nreferences to node@N1 in engine`,
+    code: "language.invalid_operation",
+  },
+  {
     name: "invalid insert shape",
     text: `${graph}\npatch g\ninsert pin@A -> delay.execute -> pin@B`,
     code: "language.invalid_operation",

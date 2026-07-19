@@ -404,6 +404,9 @@ query <graph>
 data flow from|to node@id|pin@id [depth <positive-integer>]
 
 query <graph>
+references to <typed-ref>[.<native-member-path>] [in project]
+
+query <graph>
 palette entries ["text"] [from|to <pin>]
 
 query <graph>
@@ -421,6 +424,7 @@ Each primary operation owns its allowed clauses and expansions:
 | `context` | no | no | yes | `layout` |
 | `exec flow` | no | no | yes | `layout` |
 | `data flow` | no | no | yes | `layout` |
+| `references to` | no | page only | no | none |
 | `palette entries` | yes | yes | no | none |
 | `palette @id` | no | no | no | `schema` |
 
@@ -622,6 +626,42 @@ Function, Macro, or other Graph boundaries.
 `exec flow` and `data flow` are adapter capabilities, not semantics imposed on
 every UE graph type. An adapter without Blueprint-style Exec or data semantics
 returns a capability diagnostic.
+
+### References
+
+Graph reference queries use the shared contract in
+[`../REFERENCE_QUERIES.md`](../REFERENCE_QUERIES.md). A Node with one native
+declaration target is a convenient exact subject:
+
+```sal
+query g
+references to node@variable-get-guid
+```
+
+Standard providers resolve `VariableReference`, `FunctionReference`,
+`MacroGraphReference`, and `DelegateReference` through their native UE
+identity. Local `VariableReference` values retain their Function scope and
+local `VarGuid`; they are not merged with same-named member Variables. A
+declaration Node such as a Custom Event targets itself. A Node with several
+independent facts returns an ambiguity diagnostic with native member candidates:
+
+```sal
+references to node@call-on-member-guid.FunctionReference
+references to node@call-on-member-guid.MemberVariableToCallOn
+```
+
+The explicit field path is an existing domain-owned Member Reference, not a
+Graph-specific selector or role keyword. Component Bound Events, Create
+Delegate, and other compound Nodes must resolve all required owner/scope state
+before advertising a factual candidate. A retained name on an orphaned Node is
+unresolved evidence, not permission to match by title.
+
+Function and Macro declaration Graphs can be reference subjects. Concrete
+override and Interface implementation Function Graphs retain their own
+GraphGuid-backed Function identity; Entry signature fields and `InterfaceGuid`
+express separate parent or Interface relationships. Ordinary Event,
+Construction Script, Collapsed, Dispatcher Signature, and Timeline Graphs
+cannot be independent reference subjects.
 
 ### Query Results
 

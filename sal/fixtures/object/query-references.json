@@ -1,0 +1,24 @@
+{
+  "kind": "query",
+  "target": {
+    "alias": "eventGraph",
+    "value": {
+      "kind": "call",
+      "callee": "graph",
+      "args": {
+        "asset": "/Game/Doors/BP_Door.BP_Door",
+        "id": "graph-guid"
+      }
+    }
+  },
+  "operation": {
+    "kind": "references",
+    "target": {
+      "kind": "member",
+      "object": { "kind": "node", "id": "call-guid" },
+      "path": ["FunctionReference"]
+    },
+    "scope": "project"
+  },
+  "page": { "limit": 50 }
+}

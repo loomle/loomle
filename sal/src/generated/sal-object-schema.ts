@@ -20,6 +20,7 @@ export type QueryOperation =
   | TreeOperation
   | ContextOperation
   | FlowOperation
+  | ReferencesOperation
   | PaletteEntriesOperation;
 export type Condition =
   EqCondition | NeCondition | ContainsCondition | CompareCondition | NotCondition | AndCondition | OrCondition;
@@ -143,6 +144,19 @@ export interface FlowOperation {
   direction: "from" | "to";
   target: StableRef;
   depth?: number;
+}
+export interface ReferencesOperation {
+  kind: "references";
+  target: StableRef | StableMemberRef;
+  scope?: "project";
+}
+export interface StableMemberRef {
+  kind: "member";
+  object: StableRef;
+  /**
+   * @minItems 1
+   */
+  path: [string, ...string[]];
 }
 export interface PaletteEntriesOperation {
   kind: "palette_entries";
@@ -345,5 +359,5 @@ export interface SourceSpan {
   length?: number;
 }
 export interface ResultPage {
-  next?: string;
+  next: string;
 }

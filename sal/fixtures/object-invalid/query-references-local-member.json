@@ -1,0 +1,15 @@
+{
+  "kind": "query",
+  "target": {
+    "alias": "eventGraph",
+    "value": { "kind": "name", "name": "eventGraph" }
+  },
+  "operation": {
+    "kind": "references",
+    "target": {
+      "kind": "member",
+      "object": { "kind": "local", "name": "eventGraph" },
+      "path": ["FunctionReference"]
+    }
+  }
+}

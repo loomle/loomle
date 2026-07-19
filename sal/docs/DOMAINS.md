@@ -164,6 +164,12 @@ Current interface cards:
 
 ## Current Domains
 
+Shared cross-domain relationship design:
+
+- [`REFERENCE_QUERIES.md`](REFERENCE_QUERIES.md): exact declaration and
+  use-site resolution, local and project scope, ordered results, and project
+  completion semantics.
+
 - [`domains/graph.md`](domains/graph.md): graph objects, nodes, pins, edges,
   graph queries, graph patches, and Palette-backed creation.
 - [`domains/asset.md`](domains/asset.md): asset discovery, resolution,

@@ -1,0 +1,11 @@
+bp = blueprint(asset: "/Game/Doors/BP_Door.BP_Door")
+eventGraph = graph(asset: bp, name: "EventGraph")
+
+query eventGraph
+references to node@CALL.FunctionReference in project
+page limit 50
+---
+owner = blueprint(asset: "/Game/Doors/BP_Door.BP_Door", id: "BP1")
+g = graph(asset: owner, id: "G1")
+call = node(graph: g, id: "CALL2", type: "/Script/BlueprintGraph.K2Node_CallFunction")
+# matched through FunctionReference

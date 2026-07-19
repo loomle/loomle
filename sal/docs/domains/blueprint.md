@@ -820,6 +820,44 @@ typed-reference shapes. The Bridge resolves that normalized request directly;
 Blueprint does not add parallel JSON kinds for collection, exact-name, exact-id,
 Palette, or `with schema` reads.
 
+### Reference Queries
+
+Blueprint targets expose the shared factual reference relationship defined in
+[`../REFERENCE_QUERIES.md`](../REFERENCE_QUERIES.md):
+
+```sal
+query door
+references to variable@health-guid
+
+query door
+references to dispatcher@on-opened-guid in project
+page limit 50
+```
+
+The first Blueprint provider set resolves member and function-local Variables,
+Dispatchers, SCS Components, callable Function and Macro declarations,
+Blueprint Interface declarations, and Custom Event declarations through their
+UE 5.7 owner, scope, and GUID identities. A local Variable uses its top-level
+Function Graph/function scope plus local `VarGuid`; it does not require a new
+public Local Variable object when an exact Get or Set Node is the subject. A
+use-site may likewise resolve any other single declaration target. Multiple
+native targets return typed member-path candidates rather than a guessed target
+or union query.
+
+Function, Macro, and Interface declaration Graphs can own declaration identity.
+Event Graphs, Construction Script, Collapsed Graphs, Dispatcher Signature
+Graphs, and Timeline backing state do not become referenceable declarations
+merely because they carry Graph or Node GUIDs. A concrete override or Interface
+implementation Function Graph keeps its own Function identity; its parent or
+Interface signature fields are separate relationships and are not folded into
+ordinary references.
+
+Without `in project`, the complete bound Blueprint authored state is the
+search scope. `in project` uses project-owned Blueprint containers and the
+incremental shared cursor contract. The declaration is not returned as its own
+use-site. Existing matching Blueprint, Graph, Node, Component, or Widget text
+remains the result; Blueprint does not add a reference result object.
+
 ## Patch
 
 Blueprint Patch uses the shared Core lifecycle operations for its concrete

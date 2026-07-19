@@ -20,6 +20,7 @@ response is illustrative and is not part of the request.
 ## Reference
 
 - `08-palette-schema.query.sal`
+- `09-reference-query.query.sal`
 
 ## Maintenance
 

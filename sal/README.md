@@ -34,6 +34,8 @@ SAL Text
   not regrouped.
 - Query and Patch return the same ordered `ObjectText` made from bindings,
   edges, and comments.
+- `references to object@id[.member] [in project]` normalizes as one shared
+  factual-reference Query operation; Bridge execution remains pending.
 - Patch results add mutation state around that ordinary Object Text.
 - Typed stable references use `object@id`; new objects use local aliases.
 - Constructors and fields preserve UE-native text. SAL does not define a
@@ -61,6 +63,8 @@ SAL Text
 - [`docs/OVERVIEW.md`](docs/OVERVIEW.md): SAL intent and mental model.
 - [`docs/LANGUAGE_CORE.md`](docs/LANGUAGE_CORE.md): shared text and normalized
   object contract.
+- [`docs/REFERENCE_QUERIES.md`](docs/REFERENCE_QUERIES.md): confirmed factual
+  authored-reference query, scope, result, and completeness design.
 - [`docs/SDK_DESIGN.md`](docs/SDK_DESIGN.md): implemented SDK and executor
   boundary.
 - [`docs/EDITOR_CONTEXT.md`](docs/EDITOR_CONTEXT.md): confirmed design for

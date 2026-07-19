@@ -624,6 +624,20 @@ contains exactly one primary operation. That operation explicitly defines
 whether `where`, `with`, `order by`, `page`, or operation-local arguments such
 as `depth` are legal.
 
+The shared factual reference relationship is:
+
+```sal
+query <target>
+references to <typed-ref>[.<native-member-path>] [in project]
+page limit 50
+```
+
+The bound target defines local scope; `in project` selects project-owned
+authored content instead. Reference subjects, results, and pagination use
+existing Member References, ordered Object Text, and cursor forms. See
+[`REFERENCE_QUERIES.md`](REFERENCE_QUERIES.md) for the complete confirmed
+resolution, scope, UE mapping, and completion rules.
+
 Query text is clause-per-line. Do not combine `query`, its primary operation,
 or trailing clauses on one line. Object text may prefer compact single-line
 statements, but query text should keep its structure visible.
@@ -1175,7 +1189,7 @@ interface Result {
   object?: ObjectText;
   diagnostics: Diagnostic[];
   page?: {
-    next?: string;
+    next: string;
   };
 }
 

@@ -3,7 +3,7 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatSalObject, parseSalObject } from "../../src/index.js";
+import { formatSalObject, parseSalObject, type Query } from "../../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(here, "../../..");
@@ -75,6 +75,22 @@ with schema`,
 eventGraph = graph(asset: bp, name: "EventGraph")
 query eventGraph
 exec flow from pin@A001 depth 4`,
+  },
+  {
+    name: "local reference query",
+    text: `bp = blueprint(asset: "/Game/Doors/BP_Door.BP_Door")
+query bp
+references to variable@HEALTH
+page limit 50`,
+  },
+  {
+    name: "project member reference query",
+    text: `bp = blueprint(asset: "/Game/Doors/BP_Door.BP_Door")
+eventGraph = graph(asset: bp, name: "EventGraph")
+query eventGraph
+references to node@CALL.FunctionReference in project
+page limit 50
+page after "opaque-cursor"`,
   },
   {
     name: "widget tree query",
@@ -149,3 +165,19 @@ for (const testCase of cases) {
   assert.deepEqual(reparsed.object, parsed.object, `${testCase.name} normalized round trip`);
   console.log(`[PASS] ${testCase.name}`);
 }
+
+const normalizedReference = parseSalObject(`bp = blueprint(asset: "/Game/Doors/BP_Door.BP_Door")
+query bp
+references to node@CALL.FunctionReference in project
+page limit 50`);
+assert.deepEqual((normalizedReference.object as Query).operation, {
+  kind: "references",
+  target: {
+    kind: "member",
+    object: { kind: "node", id: "CALL" },
+    path: ["FunctionReference"],
+  },
+  scope: "project",
+});
+assert.deepEqual((normalizedReference.object as Query).page, { limit: 50 });
+console.log("[PASS] references text has the confirmed normalized shape");

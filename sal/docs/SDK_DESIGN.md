@@ -128,7 +128,32 @@ type PatchStatement = Binding | PatchOperation;
 Query has exactly one primary operation. Plural operations enumerate or search,
 singular operations resolve exact current names, and typed stable references
 resolve exact IDs. Relationship reads such as `tree`, `context`, `exec flow`,
-and `data flow` are direct operations rather than `find` variants.
+`data flow`, and `references to` are direct operations rather than `find`
+variants.
+
+The normalized factual-reference operation is:
+
+```ts
+interface ReferencesOperation {
+  kind: "references";
+  target: StableRef | StableMemberRef;
+  scope?: "project";
+}
+
+interface StableMemberRef {
+  kind: "member";
+  object: StableRef;
+  path: string[];
+}
+```
+
+`target` reuses the relationship-operation name already used by Context and
+Flow. It accepts either one typed stable object or an existing Member Reference
+rooted in such an object; Query-local aliases are deliberately excluded.
+Omitted `scope` means the bound target, while `scope: "project"` normalizes the
+literal `in project` modifier. Pagination remains the shared top-level
+`Query.page`; the operation adds no `where`, `with`, `orderBy`, or `depth`
+meaning.
 
 Patch order is semantic. Bindings and operations remain in one `statements`
 array; no `bindings`/`ops` parallel arrays or wrapper statement are allowed.
@@ -171,7 +196,7 @@ type Statement = Binding | Edge | Comment;
 interface Result {
   object?: ObjectText;
   diagnostics: Diagnostic[];
-  page?: { next?: string };
+  page?: { next: string };
 }
 
 interface MutationResult extends Result {

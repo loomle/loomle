@@ -287,6 +287,9 @@ query menu
 widget@<id>
 
 query menu
+references to widget@<id> [in project]
+
+query menu
 palette entries ["text"]
 
 query menu
@@ -561,6 +564,46 @@ deprecation state, and any existing `UK2Node_ComponentBoundEvent`. `OnClicked`
 and other Graph events never accept `set` or `reset`; creation and deletion
 remain Graph operations. Ordinary exact Widget reads do not emit this
 capability catalog unless `with schema` is present.
+
+### References
+
+Every source Widget has stable authored identity through
+`UWidgetBlueprint::WidgetVariableNameToGuidMap`:
+
+```sal
+query menu
+references to widget@button-guid
+
+query menu
+references to widget@button-guid in project
+page limit 50
+```
+
+Referenceability is a separate fact. The adapter must resolve a real generated
+or Skeleton Class Property and map it back to that Widget GUID before treating
+the Widget as a declaration subject. `bIsVariable` is one common sufficient
+condition, but it is not necessary: Named Slots, binding destinations, and
+inherited `BindWidget` Properties can also require generated members. A source
+Widget without a generated member remains a structural object and returns a
+capability diagnostic rather than a false empty reference set. Panel Slot and
+Named Slot placement themselves are not independent reference subjects.
+
+When an inherited `BindWidget` Property supplies the generated member, its
+actual declaring owner remains part of canonical identity. `widget@id` is a
+local convenience subject for the resolved Property; the adapter does not
+pretend the current Widget Blueprint declared that inherited field.
+
+Widget bindings are compound use-sites. A binding may refer to its destination
+Widget, destination Property or Delegate, source Function, and every native
+source-path segment. The Widget adapter records each matching fact through its
+native binding field or path provenance; it does not collapse the binding to
+one guessed target. Component Bound Event Nodes follow the Graph reference
+provider and may independently match the Widget member and its native Delegate.
+
+Reference results remain existing ordered Widget, Graph, and Node Object Text
+under the shared contract in
+[`../REFERENCE_QUERIES.md`](../REFERENCE_QUERIES.md). No Widget binding or
+reference result object is introduced.
 
 ## Palette
 

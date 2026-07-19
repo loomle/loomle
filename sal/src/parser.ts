@@ -13,6 +13,7 @@ import type {
   Query,
   QueryOperation,
   Ref,
+  StableMemberRef,
   StableRef,
   Target,
 } from "./index.js";
@@ -225,6 +226,15 @@ function parseQueryOperation(line: ParsedLine): QueryOperation {
   const text = line.text;
   if (text === "summary") {
     return { kind: "summary" };
+  }
+  if (text.startsWith("references ")) {
+    const match = /^references\s+to\s+(\S+?)(?:\s+in\s+(project))?$/.exec(text);
+    if (!match) operationError(line);
+    return {
+      kind: "references",
+      target: stableQueryRef(match![1], line),
+      ...(match![2] ? { scope: "project" as const } : {}),
+    };
   }
   if (text.startsWith("exec flow ") || text.startsWith("data flow ")) {
     const match = /^(exec|data)\s+flow\s+(from|to)\s+(\S+?)(?:\s+depth\s+(\d+))?$/.exec(text);
@@ -651,6 +661,21 @@ function stableRef(text: string, line: ParsedLine): StableRef {
     throw new ParseError("language.expected_stable_reference", "Expected a typed object@id reference.", spanForLine(line));
   }
   return ref;
+}
+
+function stableQueryRef(text: string, line: ParsedLine): StableRef | StableMemberRef {
+  const ref = parseRef(text, line);
+  if ("id" in ref) {
+    return ref;
+  }
+  if ("object" in ref && "id" in ref.object) {
+    return { kind: "member", object: ref.object, path: ref.path };
+  }
+  throw new ParseError(
+    "language.expected_stable_reference",
+    "Expected a typed object@id reference or one of its member paths.",
+    spanForLine(line),
+  );
 }
 
 function localOutput(name: string, line: ParsedLine): LocalRef {

@@ -52,6 +52,9 @@ function formatQuery(query: Query): string {
 
 function formatQueryOperation(operation: QueryOperation): string {
   if (operation.kind === "summary") return "summary";
+  if (operation.kind === "references") {
+    return `references to ${formatRef(operation.target)}${operation.scope ? ` in ${operation.scope}` : ""}`;
+  }
   if (operation.kind === "exec_flow" || operation.kind === "data_flow") {
     return `${operation.kind === "exec_flow" ? "exec flow" : "data flow"} ${operation.direction} ${formatRef(operation.target)}${formatDepth(operation.depth)}`;
   }
