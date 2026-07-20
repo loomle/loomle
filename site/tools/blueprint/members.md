@@ -1,60 +1,61 @@
 ---
 layout: default
-title: Blueprint Members
+title: Blueprint Objects and Components
 parent: Blueprint
-nav_order: 4
+nav_order: 2
 ---
 
-# Blueprint Members
+# Blueprint Objects and Components
 
-Blueprint members are asset-owned definitions, not graph wiring. Use member
-tools for variables, functions, macros, dispatchers, custom events, and
-components.
+Blueprint Variables, Dispatchers, Graphs, and SCS Components are contained UE
+objects, not one generic member abstraction. Query each native collection by
+its own name:
 
-## Tool Summary
+```sal
+door = blueprint(
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
 
-| Tool | Purpose |
-| --- | --- |
-| `blueprint_member_inspect` | Inspect Blueprint-owned members. |
-| `blueprint_member_edit` | Edit Blueprint-owned members. |
+query door
+variables "Health"
+```
 
-## `blueprint_member_inspect`
+```sal
+door = blueprint(
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
 
-### Parameters
+query door
+component Mesh
+with schema
+```
 
-| Field | Required | Notes |
-| --- | --- | --- |
-| `assetPath` | yes | Blueprint asset path. |
-| `memberKind` | yes | `variable`, `function`, `macro`, `dispatcher`, `event`, `customEvent`, or `component`. |
-| `name` | no | Exact member name filter. |
+Exact-name reads discover current ids. Later requests use typed references such
+as `variable@id`, `dispatcher@id`, `graph@id`, and `component@id` inside the
+complete Blueprint target.
 
-Use this before editing members, and when deciding whether an operation belongs
-to member tools or graph tools.
+Creation begins with the combined Blueprint Palette. Copy the constructor it
+returns:
 
-## `blueprint_member_edit`
+```sal
+door = blueprint(
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
 
-### Parameters
+patch door dry run
+door.Health = variable(
+  palette: "variable-palette-id",
+  type: "<native FEdGraphPinType text>"
+)
+add door.Health
+```
 
-| Field | Required | Notes |
-| --- | --- | --- |
-| `assetPath` | yes | Blueprint asset path. |
-| `memberKind` | yes | Same member kind set as inspect. |
-| `operation` | yes | Operation within the member kind. |
-| `args` | yes | Operation-specific arguments from `schema_inspect`. |
-| `dryRun` | no | Validate without applying. |
-| `returnDiff` | no | Include diff when supported. |
-| `returnDiagnostics` | no | Defaults to true. |
-| `expectedRevision` | no | Optimistic mutation guard when supported. |
+Existing objects support schema-authorized `set`, `reset`, `move`, `remove`,
+and `invoke`. Component hierarchy changes retain SCS semantics; use the exact
+Component schema rather than guessing which fields or operations apply.
 
-Call `schema_inspect` with `domain: blueprint`, `tool: blueprint_member_edit`,
-and `operation: <memberKind>.<operation>` before editing.
-
-For inherited native Blueprint events/functions, use `memberKind: "function"`
-with `operation: "override"` instead of `function.create`. Override graphs are
-created from UE's inherited function signature so native dispatch reaches the
-Blueprint implementation.
-
-## Boundary
-
-Use member tools for Blueprint-owned definitions. Use graph tools only for graph
-placement, pins, links, node defaults, comments, and layout.
+Graph lifecycle belongs here, but Nodes, Pins, and Edges belong to the
+[Graph](graph.html) interface.

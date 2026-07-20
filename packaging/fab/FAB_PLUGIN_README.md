@@ -6,38 +6,39 @@ project to local AI coding agents through LOOMLE's MCP tools.
 ## Package Layout
 
 - `Source/LoomleBridge`: Unreal Editor C++ bridge module.
+- `Binaries/<platform>`: Bridge binary compiled by UE BuildPlugin for this
+  package target.
 - `Config/FilterPlugin.ini`: keeps non-UAsset runtime support files in the
   packaged plugin.
-- `Resources/MCP`: external Python MCP server source used by Codex, Claude,
-  and other MCP hosts. This code is launched by the AI host through stdio; it
-  is not an Unreal Python script executed inside the editor.
+- `Resources/Loomle/<platform-arch>/loomle(.exe)`: self-contained Loomle Client
+  used by Codex, Claude, and other MCP hosts through stdio.
 
 ## Unreal Plugin Dependencies
 
 Loomle Bridge enables Unreal's `PCG` plugin for PCG graph tooling and
-`PythonScriptPlugin` for the `execute` runtime bridge. The Python MCP server in
-`Resources/MCP` is separate from Unreal Python and is launched by the MCP host.
+`PythonScriptPlugin` for the `execute` runtime bridge. Unreal Python belongs to
+the in-editor fallback and is unrelated to the standalone Client. These are
+Bridge-internal capabilities, not current public MCP tools.
 
-## Python MCP Server
+## Loomle Client
 
-The Fab package includes Python MCP source under `Resources/MCP` so the plugin
-can configure a local MCP host without installing the native LOOMLE CLI.
+The Fab package includes the matching platform Client under `Resources/Loomle`.
+It already contains SAL, the Loomle interface catalog, the MCP implementation,
+and its runtime dependencies. It does not require a separate Node.js, Python,
+`uv`, or repository installation.
 
 Typical command:
 
 ```bash
-uv --directory <PluginPath>/Resources/MCP run loomle_mcp_server.py
+<PluginPath>/Resources/Loomle/<platform-arch>/loomle mcp
 ```
 
-Requirements:
-
-- Python 3.10 or newer.
-- `uv` available on `PATH`.
-- Internet access the first time `uv` resolves Python package dependencies,
-  unless the user's environment already has the dependencies cached.
-
-If a native LOOMLE installation is already configured, the Fab setup flow keeps
-the native MCP configuration and uses this plugin as the Unreal bridge.
+The Client discovers running Loomle Bridge instances through the local Loomle
+runtime state and connects to the matching Unreal Editor project.
 
 Documentation: https://loomle.ai/quickstart.html
 Support: https://github.com/loomle/loomle/issues
+
+When upgrading from Loomle 0.6, remove or move any old
+`<Project>/Plugins/LoomleBridge` copy after backing up local modifications. A
+project plugin with the same name takes precedence over this Fab engine plugin.

@@ -13,10 +13,28 @@ npm test
 `LoomleBridge.uplugin` `VersionName`. It does not change the independent Fab
 build number in `LoomleBridge.uplugin` `Version`.
 
-The remaining Python bundle, installer, and tag-driven workflow scripts belong
-to the frozen 0.6 distribution path. They are not 0.7 release entrypoints and
-must not be used from `main`. The complete 0.7 executable and Fab artifact path
-will replace them as one release boundary.
+Prepare the pre-BuildPlugin staging tree with the same initial stages used by
+the manual Mac verification workflow:
+
+```sh
+npm ci
+npm test
+npm run build:executable -- --target darwin-arm64
+npm run test:executable -- --target darwin-arm64
+npm run assemble:fab -- \
+  --output-dir .tmp/fab/darwin-arm64 \
+  --target darwin-arm64
+```
+
+The `assemble:fab` result is source staging, not a distributable or QA artifact.
+`.github/workflows/verify-fab-mac.yml` is deliberately manual and read-only. It
+builds the Client, assembles the source plugin, compiles an arm64-only plugin
+with UE BuildPlugin, and uploads that verified BuildPlugin output as the QA
+artifact. It does not create a tag, GitHub Release, or public Fab submission.
+
+No 0.7 release promotion workflow exists yet. Do not create or push a `v*` tag
+until signing, notarization, every advertised platform, and the final manual
+promotion design are complete.
 
 ## Release Branches
 

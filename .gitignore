@@ -19,11 +19,6 @@ runtime/benchmarks/*.csv
 runtime/dev-verify-install/
 runtime/local-release-*/
 
-# Rust test build artifacts
-mcp_server/target/
-mcp/server/target/
-mcp/client/target/
-
 # Local scratch/build output
 .tmp/
 node_modules/
@@ -31,9 +26,6 @@ dist/
 
 # Local developer project-root config
 tools/dev.project-root.local.json
-
-# Generated MCP binaries synced for local runs (never commit)
-tools/mcp/
 
 # Local exploratory notes and summaries
 tools/layout_overnight_summary.json

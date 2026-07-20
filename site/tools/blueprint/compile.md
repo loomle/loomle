@@ -1,38 +1,29 @@
 ---
 layout: default
-title: Blueprint Compile
+title: Compile and Save
 parent: Blueprint
 nav_order: 6
 ---
 
-# Blueprint Compile
+# Compile and Save
 
-Use `blueprint_compile` after meaningful Blueprint changes. Compile diagnostics
-should guide the next inspect or edit step.
+Compilation targets one complete Blueprint, never one Graph. Finalization is a
+separate terminal Patch so authored edits and their validation remain distinct:
 
-## `blueprint_compile`
+```sal
+door = blueprint(
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
 
-### Parameters
+patch door
+compile
+save
+```
 
-| Field | Required | Notes |
-| --- | --- | --- |
-| `assetPath` | yes | Blueprint asset path. |
-| `graph` | no | Optional graph address. Prefer `{id}` or `{name}`. |
-| `graphName` | no | Legacy graph address. Prefer `graph`. |
-| `dryRun` | no | Validate without applying when supported. |
-| `returnDiff` | no | Include diff when supported. |
-| `returnDiagnostics` | no | Defaults to true. |
-| `expectedRevision` | no | Optimistic mutation guard when supported. |
+Valid terminal forms are `compile`, `save`, or `compile` followed by `save`.
+They cannot be mixed with bindings or source mutations in the same Patch.
 
-## Compile After
-
-- Adding, removing, or reconnecting graph nodes.
-- Changing pin defaults.
-- Editing Blueprint members.
-- Editing node-local structure such as switch cases or Format Text arguments.
-- Changing parent class or interfaces.
-
-## Next Step
-
-If compile returns diagnostics, inspect the relevant asset, graph, member, or
-node before applying another edit.
+`compile` returns native Blueprint Status and ordered compiler diagnostics.
+`save` persists only the exact owning Package. Graph and Widget edits therefore
+finish through their owning Blueprint after the authored Patch succeeds.

@@ -1,5 +1,12 @@
 # Observability Tail Design
 
+> **Status: current Bridge-internal design.** The Bridge implements
+> `diagnostic.tail` and `log.tail`, including the persisted cursor behavior
+> below. The current 0.7 TypeScript Client exposes only `sal_query`,
+> `sal_patch`, `sal_schema`, and `editor_context`; these observability surfaces
+> are not public MCP tools until dedicated Client adapters are designed and
+> shipped.
+
 ## Intent
 
 `diagnostic.tail` and `log.tail` expose persisted runtime evidence in the shape

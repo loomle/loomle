@@ -1,99 +1,60 @@
 ---
 layout: default
 title: Widget
-parent: Tools
-nav_order: 9
+parent: Interfaces
+nav_order: 6
 ---
 
-# Widget Tools
+# Widget
 
-Widget tools operate on UMG WidgetBlueprint assets. Use the palette for widget
-creation, tree tools for hierarchy edits, and `widget_inspect` before property
-edits.
+Widget operates on authored `UWidget` objects inside one
+`UWidgetBlueprint::WidgetTree`. It composes the Blueprint interface on the same
+target; there is no separate `widget(asset: ...)` document wrapper.
 
-## Recommended Flow
+```sal
+menu = blueprint(
+  asset: "/Game/UI/WBP_Menu.WBP_Menu",
+  id: "blueprint-guid"
+)
 
-1. Inspect the tree with `widget_tree_inspect`.
-2. Use `widget_palette` when adding a widget.
-3. Use `schema_inspect` before `widget_tree_edit` commands.
-4. Use `widget_inspect` before editing widget or slot properties.
-5. Run `widget_compile` after hierarchy or property changes.
+query menu
+tree depth 20
+```
 
-## Tool Summary
+## Query
 
-| Tool | Purpose |
-| --- | --- |
-| `widget_palette` | Search UE Widget Palette entries for UMG widget creation. |
-| `widget_tree_inspect` | Inspect a WidgetBlueprint WidgetTree. |
-| `widget_tree_edit` | Apply explicit WidgetTree edit commands. |
-| `widget_inspect` | Inspect one widget class or WidgetTree instance. |
-| `widget_compile` | Compile a WidgetBlueprint and return diagnostics. |
+Widget adds `tree`, `widgets`, `widget <name>`, and `widget@id`. `summary` and
+Palette are shared with the Blueprint target. Tree reads return authored
+hierarchy and Slot layout; collection search also finds detached Widgets.
 
-## `widget_palette`
+Panel Slot state is nested on the child Widget. Named Slot relationships are
+also native Widget relationships. Neither is an independent selector, object,
+or Palette entry.
 
-### Parameters
+## Patch
 
-| Field | Required | Notes |
-| --- | --- | --- |
-| `assetPath` | no | Optional WidgetBlueprint asset path. |
-| `query` | no | Fuzzy search over label, category, tooltip, keywords, and payload. |
-| `elementTypes` | no | `native` or `user`. |
-| `limit` | no | Defaults to 50, maximum 500. |
-| `offset` | no | Paging offset. |
+Create from the combined target Palette, then use structural Widget operations:
 
-Pass the selected palette entry to `widget_tree_edit` rather than guessing
-widget classes.
+```sal
+menu = blueprint(
+  asset: "/Game/UI/WBP_Menu.WBP_Menu",
+  id: "blueprint-guid"
+)
 
-## `widget_tree_inspect`
+patch menu dry run
+label = widget(palette: "palette-entry-id")
+add label to widget@panel-guid
+set label.Text = "Start"
+```
 
-### Parameters
+Current Patch operations include `add`, `move`, `remove`, `wrap`, `replace`,
+field `set`/`reset`, and schema-discovered `invoke`. Exact Widget schema is
+authoritative for Widget fields, Slot fields, placement constraints, and
+available operations.
 
-| Field | Required | Notes |
-| --- | --- | --- |
-| `assetPath` | yes | WidgetBlueprint asset path. |
-| `view` | no | `outline`, `layout`, or `details`; defaults to `outline`. |
-| `filter.names` | no | Exact widget names for matches/details. |
-| `filter.text` | no | Case-insensitive fuzzy search over serialized tree entries. |
+Widget events such as `OnClicked` are Graph Palette capabilities. Exact Widget
+schema returns the locator-complete Graph query to find the event Node. Widget
+Animation, Navigation, legacy Binding, and MVVM are outside the current
+interface.
 
-Use `outline` first. Use `layout` when slot/layout data matters, and `details`
-when targeting specific widgets.
-
-## `widget_tree_edit`
-
-### Parameters
-
-| Field | Required | Notes |
-| --- | --- | --- |
-| `assetPath` | yes | WidgetBlueprint asset path. |
-| `commands` | yes | Ordered command envelopes with `kind`. |
-| `dryRun` | no | Validate without applying. |
-| `returnDiff` | no | Include diff when supported. |
-| `returnDiagnostics` | no | Defaults to true. |
-| `expectedRevision` | no | Optimistic mutation guard when supported. |
-
-Command-specific fields are intentionally omitted from `tools/list`. Call
-`schema_inspect` with `domain: widget`, `tool: widget_tree_edit`, and the
-selected `operation`.
-
-## `widget_inspect`
-
-### Parameters
-
-| Field | Required | Notes |
-| --- | --- | --- |
-| `widgetClass` | no | Widget class path or short class name, such as `TextBlock`. |
-| `assetPath` | no | WidgetBlueprint asset path for instance mode. |
-| `widget.name` | no | WidgetTree instance name for instance mode. |
-
-Use class mode before adding or understanding a widget type. Use instance mode
-before setting widget or slot properties.
-
-## `widget_compile`
-
-### Parameters
-
-| Field | Required | Notes |
-| --- | --- | --- |
-| `assetPath` | yes | WidgetBlueprint asset path. |
-
-Compile after meaningful hierarchy or property changes.
+Finalize through a separate Blueprint `compile` and `save` Patch.

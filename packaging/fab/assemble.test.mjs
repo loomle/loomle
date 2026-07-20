@@ -1,0 +1,436 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import test from "node:test";
+
+import { assembleFabPlugin } from "./assemble.mjs";
+
+test("assembles the Bridge source and only the canonical TypeScript Client executable", async () => {
+  const fixture = await createFixture("darwin-arm64");
+  try {
+    const result = await assembleFabPlugin({
+      repoRoot: fixture.repoRoot,
+      outputDir: fixture.outputDir,
+      target: "darwin-arm64",
+    });
+    const pluginRoot = join(fixture.outputDir, "LoomleBridge");
+    const stagedClient = join(
+      pluginRoot,
+      "Resources",
+      "Loomle",
+      "darwin-arm64",
+      "loomle",
+    );
+
+    assert.equal(result.pluginRoot, pluginRoot);
+    assert.equal(result.client, stagedClient);
+    assert.equal(result.target, "darwin-arm64");
+    assert.equal(result.packageKind, "fab-plugin");
+    assert.match(result.clientSha256, /^[0-9a-f]{64}$/);
+    assert.equal(await readFile(stagedClient, "utf8"), "canonical-client");
+    assert.notEqual((await stat(stagedClient)).mode & 0o111, 0);
+    assert.equal(await readFile(join(pluginRoot, "README.md"), "utf8"), "fab readme\n");
+    assert.equal(await exists(join(pluginRoot, "Source", "LoomleBridge", "LoomleBridge.Build.cs")), true);
+    assert.equal(await exists(join(pluginRoot, "Resources", "MCP")), false);
+    assert.equal(
+      await exists(join(pluginRoot, "Resources", "Loomle", "darwin-arm64", "build.json")),
+      false,
+    );
+    assert.equal(await exists(join(pluginRoot, "Content")), false);
+    assert.equal(await exists(join(pluginRoot, "Binaries")), false);
+    assert.equal(await exists(join(pluginRoot, "Intermediate")), false);
+    assert.equal(await exists(join(pluginRoot, "Saved")), false);
+    assert.equal(await exists(join(pluginRoot, "Resources", "Loomle", "stale-target")), false);
+    const descriptor = JSON.parse(await readFile(
+      join(pluginRoot, "LoomleBridge.uplugin"),
+      "utf8",
+    ));
+    assert.deepEqual(descriptor.SupportedTargetPlatforms, ["Mac"]);
+    assert.deepEqual(descriptor.Modules[0].PlatformAllowList, ["Mac"]);
+    assert.deepEqual(
+      descriptor.Modules[0].PlatformArchitectureAllowList,
+      ["Mac:arm64"],
+    );
+    const sourceDescriptor = JSON.parse(await readFile(
+      join(fixture.repoRoot, "engine", "LoomleBridge", "LoomleBridge.uplugin"),
+      "utf8",
+    ));
+    assert.deepEqual(sourceDescriptor.Modules[0].PlatformAllowList, ["Mac", "Win64"]);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects native targets that have not completed the release acceptance path", async () => {
+  const fixture = await createFixture("win32-x64");
+  try {
+    for (const target of ["win32-x64", "darwin-x64", "unknown"]) {
+      await assert.rejects(
+        assembleFabPlugin({
+          repoRoot: fixture.repoRoot,
+          outputDir: fixture.outputDir,
+          target,
+        }),
+        /unsupported Fab target .*; accepted targets: darwin-arm64/,
+      );
+    }
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a source descriptor without the target module", async () => {
+  const fixture = await createFixture("darwin-arm64", { missingModule: true });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /must contain the LoomleBridge module/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a source module that does not allow the target platform", async () => {
+  const fixture = await createFixture("darwin-arm64", { disallowMac: true });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /source LoomleBridge module does not allow Mac/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a source plugin that does not support the target platform", async () => {
+  const fixture = await createFixture("darwin-arm64", { disallowPluginMac: true });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /source LoomleBridge plugin does not support Mac/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("fails instead of falling back when the canonical Client is missing", async () => {
+  const fixture = await createFixture("darwin-arm64", { includeClient: false });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /canonical Client executable not found: .*\.tmp\/client\/darwin-arm64\/loomle/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a canonical Client without its build receipt", async () => {
+  const fixture = await createFixture("darwin-arm64", { includeReceipt: false });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /canonical Client build receipt not found: .*\.tmp\/client\/darwin-arm64\/build\.json/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a canonical Client receipt from another product version", async () => {
+  const fixture = await createFixture("darwin-arm64", { receiptProductVersion: "0.6.0" });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /build receipt productVersion "0\.6\.0" does not match product version "0\.7\.0"/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a canonical Client receipt from another pinned Node version", async () => {
+  const fixture = await createFixture("darwin-arm64", { receiptNodeVersion: "22.0.0" });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /build receipt nodeVersion "22\.0\.0" does not match pinned Node version "24\.18\.0"/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a canonical Client receipt from another pinned runtime archive", async () => {
+  const fixture = await createFixture("darwin-arm64", { receiptRuntimeSha256: "1".repeat(64) });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /build receipt runtimeSha256 "1{64}" does not match pinned runtime SHA-256 "2{64}"/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a canonical Client whose bytes do not match its build receipt", async () => {
+  const fixture = await createFixture("darwin-arm64", { receiptSha256: "0".repeat(64) });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /executable SHA-256 [0-9a-f]{64} does not match build receipt 0{64}/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a stale staged plugin version", async () => {
+  const fixture = await createFixture("darwin-arm64", { pluginVersion: "0.6.0" });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /VersionName "0\.6\.0" does not match product version "0\.7\.0"/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a FilterPlugin contract that still names Resources\/MCP", async () => {
+  const fixture = await createFixture("darwin-arm64", { legacyFilter: true });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /FilterPlugin\.ini is missing required entries:.*Resources\/Loomle/s,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects unexpected platform binaries outside the canonical Client path", async () => {
+  const fixture = await createFixture("darwin-arm64", { unexpectedBinary: true });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /unexpected platform\/build outputs:.*unrelated\.dll/s,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("refuses to reset an output directory that contains an assembly input", async () => {
+  const fixture = await createFixture("darwin-arm64");
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: join(fixture.repoRoot, ".tmp"),
+        target: "darwin-arm64",
+      }),
+      /output directory must not overlap an assembly input/,
+    );
+    assert.equal(
+      await exists(join(fixture.repoRoot, ".tmp", "client", "darwin-arm64", "loomle")),
+      true,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("refuses an output directory nested inside the Bridge source", async () => {
+  const fixture = await createFixture("darwin-arm64");
+  const sourceFile = join(
+    fixture.repoRoot,
+    "engine",
+    "LoomleBridge",
+    "Source",
+    "LoomleBridge",
+    "LoomleBridge.Build.cs",
+  );
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: join(fixture.repoRoot, "engine", "LoomleBridge", "Source"),
+        target: "darwin-arm64",
+      }),
+      /output directory must not overlap an assembly input/,
+    );
+    assert.equal(await readFile(sourceFile, "utf8"), "build rules\n");
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("resolves symbolic-link output aliases before allowing destructive reset", async () => {
+  const fixture = await createFixture("darwin-arm64");
+  const sourceDirectory = join(
+    fixture.repoRoot,
+    "engine",
+    "LoomleBridge",
+    "Source",
+  );
+  const sourceFile = join(sourceDirectory, "LoomleBridge", "LoomleBridge.Build.cs");
+  const outputAlias = join(fixture.root, "output-alias");
+  await symlink(sourceDirectory, outputAlias, "dir");
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: outputAlias,
+        target: "darwin-arm64",
+      }),
+      /output directory must not overlap an assembly input/,
+    );
+    assert.equal(await readFile(sourceFile, "utf8"), "build rules\n");
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+async function createFixture(target, options = {}) {
+  const root = await mkdtemp(join(tmpdir(), "loomle-fab-assembler-"));
+  const repoRoot = join(root, "repo");
+  const outputDir = join(root, "output");
+  const pluginRoot = join(repoRoot, "engine", "LoomleBridge");
+  const executableName = target.startsWith("win32-") ? "loomle.exe" : "loomle";
+
+  await write(join(repoRoot, "package.json"), JSON.stringify({ version: "0.7.0" }));
+  await write(
+    join(repoRoot, "packaging", "client", "node-runtime.json"),
+    JSON.stringify({
+      nodeVersion: "24.18.0",
+      targets: { [target]: { sha256: "2".repeat(64) } },
+    }),
+  );
+  await write(join(pluginRoot, "LoomleBridge.uplugin"), JSON.stringify({
+    FileVersion: 3,
+    Version: 107,
+    VersionName: options.pluginVersion ?? "0.7.0",
+    CanContainContent: false,
+    SupportedTargetPlatforms: options.disallowPluginMac ? ["Win64"] : ["Mac", "Win64"],
+    Modules: [{
+      Name: options.missingModule ? "AnotherModule" : "LoomleBridge",
+      Type: "Editor",
+      LoadingPhase: "PostEngineInit",
+      PlatformAllowList: options.disallowMac ? ["Win64"] : ["Mac", "Win64"],
+    }],
+  }));
+  await write(join(pluginRoot, "Source", "LoomleBridge", "LoomleBridge.Build.cs"), "build rules\n");
+  await write(
+    join(pluginRoot, "Config", "FilterPlugin.ini"),
+    options.legacyFilter
+      ? "[FilterPlugin]\n/Config/FilterPlugin.ini\n/Resources/MCP/...\n/Resources/LoomleToolbarIcon.png\n/README.md\n"
+      : "[FilterPlugin]\n/Config/FilterPlugin.ini\n/Resources/Loomle/...\n/Resources/LoomleToolbarIcon.png\n/README.md\n",
+  );
+  await write(join(pluginRoot, "Resources", "LoomleToolbarIcon.png"), "icon");
+  await write(join(pluginRoot, "Resources", "MCP", "legacy.py"), "retired");
+  await write(join(pluginRoot, "Resources", "Loomle", "stale-target", "loomle"), "stale");
+  if (options.unexpectedBinary) {
+    await write(join(pluginRoot, "Resources", "unrelated.dll"), "build output");
+  }
+  await write(join(pluginRoot, "Binaries", "Mac", "bridge.dylib"), "build output");
+  await write(join(pluginRoot, "Intermediate", "cache"), "build output");
+  await write(join(pluginRoot, "Saved", "cache"), "build output");
+  await write(join(pluginRoot, "Content", "placeholder"), "unused");
+  await write(join(repoRoot, "packaging", "fab", "FAB_PLUGIN_README.md"), "fab readme\n");
+
+  if (options.includeClient !== false) {
+    const client = join(repoRoot, ".tmp", "client", target, executableName);
+    await write(client, "canonical-client");
+    if (!target.startsWith("win32-")) await chmod(client, 0o755);
+    if (options.includeReceipt !== false) {
+      await write(join(dirname(client), "build.json"), `${JSON.stringify({
+        schemaVersion: 1,
+        productVersion: options.receiptProductVersion ?? "0.7.0",
+        target,
+        nodeVersion: options.receiptNodeVersion ?? "24.18.0",
+        runtimeSha256: options.receiptRuntimeSha256 ?? "2".repeat(64),
+        executable: executableName,
+        sha256: options.receiptSha256
+          ?? createHash("sha256").update("canonical-client").digest("hex"),
+      }, null, 2)}\n`);
+    }
+  }
+  return { root, repoRoot, outputDir };
+}
+
+async function write(path, content) {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, content);
+}
+
+async function exists(path) {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}

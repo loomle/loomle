@@ -14,7 +14,9 @@
     "build": "npm run check:version && npm run build --workspace @loomle/client",
     "build:executable": "node packaging/client/build.mjs",
     "test:executable": "node packaging/client/test.mjs",
-    "test": "npm run check:version && node --test packaging/tools/product-version.test.mjs && npm run test --workspace @loomle/sal && npm run test --workspace @loomle/interfaces && npm run test --workspace @loomle/client"
+    "assemble:fab": "node packaging/fab/assemble.mjs",
+    "test:fab": "node --test packaging/fab/assemble.test.mjs",
+    "test": "npm run check:version && node --test packaging/tools/product-version.test.mjs && npm run test:fab && npm run test --workspace @loomle/sal && npm run test --workspace @loomle/interfaces && npm run test --workspace @loomle/client"
   },
   "devDependencies": {
     "postject": "1.0.0-alpha.6"

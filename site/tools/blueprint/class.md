@@ -1,57 +1,47 @@
 ---
 layout: default
-title: Blueprint Class
-parent: Blueprint
-nav_order: 5
+title: Class
+parent: Interfaces
+nav_order: 4
 ---
 
-# Blueprint Class
+# Class
 
-Blueprint class tools handle the class contract of a Blueprint asset: parent
-class and implemented interfaces. They do not edit graph nodes, member
-signatures, or pin defaults.
+The Class interface reads UE reflection and effective Class Defaults. Bind the
+exact native Class Path:
 
-## Tool Summary
+```sal
+actorClass = class(path: "/Script/Engine.Actor")
+doorClass = class(path: "/Game/Blueprints/BP_Door.BP_Door_C")
+```
 
-| Tool | Purpose |
-| --- | --- |
-| `blueprint_inspect` | Inspect a Blueprint asset and class-level contract. |
-| `blueprint_class_inspect` | Inspect parent class and implemented interfaces. |
-| `blueprint_class_edit` | Edit parent class and implemented interfaces. |
+Available queries are `summary`, `properties`, `property <name>`, `functions`,
+`function <name>`, `defaults`, and `default <name>`. Plural queries include the
+effective inherited view; bind `SuperClass` explicitly to inspect a hidden
+parent declaration.
 
-## `blueprint_inspect`
+```sal
+doorClass = class(path: "/Game/Blueprints/BP_Door.BP_Door_C")
 
-### Parameters
+query doorClass
+default Health
+with schema
+```
 
-| Field | Required | Notes |
-| --- | --- | --- |
-| `assetPath` | yes | Blueprint asset path. |
+Default values use complete native UE `ExportText` strings. Source, inheritance,
+and storage are comments rather than invented objects.
 
-Use this for an asset-level Blueprint summary before choosing class, member, or
-graph tools.
+Only Blueprint Generated Classes with durable source ownership can edit
+ordinary or Sparse Class Defaults:
 
-## `blueprint_class_inspect`
+```sal
+doorClass = class(path: "/Game/Blueprints/BP_Door.BP_Door_C")
 
-### Parameters
+patch doorClass dry run
+set doorClass.Health = "150.000000"
+reset doorClass.NetUpdateFrequency
+```
 
-| Field | Required | Notes |
-| --- | --- | --- |
-| `assetPath` | yes | Blueprint asset path. |
-
-Use this when the task is about parent class or interfaces.
-
-## `blueprint_class_edit`
-
-### Parameters
-
-| Field | Required | Notes |
-| --- | --- | --- |
-| `assetPath` | yes | Blueprint asset path. |
-| `operation` | yes | `setParent`, `listInterfaces`, `addInterface`, or `removeInterface`. |
-| `args` | no | Operation-specific argument object. |
-| `dryRun` | no | Validate without applying. |
-| `returnDiff` | no | Include diff when supported. |
-| `returnDiagnostics` | no | Defaults to true. |
-| `expectedRevision` | no | Optimistic mutation guard when supported. |
-
-Compile after changing class parent or interfaces.
+Native `/Script/...` Classes, Reflection declarations, Metadata, Config values,
+Component Templates, and default subobjects are read-only. Compile through the
+source Blueprint; a changed Generated Class may use a separate `save` Patch.

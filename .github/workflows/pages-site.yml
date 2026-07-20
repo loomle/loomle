@@ -1,14 +1,8 @@
 name: Deploy Pages Site
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "site/**"
-      - "client/install.sh"
-      - "client/install.ps1"
-      - ".github/workflows/pages-site.yml"
+  # Keep 0.7 documentation behind explicit QA deployment until the matching
+  # Fab build is public. The live listing still distributes 0.6.
   workflow_dispatch:
 
 permissions:
@@ -39,11 +33,6 @@ jobs:
           ruby-version: "3.3"
           working-directory: site
           bundler-cache: true
-
-      - name: Sync published install scripts
-        run: |
-          cp client/install.sh site/install.sh
-          cp client/install.ps1 site/install.ps1
 
       - name: Build site
         working-directory: site

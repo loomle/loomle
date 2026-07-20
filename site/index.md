@@ -1,88 +1,65 @@
 ---
 layout: home
-title: LOOMLE
+title: Loomle
 nav_order: 1
-description: Unreal Engine MCP server for Claude Code, Codex, and AI agents working with Blueprint, Material, PCG, and UMG workflows.
+description: Agent-native Unreal Engine tools for Blueprint, Widget, Class, Graph, and Asset workflows through SAL.
 permalink: /
 ---
 
-# LOOMLE
+# Loomle
 {: .fs-9 }
 
-Agent-native Unreal Engine MCP server for Blueprint, Material, PCG, and Widget workflows.
+Readable, precise Unreal Engine objects for people and agents.
 {: .fs-6 .fw-300 }
 
-[Install LOOMLE](install.html){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[0.7 installation status](install.html){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [Start with the Quickstart](quickstart.html){: .btn .fs-5 .mb-4 .mb-md-0 }
 
-LOOMLE helps Claude Code, Codex, and other MCP-compatible coding agents operate
-Unreal Engine through clear tools that match UE semantics. It does not ask
-agents to guess internal node classes, invent graph transformations, or treat
-UE assets as generic JSON.
+Loomle lets Codex, Claude, and other MCP-compatible agents read and change
+complex Unreal Editor state through SAL, the Structured Agent Language. SAL is
+compact line-oriented text: easy for an agent to reason over, and readable
+enough for a person to copy, review, and discuss.
 
-Use it when an AI agent needs to inspect or edit a real UE project: Blueprint
-graphs, Material graphs, PCG graphs, UMG WidgetBlueprints, asset metadata,
-editor context, compile diagnostics, and play sessions.
+## Why SAL
 
-## What LOOMLE Provides
+Blueprint graphs and Widget trees are rich UE objects, not source files. Raw
+serialization is noisy, while simplified wrappers easily lose UE semantics.
+SAL takes a narrower approach:
 
-- Two install paths: a native global CLI from this website, or an Unreal-first
-  install from Fab.
-- An MCP server for Claude Code, Codex, and other MCP hosts.
-- A UE editor bridge plugin loaded by Unreal Editor.
-- UE-semantic tools for assets, Blueprint, Material, PCG, UMG widgets, editor
-  focus, diagnostics, logs, and play sessions.
-- Palette-driven creation so agents use UE's own creation model instead of
-  guessing classes.
-- Compact first-level schemas with `schema_inspect` for detailed operation
-  schemas when a tool intentionally has a second layer.
+- UE paths, types, field names, values, Palettes, and diagnostics stay native.
+- Summaries and local traversal avoid pulling entire graphs into context.
+- Typed stable references support precise follow-up queries and patches.
+- Query and mutation results use the same ordered Object Text.
+- Dry runs use the real validation and planning path before applying edits.
 
-## Why LOOMLE Exists
+This gives agents the text-like workflow they already have for code without
+inventing a replacement object model for Unreal.
 
-Unreal Python is useful for basic editor automation, but many valuable editor
-workflows sit behind UE's own C++ editor APIs, graph schemas, palette actions,
-K2 nodes, pin reconstruction, compiler behavior, and asset-specific editors.
+## Current 0.7 Surface
 
-LOOMLE exposes those workflows as explicit agent tools instead of treating the
-editor as a generic script box. The goal is not prompt-to-game magic; it is a
-reliable UE-native control surface for agents working inside existing projects.
+The Client exposes four MCP calls:
 
-## How It Works
+- `sal_query` reads one self-contained SAL Query Text.
+- `sal_patch` validates or applies one ordered SAL Patch Text.
+- `sal_schema` discovers SAL and the active UE interface cards.
+- `editor_context` returns the user's current UE interaction target as SAL.
 
-LOOMLE has three moving parts:
+The current public modules are Asset, Blueprint, Class, Graph, and Widget.
+They include factual references, graph execution and data flow, dynamic schema
+discovery, native object health, Blueprint compilation, and asset save.
 
-- MCP server: the process your AI host starts. The native install provides
-  `loomle mcp`; the Fab install can use the Python MCP server bundled with the
-  Fab plugin.
-- Unreal bridge plugin: `LoomleBridge`, loaded by Unreal Editor through either
-  a project-local plugin install or Fab/Epic Launcher.
-- Project attach: the current MCP session uses `project_list` and
-  `project_attach` to select one online Unreal project.
+## How It Ships
 
-Both install paths expose the same tool surface after attach. Native install is
-best for CLI-first workflows and direct updates. Fab install is best for
-Unreal-first users who want Epic Launcher to own the plugin install and update.
+Loomle 0.7 will ship one Fab plugin containing both the C++ Bridge and the
+matching self-contained Client:
 
-## Usage Model
+```text
+LoomleBridge/Resources/Loomle/<platform-arch>/loomle(.exe)
+```
 
-LOOMLE exposes Unreal Engine in terms that agents can use reliably, while
-staying faithful to UE's own concepts and execution paths.
+No Python, `uv`, Node.js, global Loomle installation, or project-local plugin
+copy is required. The public Fab listing remains on 0.6 while this package is
+being prepared; see [Install](install.html) for the exact current status.
 
-In practice:
-
-- Start from the active UE editor state with `context` when the user already
-  has an asset open or selected.
-- Inspect before editing, then use the domain tool that matches the UE concept:
-  Blueprint, Material, PCG, Widget, asset, project, or editor.
-- Use palettes for creation so agents follow UE's own creation model instead
-  of guessing classes.
-- Use `schema_inspect` only when a tool description says operation-specific
-  arguments are intentionally omitted from `tools/list`.
-
-Start with [Install](install.html), then follow the [Quickstart](quickstart.html).
-
-## Also Known As
-
-If you are searching for an Unreal Engine MCP server, UE MCP, Claude Code
-Unreal tooling, Codex Unreal integration, Blueprint MCP, PCG MCP, UMG MCP, or
-AI agent tooling for Unreal Editor, LOOMLE is built for that workflow.
+Start with [Install](install.html), then follow the
+[Quickstart](quickstart.html).

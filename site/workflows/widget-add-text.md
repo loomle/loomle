@@ -2,20 +2,50 @@
 layout: default
 title: Add Widget Text
 parent: Workflows
-nav_order: 5
+nav_order: 3
 ---
 
 # Add Widget Text
 
-Recommended sequence:
+Read the current authored tree and choose the exact parent:
 
-1. `widget_tree_inspect` to find the current WidgetTree.
-2. `widget_palette` to find `TextBlock` or another widget class.
-3. `schema_inspect` for `widget_tree_edit` operation `addFromPalette`.
-4. `widget_tree_edit` to add the widget under the chosen parent.
-5. `widget_inspect` for the widget instance before setting properties.
-6. `widget_tree_edit` to set widget or slot properties.
-7. `widget_compile`.
+```sal
+menu = blueprint(
+  asset: "/Game/UI/WBP_Menu.WBP_Menu",
+  id: "blueprint-guid"
+)
 
-Use WidgetTree tools for hierarchy changes. Use inspect results to choose
-property names and slot property paths.
+query menu
+tree depth 20
+```
+
+Find the UE Widget creation capability:
+
+```sal
+menu = blueprint(
+  asset: "/Game/UI/WBP_Menu.WBP_Menu",
+  id: "blueprint-guid"
+)
+
+query menu
+palette entries "TextBlock"
+```
+
+Inspect the chosen `palette @id with schema`, then copy the returned Widget
+constructor into a dry run:
+
+```sal
+menu = blueprint(
+  asset: "/Game/UI/WBP_Menu.WBP_Menu",
+  id: "blueprint-guid"
+)
+
+patch menu dry run
+label = widget(palette: "palette-entry-id")
+add label to widget@panel-guid
+set label.Text = "Ready"
+```
+
+Exact schema determines whether `Text`, Slot state, and the chosen placement
+are writable for the current object. Apply the authored Widget Patch, then
+compile and save the same Widget Blueprint through a separate Blueprint Patch.

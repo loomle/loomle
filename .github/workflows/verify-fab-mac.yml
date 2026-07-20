@@ -1,0 +1,197 @@
+name: Verify Loomle Fab Plugin (Mac)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-fab-mac:
+    runs-on: [self-hosted, macOS]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Require Apple Silicon Runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(uname -m)" == "arm64" ]] || {
+            echo "The accepted darwin-arm64 Client must be built on an Apple Silicon runner." >&2
+            exit 1
+          }
+
+      - name: Set Up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Verify Workspaces And Fab Assembler
+        run: npm test
+
+      - name: Build And Test Standalone Client
+        run: |
+          npm run build:executable -- --target darwin-arm64
+          npm run test:executable -- --target darwin-arm64
+
+      - name: Assemble Fab Plugin
+        id: assemble
+        shell: bash
+        run: |
+          set -euo pipefail
+          staging="$RUNNER_TEMP/loomle-fab-darwin-arm64"
+          node packaging/fab/assemble.mjs \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --output-dir "$staging" \
+            --target darwin-arm64
+          echo "staging=$staging" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve Unreal Engine Root
+        id: ue
+        shell: bash
+        env:
+          UE_FROM_VARS: ${{ vars.UE_5_7_ROOT_MAC }}
+        run: |
+          set -euo pipefail
+          candidate="${UE_FROM_VARS:-${UE_5_7_ROOT_MAC:-/Users/Shared/Epic Games/UE_5.7}}"
+          run_uat="$candidate/Engine/Build/BatchFiles/RunUAT.sh"
+          [[ -x "$run_uat" ]] || {
+            echo "RunUAT.sh not found: $run_uat" >&2
+            exit 1
+          }
+          echo "run_uat=$run_uat" >> "$GITHUB_OUTPUT"
+
+      - name: Compile Staged Plugin
+        id: package
+        timeout-minutes: 30
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="$RUNNER_TEMP/loomle-fab-buildplugin-darwin-arm64"
+          rm -rf "$package"
+          "${{ steps.ue.outputs.run_uat }}" BuildPlugin \
+            -Plugin="${{ steps.assemble.outputs.staging }}/LoomleBridge/LoomleBridge.uplugin" \
+            -Package="$package" \
+            -PackageAppendPluginSubdir \
+            -TargetPlatforms=Mac \
+            -Architecture_Mac=arm64 \
+            -Rocket
+          echo "package=$package" >> "$GITHUB_OUTPUT"
+
+      - name: Audit Packaged Client
+        shell: bash
+        run: |
+          set -euo pipefail
+          packaged_plugin="${{ steps.package.outputs.package }}/LoomleBridge"
+          source_client="${{ steps.assemble.outputs.staging }}/LoomleBridge/Resources/Loomle/darwin-arm64/loomle"
+          packaged_client="$packaged_plugin/Resources/Loomle/darwin-arm64/loomle"
+          [[ -x "$packaged_client" ]] || {
+            echo "BuildPlugin output is missing the executable Client: $packaged_client" >&2
+            exit 1
+          }
+          [[ ! -e "$packaged_plugin/Resources/MCP" ]] || {
+            echo "BuildPlugin output contains retired Resources/MCP." >&2
+            exit 1
+          }
+          [[ ! -e "$packaged_plugin/Resources/Loomle/darwin-arm64/build.json" ]] || {
+            echo "BuildPlugin output must not ship the internal Client build receipt." >&2
+            exit 1
+          }
+          [[ -f "$packaged_plugin/Config/FilterPlugin.ini" ]] || {
+            echo "BuildPlugin output is missing Config/FilterPlugin.ini." >&2
+            exit 1
+          }
+          client_target_count="$(find "$packaged_plugin/Resources/Loomle" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+          [[ "$client_target_count" == "1" ]] || {
+            echo "BuildPlugin output must contain exactly one Client target." >&2
+            exit 1
+          }
+          [[ "$(shasum -a 256 "$source_client" | awk '{print $1}')" == \
+             "$(shasum -a 256 "$packaged_client" | awk '{print $1}')" ]] || {
+            echo "BuildPlugin changed the bundled Client." >&2
+            exit 1
+          }
+          "$packaged_client" --help
+
+          descriptor="$packaged_plugin/LoomleBridge.uplugin"
+          node -e '
+            const descriptor = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+            const module = descriptor.Modules?.find((entry) => entry.Name === "LoomleBridge");
+            const same = (actual, expected) => JSON.stringify(actual) === JSON.stringify(expected);
+            if (descriptor.Installed !== true
+                || !same(descriptor.SupportedTargetPlatforms, ["Mac"])
+                || !same(module?.PlatformAllowList, ["Mac"])
+                || !same(module?.PlatformArchitectureAllowList, ["Mac:arm64"])) {
+              throw new Error("BuildPlugin output has an invalid target descriptor contract.");
+            }
+          ' "$descriptor"
+
+          bridge_binary="$packaged_plugin/Binaries/Mac/UnrealEditor-LoomleBridge.dylib"
+          [[ -f "$bridge_binary" ]] || {
+            echo "BuildPlugin output is missing the Mac Bridge binary: $bridge_binary" >&2
+            exit 1
+          }
+          [[ "$(/usr/bin/lipo -archs "$bridge_binary")" == "arm64" ]] || {
+            echo "BuildPlugin output is not arm64-only: $bridge_binary" >&2
+            /usr/bin/lipo -archs "$bridge_binary" >&2
+            exit 1
+          }
+
+      - name: Archive Verified BuildPlugin Output
+        id: archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/loomle-fab-plugin-darwin-arm64.zip"
+          rm -f "$archive"
+          cd "${{ steps.package.outputs.package }}"
+          /usr/bin/zip -qry "$archive" LoomleBridge
+          /usr/bin/unzip -l "$archive" | grep -q 'LoomleBridge/Resources/Loomle/darwin-arm64/loomle'
+          if /usr/bin/unzip -l "$archive" | grep -q 'LoomleBridge/Resources/MCP/'; then
+            echo "Fab archive contains retired Resources/MCP." >&2
+            exit 1
+          fi
+          if /usr/bin/unzip -l "$archive" | grep -q 'LoomleBridge/Resources/Loomle/darwin-arm64/build.json'; then
+            echo "Fab archive contains the internal Client build receipt." >&2
+            exit 1
+          fi
+
+          audit="$RUNNER_TEMP/loomle-fab-archive-audit-darwin-arm64"
+          rm -rf "$audit"
+          mkdir -p "$audit"
+          /usr/bin/unzip -q "$archive" -d "$audit"
+          packaged_plugin="${{ steps.package.outputs.package }}/LoomleBridge"
+          extracted_plugin="$audit/LoomleBridge"
+          for relative_path in \
+            LoomleBridge.uplugin \
+            Config/FilterPlugin.ini \
+            Resources/Loomle/darwin-arm64/loomle \
+            Binaries/Mac/UnrealEditor-LoomleBridge.dylib; do
+            [[ "$(shasum -a 256 "$packaged_plugin/$relative_path" | awk '{print $1}')" == \
+               "$(shasum -a 256 "$extracted_plugin/$relative_path" | awk '{print $1}')" ]] || {
+              echo "Fab archive changed or omitted $relative_path." >&2
+              exit 1
+            }
+          done
+          [[ -x "$extracted_plugin/Resources/Loomle/darwin-arm64/loomle" ]] || {
+            echo "Fab archive did not preserve the Client executable bit." >&2
+            exit 1
+          }
+          [[ "$(/usr/bin/lipo -archs "$extracted_plugin/Binaries/Mac/UnrealEditor-LoomleBridge.dylib")" == "arm64" ]] || {
+            echo "Fab archive Bridge is not arm64-only." >&2
+            exit 1
+          }
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Upload QA Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: loomle-fab-plugin-darwin-arm64
+          path: ${{ steps.archive.outputs.archive }}
+          if-no-files-found: error

@@ -1,67 +1,35 @@
 ---
 layout: default
-title: Diagnostics and Logs
-parent: Tools
-nav_order: 10
+title: Diagnostics
+parent: Interfaces
+nav_order: 7
 ---
 
-# Diagnostics and Log Tools
+# Diagnostics
 
-Diagnostics and log tools read persisted runtime evidence. Omitting `fromSeq`
-returns the latest matching events. Supplying `fromSeq` switches to incremental
-cursor reads so an agent can continue from the last seen event.
+Loomle does not require a separate diagnostics query for ordinary SAL work.
+Relevant health and execution information stays beside the objects and
+operations that produced it.
 
-## Tool Summary
+SAL supports single-line and block comments:
 
-| Tool | Purpose |
-| --- | --- |
-| `diagnostic_tail` | Read structured LOOMLE diagnostic events. |
-| `log_tail` | Read Unreal output log events. |
+```sal
+# short guidance
 
-## `diagnostic_tail`
+###
+multi-line compiler or validation detail
+###
+```
 
-Reads structured LOOMLE diagnostic events.
+Graph queries attach current Node and Pin health, including compiler messages,
+upgrade messages, visual warnings, orphaned Pins, and Pin deprecation state.
+Graph `summary` keeps representatives compact and returns a comment index of
+Nodes carrying health state so an agent can follow exact `node@id` references.
 
-### Parameters
+Blueprint `compile` returns native Status and ordered compiler diagnostics.
+Mutation responses include validation state, ordered planned operations and
+effects, apply state, and failures in the same Object Text envelope.
 
-| Field | Required | Notes |
-| --- | --- | --- |
-| `fromSeq` | no | Exclusive sequence cursor. Omit for latest matching events; provide to return `seq > fromSeq`. |
-| `limit` | no | 1 to 1000; defaults to 200. |
-| `filters.severity` | no | Filter by severity. |
-| `filters.category` | no | Filter by diagnostic category. |
-| `filters.source` | no | Filter by source. |
-| `filters.assetPathPrefix` | no | Filter diagnostics under an asset path prefix. |
-
-### Use When
-
-Use diagnostics when the issue is likely in LOOMLE's structured runtime events:
-tool errors, bridge state, validation failures, or asset-specific diagnostics.
-
-## `log_tail`
-
-Reads Unreal output log events.
-
-### Parameters
-
-| Field | Required | Notes |
-| --- | --- | --- |
-| `fromSeq` | no | Exclusive sequence cursor. Omit for latest matching events; provide to return `seq > fromSeq`. |
-| `limit` | no | 1 to 1000; defaults to 200. |
-| `filters.minVerbosity` | no | Minimum Unreal log verbosity. |
-| `filters.category` | no | Single Unreal log category. |
-| `filters.categories` | no | Multiple Unreal log categories. |
-| `filters.source` | no | Log source. |
-
-### Cursor Semantics
-
-Both tools return `items` in chronological order. When `fromSeq` is omitted,
-the page contains the latest `limit` matching events and `nextFromSeq` advances
-to `highWatermark` for the next polling call. When `fromSeq` is supplied, the
-page contains matching events with `seq > fromSeq`; use `nextFromSeq` for the
-next incremental call.
-
-### Use When
-
-Use logs when the next clue is likely in Unreal's output log, such as compile
-messages, plugin warnings, runtime errors, or editor subsystem output.
+Stored compiler annotations can be stale when the owning Blueprint is dirty or
+unknown. Loomle reports that condition; run a separate Blueprint terminal Patch
+with `compile` to obtain fresh complete diagnostics.

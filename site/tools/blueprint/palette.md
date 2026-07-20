@@ -1,45 +1,70 @@
 ---
 layout: default
-title: Blueprint Palette
+title: Palette
 parent: Blueprint
-nav_order: 1
+nav_order: 5
 ---
 
-# Blueprint Palette
+# Palette
 
-`blueprint_graph_palette` searches UE Blueprint Action Menu entries for graph node
-creation. It keeps agents aligned with UE's own context-sensitive creation
-model.
+Every object created directly through `add` begins with a UE Palette result.
+Loomle does not define a fixed list of constructors or ask the agent to guess
+native classes.
 
-## Recommended Flow
+Search a Blueprint or Graph target:
 
-1. Inspect or list the target graph.
-2. Call `blueprint_graph_palette` with `assetPath`, `graph`, and query text.
-3. Select an executable entry.
-4. Pass the full entry to `blueprint_graph_edit` with `addFromPalette`.
+```sal
+door = blueprint(
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
+eventGraph = graph(asset: door, id: "graph-guid")
 
-Do not guess K2 node classes for normal creation.
+query eventGraph
+palette entries "Print String"
+```
 
-## `blueprint_graph_palette`
+Graph Palette search may include Pin context:
 
-### Parameters
+```sal
+door = blueprint(
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
+eventGraph = graph(asset: door, id: "graph-guid")
 
-| Field | Required | Notes |
-| --- | --- | --- |
-| `assetPath` | yes | Blueprint asset path. |
-| `graph` | no | Preferred graph address: `{id}` or `{name}`. |
-| `graphName` | no | Legacy graph address. Prefer `graph`. |
-| `query` | no | Search text. |
-| `contextSensitive` | no | Defaults to true. |
-| `fromPins` | no | Pin context for pin-drag menu behavior. |
-| `limit` | no | Defaults to 50. |
-| `offset` | no | Paging offset. |
+query eventGraph
+palette entries "Branch" from pin@source-pin-guid
+```
 
-## Returned Entries
+Inspect the selected capability:
 
-Palette entries are context-bound. Use them in the same Blueprint, graph, and
-pin context used for the search.
+```sal
+door = blueprint(
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
+eventGraph = graph(asset: door, id: "graph-guid")
 
-Some entries describe schema actions or context that cannot be spawned
-directly. `blueprint_graph_edit` rejects non-executable entries with a
-structured error. Choose an executable entry for `addFromPalette`.
+query eventGraph
+palette @palette-entry-id
+with schema
+```
+
+Then copy its returned binding into Patch Text:
+
+```sal
+door = blueprint(
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
+eventGraph = graph(asset: door, id: "graph-guid")
+
+patch eventGraph dry run
+print = node(palette: "palette-entry-id")
+add print
+```
+
+Patch re-resolves the Palette id in the current context before creation. Exact
+Palette schema provides determinable future Pins, constructor arguments, and
+constraints.

@@ -1,39 +1,22 @@
-# LOOMLE Site
+# Loomle Site
 
-This directory is a Jekyll documentation site published with GitHub Pages.
+This directory is the Jekyll documentation site published at
+<https://loomle.ai/> through GitHub Pages.
 
-Recommended Pages settings:
-
-- Branch: `main`
-- Folder: `/site`
-
-Recommended custom domain:
-
-- `loomle.ai`
-
-Expected published URLs:
-
-- `https://loomle.ai/`
-- `https://loomle.ai/install.sh`
-- `https://loomle.ai/install.ps1`
-
-This site keeps install scripts at stable root URLs:
-
-- `install.sh` and `install.ps1` are the only published site scripts
-- they install LOOMLE globally from the release manifest and platform zip
-- they do not download a temporary installer binary
-- they do not install into an Unreal project
-- project plugin install/update happens later through MCP `project.install`
-
-The documentation pages use the Just the Docs Jekyll theme.
+Loomle 0.7 will use Fab as its only installation channel. Until the matching
+0.7 package is public, Pages deployment is manual so the live 0.6 listing is
+not paired with premature 0.7 installation instructions. The site publishes
+documentation only: there are no website bootstrap scripts, global installers,
+or downloadable Client copies. The Client ships inside the Fab plugin under
+`Resources/Loomle/<platform-arch>/loomle(.exe)`.
 
 Build locally with Ruby 3.3:
 
-```bash
+```sh
 bundle install
 bundle exec jekyll build --destination _site
 ```
 
-`client/install.sh` and `client/install.ps1` are the source bootstrap scripts.
-The Pages workflow copies them into `site/` before building, and the client test
-suite checks that the committed site copies stay identical.
+The Pages workflow builds this directory directly and deploys `_site` only
+when manually dispatched; it does not copy files from `client/` or construct
+release artifacts.

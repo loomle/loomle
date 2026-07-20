@@ -3,9 +3,8 @@
 Loomle mutation tools should give agents one consistent meaning for
 `dryRun`.
 
-This contract applies to tools that can change UE state, such as graph edits,
-member edits, widget tree edits, material edits, PCG edits, asset edits, and
-class edits.
+This contract applies to adapters that can change UE state, such as graph,
+Blueprint class, Widget tree, Material, PCG, and asset edits.
 
 ## Intent
 
@@ -98,7 +97,8 @@ state.
 `diff` describes the planned or applied state change as a structured change
 set:
 
-- `scope`: the tool domain, such as `blueprint.class` or `blueprint.member`
+- `scope`: the adapter or object family responsible for the change; it must not
+  reintroduce a retired generic member abstraction
 - `changes`: ordered change entries
 
 Each change should include:
@@ -121,7 +121,8 @@ public schema and documentation must say so. Do not expose `expectedRevision`,
 `returnDiff`, or rich dry-run result fields unless the bridge actually enforces
 or returns them.
 
-`blueprint_member_edit` and `blueprint_class_edit` are the first validation
-surfaces for this contract. New mutation refactors should use the same shared
-helper before migrating more complex graph, material, PCG, and widget edit
-tools.
+SAL mutation adapters are the current validation surface for this contract.
+Legacy direct-tool implementations may reuse the same helper while they are
+being retired, but they do not define the current public mutation schema. New
+mutation work should use the shared helper before exposing rich dry-run,
+revision, or diff fields.

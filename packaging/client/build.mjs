@@ -33,11 +33,15 @@ if (target !== hostTarget) {
 }
 
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+const product = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8"));
 const runtime = manifest.targets?.[target];
 if (!runtime) {
   throw new Error(`Unsupported executable target: ${target}.`);
 }
 validateRuntime(manifest.nodeVersion, runtime);
+if (typeof product.version !== "string" || product.version.length === 0) {
+  throw new Error("package.json must contain a product version.");
+}
 
 console.log(`Building Loomle executable for ${target} with Node.js ${manifest.nodeVersion}.`);
 run("npm", ["run", "build"], { cwd: repoRoot });
@@ -61,6 +65,7 @@ if (nodeVersion !== `v${manifest.nodeVersion}`) {
 const buildDirectory = resolve(repoRoot, `.tmp/client-build/${target}`);
 const outputDirectory = resolve(repoRoot, `.tmp/client/${target}`);
 const outputPath = join(outputDirectory, "loomle");
+const receiptPath = join(outputDirectory, "build.json");
 const temporaryOutputPath = join(buildDirectory, "loomle");
 const blobPath = join(buildDirectory, "loomle.blob");
 const configPath = join(buildDirectory, "sea-config.json");
@@ -101,9 +106,19 @@ run("codesign", ["--verify", "--strict", "--verbose=2", outputPath]);
 
 const outputStat = await stat(outputPath);
 const outputHash = await sha256(outputPath);
+await writeFile(receiptPath, `${JSON.stringify({
+  schemaVersion: 1,
+  productVersion: product.version,
+  target,
+  nodeVersion: manifest.nodeVersion,
+  runtimeSha256: runtime.sha256,
+  executable: "loomle",
+  sha256: outputHash,
+}, null, 2)}\n`);
 console.log(`Built ${outputPath}`);
 console.log(`Size: ${outputStat.size} bytes`);
 console.log(`SHA-256: ${outputHash}`);
+console.log(`Receipt: ${receiptPath}`);
 
 function parseTarget(args) {
   if (args.length === 0) return `${process.platform}-${process.arch}`;

@@ -1,66 +1,30 @@
 ---
 layout: default
-title: Editor
-parent: Tools
-nav_order: 4
+title: Editor Context
+parent: Interfaces
+nav_order: 1
 ---
 
-# Editor Tools
+# Editor Context
 
-Editor tools operate on Unreal Editor windows and panels. They help agents get
-the editor into the right visible state, but they do not mutate asset data by
-themselves.
+`editor_context({})` reads the user's current Unreal interaction target and
+returns ordinary ordered SAL Object Text.
 
-## Tool Summary
+It is designed for conversational workflows: the user can select a Node, focus
+a Graph, open a Widget Blueprint, or click a Details panel and ask the agent to
+continue from that state. Loomle reports the focused surface together with the
+host editor, active asset, active Graph, and resolvable selection when UE makes
+them available.
 
-| Tool | Purpose |
-| --- | --- |
-| `editor_open` | Open or focus an Unreal asset editor. |
-| `editor_focus` | Focus a semantic panel inside an asset editor. |
-| `editor_screenshot` | Capture the active editor window to a PNG file. |
+Call it before guessing an asset path or Graph name:
 
-## `editor_open`
+```text
+editor_context({})
+```
 
-Open or focus the editor for a specific asset.
+The returned object is a discovery result, not hidden session binding. Copy a
+complete locator into each following `sal_query` or `sal_patch` request.
 
-### Parameters
-
-| Field | Required | Notes |
-| --- | --- | --- |
-| `assetPath` | yes | Unreal asset path to open. |
-
-### Next Step
-
-Call `context` after opening if the next operation depends on the active editor
-or current selection.
-
-## `editor_focus`
-
-Focuses a semantic panel inside an asset editor.
-
-### Parameters
-
-| Field | Required | Notes |
-| --- | --- | --- |
-| `assetPath` | yes | Asset whose editor should receive focus. |
-| `panel` | yes | Semantic panel name, such as graph, viewport, details, palette, or find. |
-
-### Boundary
-
-Use focus tools for editor navigation only. Use domain tools for asset data
-changes.
-
-## `editor_screenshot`
-
-Captures the active editor window.
-
-### Parameters
-
-| Field | Required | Notes |
-| --- | --- | --- |
-| `path` | no | Optional PNG output path. |
-
-### Use When
-
-Use screenshots for visual confirmation, UI debugging, or when a task requires
-evidence from the visible editor state.
+Editor Context is the complete public editor-facing surface in 0.7. Additional
+Bridge internals are not advertised as Client capabilities until their SAL
+contracts are migrated.

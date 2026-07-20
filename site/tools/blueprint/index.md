@@ -1,62 +1,98 @@
 ---
 layout: default
 title: Blueprint
-parent: Tools
-nav_order: 5
+parent: Interfaces
+nav_order: 3
 has_children: true
 ---
 
-# Blueprint Tools
+# Blueprint
 
-Blueprint tools follow UE's Blueprint boundaries. Pick the tool by the thing you
-are changing:
+The Blueprint interface owns Class Settings, Variables, Dispatchers, top-level
+Graph lifecycle, SCS Components, compile, and save. Graph bodies and Widget
+trees use their own modules while retaining the exact Blueprint owner.
 
-- Asset and class contract: `blueprint_inspect`, `blueprint_class_inspect`,
-  `blueprint_class_edit`.
-- Members: variables, functions, macros, dispatchers, custom events, and
-  components use `blueprint_member_inspect` and `blueprint_member_edit`.
-- Graphs: nodes, pins, links, defaults, comments, and layout use
-  `blueprint_graph_*`.
-- Node-local structure: switch cases, sequence pins, Select options, Format
-  Text arguments, and struct field visibility use `blueprint_node_*`.
-- Creation: graph node creation starts with `blueprint_graph_palette`.
-- Verification: compile with `blueprint_compile`.
+## Target
 
-Use `blueprint_graph_palette` before graph node creation. Use
-`blueprint_node_inspect` when `blueprint_graph_inspect` returns
-`hasNodeEditCapabilities: true`.
+The first discovery query may use only the Asset Path:
 
-## Tool List
+```sal
+door = blueprint(asset: "/Game/Blueprints/BP_Door.BP_Door")
 
-- `blueprint_inspect`: inspect a Blueprint asset and class-level contract.
-- `blueprint_class_inspect`: inspect parent class and implemented interfaces.
-- `blueprint_class_edit`: edit parent class and implemented interfaces.
-- `blueprint_member_inspect`: inspect Blueprint-owned members.
-- `blueprint_member_edit`: edit Blueprint-owned members.
-- `blueprint_graph_list`: list graphs in a Blueprint asset.
-- `blueprint_graph_inspect`: inspect graph nodes, pins, links, and views.
-- `blueprint_graph_edit`: apply explicit local graph edit commands.
-- `blueprint_graph_layout`: format selected graph regions.
-- `blueprint_node_inspect`: inspect one node's node-local state and capabilities.
-- `blueprint_node_edit`: edit node-local structure.
-- `blueprint_graph_palette`: search UE Blueprint Action Menu entries.
-- `blueprint_compile`: compile a Blueprint asset.
+query door
+summary
+```
 
-## API Pages
+The result returns `BlueprintGuid`. Later exact queries and every Patch use the
+path and id together:
 
-| Area | Tools | Page |
-| --- | --- | --- |
-| Palette creation | `blueprint_graph_palette` | [Blueprint Palette](palette.html) |
-| Graphs | `blueprint_graph_list`, `blueprint_graph_inspect`, `blueprint_graph_edit`, `blueprint_graph_layout` | [Blueprint Graphs](graph.html) |
-| Node-local structure | `blueprint_node_inspect`, `blueprint_node_edit` | [Node-Local Edits](node-local.html) |
-| Members | `blueprint_member_inspect`, `blueprint_member_edit` | [Blueprint Members](members.html) |
-| Class contract | `blueprint_inspect`, `blueprint_class_inspect`, `blueprint_class_edit` | [Blueprint Class](class.html) |
-| Compile | `blueprint_compile` | [Blueprint Compile](compile.html) |
+```sal
+door = blueprint(
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
+```
 
-## Recommended Flow
+The path loads the asset; the Guid verifies its identity.
 
-1. Inspect the asset or graph.
-2. Use `blueprint_graph_palette` when creating graph nodes.
-3. Use `schema_inspect` when an edit tool has operation-specific arguments.
-4. Apply one explicit edit.
-5. Compile if behavior changed.
+## Query Directory
+
+```text
+summary
+variables ["text"]
+dispatchers ["text"]
+graphs ["text"]
+components ["text"]
+variable <name> | variable@id
+dispatcher <name> | dispatcher@id
+graph <name> | graph@id
+component <name> | component@id
+references to <typed-ref>[.<native-member-path>] [in project]
+palette entries ["text"] | palette @id
+```
+
+Collections are compact, cursor-paginated, and preserve UE authored order by
+default. Exact reads may add `with schema` for current writable fields,
+constraints, reset behavior, lifecycle, and UE operations.
+
+## Patch Boundary
+
+Blueprint declarations, Graph lifecycle, Class Settings, and SCS Components
+may share one ordered Blueprint Patch. Graph-body edits and Widget-tree edits
+belong to their respective planners and use following requests.
+
+Creation constructors always come from the target's Palette. Existing objects
+use typed references:
+
+```sal
+door = blueprint(
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
+
+patch door dry run
+set door.BlueprintDescription = "Interactive door"
+set variable@variable-guid.NativeField = value
+move component@component-guid to component@parent-guid
+```
+
+See [Blueprint Objects and Components](members.html), [Palette](palette.html),
+and the installed Blueprint interface card for exact forms.
+
+## Finalize
+
+Compilation and save are a separate terminal Patch:
+
+```sal
+door = blueprint(
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
+
+patch door
+compile
+save
+```
+
+Do not mix finalization with authored source mutations. Compile always targets
+the whole Blueprint, never one Graph.

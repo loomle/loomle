@@ -21,11 +21,26 @@ import { guide } from "@loomle/interfaces";
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 const target = parseTarget(process.argv.slice(2));
 const executablePath = resolve(repoRoot, `.tmp/client/${target}/loomle`);
+const receiptPath = resolve(repoRoot, `.tmp/client/${target}/build.json`);
 const product = JSON.parse(await readFile(resolve(repoRoot, "package.json"), "utf8"));
+const runtimeManifest = JSON.parse(await readFile(
+  resolve(repoRoot, "packaging/client/node-runtime.json"),
+  "utf8",
+));
 
 assert.equal(target, `${process.platform}-${process.arch}`, "Executable smoke tests must run natively.");
 await access(executablePath, constants.X_OK);
 assert.ok((await stat(executablePath)).size > 0, "Executable is empty.");
+const executableHash = await sha256(executablePath);
+assert.deepEqual(JSON.parse(await readFile(receiptPath, "utf8")), {
+  schemaVersion: 1,
+  productVersion: product.version,
+  target,
+  nodeVersion: runtimeManifest.nodeVersion,
+  runtimeSha256: runtimeManifest.targets[target].sha256,
+  executable: "loomle",
+  sha256: executableHash,
+});
 assert.equal(
   await fileContains(executablePath, repoRoot),
   false,
@@ -121,7 +136,7 @@ try {
   assert.equal(serverStderr, "");
 
   console.log(`Passed isolated executable smoke tests: ${executablePath}`);
-  console.log(`SHA-256: ${await sha256(executablePath)}`);
+  console.log(`SHA-256: ${executableHash}`);
 } finally {
   await rm(directory, { recursive: true, force: true });
 }

@@ -1,49 +1,47 @@
-# LOOMLE
+# Loomle
 
-LOOMLE is an agent-native Unreal Engine MCP server for Claude Code, Codex, and
-other MCP-compatible AI agents.
-
-It helps agents inspect and edit live UE projects through UE-native concepts:
-Blueprint graphs, Material graphs, PCG graphs, UMG WidgetBlueprints, asset
-metadata, active editor context, compile diagnostics, and play sessions.
+Loomle is an agent-native Unreal Engine integration. It turns complex UE
+editor state into SAL, the Structured Agent Language: compact ordered text that
+people and agents can read, copy, query, and patch without replacing UE's
+native object model.
 
 Canonical documentation:
 
 - Install: https://loomle.ai/install.html
 - Quickstart: https://loomle.ai/quickstart.html
-- Tools: https://loomle.ai/tools/
-- Releases: https://github.com/loomle/loomle/releases
+- Interfaces: https://loomle.ai/tools/
+- Source: https://github.com/loomle/loomle
 
-Install:
+Installation:
 
-Native install:
+- Loomle 0.7 will ship only through Fab, but its public package is not yet
+  available. The current listing still distributes 0.6:
+  https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428
+- The first accepted 0.7 QA target is UE 5.7 on Apple Silicon macOS.
+- The plugin contains the Bridge and the self-contained Client at
+  `Resources/Loomle/<platform-arch>/loomle(.exe)`.
+- No website installer, Python, uv, Node.js, global Loomle install, separate
+  project installation, or session attachment step is required.
+- When upgrading from 0.6, first close Unreal Editor and remove or move the old
+  `<Project>/Plugins/LoomleBridge` out of every affected project's `Plugins`
+  directory. A project plugin shadows the Fab engine plugin; back up local
+  modifications first.
+- Open the Loomle toolbar/status panel for the exact bundled path and copyable
+  host configuration guidance, then restart that host. The panel never rewrites
+  Codex or Claude Desktop configuration files.
 
-```bash
-curl -fsSL https://loomle.ai/install.sh | bash
-```
+Public MCP tools:
 
-Windows PowerShell:
+- `sal_query({ text })`: execute one self-contained SAL Query Text.
+- `sal_patch({ text })`: validate or apply one ordered SAL Patch Text.
+- `sal_schema({})`: return the active module index.
+- `sal_schema({ module })`: return one static interface card.
+- `editor_context({})`: return the current UE interaction target as SAL Object
+  Text.
 
-```powershell
-& ([scriptblock]::Create((irm https://loomle.ai/install.ps1)))
-```
+Current public modules: Asset, Blueprint, Class, Graph, and Widget.
 
-Configure MCP hosts to run:
-
-```bash
-loomle mcp
-```
-
-Fab install:
-
-https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428
-
-After installing from Fab, open Unreal Editor and use the Loomle toolbar to
-check setup status. Native and Fab installs expose the same tools after
-`project_attach`.
-
-After attach, inspect before editing, use palettes for creation, and call
-`schema_inspect` when a tool intentionally has operation-specific schemas.
-
-Search terms: Unreal Engine MCP server, UE MCP, Claude Code Unreal, Codex
-Unreal, Blueprint MCP, PCG MCP, UMG MCP, Unreal Editor AI agent tooling.
+Recommended workflow: read editor context; query a summary or local view;
+discover exact static or dynamic schema only when needed; use UE Palette
+constructors for creation; dry-run the Patch; apply it; compile and save through
+the owning asset. Do not guess UE Classes, fields, Pins, or operation names.

@@ -137,12 +137,70 @@ LoomleBridge/
 ```
 
 `Resources/MCP` is a legacy Python MCP location and is not part of the 0.7
-layout. If a distribution channel requires a script fallback, it still belongs
-under `Resources/Loomle/`; the public product boundary does not change.
+layout. The 0.7 Fab assembler accepts only the canonical standalone Client
+program and has no script or legacy-server fallback.
 
 The Client discovers live Bridge records through `~/.loomle/state/runtimes`.
 That directory is runtime state, not a global Loomle installation and not a
 project-local Client copy.
+
+Fab assembly takes an explicit native target and has no fallback input:
+
+```sh
+npm run build:executable -- --target darwin-arm64
+npm run test:executable -- --target darwin-arm64
+npm run assemble:fab -- \
+  --output-dir .tmp/fab/darwin-arm64 \
+  --target darwin-arm64
+```
+
+The executable build writes an adjacent `build.json` receipt containing its
+product version, target, Node version and runtime archive SHA-256, executable
+name, and executable SHA-256. The assembler verifies that receipt and the
+Client bytes, but does not ship the receipt. It rejects a missing or
+receipt-mismatched canonical Client, product-version drift, `Resources/MCP`,
+another staged Client target, and
+unexpected platform build outputs. The receipt does not fingerprint every
+source file, so both local QA and automation build and test the Client
+immediately before assembly. For the accepted `darwin-arm64` target it also
+narrows the derived descriptor to Mac and `Mac:arm64`; the source descriptor
+remains development input for later targets. UE BuildPlugin must compile the
+same single architecture and preserve the exact Client bytes through
+`Config/FilterPlugin.ini`. The final QA or release archive is always the
+BuildPlugin output, never the pre-build staging tree. It must contain the
+matching Bridge binary, `Installed=true` descriptor, retained filter contract,
+and the same one-target Client payload.
+
+## Host Setup
+
+The Bridge resolves exactly one Client path for its current compiled target:
+
+```text
+<Plugin>/Resources/Loomle/<node-platform>-<arch>/loomle(.exe)
+```
+
+The platform spelling follows the Client build target (`darwin`, `win32`, or
+`linux`) rather than UE display names. Architecture comes from the current UE
+process target, not the host machine. There is no runtime fallback to
+`Resources/MCP` or `~/.loomle/bin/loomle`.
+
+Codex and Claude Desktop configuration use the absolute bundled Client as
+`command` with `args = ["mcp"]`. The Bridge status panel is read-only with
+respect to host configuration: it detects the current entry, classifies exact
+bundled, recognized 0.6, stale, manual, missing, and ambiguous states, then
+provides copyable setup or migration guidance. It never writes Codex or Claude
+Desktop configuration files.
+
+This boundary is intentional. UE's cross-platform file layer cannot by itself
+guarantee cross-process compare-and-swap, permission/ACL preservation, and
+atomic replacement while several Editors or the MCP host may be active. A
+future one-click writer therefore requires a separately designed native helper
+with those guarantees; it must not be reintroduced as an in-process best-effort
+write. Codex detection respects `CODEX_HOME` and otherwise uses `~/.codex`.
+Malformed, ambiguous, custom, unreadable, or concurrently changing host state
+is reported without modification. A valid bundled Client entry from another
+engine is reported as current so multiple engines do not compete to rewrite one
+host configuration.
 
 ## Version Boundary
 
@@ -177,8 +235,9 @@ npm run generate:version
 npm test
 ```
 
-The `--no-git-tag-version` flag is required while the old tag-triggered 0.6
-workflows remain in the repository.
+The `--no-git-tag-version` flag remains required until the final manual 0.7
+promotion workflow is designed and enabled. Creating a version must never
+implicitly start a release.
 
 ## Legacy Retirement
 
@@ -189,11 +248,23 @@ The following 0.6 mechanisms are not migrated into the Client:
 - global bundle installation and `project.install`;
 - the old release manifest and plugin-cache workflow.
 
-The old `client/install.sh` and `client/install.ps1` remain temporarily because
-the current website deployment copies them. They must be retired atomically
-with the website bootstrap documentation and workflow, not moved into the new
-Client or treated as 0.7 installers. The `0.6` branch remains their maintenance
-source.
+The 0.6 branch remains the maintenance source for its Python MCP, global
+installers, manifests, plugin cache, and tag-driven release workflow. Those
+implementations are not retained as inactive alternatives on `main`; historical
+design documents live under `docs/archive/legacy/0.6/`.
+
+Before a project moves from 0.6 to the Fab-installed 0.7 plugin, its old
+`<Project>/Plugins/LoomleBridge` copy must be backed up if modified and removed
+or moved outside `Plugins`. UE gives a same-named project plugin precedence over
+the engine plugin, so the old Bridge would otherwise shadow 0.7. Fab cannot
+perform this project-file migration, and the shadowed 0.7 plugin cannot detect
+it from inside that project.
+
+The active Mac/Fab workflow is manual QA only. It has read-only repository
+permission, uploads an Actions artifact, and never creates a tag, GitHub
+Release, latest alias, or public Fab submission. Windows and formal release
+promotion remain unavailable until their native Client, signing, packaging,
+and verification paths satisfy the same contract.
 
 ## Migration Order
 
@@ -207,5 +278,7 @@ source.
 8. Replace release and verification workflows.
 9. Retire the Python MCP, Cargo paths, and website bootstrap chain.
 
-Each increment must preserve workspace tests and must not activate tag-driven
-release workflows before the complete 0.7 artifact path exists.
+Each increment must preserve workspace tests. Tag-driven release workflows are
+not part of the 0.7 design; formal release promotion is a final explicit manual
+step after every advertised artifact has already passed signing and
+verification.

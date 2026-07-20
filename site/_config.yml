@@ -1,5 +1,5 @@
 title: LOOMLE
-description: Unreal Engine MCP server for Claude Code, Codex, and AI agents working with Blueprint, Material, PCG, and UMG workflows.
+description: Agent-native Unreal Engine tools for Blueprint, Widget, Class, Graph, and Asset workflows through SAL.
 url: "https://loomle.ai"
 baseurl: ""
 

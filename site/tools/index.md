@@ -1,111 +1,79 @@
 ---
 layout: default
-title: Tools
+title: Interfaces
 nav_order: 5
 has_children: true
-description: Complete public LOOMLE tool list.
+description: Loomle 0.7 MCP calls and current SAL interface modules.
+permalink: /tools/
 ---
 
-# Tools
+# Interfaces
 
-This page lists every public LOOMLE tool registered by the MCP server. Project
-and session tools come first because they decide whether the UE-facing tools can
-run at all.
+Loomle has a deliberately small MCP surface. Rich UE behavior is expressed in
+SAL Text and discovered through interface cards rather than registered as
+hundreds of independent tools.
 
-## Project and Session
+## MCP Calls
 
-- `loomle.status`: report whether the MCP session is attached to a UE project.
-- `project_list`: list known Unreal projects, online by default.
-- `project_attach`: attach this MCP session to one online LOOMLE-enabled project.
-- `project_install`: install or update `Plugins/LoomleBridge` for a UE project.
-- `schema_inspect`: read second-level operation schemas for compact edit tools.
-- `loomle`: report bridge health and runtime status after attach.
-- `context`: read active editor asset, active window, and current selection.
+| Call | Purpose |
+| --- | --- |
+| `sal_query({ text })` | Read one target using self-contained SAL Query Text. |
+| `sal_patch({ text })` | Dry-run or apply one ordered SAL Patch Text. |
+| `sal_schema({})` | Return the active interface-module index. |
+| `sal_schema({ module })` | Return one static interface card. |
+| `editor_context({})` | Read the user's current UE interaction target as SAL Object Text. |
 
-[Project and session tools](project.html)
+`sal_schema` is one MCP tool with two argument forms. Its tool description
+contains the resident SAL guide exactly once, so agents receive the basic
+language model without repeating it across every tool.
 
-## Runtime
+## Current Modules
 
-- `execute`: run Unreal-side Python inside the editor process.
-- `jobs`: inspect long-running job state, results, and logs.
-- `profiling`: read official Unreal profiling data and capture workflows.
-- `play`: inspect and control PIE play sessions.
+- [Asset](asset.html): search the UE Asset Registry and obtain exact paths.
+- [Blueprint](blueprint/): inspect and edit declarations, Graph lifecycle,
+  Components, Class Settings, compile, and save.
+- [Class](blueprint/class.html): inspect reflection and effective Defaults;
+  edit durable Blueprint Generated Class Defaults.
+- [Graph](blueprint/graph.html): inspect and edit Nodes, Pins, Edges, flow,
+  Palette-backed creation, stored layout, explicit movement, and native graph
+  health.
+- [Widget](widget/): inspect and edit authored Widget trees and Slot state.
 
-[Runtime tools](runtime.html)
+Use `sal_schema({ module: "<module>" })` as the authoritative current contract.
+The website provides orientation and examples; the Client's interface card is
+the copy that matches its installed Bridge.
 
-## Editor
+## Common Query Shape
 
-- `editor_open`: open or focus an Unreal asset editor.
-- `editor_focus`: focus a semantic panel in an asset editor.
-- `editor_screenshot`: capture the active editor window to a PNG file.
+```text
+query <bound-target>
+<one primary operation>
+[where <condition>]
+[with <detail>]
+[order by <field> asc|desc]
+[page limit <count>]
+[page after "<cursor>"]
+```
 
-[Editor tools](editor.html)
+Every Query and Patch is self-contained. Existing nested UE objects use typed
+stable references such as `graph@id`, `node@id`, `pin@id`, and `widget@id`
+inside a complete owner binding.
 
-## Assets
+## Common Patch Shape
 
-- `asset_create`: create supported Unreal assets.
-- `asset_inspect`: inspect an asset through the matching public domain surface.
-- `asset_edit`: edit asset-level metadata, with enum entries as a compatibility case.
+```text
+patch <bound-target> [dry run]
+<ordered binding or operation>
+<ordered binding or operation>
+```
 
-[Asset tools](asset.html)
+Core operations include `add`, `remove`, `set`, `reset`, `move`, `invoke`, and
+`save`. Modules add operations such as Graph `connect` and Widget `wrap`.
+Creation always starts from a Palette result; exact `with schema` gives current
+fields, constraints, and invokable UE operations.
 
-## Blueprint
+## Diagnostics
 
-- `blueprint_inspect`: inspect a Blueprint asset and class-level contract.
-- `blueprint_class_inspect`: inspect parent class and implemented interfaces.
-- `blueprint_class_edit`: edit parent class and implemented interfaces.
-- `blueprint_member_inspect`: inspect variables, functions, macros, events, dispatchers, and components.
-- `blueprint_member_edit`: edit Blueprint-owned members.
-- `blueprint_graph_list`: list graphs in a Blueprint asset.
-- `blueprint_graph_inspect`: inspect graph nodes, pins, links, and compact views.
-- `blueprint_graph_edit`: apply explicit local graph edit commands.
-- `blueprint_graph_layout`: format selected graph regions.
-- `blueprint_node_inspect`: inspect one node's pins, defaults, and node-local edit capabilities.
-- `blueprint_node_edit`: edit node-local structure such as switch cases or format-text arguments.
-- `blueprint_graph_palette`: search UE Blueprint Action Menu entries for node creation.
-- `blueprint_compile`: compile a Blueprint asset.
-
-[Blueprint tools](blueprint/)
-
-## Material
-
-- `material_list`: list material expressions in a Material asset.
-- `material_graph_inspect`: inspect expression nodes, pins, and links.
-- `material_graph_edit`: apply explicit Material graph edit commands.
-- `material_graph_layout`: format selected Material graph nodes.
-- `material_compile`: compile a Material asset and return diagnostics.
-- `material_node_inspect`: inspect one expression instance or expression class.
-- `material_node_edit`: set one editable expression property.
-- `material_palette`: search UE Material palette actions for expression creation.
-
-[Material tools](material/)
-
-## PCG
-
-- `pcg_graph_inspect`: inspect PCG graph nodes, pins, links, and defaults.
-- `pcg_palette`: search UE PCG palette actions for node creation.
-- `pcg_node_inspect`: inspect one PCG node instance or settings class.
-- `pcg_parameter_inspect`: inspect PCG graph user parameters.
-- `pcg_parameter_edit`: edit PCG graph user parameters.
-- `pcg_graph_edit`: apply explicit PCG graph edit commands.
-- `pcg_graph_layout`: format selected PCG graph nodes.
-- `pcg_compile`: validate and compile-confirm a PCG graph.
-
-[PCG tools](pcg/)
-
-## Diagnostics and Logs
-
-- `diagnostic_tail`: read structured LOOMLE diagnostics by sequence cursor.
-- `log_tail`: read Unreal output log events by sequence cursor.
-
-[Diagnostics and log tools](diagnostics.html)
-
-## Widget
-
-- `widget_palette`: search UE Widget Palette entries for UMG widget creation.
-- `widget_tree_inspect`: inspect a WidgetBlueprint WidgetTree.
-- `widget_tree_edit`: apply explicit WidgetTree edit commands.
-- `widget_inspect`: inspect one UMG widget class or WidgetTree instance.
-- `widget_compile`: compile a WidgetBlueprint and return diagnostics.
-
-[Widget tools](widget/)
+Results remain valid ordered Object Text. Compiler messages, object health,
+pagination guidance, dry-run plans, and failures are returned as adjacent SAL
+comments rather than a second response language. See [Diagnostics](diagnostics.html).

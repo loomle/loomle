@@ -1,57 +1,98 @@
 # Fab Packaging
 
-Fab packaging builds a UE plugin-first source payload. It does not include the
-native `loomle` binary, platform `Binaries/`, or Unreal build outputs, and it
-does not replace the website/GitHub release bundle.
-The tag release workflow publishes it as `loomle-fab-plugin.zip`.
+Fab packaging assembles the UE Bridge source and one matching standalone
+TypeScript Client executable into a platform-specific plugin payload. The
+assembler does not build the Client or Unreal binaries. Its only Client input
+is the canonical executable produced and tested by `packaging/client`:
 
-The staging plugin is assembled from:
+```text
+.tmp/client/<platform-arch>/loomle(.exe)
+.tmp/client/<platform-arch>/build.json
+```
 
-- `engine/LoomleBridge`
-- `mcp/python` copied to `Resources/MCP`
-- `mcp/manifest` copied to `Resources/MCP/tool-manifest`
-- `packaging/fab/FAB_PLUGIN_README.md` copied to `README.md`
+The adjacent build receipt binds that executable to the current product
+version, native target, pinned Node runtime archive, and SHA-256. It is verified
+during assembly but is not copied into the plugin. Local QA must still build
+and test the Client immediately before assembly because the receipt does not
+fingerprint the entire source checkout.
 
-`Resources/MCP` is intentionally kept outside `Content/Python`: it is an
-external stdio MCP server launched by the AI host with `uv`, not an Unreal
-Python script executed inside the editor. The Fab package does not include a
+The staged plugin is assembled from:
+
+- `engine/LoomleBridge` for the Unreal source plugin;
+- `.tmp/client/<platform-arch>/loomle(.exe)` for the standalone Client;
+- `packaging/fab/FAB_PLUGIN_README.md` for the packaged README.
+
+The Client is copied to
+`LoomleBridge/Resources/Loomle/<platform-arch>/loomle(.exe)`. The retired
+Python MCP and `Resources/MCP` are never consumed. The package has no
 `Content/` directory because `LoomleBridge` is an editor-only code plugin with
 `CanContainContent=false`.
 
-Build the source plugin package:
+Only `darwin-arm64` is accepted in the current 0.7 migration. Assembly narrows
+the derived plugin descriptor to `SupportedTargetPlatforms = ["Mac"]`, the
+`LoomleBridge` module to `PlatformAllowList = ["Mac"]`, and
+`PlatformArchitectureAllowList = ["Mac:arm64"]`. The source descriptor remains
+multi-platform development input; accepting another release target requires a
+new explicit target specification and its native verification path.
 
-```bash
-python3 packaging/fab/assemble_fab_plugin.py \
-  --repo-root . \
-  --output-dir /tmp/loomle-fab-package
+Build and test the canonical Client before assembling the Fab plugin:
+
+```sh
+npm run build:executable
+npm run test:executable
 ```
 
-The expected source package must keep:
+Then assemble one target:
+
+```bash
+node packaging/fab/assemble.mjs \
+  --repo-root . \
+  --output-dir /tmp/loomle-fab-package \
+  --target darwin-arm64
+```
+
+The assembler staging tree contains:
 
 ```text
 LoomleBridge/LoomleBridge.uplugin
 LoomleBridge/README.md
 LoomleBridge/Config/FilterPlugin.ini
 LoomleBridge/Source/LoomleBridge/LoomleBridge.Build.cs
-LoomleBridge/Resources/MCP/loomle_mcp_server.py
-LoomleBridge/Resources/MCP/tool-manifest/manifest.json
+LoomleBridge/Resources/Loomle/<platform-arch>/loomle(.exe)
 ```
 
-It must not include:
+Before UE compilation it must not include:
 
 ```text
 LoomleBridge/Binaries/
 LoomleBridge/Intermediate/
 LoomleBridge/Saved/
-*.dll, *.dylib, *.so, *.exe, *.lib, *.pdb
+LoomleBridge/Content/
+LoomleBridge/Resources/MCP/
 ```
 
-Release automation:
+Platform binaries and Unreal build outputs are rejected everywhere except for
+the one exact Client executable path. The staged descriptor version and Client
+build receipt are checked against the root product version, the receipt
+SHA-256 is checked against both source and staged Client bytes, target fields
+are checked against the accepted target, and `FilterPlugin.ini` must explicitly
+keep itself and `Resources/Loomle`.
 
-- `.github/workflows/release-loomle-fab.yml` runs after `Finalize LOOMLE Native
-  Release` completes successfully, or by explicit manual dispatch with a release tag.
-- The workflow checks that native, bridge, and Python MCP versions match the tag.
-- The workflow assembles the source plugin package, zips the `LoomleBridge/`
-  directory, and uploads `loomle-fab-plugin.zip` to the tag release.
-- The Fab asset is intentionally independent from `loomle-latest`; Fab/Epic
-  owns review, installation, and update timing for the plugin channel.
+UE BuildPlugin consumes that staging tree and produces the distributable
+plugin. The final tree must add the matching
+`Binaries/Mac/UnrealEditor-LoomleBridge.dylib`, mark the descriptor
+`Installed=true`, retain `Config/FilterPlugin.ini`, and preserve the exact
+Client bytes and executable permission. For `darwin-arm64`, both the Bridge and
+Client are arm64-only.
+
+Run the assembler tests locally:
+
+```sh
+node --test packaging/fab/assemble.test.mjs
+```
+
+Release automation must run the Client build and executable smoke test on a
+native target runner before invoking the assembler. UE BuildPlugin then compiles
+that staged source for the same architecture. The distributable archive is the
+BuildPlugin output, not the pre-build staging tree. The assembler deliberately
+has no fallback input path.

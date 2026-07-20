@@ -1,32 +1,32 @@
 # Packaging Layer
 
-This directory owns release assembly and global installation rules.
+This directory owns the Loomle 0.7 executable and Fab artifact path.
 
 Current responsibilities:
-- build release manifests
-- assemble the `loomle` binary and `LoomleBridge` plugin cache into a release bundle
-- assemble the Fab source plugin package, including the Python MCP server and shared tool manifest
-- install LOOMLE once into the current user's global install root
 
-Canonical release helper paths:
-- `client/install.sh`
-- `client/install.ps1`
-- `packaging/BOOTSTRAP_CONTRACT.md`
-- `packaging/bundle/build_release_manifest.py`
-- `packaging/bundle/assemble_release_bundle.py`
-- `packaging/manifests/`
-- `packaging/release/build_local_release.py`
+- `client/`: turn the self-contained TypeScript Client bundle into a native
+  standalone program at `.tmp/client/<platform-arch>/loomle(.exe)`;
+- `fab/`: combine the UE Bridge source with exactly one matching standalone
+  Client under `Resources/Loomle/<platform-arch>/`;
+- `tools/`: derive and verify the product version from the root
+  `package.json`;
+- `release/`: document release promotion and the currently accepted targets.
 
-Current expectations:
-- bootstrap downloads manifest + bundle directly, not an installer binary
-- release bundles contain only:
-  - `loomle(.exe)`
-  - `plugin-cache/LoomleBridge/`
-- release bundles do not include the old per-project workspace docs, guides, workflows, or examples
-- install scripts are served by `loomle.ai`, not by GitHub release assets
-- public install scripts materialize `~/.loomle` or `%USERPROFILE%\.loomle`
-- public install scripts add the global install `bin` directory to the current user's PATH
-- UE project support is installed later through MCP `project.install`
-- GitHub Releases is the canonical host for published bundle and manifest assets; `loomle.ai` serves the install scripts and site content
-- tag releases publish native assets for website installs and a separate source-only `loomle-fab-plugin.zip` asset for Fab review/submission
-- `loomle-latest` remains the website/native installer alias; Fab package review and publication are channel-owned and may lag the tag release
+The canonical local path is:
+
+```text
+npm Client build
+  -> client/dist/main.cjs
+  -> packaging/client
+  -> .tmp/client/<platform-arch>/loomle(.exe)
+  -> packaging/fab
+  -> staged LoomleBridge plugin
+```
+
+The packaged Client contains SAL, Interfaces, MCP support, and its runtime. A
+release does not depend on Rust, Python MCP, `uv`, a global Loomle installation,
+or a project-local Client copy.
+
+`darwin-arm64` is the first accepted target. Another target becomes releasable
+only after its executable builder, isolated MCP smoke test, Fab assembly, and UE
+BuildPlugin verification all pass on a native runner.

@@ -127,6 +127,7 @@
 #include "MeshSelectors/PCGSkinnedMeshSelector.h"
 #include "LoomleBlueprintAdapter.h"
 #include "EditorContext/EditorContextService.h"
+#include "LoomleSetup.h"
 #include "Sal/SalModule.h"
 #include "Sal/Reference/SalReferenceInterface.h"
 #include "LoomleMutationResult.h"
@@ -270,38 +271,30 @@ FString GetLoomleBridgePluginInstallScope(const FString& ProjectRoot, const FStr
 
 FString GetLoomleBridgePluginManagedBy(const FString& ProjectRoot, const FString& PluginBaseDir)
 {
-    const FString FabMarkerPath = FPaths::Combine(PluginBaseDir, TEXT("Resources"), TEXT("Loomle"), TEXT("package.json"));
-    const FString PythonMcpPath = FPaths::Combine(PluginBaseDir, TEXT("Resources"), TEXT("MCP"), TEXT("loomle_mcp_server.py"));
-    if (FPaths::FileExists(FabMarkerPath) || FPaths::FileExists(PythonMcpPath))
+    const FString Scope = GetLoomleBridgePluginInstallScope(ProjectRoot, PluginBaseDir);
+    const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("LoomleBridge"));
+    if (Scope.Equals(TEXT("engine")) && Plugin.IsValid() && Plugin->GetDescriptor().bInstalled)
     {
         return TEXT("fab");
-    }
-
-    const FString Scope = GetLoomleBridgePluginInstallScope(ProjectRoot, PluginBaseDir);
-    if (Scope.Equals(TEXT("project")))
-    {
-        return TEXT("native");
     }
     return TEXT("external");
 }
 
-FString GetFabPythonMcpServerPath()
+FString GetBundledLoomleClientPath()
 {
-    return FPaths::Combine(
-        GetLoomleBridgePluginBaseDir(),
-        TEXT("Resources"),
-        TEXT("MCP"),
-        TEXT("loomle_mcp_server.py"));
+    return LoomleSetup::GetBundledClientPath(GetLoomleBridgePluginBaseDir());
 }
 
-bool HasFabPythonMcpServer()
+bool HasBundledLoomleClient()
 {
-    return FPaths::FileExists(GetFabPythonMcpServerPath());
+    return LoomleSetup::HasBundledClient(GetLoomleBridgePluginBaseDir());
 }
 
 FString GetCodexConfigPath()
 {
-    return FPaths::Combine(GetLoomleHomeDirectory(), TEXT(".codex"), TEXT("config.toml"));
+    return LoomleSetup::ResolveCodexConfigPath(
+        GetLoomleHomeDirectory(),
+        FPlatformMisc::GetEnvironmentVariable(TEXT("CODEX_HOME")));
 }
 
 FString GetClaudeDesktopConfigPath()
@@ -325,353 +318,167 @@ FString GetClaudeDesktopConfigPath()
 #endif
 }
 
-bool ConfigLooksLikeLoomleAny(const FString& RawConfig)
+bool LoomleClientFileExists(const FString& Path)
 {
-    FString Lower = RawConfig.ToLower();
-    return Lower.Contains(TEXT("[mcp_servers.loomle]"))
-        || Lower.Contains(TEXT("[mcp.servers.loomle]"))
-        || (Lower.Contains(TEXT("mcpservers")) && Lower.Contains(TEXT("\"loomle\"")));
+    return IFileManager::Get().FileSize(*Path) > 0;
 }
 
-bool ConfigLooksLikeLoomleNative(const FString& RawConfig)
+LoomleSetup::FConfigAssessment AssessCodexSetup(const FString& RawConfig)
 {
-    FString Lower = RawConfig.ToLower();
-    return ConfigLooksLikeLoomleAny(RawConfig)
-        && (Lower.Contains(TEXT(".loomle/bin/loomle"))
-            || Lower.Contains(TEXT("\\.loomle\\bin\\loomle"))
-            || Lower.Contains(TEXT("loomle mcp")));
+    return LoomleSetup::AssessCodexConfig(
+        RawConfig,
+        GetBundledLoomleClientPath(),
+        HasBundledLoomleClient(),
+        GetLoomleHomeDirectory(),
+        LoomleClientFileExists);
 }
 
-bool ConfigLooksLikeLoomleFab(const FString& RawConfig)
+LoomleSetup::FConfigAssessment AssessClaudeSetup(const FString& RawConfig)
 {
-    FString Lower = RawConfig.ToLower();
-    return ConfigLooksLikeLoomleAny(RawConfig)
-        && (Lower.Contains(TEXT("loomle_mcp_server.py")) || Lower.Contains(TEXT("resources/mcp")));
+    return LoomleSetup::AssessClaudeConfig(
+        RawConfig,
+        GetBundledLoomleClientPath(),
+        HasBundledLoomleClient(),
+        GetLoomleHomeDirectory(),
+        LoomleClientFileExists);
 }
 
-bool IsNativeLoomleConfigured()
+bool IsBundledLoomleClientConfigured()
 {
     FString RawCodex;
-    if (FFileHelper::LoadFileToString(RawCodex, *GetCodexConfigPath()) && ConfigLooksLikeLoomleNative(RawCodex))
+    const FString CodexConfigPath = GetCodexConfigPath();
+    if (!CodexConfigPath.IsEmpty()
+        && FFileHelper::LoadFileToString(RawCodex, *CodexConfigPath)
+        && AssessCodexSetup(RawCodex).ExistingKind == LoomleSetup::EClientEntryKind::Bundled)
     {
         return true;
     }
 
     FString RawClaude;
-    if (FFileHelper::LoadFileToString(RawClaude, *GetClaudeDesktopConfigPath()) && ConfigLooksLikeLoomleNative(RawClaude))
-    {
-        return true;
-    }
-
-    return false;
-}
-
-enum class ELoomleMcpEntryOwner
-{
-    None,
-    Native,
-    Fab,
-    Manual
-};
-
-ELoomleMcpEntryOwner ClassifyLoomleMcpEntryOwner(const FString& RawConfig)
-{
-    if (!ConfigLooksLikeLoomleAny(RawConfig))
-    {
-        return ELoomleMcpEntryOwner::None;
-    }
-    if (ConfigLooksLikeLoomleNative(RawConfig))
-    {
-        return ELoomleMcpEntryOwner::Native;
-    }
-    if (ConfigLooksLikeLoomleFab(RawConfig))
-    {
-        return ELoomleMcpEntryOwner::Fab;
-    }
-    return ELoomleMcpEntryOwner::Manual;
-}
-
-FString LoomleMcpEntryOwnerToString(const ELoomleMcpEntryOwner Owner)
-{
-    switch (Owner)
-    {
-    case ELoomleMcpEntryOwner::Native:
-        return TEXT("native");
-    case ELoomleMcpEntryOwner::Fab:
-        return TEXT("fab");
-    case ELoomleMcpEntryOwner::Manual:
-        return TEXT("manual");
-    case ELoomleMcpEntryOwner::None:
-    default:
-        return TEXT("none");
-    }
+    return FFileHelper::LoadFileToString(RawClaude, *GetClaudeDesktopConfigPath())
+        && AssessClaudeSetup(RawClaude).ExistingKind == LoomleSetup::EClientEntryKind::Bundled;
 }
 
 struct FLoomleHostSetupResult
 {
     FString Host;
     FString ConfigPath;
-    FString Status;
     FString Message;
-    FString BackupPath;
-    ELoomleMcpEntryOwner ExistingOwner = ELoomleMcpEntryOwner::None;
+    FString SuggestedText;
+    LoomleSetup::EClientEntryKind ExistingKind = LoomleSetup::EClientEntryKind::None;
     bool bDetected = false;
-    bool bChanged = false;
+    bool bNeedsConfiguration = false;
+    bool bNeedsMigration = false;
     bool bError = false;
 };
 
-FString GetNativeLoomleCliPath()
-{
-    return FPaths::Combine(GetLoomleHomeDirectory(), TEXT(".loomle"), TEXT("bin"), TEXT("loomle"));
-}
-
-FString GetSetupPanelMcpServerOwner()
-{
-    return HasFabPythonMcpServer() ? TEXT("Fab Python MCP") : TEXT("native loomle MCP");
-}
-
-bool HasSetupPanelMcpServerPayload()
-{
-    return HasFabPythonMcpServer() || FPaths::FileExists(GetNativeLoomleCliPath());
-}
-
-bool MakeBackupIfNeeded(const FString& ConfigPath, FString& OutBackupPath, FString& OutError)
-{
-    OutBackupPath.Reset();
-    if (!FPaths::FileExists(ConfigPath))
-    {
-        return true;
-    }
-    OutBackupPath = FString::Printf(TEXT("%s.loomle-backup-%lld"), *ConfigPath, static_cast<long long>(FDateTime::UtcNow().ToUnixTimestamp()));
-    if (IFileManager::Get().Copy(*OutBackupPath, *ConfigPath, true, true) != COPY_OK)
-    {
-        OutError = FString::Printf(TEXT("Failed to back up %s"), *ConfigPath);
-        return false;
-    }
-    return true;
-}
-
-FString TomlQuotedString(const FString& Value)
-{
-    FString Escaped = Value.Replace(TEXT("\\"), TEXT("\\\\")).Replace(TEXT("\""), TEXT("\\\""));
-    return FString::Printf(TEXT("\"%s\""), *Escaped);
-}
-
-bool BuildRecommendedMcpConfig(TSharedPtr<FJsonObject>& OutJsonConfig, FString& OutCodexToml, FString& OutError)
-{
-    FString Command;
-    TArray<FString> Args;
-    if (HasFabPythonMcpServer())
-    {
-        const FString McpDir = FPaths::GetPath(GetFabPythonMcpServerPath());
-        Command = TEXT("uv");
-        Args = { TEXT("--directory"), McpDir, TEXT("run"), TEXT("loomle_mcp_server.py") };
-    }
-    else
-    {
-        Command = GetNativeLoomleCliPath();
-        if (!FPaths::FileExists(Command))
-        {
-            OutError = TEXT("Native loomle CLI was not found and Fab Python MCP is unavailable.");
-            return false;
-        }
-        Args = { TEXT("mcp") };
-    }
-
-    OutJsonConfig = MakeShared<FJsonObject>();
-    OutJsonConfig->SetStringField(TEXT("command"), Command);
-    TArray<TSharedPtr<FJsonValue>> JsonArgs;
-    TArray<FString> TomlArgs;
-    for (const FString& Arg : Args)
-    {
-        JsonArgs.Add(MakeShared<FJsonValueString>(Arg));
-        TomlArgs.Add(TomlQuotedString(Arg));
-    }
-    OutJsonConfig->SetArrayField(TEXT("args"), JsonArgs);
-
-    OutCodexToml = TEXT("\n[mcp_servers.loomle]\n");
-    OutCodexToml += FString::Printf(TEXT("command = %s\n"), *TomlQuotedString(Command));
-    OutCodexToml += FString::Printf(TEXT("args = [%s]\n"), *FString::Join(TomlArgs, TEXT(", ")));
-    return true;
-}
-
-FLoomleHostSetupResult AutoConfigureCodexIfSafe()
+FLoomleHostSetupResult AssessCodexHost()
 {
     FLoomleHostSetupResult Result;
     Result.Host = TEXT("Codex");
     Result.ConfigPath = GetCodexConfigPath();
 
+    if (Result.ConfigPath.IsEmpty())
+    {
+        const FString CodexHome = FPlatformMisc::GetEnvironmentVariable(TEXT("CODEX_HOME")).TrimStartAndEnd();
+        Result.bDetected = !CodexHome.IsEmpty();
+        Result.Message = Result.bDetected
+            ? TEXT("CODEX_HOME is set but is not an absolute, normalized config directory. Codex configuration was left unchanged.")
+            : TEXT("Codex config path could not be resolved.");
+        Result.bError = Result.bDetected;
+        return Result;
+    }
+
     const FString ConfigDir = FPaths::GetPath(Result.ConfigPath);
     Result.bDetected = FPaths::DirectoryExists(ConfigDir) || FPaths::FileExists(Result.ConfigPath);
     if (!Result.bDetected)
     {
-        Result.Status = TEXT("notDetected");
         Result.Message = TEXT("Codex was not detected.");
+        Result.SuggestedText = AssessCodexSetup(FString()).SuggestedText;
         return Result;
     }
 
     FString RawConfig;
-    FFileHelper::LoadFileToString(RawConfig, *Result.ConfigPath);
-    Result.ExistingOwner = ClassifyLoomleMcpEntryOwner(RawConfig);
-    if (Result.ExistingOwner != ELoomleMcpEntryOwner::None)
+    if (FPaths::FileExists(Result.ConfigPath)
+        && !FFileHelper::LoadFileToString(RawConfig, *Result.ConfigPath))
     {
-        Result.Status = TEXT("keptExisting");
-        Result.Message = FString::Printf(TEXT("Codex already has a Loomle MCP entry (%s). Keeping it unchanged."), *LoomleMcpEntryOwnerToString(Result.ExistingOwner));
-        return Result;
-    }
-
-    TSharedPtr<FJsonObject> JsonConfig;
-    FString CodexToml;
-    FString Error;
-    if (!BuildRecommendedMcpConfig(JsonConfig, CodexToml, Error))
-    {
-        Result.Status = TEXT("blocked");
-        Result.Message = Error;
+        Result.Message = FString::Printf(
+            TEXT("Codex config could not be read. No configuration change was attempted: %s"),
+            *Result.ConfigPath);
         Result.bError = true;
         return Result;
     }
 
-    if (!MakeBackupIfNeeded(Result.ConfigPath, Result.BackupPath, Error))
-    {
-        Result.Status = TEXT("blocked");
-        Result.Message = Error;
-        Result.bError = true;
-        return Result;
-    }
-
-    FString Output = RawConfig;
-    if (!Output.IsEmpty() && !Output.EndsWith(TEXT("\n")))
-    {
-        Output += TEXT("\n");
-    }
-    Output += CodexToml;
-    if (!FFileHelper::SaveStringToFile(Output, *Result.ConfigPath))
-    {
-        Result.Status = TEXT("blocked");
-        Result.Message = FString::Printf(TEXT("Failed to write Codex config: %s"), *Result.ConfigPath);
-        Result.bError = true;
-        return Result;
-    }
-
-    Result.Status = TEXT("configured");
-    Result.Message = FString::Printf(TEXT("Codex was configured automatically using %s."), *GetSetupPanelMcpServerOwner());
-    Result.bChanged = true;
+    const LoomleSetup::FConfigAssessment Assessment = AssessCodexSetup(RawConfig);
+    Result.ExistingKind = Assessment.ExistingKind;
+    Result.Message = Assessment.Message;
+    Result.SuggestedText = Assessment.SuggestedText;
+    Result.bNeedsConfiguration = Assessment.bNeedsConfiguration;
+    Result.bNeedsMigration = Assessment.bNeedsMigration;
+    Result.bError = Assessment.bBlocked;
     return Result;
 }
 
-FLoomleHostSetupResult AutoConfigureClaudeIfSafe()
+FLoomleHostSetupResult AssessClaudeHost()
 {
     FLoomleHostSetupResult Result;
-    Result.Host = TEXT("Claude");
+    Result.Host = TEXT("Claude Desktop");
     Result.ConfigPath = GetClaudeDesktopConfigPath();
 
     const FString ConfigDir = FPaths::GetPath(Result.ConfigPath);
     Result.bDetected = FPaths::DirectoryExists(ConfigDir) || FPaths::FileExists(Result.ConfigPath);
     if (!Result.bDetected)
     {
-        Result.Status = TEXT("notDetected");
-        Result.Message = TEXT("Claude was not detected.");
+        Result.Message = TEXT("Claude Desktop was not detected.");
+        Result.SuggestedText = AssessClaudeSetup(FString()).SuggestedText;
         return Result;
     }
 
     FString RawConfig;
-    FFileHelper::LoadFileToString(RawConfig, *Result.ConfigPath);
-    Result.ExistingOwner = ClassifyLoomleMcpEntryOwner(RawConfig);
-    if (Result.ExistingOwner != ELoomleMcpEntryOwner::None)
+    if (FPaths::FileExists(Result.ConfigPath)
+        && !FFileHelper::LoadFileToString(RawConfig, *Result.ConfigPath))
     {
-        Result.Status = TEXT("keptExisting");
-        Result.Message = FString::Printf(TEXT("Claude already has a Loomle MCP entry (%s). Keeping it unchanged."), *LoomleMcpEntryOwnerToString(Result.ExistingOwner));
-        return Result;
-    }
-
-    TSharedPtr<FJsonObject> LoomleConfig;
-    FString CodexToml;
-    FString Error;
-    if (!BuildRecommendedMcpConfig(LoomleConfig, CodexToml, Error))
-    {
-        Result.Status = TEXT("blocked");
-        Result.Message = Error;
+        Result.Message = FString::Printf(
+            TEXT("Claude Desktop config could not be read. No configuration change was attempted: %s"),
+            *Result.ConfigPath);
         Result.bError = true;
         return Result;
     }
 
-    TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
-    if (!RawConfig.TrimStartAndEnd().IsEmpty())
-    {
-        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RawConfig);
-        if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
-        {
-            Result.Status = TEXT("blocked");
-            Result.Message = FString::Printf(TEXT("Claude config exists but is not valid JSON: %s"), *Result.ConfigPath);
-            Result.bError = true;
-            return Result;
-        }
-    }
-
-    const TSharedPtr<FJsonObject>* ExistingMcpServers = nullptr;
-    TSharedPtr<FJsonObject> McpServers;
-    if (Root->TryGetObjectField(TEXT("mcpServers"), ExistingMcpServers) && ExistingMcpServers != nullptr && (*ExistingMcpServers).IsValid())
-    {
-        McpServers = *ExistingMcpServers;
-    }
-    else if (Root->HasField(TEXT("mcpServers")))
-    {
-        Result.Status = TEXT("blocked");
-        Result.Message = TEXT("Claude config mcpServers exists but is not an object.");
-        Result.bError = true;
-        return Result;
-    }
-    else
-    {
-        McpServers = MakeShared<FJsonObject>();
-        Root->SetObjectField(TEXT("mcpServers"), McpServers);
-    }
-    McpServers->SetObjectField(TEXT("loomle"), LoomleConfig);
-
-    if (!MakeBackupIfNeeded(Result.ConfigPath, Result.BackupPath, Error))
-    {
-        Result.Status = TEXT("blocked");
-        Result.Message = Error;
-        Result.bError = true;
-        return Result;
-    }
-
-    FString Output;
-    const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Output);
-    FJsonSerializer::Serialize(Root.ToSharedRef(), Writer);
-    if (!FFileHelper::SaveStringToFile(Output + TEXT("\n"), *Result.ConfigPath))
-    {
-        Result.Status = TEXT("blocked");
-        Result.Message = FString::Printf(TEXT("Failed to write Claude config: %s"), *Result.ConfigPath);
-        Result.bError = true;
-        return Result;
-    }
-
-    Result.Status = TEXT("configured");
-    Result.Message = FString::Printf(TEXT("Claude was configured automatically using %s."), *GetSetupPanelMcpServerOwner());
-    Result.bChanged = true;
+    const LoomleSetup::FConfigAssessment Assessment = AssessClaudeSetup(RawConfig);
+    Result.ExistingKind = Assessment.ExistingKind;
+    Result.Message = Assessment.Message;
+    Result.SuggestedText = Assessment.SuggestedText;
+    Result.bNeedsConfiguration = Assessment.bNeedsConfiguration;
+    Result.bNeedsMigration = Assessment.bNeedsMigration;
+    Result.bError = Assessment.bBlocked;
     return Result;
 }
 
-struct FSetupAutoConfigureSummary
+struct FSetupAssessmentSummary
 {
     TArray<FLoomleHostSetupResult> Hosts;
     bool bAnyDetected = false;
-    bool bAnyConfigured = false;
-    bool bAnyExisting = false;
+    bool bAnyCurrent = false;
+    bool bAnyNeedsConfiguration = false;
+    bool bAnyNeedsMigration = false;
+    bool bAnyManual = false;
     bool bAnyBlocked = false;
 };
 
-FSetupAutoConfigureSummary AutoConfigureDetectedHostsIfSafe()
+FSetupAssessmentSummary AssessDetectedHosts()
 {
-    FSetupAutoConfigureSummary Summary;
-    Summary.Hosts.Add(AutoConfigureCodexIfSafe());
-    Summary.Hosts.Add(AutoConfigureClaudeIfSafe());
+    FSetupAssessmentSummary Summary;
+    Summary.Hosts.Add(AssessCodexHost());
+    Summary.Hosts.Add(AssessClaudeHost());
     for (const FLoomleHostSetupResult& Host : Summary.Hosts)
     {
         Summary.bAnyDetected = Summary.bAnyDetected || Host.bDetected;
-        Summary.bAnyConfigured = Summary.bAnyConfigured || Host.bChanged;
-        Summary.bAnyExisting = Summary.bAnyExisting || Host.ExistingOwner != ELoomleMcpEntryOwner::None;
+        Summary.bAnyCurrent = Summary.bAnyCurrent || Host.ExistingKind == LoomleSetup::EClientEntryKind::Bundled;
+        Summary.bAnyNeedsConfiguration = Summary.bAnyNeedsConfiguration || Host.bNeedsConfiguration;
+        Summary.bAnyNeedsMigration = Summary.bAnyNeedsMigration || Host.bNeedsMigration;
+        Summary.bAnyManual = Summary.bAnyManual
+            || (!Host.bError && Host.ExistingKind == LoomleSetup::EClientEntryKind::Manual);
         Summary.bAnyBlocked = Summary.bAnyBlocked || Host.bError;
     }
     return Summary;
@@ -5270,7 +5077,10 @@ TSharedRef<SWidget> FLoomleBridgeModule::CreateSetupStatusPanel()
     const FString ProjectRoot = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
     const FString InstallScope = GetLoomleBridgePluginInstallScope(ProjectRoot, PluginBaseDir);
     const FString ManagedBy = GetLoomleBridgePluginManagedBy(ProjectRoot, PluginBaseDir);
-    const bool bFabPythonAvailable = HasFabPythonMcpServer();
+    const bool bBundledClientAvailable = HasBundledLoomleClient();
+    const FString BundledClientTarget = LoomleSetup::GetCurrentClientTarget();
+    const FString BundledClientPath = GetBundledLoomleClientPath();
+    const FString CodexConfigPath = GetCodexConfigPath();
     const bool bReady = bBridgeRunningSnapshot.Load() && bPythonReadySnapshot.Load();
     const int32 ActiveConnectionCount = PipeServer.IsValid() ? PipeServer->GetActiveConnectionCount() : 0;
     const bool bClientConnected = ActiveConnectionCount > 0;
@@ -5287,60 +5097,103 @@ TSharedRef<SWidget> FLoomleBridgeModule::CreateSetupStatusPanel()
     {
         ClientStatus = TEXT("not connected");
     }
+    else
+    {
+        ClientStatus = TEXT("not connected");
+    }
     const FString LastActivityText = bHasAnyClientActivity ? ClientDetail : TEXT("none since editor start");
-    const FSetupAutoConfigureSummary SetupSummary = bReady ? AutoConfigureDetectedHostsIfSafe() : FSetupAutoConfigureSummary();
+    const FSetupAssessmentSummary SetupSummary = bReady ? AssessDetectedHosts() : FSetupAssessmentSummary();
 
-    TArray<FString> ConfiguredHosts;
-    TArray<FString> ExistingHosts;
+    TArray<FString> CurrentHosts;
+    TArray<FString> MigrationHosts;
+    TArray<FString> MissingHosts;
+    TArray<FString> ManualHosts;
     TArray<FString> BlockedMessages;
     for (const FLoomleHostSetupResult& Host : SetupSummary.Hosts)
     {
-        if (Host.bChanged)
-        {
-            ConfiguredHosts.Add(Host.Host);
-        }
-        else if (Host.ExistingOwner != ELoomleMcpEntryOwner::None)
-        {
-            ExistingHosts.Add(Host.Host);
-        }
-        else if (Host.bError)
+        if (Host.bError)
         {
             BlockedMessages.AddUnique(Host.Message);
+        }
+        else if (Host.bNeedsMigration)
+        {
+            MigrationHosts.Add(Host.Host);
+        }
+        else if (Host.bNeedsConfiguration)
+        {
+            MissingHosts.Add(Host.Host);
+        }
+        else if (Host.ExistingKind == LoomleSetup::EClientEntryKind::Bundled)
+        {
+            CurrentHosts.Add(Host.Host);
+        }
+        else if (Host.ExistingKind == LoomleSetup::EClientEntryKind::Manual)
+        {
+            ManualHosts.Add(Host.Host);
         }
     }
 
     FString PanelTitle = TEXT("Loomle ") + GetToolbarStatusKey();
     FString MainText = GetSetupPanelNextActionText().ToString();
-    const bool bShowSetupPrompt = bReady && !SetupSummary.bAnyDetected;
+    const bool bShowSetupPrompt = bReady
+        && bBundledClientAvailable
+        && (!SetupSummary.bAnyDetected || SetupSummary.bAnyNeedsConfiguration || SetupSummary.bAnyNeedsMigration);
     if (bReady)
     {
         if (bClientConnected)
         {
             MainText = TEXT("Bridge is ready.\n\nAI client connected to this Unreal project.");
         }
-        else if (!ConfiguredHosts.IsEmpty())
+        else if (SetupSummary.bAnyBlocked)
         {
-            MainText = FString::Printf(
-                TEXT("Bridge is ready.\n\n%s %s configured. Restart or refresh your AI tool."),
-                *FString::Join(ConfiguredHosts, TEXT(" and ")),
-                ConfiguredHosts.Num() == 1 ? TEXT("was") : TEXT("were"));
-        }
-        else if (!ExistingHosts.IsEmpty())
-        {
-            MainText = TEXT("Bridge is ready.\n\nMCP setup found. No AI client is connected right now.");
-        }
-        else if (SetupSummary.bAnyDetected && SetupSummary.bAnyBlocked)
-        {
-            if (!HasSetupPanelMcpServerPayload())
+            if (!bBundledClientAvailable)
             {
-                MainText = TEXT("Bridge is ready.\n\nMCP setup found, but no MCP server payload is available.");
+                MainText = FString::Printf(
+                    TEXT("Bridge is ready.\n\nThe bundled Loomle Client is missing at %s. Reinstall or update the plugin."),
+                    *BundledClientPath);
             }
             else
             {
                 MainText = BlockedMessages.IsEmpty()
-                ? TEXT("Bridge is ready.\n\nMCP config found. Loomle did not change it automatically.")
+                ? TEXT("Bridge is ready.\n\nMCP config assessment was blocked. Loomle did not change any host configuration.")
                 : FString::Printf(TEXT("Bridge is ready.\n\n%s"), *FString::Join(BlockedMessages, TEXT("\n")));
             }
+            if (!MigrationHosts.IsEmpty() || !MissingHosts.IsEmpty())
+            {
+                MainText += TEXT("\n\nOther host configuration also needs attention. The setup prompt lists each host separately.");
+            }
+        }
+        else if (!MigrationHosts.IsEmpty())
+        {
+            MainText = FString::Printf(
+                TEXT("Bridge is ready.\n\n%s uses a legacy or stale Loomle entry. Loomle did not change it. Copy the setup prompt to migrate."),
+                *FString::Join(MigrationHosts, TEXT(" and ")));
+        }
+        else if (!MissingHosts.IsEmpty())
+        {
+            MainText = FString::Printf(
+                TEXT("Bridge is ready.\n\n%s has no recognized Loomle MCP entry. Copy the setup prompt for host-specific guidance."),
+                *FString::Join(MissingHosts, TEXT(" and ")));
+        }
+        else if (!CurrentHosts.IsEmpty())
+        {
+            MainText = FString::Printf(
+                TEXT("Bridge is ready.\n\n%s has a current Loomle MCP entry. No AI client is connected right now."),
+                *FString::Join(CurrentHosts, TEXT(" and ")));
+        }
+        else if (!ManualHosts.IsEmpty())
+        {
+            MainText = FString::Printf(
+                TEXT("Bridge is ready.\n\n%s has a custom Loomle MCP entry. Loomle kept it unchanged."),
+                *FString::Join(ManualHosts, TEXT(" and ")));
+        }
+        else if (!bBundledClientAvailable)
+        {
+            MainText = BundledClientPath.IsEmpty()
+                ? TEXT("Bridge is ready.\n\nThis platform does not have a compatible bundled Loomle Client target.")
+                : FString::Printf(
+                    TEXT("Bridge is ready.\n\nThe bundled Loomle Client is missing at %s. Reinstall or update the plugin."),
+                    *BundledClientPath);
         }
         else
         {
@@ -5349,19 +5202,31 @@ TSharedRef<SWidget> FLoomleBridgeModule::CreateSetupStatusPanel()
     }
 
     const FString AdvancedText = FString::Printf(
-        TEXT("Bridge: %s\nProject: %s\nEndpoint: %s\n\nMCP setup: %s\nMCP connection: %s\nLast activity: %s\n\nPlugin: %s\nVersion: %s\nScope: %s\nManaged by: %s\nPython MCP: %s\n\nCodex config: %s\nClaude config: %s"),
+        TEXT("Bridge: %s\nProject: %s\nEndpoint: %s\n\nMCP setup: %s\nMCP connection: %s\nLast activity: %s\n\nPlugin: %s\nVersion: %s\nScope: %s\nManaged by: %s\n\nClient payload: %s\nClient target: %s\nClient path: %s\n\nCodex config: %s\nClaude Desktop config: %s"),
         *BridgeStatus,
         FApp::GetProjectName(),
         *GetRuntimeEndpointDisplayString(),
-        SetupSummary.bAnyDetected ? TEXT("found") : TEXT("not found"),
+        SetupSummary.bAnyBlocked
+            ? TEXT("blocked")
+            : SetupSummary.bAnyNeedsMigration
+                ? TEXT("needs migration")
+                : SetupSummary.bAnyNeedsConfiguration
+                    ? TEXT("missing")
+                    : SetupSummary.bAnyCurrent
+                        ? TEXT("current")
+                        : SetupSummary.bAnyManual
+                            ? TEXT("manual kept")
+                            : TEXT("not found"),
         *ClientStatus,
         *LastActivityText,
         *PluginBaseDir,
         *GetLoomleBridgePluginVersion(),
         *InstallScope,
         *ManagedBy,
-        bFabPythonAvailable ? TEXT("available") : TEXT("missing"),
-        *GetCodexConfigPath(),
+        bBundledClientAvailable ? TEXT("available") : TEXT("missing"),
+        BundledClientTarget.IsEmpty() ? TEXT("unsupported") : *BundledClientTarget,
+        BundledClientPath.IsEmpty() ? TEXT("unsupported") : *BundledClientPath,
+        CodexConfigPath.IsEmpty() ? TEXT("invalid CODEX_HOME") : *CodexConfigPath,
         *GetClaudeDesktopConfigPath());
 
     return SNew(SBox)
@@ -5551,24 +5416,84 @@ FText FLoomleBridgeModule::GetSetupPanelNextActionText() const
     {
         return FText::FromString(TEXT("Bridge is starting. Wait for Unreal Python to finish initializing, then refresh your MCP host."));
     }
-    if (IsNativeLoomleConfigured())
+    if (IsBundledLoomleClientConfigured())
     {
         return FText::FromString(TEXT("Loomle is ready. Your existing Loomle MCP setup can connect to this Unreal project."));
     }
-    if (HasFabPythonMcpServer())
+    if (HasBundledLoomleClient())
     {
-        return FText::FromString(TEXT("Loomle is ready. I will configure detected AI tools automatically."));
+        return FText::FromString(TEXT("Loomle is ready. Copy the setup prompt to configure an AI tool with the bundled Loomle Client."));
     }
-    if (!FPaths::FileExists(GetNativeLoomleCliPath()))
-    {
-        return FText::FromString(TEXT("Loomle Bridge is ready, but no MCP server payload is available for automatic setup."));
-    }
-    return FText::FromString(TEXT("Loomle is ready. Install native LOOMLE or use a Fab package with bundled Python MCP to connect an AI tool."));
+    return FText::FromString(TEXT("Loomle Bridge is ready, but this plugin does not contain the bundled Loomle Client required for MCP setup."));
 }
 
 FString FLoomleBridgeModule::GetSetupPanelSetupPrompt() const
 {
-    return TEXT("Set up Loomle MCP for this machine if needed, then use Loomle to attach to my open Unreal project and read the current project context before making changes. If setup is not complete, follow https://loomle.ai/install.html and configure an MCP server named \"loomle\".");
+    const FString ClientPath = GetBundledLoomleClientPath();
+    if (ClientPath.IsEmpty() || !HasBundledLoomleClient())
+    {
+        return TEXT("The LoomleBridge plugin does not contain a compatible bundled Loomle Client. Reinstall or update the plugin before configuring MCP. See https://loomle.ai/install.html.");
+    }
+
+    const FSetupAssessmentSummary Summary = AssessDetectedHosts();
+    TArray<FString> HostInstructions;
+    for (const FLoomleHostSetupResult& Host : Summary.Hosts)
+    {
+        if (Host.bError)
+        {
+            HostInstructions.Add(FString::Printf(
+                TEXT("%s — BLOCKED. Do not edit %s. %s"),
+                *Host.Host,
+                Host.ConfigPath.IsEmpty() ? TEXT("its config") : *Host.ConfigPath,
+                *Host.Message));
+        }
+        else if (Host.ExistingKind == LoomleSetup::EClientEntryKind::Bundled)
+        {
+            HostInstructions.Add(FString::Printf(
+                TEXT("%s — CURRENT. Do not edit %s; it already points to a compatible bundled Loomle Client."),
+                *Host.Host,
+                *Host.ConfigPath));
+        }
+        else if (Host.ExistingKind == LoomleSetup::EClientEntryKind::Manual)
+        {
+            HostInstructions.Add(FString::Printf(
+                TEXT("%s — MANUAL. Do not edit %s; Loomle does not own this custom entry."),
+                *Host.Host,
+                *Host.ConfigPath));
+        }
+        else if (Host.bNeedsMigration)
+        {
+            HostInstructions.Add(FString::Printf(
+                TEXT("%s — NEEDS MIGRATION. Validate %s, preserve unrelated settings, and replace only the legacy or stale Loomle entry with:\n%s"),
+                *Host.Host,
+                *Host.ConfigPath,
+                *Host.SuggestedText));
+        }
+        else if (Host.bNeedsConfiguration)
+        {
+            HostInstructions.Add(FString::Printf(
+                TEXT("%s — MISSING. Validate %s first, preserve unrelated settings, and merge this Loomle entry:\n%s"),
+                *Host.Host,
+                *Host.ConfigPath,
+                *Host.SuggestedText));
+        }
+        else
+        {
+            HostInstructions.Add(FString::Printf(
+                TEXT("%s — NOT DETECTED. Do not edit anything unless %s is the requesting host. If it is, create or merge %s using:\n%s"),
+                *Host.Host,
+                *Host.Host,
+                Host.ConfigPath.IsEmpty() ? TEXT("its config") : *Host.ConfigPath,
+                *Host.SuggestedText));
+        }
+    }
+
+    return FString::Printf(
+        TEXT("Set up only the requesting MCP host. Never replace unrelated host configuration. "
+             "The bundled command is \"%s\" and its single argument is \"mcp\".\n\n%s\n\n"
+             "After the requesting host is configured, use Loomle to attach to my open Unreal project and read the current project context before making changes."),
+        *ClientPath,
+        *FString::Join(HostInstructions, TEXT("\n\n")));
 }
 
 FReply FLoomleBridgeModule::CopySetupPrompt()

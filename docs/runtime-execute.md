@@ -1,5 +1,10 @@
 # Runtime Execute
 
+> **Status: current Bridge-internal design.** The Unreal Bridge still implements
+> `execute`, but the current 0.7 TypeScript Client exposes only `sal_query`,
+> `sal_patch`, `sal_schema`, and `editor_context`. Until a dedicated Client
+> adapter is designed and shipped, `execute` is not a public MCP tool.
+
 ## Intent
 
 `execute` is the Unreal-side Python escape hatch for editor tasks that do not
@@ -46,12 +51,17 @@ paths before mutation.
 
 If the editor process crashes during arbitrary Python execution, the active RPC
 connection may disappear before Loomle can produce a normal execute result.
-After reconnect, callers should inspect:
+After reconnect, Bridge-side investigation should inspect:
 
-- `status` for attachment and runtime health
-- `diagnostic_tail` for recent structured Loomle errors
-- `log_tail` for Unreal output log context
+- `rpc.health` for Bridge and runtime health
+- `diagnostic.tail` for recent structured Loomle errors
+- `log.tail` for Unreal output log context
 - project `Saved/Crashes` for UE crash context when available
+
+The first three entries are Bridge RPC capabilities, not tools exposed by the
+current four-tool TypeScript Client. Until their Client adapters exist, use
+Bridge diagnostics during development or inspect the persisted evidence under
+`Saved/Loomle` and `Saved/Crashes` directly.
 
 If `execute` reports `Python runtime is not initialized`, retry after the editor
 finishes loading. Loomle calls `ForceEnablePythonAtRuntime()` before returning

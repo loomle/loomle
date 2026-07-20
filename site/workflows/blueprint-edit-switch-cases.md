@@ -7,15 +7,40 @@ nav_order: 2
 
 # Edit Blueprint Switch Cases
 
-Recommended sequence:
+Dynamic switch cases belong to the owning Node. Loomle does not expose a
+second artificial Case object or ask the agent to manipulate raw Pins.
 
-1. `blueprint_graph_inspect` with `view: "overview"` to find the switch node.
-2. If the node has `hasNodeEditCapabilities: true`, call
-   `blueprint_node_inspect`.
-3. Read `editCapabilities` and current case pins.
-4. `schema_inspect` for the needed `blueprint_node_edit` operation.
-5. `blueprint_node_edit` to add, remove, or rename the case.
-6. `blueprint_compile`.
+Read the exact switch Node and its current capabilities:
 
-Use `blueprint_node_edit` for cases. Use `blueprint_graph_edit` for links and
-pin defaults around the node.
+```sal
+door = blueprint(
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
+eventGraph = graph(asset: door, id: "graph-guid")
+
+query eventGraph
+node@switch-node-guid
+with schema
+```
+
+The schema returns only UE operations available for that resolved Node,
+including their exact parameters and a copyable `invoke` template. Use that
+template in a dry run:
+
+```sal
+door = blueprint(
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
+eventGraph = graph(asset: door, id: "graph-guid")
+
+patch eventGraph dry run
+invoke node@switch-node-guid AddExecutionPin() as addedPin
+```
+
+Review the returned Pins and planned effects, then apply. Finish by compiling
+and saving the owning Blueprint in a separate terminal Patch. Never infer an
+operation from the display title of a similar switch Node. The example applies
+only when exact schema advertises `AddExecutionPin()`; otherwise copy the
+operation template it actually returns.
