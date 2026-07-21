@@ -1,8 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { createConnection } from "node:net";
 import type { Duplex } from "node:stream";
 
+let runtimeClientSequence = 0;
+
 export interface RpcInvoker {
-  invoke(tool: string, args: Record<string, unknown>): Promise<unknown>;
+  invoke(tool: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
 }
 
 export type EndpointConnector = (endpoint: string) => Promise<Duplex>;
@@ -28,6 +31,8 @@ interface PendingRequest {
   resolve(value: unknown): void;
   reject(error: Error): void;
   timer: NodeJS.Timeout;
+  signal?: AbortSignal;
+  abortListener?: () => void;
 }
 
 interface JsonRpcResponse {
@@ -48,6 +53,8 @@ export class RuntimeRpcClient implements RpcInvoker {
   private connecting?: Promise<Duplex>;
   private buffer = "";
   private sequence = 0;
+  private connectionGeneration = 0;
+  private readonly instanceNonce = `${++runtimeClientSequence}-${randomUUID()}`;
   private readonly pending = new Map<string, PendingRequest>();
   private capabilitiesPromise?: Promise<ReadonlySet<string>>;
 
@@ -57,8 +64,18 @@ export class RuntimeRpcClient implements RpcInvoker {
     private readonly requestTimeoutMs = DEFAULT_RUNTIME_REQUEST_TIMEOUT_MS,
   ) {}
 
-  async invoke(tool: string, args: Record<string, unknown>): Promise<unknown> {
-    const result = await this.request("rpc.invoke", { tool, args });
+  async invoke(
+    tool: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const cancellationToken = randomUUID();
+    const result = await this.request(
+      "rpc.invoke",
+      { tool, args, cancellationToken },
+      signal,
+      cancellationToken,
+    );
     if (!isRecord(result) || result.ok !== true) {
       throw new RuntimeRpcError(
         "runtime.invalid_invoke_result",
@@ -69,8 +86,17 @@ export class RuntimeRpcClient implements RpcInvoker {
   }
 
   async requireTools(required: readonly string[]): Promise<void> {
-    this.capabilitiesPromise ??= this.loadCapabilities();
-    const tools = await this.capabilitiesPromise;
+    const capabilities = this.capabilitiesPromise ?? this.loadCapabilities();
+    this.capabilitiesPromise = capabilities;
+    let tools: ReadonlySet<string>;
+    try {
+      tools = await capabilities;
+    } catch (error) {
+      if (this.capabilitiesPromise === capabilities) {
+        this.capabilitiesPromise = undefined;
+      }
+      throw error;
+    }
     const missing = required.filter((tool) => !tools.has(tool));
     if (missing.length > 0) {
       throw new RuntimeRpcError(
@@ -81,29 +107,54 @@ export class RuntimeRpcClient implements RpcInvoker {
     }
   }
 
-  async request(method: string, params: Record<string, unknown>): Promise<unknown> {
+  async request(
+    method: string,
+    params: Record<string, unknown>,
+    signal?: AbortSignal,
+    cancellationToken?: string,
+  ): Promise<unknown> {
+    throwIfAborted(signal);
     const socket = await this.ensureConnected();
-    const id = `loomle-ts-${process.pid}-${++this.sequence}`;
+    throwIfAborted(signal);
+    const id = `loomle-ts-${process.pid}-${this.instanceNonce}-${++this.sequence}`;
     const line = `${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`;
 
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new RuntimeRpcError(
+        const pending = this.takePending(id);
+        if (!pending) return;
+        if (cancellationToken) this.sendCancellation(cancellationToken);
+        pending.reject(new RuntimeRpcError(
           "runtime.request_timeout",
           `Loomle runtime did not answer ${method} within ${this.requestTimeoutMs}ms.`,
           true,
         ));
       }, this.requestTimeoutMs);
       timer.unref?.();
-      this.pending.set(id, { resolve, reject, timer });
+      const abortListener = signal ? () => {
+        const pending = this.takePending(id);
+        if (!pending) return;
+        if (cancellationToken) this.sendCancellation(cancellationToken);
+        pending.reject(new RuntimeRpcError(
+          "runtime.request_cancelled",
+          `Loomle runtime request ${method} was cancelled.`,
+          false,
+        ));
+      } : undefined;
+      this.pending.set(id, { resolve, reject, timer, signal, abortListener });
+      if (signal && abortListener) {
+        signal.addEventListener("abort", abortListener, { once: true });
+      }
+
+      if (signal?.aborted && abortListener) {
+        abortListener();
+        return;
+      }
 
       socket.write(line, (error?: Error | null) => {
         if (!error) return;
-        const pending = this.pending.get(id);
+        const pending = this.takePending(id);
         if (!pending) return;
-        this.pending.delete(id);
-        clearTimeout(pending.timer);
         pending.reject(new RuntimeRpcError(
           "runtime.write_failed",
           "Failed to write a request to the Loomle runtime.",
@@ -115,6 +166,7 @@ export class RuntimeRpcClient implements RpcInvoker {
   }
 
   close(): void {
+    this.connectionGeneration += 1;
     const error = new RuntimeRpcError(
       "runtime.connection_closed",
       "The Loomle runtime connection was closed.",
@@ -144,10 +196,23 @@ export class RuntimeRpcClient implements RpcInvoker {
     if (this.socket && !this.socket.destroyed) return this.socket;
     if (this.connecting) return this.connecting;
 
-    this.connecting = this.connector(this.endpoint).then((socket) => {
+    const generation = this.connectionGeneration;
+    let connection: Promise<Duplex>;
+    connection = this.connector(this.endpoint).then((socket) => {
+      if (generation !== this.connectionGeneration) {
+        socket.destroy();
+        throw new RuntimeRpcError(
+          "runtime.connection_closed",
+          "The Loomle runtime connection was closed before setup completed.",
+          true,
+        );
+      }
       this.attach(socket);
       return socket;
     }).catch((error: unknown) => {
+      if (error instanceof RuntimeRpcError) {
+        throw error;
+      }
       throw new RuntimeRpcError(
         "runtime.connect_failed",
         `Failed to connect to the Loomle runtime at ${this.endpoint}.`,
@@ -155,9 +220,12 @@ export class RuntimeRpcClient implements RpcInvoker {
         errorMessage(error),
       );
     }).finally(() => {
-      this.connecting = undefined;
+      if (this.connecting === connection) {
+        this.connecting = undefined;
+      }
     });
-    return this.connecting;
+    this.connecting = connection;
+    return connection;
   }
 
   private attach(socket: Duplex): void {
@@ -208,10 +276,8 @@ export class RuntimeRpcClient implements RpcInvoker {
   private dispatch(response: JsonRpcResponse): void {
     if (response.id === undefined || response.id === null) return;
     const id = String(response.id);
-    const pending = this.pending.get(id);
+    const pending = this.takePending(id);
     if (!pending) return;
-    this.pending.delete(id);
-    clearTimeout(pending.timer);
 
     if (response.error) {
       pending.reject(new RuntimeRpcError(
@@ -241,11 +307,45 @@ export class RuntimeRpcClient implements RpcInvoker {
   }
 
   private failPending(error: RuntimeRpcError): void {
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
+    for (const id of [...this.pending.keys()]) {
+      const pending = this.takePending(id);
+      if (!pending) continue;
       pending.reject(error);
     }
-    this.pending.clear();
+  }
+
+  private takePending(id: string): PendingRequest | undefined {
+    const pending = this.pending.get(id);
+    if (!pending) return undefined;
+    this.pending.delete(id);
+    clearTimeout(pending.timer);
+    if (pending.signal && pending.abortListener) {
+      pending.signal.removeEventListener("abort", pending.abortListener);
+    }
+    return pending;
+  }
+
+  private sendCancellation(cancellationToken: string): void {
+    // The Bridge keeps reading this connection while provider work runs and
+    // handles rpc.cancel synchronously, so the control message can overtake
+    // the queued/running game-thread request without a second connection.
+    const socket = this.socket;
+    if (!socket || socket.destroyed) {
+      return;
+    }
+    const cancelRequestId = `loomle-ts-${process.pid}-${this.instanceNonce}-cancel-${randomUUID()}`;
+    const line = `${JSON.stringify({
+      jsonrpc: "2.0",
+      id: cancelRequestId,
+      method: "rpc.cancel",
+      params: { cancellationToken },
+    })}\n`;
+
+    socket.write(line, (error?: Error | null) => {
+      if (error && socket === this.socket) {
+        socket.destroy(error);
+      }
+    });
   }
 }
 
@@ -267,4 +367,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw new RuntimeRpcError(
+    "runtime.request_cancelled",
+    "Loomle runtime request was cancelled before dispatch.",
+    false,
+  );
 }

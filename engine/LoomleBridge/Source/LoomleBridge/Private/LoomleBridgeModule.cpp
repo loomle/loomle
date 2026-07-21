@@ -4,6 +4,7 @@
 
 #include "Async/Async.h"
 #include "Async/Future.h"
+#include "Async/TaskGraphInterfaces.h"
 #include "Editor.h"
 #include "AssetToolsModule.h"
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -132,6 +133,7 @@
 #include "Sal/Reference/SalReferenceInterface.h"
 #include "LoomleMutationResult.h"
 #include "LoomlePipeServer.h"
+#include "LoomleRequestCancellation.h"
 #include "ScopedTransaction.h"
 #include "Misc/App.h"
 #include "Misc/Base64.h"
@@ -5696,6 +5698,18 @@ void FLoomleBridgeModule::StopBridgeRuntime(bool bWaitForWorkers)
         }
     }
 
+    if (bWaitForWorkers && ActiveGameThreadDispatchCount.GetValue() > 0)
+    {
+        check(IsInGameThread());
+        // A cancelled worker may have returned before its already queued
+        // GameThread lambda ran. Drain those module-owned lambdas before the
+        // plugin can unload, after the stopped pipe can no longer enqueue more.
+        while (ActiveGameThreadDispatchCount.GetValue() > 0)
+        {
+            FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+        }
+    }
+
     bBridgeRunningSnapshot.Store(false);
     bPythonReadySnapshot.Store(false);
     bIsPIESnapshot.Store(false);
@@ -5912,6 +5926,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildEditorMutationLifecycleBlockRe
 void FLoomleBridgeModule::StartupModule()
 {
     RegisterLoomleSlateStyle();
+    RequestCancellationRegistry = MakeUnique<Loomle::Runtime::FRequestCancellationRegistry>();
     if (!PreExitHandle.IsValid())
     {
         PreExitHandle = FCoreDelegates::OnPreExit.AddRaw(this, &FLoomleBridgeModule::HandlePreExit);
@@ -5929,6 +5944,10 @@ void FLoomleBridgeModule::StartupModule()
         [this](int32 ConnectionSerial, const FString& RequestLine)
         {
             return HandleRequest(ConnectionSerial, RequestLine);
+        },
+        [this](int32 ConnectionSerial)
+        {
+            CancelRequestsForConnection(ConnectionSerial);
         });
 
     if (!PipeServer->Start())

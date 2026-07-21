@@ -1,6 +1,71 @@
 // Copyright 2026 Loomle contributors.
 
 // RPC entrypoints and tool dispatch for Loomle Bridge.
+namespace
+{
+bool TryMakeRpcRequestIdKey(const TSharedPtr<FJsonValue>& IdValue, FString& OutKey)
+{
+    OutKey.Reset();
+    if (!IdValue.IsValid() || IdValue->IsNull())
+    {
+        return false;
+    }
+
+    if (IdValue->Type == EJson::String)
+    {
+        OutKey = TEXT("s:") + IdValue->AsString();
+        return true;
+    }
+
+    if (IdValue->Type == EJson::Number)
+    {
+        OutKey = FString::Printf(TEXT("n:%.17g"), IdValue->AsNumber());
+        return true;
+    }
+
+    return false;
+}
+
+TSharedPtr<FJsonObject> MakeRequestCancelledPayload()
+{
+    TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+    Payload->SetBoolField(TEXT("isError"), true);
+    Payload->SetStringField(TEXT("code"), TEXT("REQUEST_CANCELLED"));
+    Payload->SetStringField(TEXT("message"), TEXT("REQUEST_CANCELLED"));
+    return Payload;
+}
+}
+
+TSharedRef<Loomle::Runtime::FRequestCancellationState, ESPMode::ThreadSafe>
+FLoomleBridgeModule::RegisterRequestCancellation(int32 ConnectionSerial, const FString& RequestIdKey)
+{
+    check(RequestCancellationRegistry != nullptr);
+    return RequestCancellationRegistry->Register(ConnectionSerial, RequestIdKey);
+}
+
+void FLoomleBridgeModule::UnregisterRequestCancellation(
+    int32 ConnectionSerial,
+    const FString& RequestIdKey,
+    const TSharedRef<Loomle::Runtime::FRequestCancellationState, ESPMode::ThreadSafe>& ExpectedState)
+{
+    check(RequestCancellationRegistry != nullptr);
+    RequestCancellationRegistry->Unregister(ConnectionSerial, RequestIdKey, ExpectedState);
+}
+
+bool FLoomleBridgeModule::CancelRequest(const FString& RequestIdKey)
+{
+    check(RequestCancellationRegistry != nullptr);
+    return RequestCancellationRegistry->Cancel(RequestIdKey);
+}
+
+void FLoomleBridgeModule::CancelRequestsForConnection(int32 ConnectionSerial)
+{
+    if (RequestCancellationRegistry != nullptr)
+    {
+        RequestCancellationRegistry->CloseConnection(ConnectionSerial);
+    }
+}
+
 FString FLoomleBridgeModule::HandleRequest(int32 ConnectionSerial, const FString& RequestLine)
 {
     TSharedPtr<FJsonObject> RequestObject;
@@ -48,8 +113,50 @@ FString FLoomleBridgeModule::HandleRequest(int32 ConnectionSerial, const FString
         return MakeJsonResponse(IdValue, BuildRpcCapabilitiesResult());
     }
 
+    if (Method.Equals(TEXT("rpc.cancel")))
+    {
+        FString CancellationToken;
+        if (!Params->TryGetStringField(TEXT("cancellationToken"), CancellationToken)
+            || CancellationToken.IsEmpty()
+            || CancellationToken.Len() > 256)
+        {
+            return MakeJsonError(IdValue, -32602, TEXT("Invalid params: cancellationToken is required"));
+        }
+
+        TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+        Result->SetBoolField(TEXT("cancelled"), CancelRequest(TEXT("t:") + CancellationToken));
+        Result->SetStringField(TEXT("cancellationToken"), CancellationToken);
+        return MakeJsonResponse(IdValue, Result);
+    }
+
     if (Method.Equals(TEXT("rpc.invoke")))
     {
+        FString RequestIdKey;
+        const bool bHasRequestIdKey = TryMakeRpcRequestIdKey(IdValue, RequestIdKey);
+        FString CancellationToken;
+        if (Params->HasField(TEXT("cancellationToken"))
+            && (!Params->TryGetStringField(TEXT("cancellationToken"), CancellationToken)
+                || CancellationToken.IsEmpty()
+                || CancellationToken.Len() > 256))
+        {
+            return MakeJsonError(IdValue, -32602, TEXT("Invalid params: cancellationToken must be a non-empty string"));
+        }
+        const FString CancellationKey = !CancellationToken.IsEmpty()
+            ? TEXT("t:") + CancellationToken
+            : FString::Printf(TEXT("c:%d|%s"), ConnectionSerial, *RequestIdKey);
+        const TSharedRef<Loomle::Runtime::FRequestCancellationState, ESPMode::ThreadSafe> CancellationState =
+            bHasRequestIdKey || !CancellationToken.IsEmpty()
+                ? RegisterRequestCancellation(ConnectionSerial, CancellationKey)
+                : MakeShared<Loomle::Runtime::FRequestCancellationState, ESPMode::ThreadSafe>();
+        ON_SCOPE_EXIT
+        {
+            if (bHasRequestIdKey || !CancellationToken.IsEmpty())
+            {
+                UnregisterRequestCancellation(ConnectionSerial, CancellationKey, CancellationState);
+            }
+        };
+        Loomle::Runtime::FScopedRequestCancellation CancellationScope(CancellationState);
+
         bool bHasError = false;
         int32 ErrorCode = 1000;
         FString ErrorMessage = TEXT("INVALID_ARGUMENT");
@@ -106,7 +213,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
         return Out;
     };
 
-    Result->SetArrayField(TEXT("methods"), MakeStringArray({TEXT("rpc.health"), TEXT("rpc.capabilities"), TEXT("rpc.invoke")}));
+    Result->SetArrayField(TEXT("methods"), MakeStringArray({TEXT("rpc.health"), TEXT("rpc.capabilities"), TEXT("rpc.invoke"), TEXT("rpc.cancel")}));
     Result->SetArrayField(TEXT("tools"), MakeStringArray({
         TEXT("jobs"), TEXT("profiling"), TEXT("play"), TEXT("asset.create"), TEXT("asset.edit"), TEXT("editor.open"), TEXT("editor.focus"), TEXT("editor.screenshot"), LoomleBridgeConstants::EditorContextToolName, TEXT("execute"),
         TEXT("blueprint.inspect"), TEXT("blueprint.class.inspect"), TEXT("blueprint.class.edit"), TEXT("blueprint.enum.inspect"), TEXT("blueprint.enum.edit"), TEXT("blueprint.member.edit"),
@@ -221,6 +328,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
     bOutIsError = false;
     TSharedPtr<FJsonObject> Payload;
 
+    if (Loomle::Runtime::IsRequestCancellationRequested())
+    {
+        bOutIsError = true;
+        return MakeRequestCancelledPayload();
+    }
+
     if (bIsShuttingDown.Load())
     {
         bOutIsError = true;
@@ -241,10 +354,26 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
 
         TPromise<FDispatchToolResult> PayloadPromise;
         TFuture<FDispatchToolResult> PayloadFuture = PayloadPromise.GetFuture();
-        AsyncTask(ENamedThreads::GameThread, [this, Name, Arguments, Promise = MoveTemp(PayloadPromise)]() mutable
+        const TSharedPtr<Loomle::Runtime::FRequestCancellationState, ESPMode::ThreadSafe> CancellationState =
+            Loomle::Runtime::GetRequestCancellationState();
+        const bool bSupportsCooperativeCancellation = Name.Equals(TEXT("sal.query"));
+        ActiveGameThreadDispatchCount.Increment();
+        AsyncTask(ENamedThreads::GameThread, [this, Name, Arguments, CancellationState, Promise = MoveTemp(PayloadPromise)]() mutable
         {
+            ON_SCOPE_EXIT
+            {
+                ActiveGameThreadDispatchCount.Decrement();
+            };
             FDispatchToolResult DispatchResult;
-            DispatchResult.Payload = DispatchTool(Name, Arguments, DispatchResult.bIsError);
+            if (CancellationState.IsValid())
+            {
+                Loomle::Runtime::FScopedRequestCancellation CancellationScope(CancellationState.ToSharedRef());
+                DispatchResult.Payload = DispatchTool(Name, Arguments, DispatchResult.bIsError);
+            }
+            else
+            {
+                DispatchResult.Payload = DispatchTool(Name, Arguments, DispatchResult.bIsError);
+            }
             Promise.SetValue(MoveTemp(DispatchResult));
         });
 
@@ -253,6 +382,14 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
         uint32 WaitedMs = 0;
         while (WaitedMs < GameThreadTimeoutMs)
         {
+            if (bSupportsCooperativeCancellation
+                && CancellationState.IsValid()
+                && CancellationState->IsCancellationRequested())
+            {
+                bOutIsError = true;
+                return MakeRequestCancelledPayload();
+            }
+
             if (PayloadFuture.WaitFor(FTimespan::FromMilliseconds(GameThreadPollMs)))
             {
                 FDispatchToolResult DispatchResult = PayloadFuture.Get();
@@ -277,6 +414,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(const FString& Name, c
             FDispatchToolResult DispatchResult = PayloadFuture.Get();
             bOutIsError = DispatchResult.bIsError;
             return DispatchResult.Payload;
+        }
+
+        if (CancellationState.IsValid())
+        {
+            CancellationState->Cancel();
         }
 
         bOutIsError = true;

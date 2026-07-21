@@ -6,6 +6,7 @@ import {
   type Query,
   type Result,
   type Sal,
+  type SalExecutionOptions,
   type TextResult,
 } from "@loomle/sal";
 import { catalog, guide } from "@loomle/interfaces";
@@ -82,19 +83,27 @@ export class SalToolService {
       catalog,
       executor: {
         interfaces: interfaceNames,
-        query: async (object: Query) => this.rpc.invoke("sal.query", { object }) as Promise<Result>,
-        patch: async (object) => this.rpc.invoke("sal.patch", { object }) as Promise<MutationResult>,
+        query: async (object: Query, options?: SalExecutionOptions) => (
+          this.rpc.invoke("sal.query", { object }, options?.signal) as Promise<Result>
+        ),
+        patch: async (object, options?: SalExecutionOptions) => (
+          this.rpc.invoke("sal.patch", { object }, options?.signal) as Promise<MutationResult>
+        ),
       },
     });
   }
 
-  async call(name: string, args: unknown): Promise<McpToolResult> {
+  async call(name: string, args: unknown, signal?: AbortSignal): Promise<McpToolResult> {
     try {
       const object = requireArguments(args);
       switch (name) {
         case "sal_query":
-          return toMcpResult(await this.sal.query(requireText(object, name)));
+          return toMcpResult(await this.sal.query(requireText(object, name), { signal }));
         case "sal_patch":
+          // Once a mutation has been dispatched, abandoning the MCP wait must
+          // not be reported as if Unreal rolled the edit back. Mutation
+          // cancellation needs its own apply-boundary contract; keep runtime
+          // cancellation scoped to read-only queries for now.
           return toMcpResult(await this.sal.patch(requireText(object, name)));
         case "sal_schema":
           requireOnly(object, ["module"], name);
@@ -102,7 +111,7 @@ export class SalToolService {
         case "editor_context":
           requireOnly(object, [], name);
           return toMcpResult(await objectResultToTextResult(
-            await this.rpc.invoke("editor.context", {}),
+            await this.rpc.invoke("editor.context", {}, signal),
           ));
         default:
           return toolFailure("tool.unknown", `Unknown Loomle tool: ${name}.`);

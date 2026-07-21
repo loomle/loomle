@@ -2,6 +2,8 @@
 
 #include "SalReferenceInterface.h"
 
+#include "Async/Async.h"
+#include "AssetRegistry/ARFilter.h"
 #include "AssetRegistry/AssetData.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
@@ -18,12 +20,14 @@
 #include "Interfaces/IPluginManager.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Logging/TokenizedMessage.h"
+#include "LoomleRequestCancellation.h"
 #include "Misc/SecureHash.h"
 #include "Modules/ModuleManager.h"
 #include "Sal/SalDiagnostics.h"
 #include "Sal/SalModel.h"
 #include "Sal/SalObjectBuilder.h"
 #include "SalReferenceFacts.h"
+#include "SalReferenceIndex.h"
 #include "Templates/Atomic.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/Package.h"
@@ -35,7 +39,7 @@ namespace ReferenceInterfacePrivate
 {
 constexpr int32 DefaultPageLimit = 50;
 constexpr int32 MaxPageLimit = 200;
-constexpr int32 MaxContainersPerCall = 8;
+constexpr int32 MaxContainersPerCall = 32;
 constexpr double MaxScanSecondsPerCall = 0.050;
 constexpr double SessionTtlSeconds = 15.0 * 60.0;
 constexpr int32 MaxSessions = 128;
@@ -84,11 +88,13 @@ struct FReferenceSession
     FString RootsHash;
     FString HandlerHash;
     FString SnapshotHash = TEXT("local");
+    FString SubjectRef;
     uint64 Generation = 0;
     int32 Revision = 0;
     double LastAccess = 0.0;
 
     bool bProject = false;
+    bool bUsesProjectSnapshot = false;
     bool bAwaitingRegistry = false;
     bool bScanComplete = false;
 
@@ -98,6 +104,10 @@ struct FReferenceSession
     int32 NextBuffered = 0;
     TSet<FString> SeenSites;
     int32 TotalEmitted = 0;
+
+    FReferenceIndexTarget IndexTarget;
+    TMap<FString, int32> CoverageReasons;
+    TArray<FString> CoverageExamples;
 };
 
 TMap<FString, TSharedPtr<FReferenceSession>> GReferenceSessions;
@@ -340,6 +350,58 @@ bool HasBlueprintSentinel(const FAssetData& Data)
         || Data.TagsAndValues.Contains(FBlueprintTags::UnversionedFindInBlueprintsData);
 }
 
+bool HasFiBIndex(const FAssetData& Data)
+{
+    return Data.TagsAndValues.Contains(FBlueprintTags::FindInBlueprintsData)
+        || Data.TagsAndValues.Contains(FBlueprintTags::UnversionedFindInBlueprintsData);
+}
+
+FString ObjectLeafName(const FString& Path)
+{
+    int32 Dot = INDEX_NONE;
+    int32 Colon = INDEX_NONE;
+    Path.FindLastChar(TEXT('.'), Dot);
+    Path.FindLastChar(TEXT(':'), Colon);
+    return Path.Mid(FMath::Max(Dot, Colon) + 1);
+}
+
+void NoteCoverageIssue(
+    FReferenceSession& Session,
+    const FString& Reason,
+    const FString& ObjectPath,
+    const FString& Message)
+{
+    ++Session.CoverageReasons.FindOrAdd(Reason);
+    if (Session.CoverageExamples.Num() < 4)
+    {
+        Session.CoverageExamples.Add(ObjectPath + TEXT(": ") + Message);
+    }
+}
+
+FString CoverageMessage(const FReferenceSession& Session)
+{
+    TArray<FString> Reasons;
+    Session.CoverageReasons.GetKeys(Reasons);
+    Reasons.Sort();
+    TArray<FString> Counts;
+    int32 Total = 0;
+    for (const FString& Reason : Reasons)
+    {
+        const int32 Count = Session.CoverageReasons.FindRef(Reason);
+        Total += Count;
+        Counts.Add(FString::Printf(TEXT("%s=%d"), *Reason, Count));
+    }
+    FString Message = FString::Printf(
+        TEXT("Project references returned zero-load index facts, but %d unloaded or unsupported Blueprint container(s) could not be fully verified (%s)."),
+        Total,
+        *FString::Join(Counts, TEXT(", ")));
+    if (!Session.CoverageExamples.IsEmpty())
+    {
+        Message += TEXT(" Examples: ") + FString::Join(Session.CoverageExamples, TEXT("; "));
+    }
+    return Message;
+}
+
 TSharedPtr<FJsonObject> ReferenceDiagnostic(
     const FString& Code,
     const FString& Message,
@@ -357,6 +419,14 @@ TSharedPtr<FJsonObject> ReferenceDiagnostic(
         Diagnostic.Matches(Matches);
     }
     return FSalDiagnostics::Result(Diagnostic.Build());
+}
+
+TSharedPtr<FJsonObject> CancelledDiagnostic(const FString& Ref = FString())
+{
+    return ReferenceDiagnostic(
+        TEXT("runtime.request_cancelled"),
+        TEXT("The project reference query was cancelled; no background asset scan remains active."),
+        Ref);
 }
 
 FString IssueMessage(const TArray<FReferenceCoverageIssue>& Issues, const FString& Fallback)
@@ -670,6 +740,7 @@ enum class ESnapshotResult : uint8
 {
     Ready,
     Pending,
+    Cancelled,
     Error
 };
 
@@ -678,6 +749,10 @@ ESnapshotResult BuildProjectSnapshot(
     IAssetRegistry& Registry,
     FString& OutError)
 {
+    if (Loomle::Runtime::IsRequestCancellationRequested())
+    {
+        return ESnapshotResult::Cancelled;
+    }
     if (Registry.IsLoadingAssets())
     {
         return ESnapshotResult::Pending;
@@ -699,11 +774,27 @@ ESnapshotResult BuildProjectSnapshot(
     {
         EligibleClasses.Add(Path);
     }
+    TSet<FTopLevelAssetPath> BlueprintAssetClasses;
+    const TArray<FTopLevelAssetPath> BlueprintClassRoots = {UBlueprint::StaticClass()->GetClassPathName()};
+    Registry.GetDerivedClassNames(BlueprintClassRoots, {}, BlueprintAssetClasses);
+    BlueprintAssetClasses.Add(UBlueprint::StaticClass()->GetClassPathName());
 
-    TArray<FAssetData> Assets;
-    if (!Registry.GetAllAssets(Assets, false))
+    FARFilter ProjectFilter;
+    ProjectFilter.bRecursivePaths = true;
+    ProjectFilter.bRecursiveClasses = false;
+    ProjectFilter.bIncludeOnlyOnDiskAssets = false;
+    for (const FString& Root : Roots)
     {
-        OutError = TEXT("Asset Registry could not produce the authoritative live project snapshot.");
+        ProjectFilter.PackagePaths.Add(FName(*Root));
+    }
+    for (const FTopLevelAssetPath& EligibleClass : EligibleClasses)
+    {
+        ProjectFilter.ClassPaths.Add(EligibleClass);
+    }
+    TArray<FAssetData> Assets;
+    if (!Registry.GetAssets(ProjectFilter, Assets, false))
+    {
+        OutError = TEXT("Asset Registry could not produce the authoritative live project-root snapshot.");
         return ESnapshotResult::Error;
     }
 
@@ -711,6 +802,10 @@ ESnapshotResult BuildProjectSnapshot(
     ProjectAssets.Reserve(Assets.Num());
     for (const FAssetData& Data : Assets)
     {
+        if (Loomle::Runtime::IsRequestCancellationRequested())
+        {
+            return ESnapshotResult::Cancelled;
+        }
         if (Data.IsValid() && IsInProjectRoots(Data.PackageName.ToString(), Roots))
         {
             ProjectAssets.Add(Data);
@@ -735,57 +830,49 @@ ESnapshotResult BuildProjectSnapshot(
     TArray<FAssetData> Containers;
     for (const FAssetData& Data : Assets)
     {
+        if (Loomle::Runtime::IsRequestCancellationRequested())
+        {
+            return ESnapshotResult::Cancelled;
+        }
         const bool bEligible = EligibleClasses.Contains(Data.AssetClassPath);
         if (!bEligible)
         {
             if (HasBlueprintSentinel(Data))
             {
-                OutError = FString::Printf(
-                    TEXT("Project asset %s advertises embedded Blueprint state but no frozen handler/provider can verify it."),
-                    *Data.GetSoftObjectPath().ToString());
-                return ESnapshotResult::Error;
+                NoteCoverageIssue(
+                    Session,
+                    TEXT("unsupported_container"),
+                    Data.GetSoftObjectPath().ToString(),
+                    TEXT("Blueprint metadata has no active container handler."));
             }
             continue;
         }
-
-        UClass* AssetClass = Data.GetClass(EResolveClass::Yes);
-        const IBlueprintAssetHandler* Handler = AssetClass != nullptr
-            ? FBlueprintAssetHandler::Get().FindHandler(AssetClass)
-            : nullptr;
-        if (Handler == nullptr)
-        {
-            OutError = FString::Printf(
-                TEXT("The frozen Blueprint handler could not be resolved for project asset %s."),
-                *Data.GetSoftObjectPath().ToString());
-            return ESnapshotResult::Error;
-        }
-
-        const bool bHandlerClaimsBlueprint = Handler->AssetContainsBlueprint(Data);
-        const bool bSentinelClaimsBlueprint = HasBlueprintSentinel(Data);
         if (UObject* LoadedAsset = Data.FastGetAsset(false))
         {
-            if (Handler->RetrieveBlueprint(LoadedAsset) != nullptr)
+            const IBlueprintAssetHandler* Handler =
+                FBlueprintAssetHandler::Get().FindHandler(LoadedAsset->GetClass());
+            if (Handler != nullptr && Handler->RetrieveBlueprint(LoadedAsset) != nullptr)
             {
                 Containers.Add(Data);
             }
-            else if (bHandlerClaimsBlueprint || bSentinelClaimsBlueprint)
+            else if (BlueprintAssetClasses.Contains(Data.AssetClassPath) || HasBlueprintSentinel(Data))
             {
-                OutError = FString::Printf(
-                    TEXT("Project asset %s advertises Blueprint state but its frozen handler cannot retrieve it."),
-                    *Data.GetSoftObjectPath().ToString());
-                return ESnapshotResult::Error;
+                NoteCoverageIssue(
+                    Session,
+                    TEXT("unavailable_loaded_container"),
+                    Data.GetSoftObjectPath().ToString(),
+                    TEXT("The already loaded asset advertises Blueprint state but its active handler cannot retrieve it."));
             }
         }
-        else if (bHandlerClaimsBlueprint)
+        else if (BlueprintAssetClasses.Contains(Data.AssetClassPath) || HasFiBIndex(Data))
         {
             Containers.Add(Data);
         }
-        else if (bSentinelClaimsBlueprint)
+        else if (HasBlueprintSentinel(Data))
         {
-            OutError = FString::Printf(
-                TEXT("Project asset %s advertises Blueprint state that its frozen handler cannot verify."),
-                *Data.GetSoftObjectPath().ToString());
-            return ESnapshotResult::Error;
+            // A Blueprint asset without FiB still belongs in the snapshot so
+            // the final page can state that exact coverage was unavailable.
+            Containers.Add(Data);
         }
     }
 
@@ -815,6 +902,7 @@ ESnapshotResult BuildProjectSnapshot(
 enum class EContainerProcessResult : uint8
 {
     Success,
+    Cancelled,
     ContainerFailed,
     ScanIncomplete
 };
@@ -827,37 +915,130 @@ EContainerProcessResult ProcessContainer(
     FString& OutError)
 {
     UObject* Asset = Data.FastGetAsset(false);
-    if (Asset == nullptr)
+    if (Asset != nullptr)
     {
-        Asset = Data.GetAsset();
+        const IBlueprintAssetHandler* Handler = FBlueprintAssetHandler::Get().FindHandler(Asset->GetClass());
+        if (Handler == nullptr)
+        {
+            OutError = FString::Printf(TEXT("Loaded reference container %s no longer has its frozen Blueprint handler."), *Asset->GetPathName());
+            return EContainerProcessResult::ContainerFailed;
+        }
+        UBlueprint* Blueprint = Handler->RetrieveBlueprint(Asset);
+        if (Blueprint == nullptr)
+        {
+            OutError = FString::Printf(
+                TEXT("Loaded reference container %s promised Blueprint state but could not retrieve it."),
+                *Asset->GetPathName());
+            return EContainerProcessResult::ContainerFailed;
+        }
+        if (!AppendScanResult(
+                Session,
+                FSalReferenceFacts::ScanBlueprint(Blueprint, nullptr, Identity),
+                Asset,
+                &Registry,
+                OutError))
+        {
+            return EContainerProcessResult::ScanIncomplete;
+        }
+        return EContainerProcessResult::Success;
     }
-    if (Asset == nullptr)
+
+    // UE's FiB decoder deserializes FText values. On the game thread a
+    // String-Table-backed FText may ask the Engine bridge to load its asset.
+    // Decode on a worker, where UE's own loading policy is Find-only, and
+    // fail closed if the decoded lookup contains unresolved String Table text.
+    const TSharedPtr<Loomle::Runtime::FRequestCancellationState, ESPMode::ThreadSafe> CancellationState =
+        Loomle::Runtime::GetRequestCancellationState();
+    const FAssetData DataCopy = Data;
+    const FReferenceIndexTarget IndexTarget = Session.IndexTarget;
+    IAssetRegistry* RegistryPtr = &Registry;
+    TFuture<FReferenceIndexScanResult> IndexedFuture = Async(
+        EAsyncExecution::ThreadPool,
+        [DataCopy, RegistryPtr, IndexTarget, CancellationState]
+        {
+            return FSalReferenceIndex::ScanAsset(
+                DataCopy,
+                *RegistryPtr,
+                IndexTarget,
+                [CancellationState]
+                {
+                    return CancellationState.IsValid()
+                        && CancellationState->IsCancellationRequested();
+                });
+        });
+    const FReferenceIndexScanResult Indexed = IndexedFuture.Get();
+    if (Indexed.Status == EReferenceIndexScanStatus::Cancelled)
     {
-        OutError = FString::Printf(TEXT("Could not load reference container %s."), *Data.GetSoftObjectPath().ToString());
-        return EContainerProcessResult::ContainerFailed;
+        return EContainerProcessResult::Cancelled;
     }
-    const IBlueprintAssetHandler* Handler = FBlueprintAssetHandler::Get().FindHandler(Asset->GetClass());
-    if (Handler == nullptr)
+    if (Indexed.Status != EReferenceIndexScanStatus::Parsed)
     {
-        OutError = FString::Printf(TEXT("Reference container %s no longer has its frozen Blueprint handler."), *Asset->GetPathName());
-        return EContainerProcessResult::ContainerFailed;
-    }
-    UBlueprint* Blueprint = Handler->RetrieveBlueprint(Asset);
-    if (Blueprint == nullptr)
-    {
-        OutError = FString::Printf(
-            TEXT("Reference container %s promised Blueprint state but could not retrieve it."),
-            *Asset->GetPathName());
-        return EContainerProcessResult::ContainerFailed;
-    }
-    if (!AppendScanResult(
+        FString Reason;
+        switch (Indexed.Status)
+        {
+        case EReferenceIndexScanStatus::Unsupported: Reason = TEXT("unsupported_index_fact"); break;
+        case EReferenceIndexScanStatus::Missing: Reason = TEXT("missing_index"); break;
+        case EReferenceIndexScanStatus::Outdated: Reason = TEXT("outdated_index"); break;
+        case EReferenceIndexScanStatus::Oversized: Reason = TEXT("oversized_index"); break;
+        case EReferenceIndexScanStatus::Corrupt: Reason = TEXT("invalid_index"); break;
+        default: Reason = TEXT("unavailable_index"); break;
+        }
+        NoteCoverageIssue(
             Session,
-            FSalReferenceFacts::ScanBlueprint(Blueprint, nullptr, Identity),
-            Asset,
-            &Registry,
-            OutError))
+            Reason,
+            Data.GetSoftObjectPath().ToString(),
+            Indexed.Message);
+        return EContainerProcessResult::Success;
+    }
+
+    NoteCoverageIssue(
+        Session,
+        TEXT("partial_fib_coverage"),
+        Data.GetSoftObjectPath().ToString(),
+        TEXT("FiB verified UK2Node_Variable.VariableReference; other native reference fields are not persisted by UE 5.7 FiB."));
+    for (const FReferenceIndexSite& Site : Indexed.Sites)
     {
-        return EContainerProcessResult::ScanIncomplete;
+        FReferenceRecord Record;
+        // UE 5.7 FiB stores NodeGuid but only the Graph's schema-produced
+        // display label. That label is not UEdGraph::GetName() and therefore
+        // cannot be emitted as a graph(...) locator without loading the
+        // Blueprint. Keep the zero-load project result at Blueprint scope and
+        // retain the indexed node facts as navigation provenance.
+        Record.Kind = EReferenceUseSiteKind::Blueprint;
+        Record.ContainerPath = Data.GetSoftObjectPath().ToString();
+        Record.ContainerName = Data.AssetName.ToString();
+        Record.ContainerType = Data.AssetClassPath.ToString();
+        Record.BlueprintPath = Site.BlueprintPath;
+        Record.BlueprintName = ObjectLeafName(Site.BlueprintPath);
+        FString Provenance = FString::Printf(
+            TEXT("%s at indexed NodeGuid=%s"),
+            *Site.MatchedPath,
+            *Site.NodeId);
+        if (!Site.NodeType.IsEmpty())
+        {
+            Provenance += TEXT(", NodeClass=") + Site.NodeType;
+        }
+        if (!Site.NodeTitle.IsEmpty())
+        {
+            Provenance += TEXT(", NodeTitle=") + Site.NodeTitle;
+        }
+        if (!Site.GraphDisplayName.IsEmpty())
+        {
+            Provenance += TEXT(", GraphDisplayName=") + Site.GraphDisplayName;
+        }
+        Provenance += TEXT("; open this Blueprint and run the same local references query for an exact Graph/Node locator");
+        Record.MatchedPaths = {MoveTemp(Provenance)};
+        Record.bCompound = true;
+        Record.Key = Site.BlueprintPath + TEXT("|indexed-node|") + Site.NodeId;
+        if (Session.SeenSites.Contains(Record.Key))
+        {
+            OutError = FString::Printf(
+                TEXT("Stable indexed NodeGuid collision while scanning references: %s."),
+                *Record.Key);
+            return EContainerProcessResult::ScanIncomplete;
+        }
+        Session.SeenSites.Add(Record.Key);
+        Session.Buffered.Add(MoveTemp(Record));
     }
     return EContainerProcessResult::Success;
 }
@@ -1013,7 +1194,10 @@ private:
         const FString Alias = Builder.UniqueAlias(Record.BlueprintName);
         TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
         Args->SetField(TEXT("asset"), Value::Local(AssetAlias));
-        Args->SetStringField(TEXT("id"), Record.BlueprintId);
+        if (!Record.BlueprintId.IsEmpty())
+        {
+            Args->SetStringField(TEXT("id"), Record.BlueprintId);
+        }
         Builder.AddLocalBinding(Alias, Call(TEXT("blueprint"), Args));
         BlueprintAliases.Add(Key, Alias);
         return Alias;
@@ -1021,7 +1205,8 @@ private:
 
     FString EnsureGraph(const FReferenceRecord& Record, const FString& BlueprintAlias)
     {
-        const FString Key = Record.ContainerPath + TEXT("|") + Record.BlueprintPath + TEXT("|") + Record.GraphId;
+        const FString GraphKey = !Record.GraphId.IsEmpty() ? Record.GraphId : TEXT("name:") + Record.GraphName;
+        const FString Key = Record.ContainerPath + TEXT("|") + Record.BlueprintPath + TEXT("|") + GraphKey;
         if (const FString* Existing = GraphAliases.Find(Key))
         {
             return *Existing;
@@ -1029,7 +1214,10 @@ private:
         const FString Alias = Builder.UniqueAlias(Record.GraphName);
         TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
         Args->SetField(TEXT("asset"), Value::Local(BlueprintAlias));
-        Args->SetStringField(TEXT("id"), Record.GraphId);
+        if (!Record.GraphId.IsEmpty())
+        {
+            Args->SetStringField(TEXT("id"), Record.GraphId);
+        }
         if (!Record.GraphName.IsEmpty())
         {
             Args->SetStringField(TEXT("name"), Record.GraphName);
@@ -1046,7 +1234,10 @@ private:
         TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
         Args->SetField(TEXT("graph"), Value::Local(GraphAlias));
         Args->SetStringField(TEXT("id"), Record.NodeId);
-        Args->SetStringField(TEXT("type"), Record.NodeType);
+        if (!Record.NodeType.IsEmpty())
+        {
+            Args->SetStringField(TEXT("type"), Record.NodeType);
+        }
         Builder.AddLocalBinding(Alias, Call(TEXT("node"), Args));
         if (!Record.NodeTitle.IsEmpty())
         {
@@ -1150,9 +1341,25 @@ TSharedPtr<FJsonObject> BuildPageResult(
                 .Operation(TEXT("references"))
                 .Build());
     }
+    if (!bHasNext && !Session.CoverageReasons.IsEmpty())
+    {
+        FSalDiagnosticBuilder Diagnostic = FSalDiagnostics::Warning(
+                TEXT("validation.reference_scan_incomplete"),
+                CoverageMessage(Session))
+            .Operation(TEXT("references"))
+            .Suggestion(TEXT("Use the returned index-backed sites, or explicitly open a named Blueprint before a local native reference query when complete verification is required."));
+        if (!Session.SubjectRef.IsEmpty())
+        {
+            Diagnostic.Ref(Session.SubjectRef);
+        }
+        Diagnostics.Add(Diagnostic.Build());
+    }
     if (!bHasNext && Records.IsEmpty())
     {
-        Encoder.AddComment(Session.TotalEmitted == 0 ? TEXT("no matches") : TEXT("reference scan complete"));
+        Encoder.AddComment(
+            Session.TotalEmitted == 0
+                ? (Session.CoverageReasons.IsEmpty() ? TEXT("no matches") : TEXT("no indexed matches; reference coverage is incomplete"))
+                : TEXT("reference scan complete"));
     }
 
     TSharedPtr<FJsonObject> Result = Encoder.BuildResult(Diagnostics);
@@ -1242,6 +1449,10 @@ TSharedPtr<FJsonObject> FSalReferenceInterface::Query(
             TEXT("capability.reference_unavailable"),
             TEXT("Reference queries require the Unreal game thread."));
     }
+    if (Loomle::Runtime::IsRequestCancellationRequested())
+    {
+        return CancelledDiagnostic();
+    }
     if (Query.Where.IsValid() || !Query.OrderBy.IsEmpty() || !Query.With.IsEmpty())
     {
         return FSalDiagnostics::Result(
@@ -1315,7 +1526,7 @@ TSharedPtr<FJsonObject> FSalReferenceInterface::Query(
                 TEXT("validation.invalid_cursor"),
                 TEXT("Authored project state changed during reference pagination. Re-run the first page."));
         }
-        if (bProject && !CurrentProjectEnvironmentMatches(*Session))
+        if (Session->bUsesProjectSnapshot && !CurrentProjectEnvironmentMatches(*Session))
         {
             GReferenceSessions.Remove(SessionId);
             return ReferenceDiagnostic(
@@ -1350,12 +1561,16 @@ TSharedPtr<FJsonObject> FSalReferenceInterface::Query(
         Session->Id = FGuid::NewGuid().ToString(EGuidFormats::Digits);
         Session->RequestHash = ResolvedRequestHash;
         Session->IdentityKey = Resolution.Subject.Identity.StableKey();
+        Session->SubjectRef = Resolution.Subject.QueryRef;
         Session->bProject = bProject;
         Session->LastAccess = FPlatformTime::Seconds();
 
         FAssetRegistryModule* Module = FModuleManager::GetModulePtr<FAssetRegistryModule>(TEXT("AssetRegistry"));
         IAssetRegistry* Registry = Module != nullptr ? &Module->Get() : nullptr;
-        if (bProject)
+        const bool bNeedsProjectSnapshot = bProject
+            && Resolution.Subject.Identity.Kind != EReferenceDeclarationKind::LocalVariable;
+        Session->bUsesProjectSnapshot = bNeedsProjectSnapshot;
+        if (bNeedsProjectSnapshot)
         {
             if (Registry == nullptr)
             {
@@ -1363,12 +1578,19 @@ TSharedPtr<FJsonObject> FSalReferenceInterface::Query(
                     TEXT("capability.reference_unavailable"),
                     TEXT("Asset Registry is unavailable for a project reference query."));
             }
+            Session->IndexTarget.Identity = Resolution.Subject.Identity;
+            Session->IndexTarget.OwnerClassPath =
+                FSalReferenceIndex::ResolveOwnerClassPath(*Registry, Resolution.Subject.Identity);
             Session->RootsHash = StringArrayHash(ProjectRoots());
             Session->HandlerHash = HandlerHash(HandlerClassPaths());
             Session->SnapshotHash = TEXT("pending");
             Session->bAwaitingRegistry = true;
             FString SnapshotError;
             const ESnapshotResult Snapshot = BuildProjectSnapshot(*Session, *Registry, SnapshotError);
+            if (Snapshot == ESnapshotResult::Cancelled)
+            {
+                return CancelledDiagnostic(Resolution.Subject.QueryRef);
+            }
             if (Snapshot == ESnapshotResult::Error)
             {
                 return ReferenceDiagnostic(
@@ -1383,9 +1605,13 @@ TSharedPtr<FJsonObject> FSalReferenceInterface::Query(
             Session->bScanComplete = true;
             FString ScanError;
             UObject* Container = FindTopLevelContainer(Target.Blueprint, Registry);
+            const bool bProjectLocalVariable = bProject
+                && Resolution.Subject.Identity.Kind == EReferenceDeclarationKind::LocalVariable;
             const FReferenceScanResult Scan = FSalReferenceFacts::ScanBlueprint(
                 Target.Blueprint,
-                Target.Kind == ESalTargetKind::Graph ? Target.Graph : nullptr,
+                !bProjectLocalVariable && Target.Kind == ESalTargetKind::Graph
+                    ? Target.Graph
+                    : nullptr,
                 Resolution.Subject.Identity);
             if (!AppendScanResult(*Session, Scan, Container, Registry, ScanError))
             {
@@ -1400,7 +1626,7 @@ TSharedPtr<FJsonObject> FSalReferenceInterface::Query(
 
     FAssetRegistryModule* Module = FModuleManager::GetModulePtr<FAssetRegistryModule>(TEXT("AssetRegistry"));
     IAssetRegistry* Registry = Module != nullptr ? &Module->Get() : nullptr;
-    if (Session->bProject && Registry == nullptr)
+    if (Session->bUsesProjectSnapshot && !Session->bScanComplete && Registry == nullptr)
     {
         GReferenceSessions.Remove(Session->Id);
         return ReferenceDiagnostic(
@@ -1412,6 +1638,11 @@ TSharedPtr<FJsonObject> FSalReferenceInterface::Query(
     {
         FString SnapshotError;
         const ESnapshotResult Snapshot = BuildProjectSnapshot(*Session, *Registry, SnapshotError);
+        if (Snapshot == ESnapshotResult::Cancelled)
+        {
+            GReferenceSessions.Remove(Session->Id);
+            return CancelledDiagnostic(Resolution.Subject.QueryRef);
+        }
         if (Snapshot == ESnapshotResult::Error)
         {
             GReferenceSessions.Remove(Session->Id);
@@ -1432,6 +1663,11 @@ TSharedPtr<FJsonObject> FSalReferenceInterface::Query(
     const double StartedAt = FPlatformTime::Seconds();
     while (PageRecords.Num() < Limit)
     {
+        if (Loomle::Runtime::IsRequestCancellationRequested())
+        {
+            GReferenceSessions.Remove(Session->Id);
+            return CancelledDiagnostic(Resolution.Subject.QueryRef);
+        }
         while (Session->NextBuffered < Session->Buffered.Num() && PageRecords.Num() < Limit)
         {
             PageRecords.Add(MoveTemp(Session->Buffered[Session->NextBuffered++]));
@@ -1468,6 +1704,10 @@ TSharedPtr<FJsonObject> FSalReferenceInterface::Query(
         if (ProcessResult != EContainerProcessResult::Success)
         {
             GReferenceSessions.Remove(Session->Id);
+            if (ProcessResult == EContainerProcessResult::Cancelled)
+            {
+                return CancelledDiagnostic(Resolution.Subject.QueryRef);
+            }
             return ReferenceDiagnostic(
                 ProcessResult == EContainerProcessResult::ScanIncomplete
                     ? TEXT("validation.reference_scan_incomplete")

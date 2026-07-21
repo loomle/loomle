@@ -268,8 +268,9 @@ in-progress scan with no matches on the current page can therefore return only
 second scan-status field. Every returned Object Text page is self-contained
 and repeats any compact owner bindings needed to read that page independently.
 
-The requested scope is complete only when the result has no `page.next` and no
-error diagnostic. Registry, container extraction, asset loading, reference
+The requested scope is complete only when the result has no `page.next`, no
+error diagnostic, and no `validation.reference_scan_incomplete` diagnostic of
+any severity. Registry, container extraction, index coverage, reference
 resolution, or provider failures must produce diagnostics rather than a false
 complete empty result.
 
@@ -322,42 +323,45 @@ override, and implementation navigation remains a separate relationship.
 
 ## Project Scan Principles
 
-Find-in-Blueprints and Asset Registry metadata may reduce candidate work, but
-neither is the final fact source. A factual project query follows these UE
-principles:
+Project reference discovery has a strict zero-implicit-load boundary. A Query
+must never call `GetAsset`, `LoadPackage`, or an equivalent asset-loading path
+merely to inspect another container. It follows these UE principles:
 
 1. Resolve and preserve the raw native reference subject before following UE
    redirects or mutable `FMemberReference` fixups.
-2. Start with the declaration-owning container or Package, then add its reverse
-   Package referencer closure when that closure can safely bound
-   Blueprint-owned candidates.
-3. Build the authoritative asset snapshot with `GetAllAssets(false)`, or a
-   behaviorally identical live-Package/tombstone overlay, and only then apply
-   project-root and provider filtering. This lets every in-memory asset Package
-   suppress stale disk records, including rename/redirector and empty-Package
-   cases. A Class-filtered `GetAssets(false)` is insufficient because an
-   in-memory object whose current Class misses the filter may fail to suppress
-   an obsolete disk Blueprint record from the same Package.
-4. Always include in-scope loaded, dirty, and newly created outer containers
-   from that snapshot. For a loaded supported container, call
-   `FastGetAsset(false)` and the registered Handler's `RetrieveBlueprint`
-   directly; never gate current live state through disk tags.
-5. Fall back to every in-scope asset whose Class resolves to a frozen active
-   Handler whenever dependency closure cannot prove coverage for every enabled
-   extractor. For an unloaded asset, the Handler's
-   `AssetContainsBlueprint(FAssetData)` is UE's official container-existence
-   contract. A `false` result may exclude that asset; a `true` result requires
-   loading it and calling `RetrieveBlueprint`. Failure to retrieve the promised
-   Blueprint is an error rather than a negative match.
-6. Do not confuse that Handler contract with FiB reference search. FiB
-   text/index matches may prioritize or narrow a candidate pass, but every
-   reported use-site is verified from the loaded native Blueprint. Empty FiB
-   search results never prove that an exact reference has no use-sites.
-7. Inspect Blueprint-bearing sentinel tags outside the frozen Handler/provider
-   universe. A possible unsupported embedded container prevents a complete
-   result instead of being silently skipped.
-8. Advance expensive work incrementally behind the ordinary page cursor. Do
-   not expose a separate public job model.
+2. Build the project snapshot from Asset Registry state, then apply project-root
+   and Blueprint-container filtering without resolving or loading asset Classes.
+3. If a container is already loaded, inspect its current native Blueprint so
+   dirty and newly authored state wins over its saved index. `FastGetAsset(false)`
+   is observation, not permission to load a missing object.
+4. If a container is unloaded, inspect only its saved Find-in-Blueprints data.
+   Decode the Asset Registry tag directly and preserve the Blueprint path, Node
+   GUID, saved short Node Class label, and native searchable field path. FiB stores a
+   schema-produced Graph display label, not `GraphGuid` or the native
+   `UEdGraph::GetName()`, so that label is provenance only and must never become
+   a `graph(name)` locator. Do not invent Graph or Blueprint GUIDs that FiB does
+   not contain.
+5. Treat FiB as a versioned fact source with explicit coverage, not as a reason
+   to load candidates. UE 5.7 FiB can factually expose
+   `UK2Node_Variable::VariableReference`; facts absent from that index version
+   remain unverified. FiB `FText` lookup decoding runs off the game thread so
+   UE's String Table bridge cannot start an asset load. If the lookup contains
+   String-Table-backed text that would need resolution, fail that container
+   closed as incomplete instead of resolving or loading the table.
+6. A missing, stale, oversized, corrupt, or insufficient index produces partial
+   matches plus `validation.reference_scan_incomplete`. It never silently means
+   zero references and never triggers automatic recaching, saving, or loading.
+7. Cancellation is checked throughout snapshot traversal, before and after the
+   one-shot FiB decode, and during decoded-tree traversal. Stopping the client
+   request prevents the next container from starting and abandons the active
+   container at its next checkpoint. UE's FiB deserializer is not interruptible,
+   so cancellation latency is bounded by one index decode; Loomle caps that
+   input at 512 Ki characters. No later container continues as detached work.
+8. Advance bounded work incrementally behind the ordinary page cursor. Do not
+   expose a separate public job model.
+9. A Function local Variable cannot be referenced outside its owning Blueprint
+   and top-level Function scope. `in project` therefore resolves to the same
+   complete native owner-Blueprint scan instead of enumerating project assets.
 
 Standard native reference structs such as `FMemberReference` and
 `FGraphReference` provide reusable extractors. Domain providers supplement
@@ -376,8 +380,11 @@ Diagnostics must distinguish at least these situations:
 - corrupted state makes the requested declaration or an emitted stable
   use-site identity ambiguous;
 - an opaque cursor no longer matches project state;
-- project enumeration, loading, extraction, or verification failed before
-  completeness was established.
+- project enumeration, index extraction, or verification failed before
+  completeness was established;
+- an unloaded container has no usable index, or the requested native fact is
+  outside the saved index's declared coverage;
+- the active request was cancelled.
 
 Zero results are valid only after the selected subject and entire requested
 scope have been resolved and verified successfully.
@@ -387,20 +394,25 @@ copyable primary-operation strings under the current Query binding, for
 example `references to node@id.FunctionReference`. No candidate or Reference
 result object is introduced.
 
-## Implementation Audit — 2026-07-19
+## Implementation Audit — 2026-07-20
 
 The UE 5.7 Bridge implements synchronous local Graph and Blueprint-backed
-scans. Project scope freezes the result of `GetAllAssets(false)`, project
-content roots, and the registered `FBlueprintAssetHandler` set. It currently
-scans every supported Blueprint-bearing container in that snapshot; FiB and
-Package dependency closure are not used to narrow candidates.
+scans. Project scope freezes the Asset Registry snapshot, project content roots,
+and supported Blueprint-container Class paths. Already loaded containers use
+native authored state; unloaded containers are never loaded and use their saved
+FiB index only.
 
-Asset Registry enumeration, root filtering, handler verification, and stable
-sorting happen synchronously while the first project page is established.
-Subsequent container loading and native fact extraction advance incrementally
-behind `page.next`, with bounded work per request. Local matches are collected
-synchronously and use the same cursor only when their returned objects require
-more than one page.
+The first page asks Asset Registry only for recursive project content roots and
+registered Blueprint-container Class families, then freezes and sorts that
+filtered snapshot without enumerating Engine, unrelated plugin, or unrelated
+asset content. Per-container extraction advances incrementally
+behind `page.next`, with bounded work per request. FiB lookup and JSON decoding
+use a bounded private reader on a worker thread; String-Table-backed lookup text
+fails closed before matching and never crosses back to the game thread. Local
+matches are collected synchronously and use the same cursor only when their
+returned objects require more than one page. The RPC control message is handled
+while the provider runs; cancellation becomes terminal at the next scan
+checkpoint, with at most the current bounded FiB decode finishing.
 
 The cursor is process-local, single-sequence scan state. It binds the request,
 canonical declaration, effective page limit, project roots, handler set,
@@ -412,10 +424,14 @@ also emits it when Loomle's own asset load refreshes PostLoad registry data.
 Live edits remain covered by object modification and in-memory asset events;
 external disk refreshes use `OnAssetUpdatedOnDisk`.
 
-Verification includes the complete SAL and Client contract suites, generated
-interface validation, and a full UE 5.7 Mac arm64 Unity `BuildPlugin` compile
-and link. No live Editor Reference query or project-pagination integration test
-was run in this increment.
+An indexed result uses only identities the index actually stores. A Blueprint
+binding may therefore omit `id`. For an unloaded container, it is returned as a
+factual containing Blueprint with the matching `NodeGuid`, Node Class, and Graph
+display label in provenance Comments; the Node Class value is FiB's saved short
+label, and no Graph or Node binding is fabricated.
+After that Blueprint is explicitly opened, the same local Query returns exact
+Graph and Node locators from native state. Missing index coverage is reported on
+the final page and is not repaired by an implicit load.
 
 ## Deferred Relationships
 

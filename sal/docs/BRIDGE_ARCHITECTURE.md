@@ -69,6 +69,18 @@ remain SDK-owned. Exact `with schema` is an ordinary live Query.
 The RPC handler reuses Loomle's existing game-thread dispatch. No SAL service
 may access Editor UObjects from the pipe worker thread.
 
+The private transport assigns every invocation an independent cancellation
+token. MCP cancellation for `sal.query` sends `rpc.cancel` over the same live
+connection; the pipe reader handles that control message synchronously while
+ordinary work remains queued or running. Registration and disconnect
+tombstones close races where cancellation arrives before the invocation
+worker. Query providers check the shared state at bounded checkpoints.
+`sal.patch` does not accept cooperative cancellation after dispatch because a
+caller must not receive "cancelled" while an authored mutation may already be
+applying. Transport request ids and cancellation tokens are process-wide
+unique, and one request's domain error does not tear down other requests on the
+shared connection.
+
 ## End-To-End Flow
 
 ```txt

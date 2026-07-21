@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
 import { DiscoveredRuntimeInvoker } from "../src/runtime.js";
+import { RuntimeRpcError } from "../src/runtime-rpc.js";
 
 const projectRoot = "/Projects/Alpha";
 
@@ -52,7 +53,10 @@ class ConcurrentFailureClient {
 
   invoke(tool: string): Promise<unknown> {
     return new Promise((_, reject) => {
-      this.pending.push({ error: new Error(`failed:${tool}`), reject });
+      this.pending.push({
+        error: new RuntimeRpcError(1000, `failed:${tool}`),
+        reject,
+      });
       if (this.pending.length === 2) this.resolveReady();
     });
   }
@@ -95,7 +99,29 @@ class SwitchableClient {
   }
 }
 
-test("parallel failures preserve both original errors and close one shared client once", async () => {
+class CancellationClient {
+  closeCount = 0;
+  receivedSignal?: AbortSignal;
+
+  constructor(readonly endpoint: string) {}
+
+  async requireTools(): Promise<void> {}
+
+  async invoke(
+    _tool: string,
+    _args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    this.receivedSignal = signal;
+    throw new RuntimeRpcError("runtime.request_cancelled", "cancelled");
+  }
+
+  close(): void {
+    this.closeCount += 1;
+  }
+}
+
+test("parallel domain failures preserve both errors and keep the shared client healthy", async () => {
   const { home } = await runtimeFixture("alpha-endpoint");
   const client = new ConcurrentFailureClient("alpha-endpoint");
   const invoker = new DiscoveredRuntimeInvoker(discovery(home), () => client);
@@ -112,6 +138,8 @@ test("parallel failures preserve both original errors and close one shared clien
   assert.deepEqual(results.map((result) => result.status === "rejected"
     ? (result.reason as Error).message
     : "fulfilled"), ["failed:first", "failed:second"]);
+  assert.equal(client.closeCount, 0);
+  invoker.close();
   assert.equal(client.closeCount, 1);
 });
 
@@ -143,4 +171,22 @@ test("a stale failing invocation never closes a newly selected endpoint", async 
 
   invoker.close();
   assert.equal(beta.closeCount, 1);
+});
+
+test("forwards cancellation without discarding the healthy shared runtime connection", async () => {
+  const { home } = await runtimeFixture("alpha-endpoint");
+  const client = new CancellationClient("alpha-endpoint");
+  const invoker = new DiscoveredRuntimeInvoker(discovery(home), () => client);
+  const controller = new AbortController();
+
+  await assert.rejects(
+    invoker.invoke("sal.query", {}, controller.signal),
+    (error: unknown) => error instanceof RuntimeRpcError
+      && error.code === "runtime.request_cancelled",
+  );
+  assert.equal(client.receivedSignal, controller.signal);
+  assert.equal(client.closeCount, 0);
+
+  invoker.close();
+  assert.equal(client.closeCount, 1);
 });

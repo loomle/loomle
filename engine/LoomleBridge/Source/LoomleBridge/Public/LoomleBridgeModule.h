@@ -5,6 +5,7 @@
 #include "Containers/Ticker.h"
 #include "CoreMinimal.h"
 #include "HAL/CriticalSection.h"
+#include "HAL/ThreadSafeCounter.h"
 #include "Input/Reply.h"
 #include "Modules/ModuleManager.h"
 
@@ -14,6 +15,12 @@ class FJsonValue;
 class FOutputDevice;
 class FSlateStyleSet;
 
+namespace Loomle::Runtime
+{
+class FRequestCancellationState;
+class FRequestCancellationRegistry;
+}
+
 class FLoomleBridgeModule : public IModuleInterface
 {
 public:
@@ -22,6 +29,15 @@ public:
 
 private:
     FString HandleRequest(int32 ConnectionSerial, const FString& RequestLine);
+    TSharedRef<Loomle::Runtime::FRequestCancellationState, ESPMode::ThreadSafe> RegisterRequestCancellation(
+        int32 ConnectionSerial,
+        const FString& RequestIdKey);
+    void UnregisterRequestCancellation(
+        int32 ConnectionSerial,
+        const FString& RequestIdKey,
+        const TSharedRef<Loomle::Runtime::FRequestCancellationState, ESPMode::ThreadSafe>& ExpectedState);
+    bool CancelRequest(const FString& RequestIdKey);
+    void CancelRequestsForConnection(int32 ConnectionSerial);
     bool TickHealthSnapshot(float DeltaTime);
     void UpdateHealthSnapshot();
     void RegisterStatusBarWidget();
@@ -194,6 +210,8 @@ private:
     FString LastClientMethod;
     FString LastClientTool;
     uint64 ClientActivityCount = 0;
+    TUniquePtr<Loomle::Runtime::FRequestCancellationRegistry> RequestCancellationRegistry;
+    FThreadSafeCounter ActiveGameThreadDispatchCount;
 
     struct FJobLogEntry
     {

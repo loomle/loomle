@@ -6,12 +6,20 @@ import { RuntimeRpcError, type RpcInvoker } from "../src/runtime-rpc.js";
 import { SalToolService, toolDefinitions } from "../src/tools.js";
 
 class MockRpc implements RpcInvoker {
-  readonly calls: Array<{ tool: string; args: Record<string, unknown> }> = [];
+  readonly calls: Array<{
+    tool: string;
+    args: Record<string, unknown>;
+    signal?: AbortSignal;
+  }> = [];
 
   constructor(private readonly response: unknown) {}
 
-  async invoke(tool: string, args: Record<string, unknown>): Promise<unknown> {
-    this.calls.push({ tool, args });
+  async invoke(
+    tool: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    this.calls.push({ tool, args, ...(signal ? { signal } : {}) });
     return this.response;
   }
 }
@@ -75,6 +83,18 @@ test("sal_query parses and normalizes Text before invoking Bridge", async () => 
       operation: { kind: "assets", text: "BP_Door" },
     },
   });
+  assert.equal(rpc.calls[0].signal, undefined);
+});
+
+test("sal_query forwards the MCP AbortSignal through the SAL executor", async () => {
+  const rpc = new MockRpc(emptyObjectResult);
+  const controller = new AbortController();
+  await new SalToolService(rpc).call("sal_query", {
+    text: "query asset\nassets \"BP_Door\"",
+  }, controller.signal);
+
+  assert.equal(rpc.calls.length, 1);
+  assert.equal(rpc.calls[0].signal, controller.signal);
 });
 
 test("sal_query preserves multiline node diagnostics as ordered Object Text comments", async () => {
@@ -160,6 +180,7 @@ test("sal_patch invokes the normalized mutation endpoint", async () => {
     applied: false,
     operation: "patch",
   });
+  const controller = new AbortController();
   const result = await new SalToolService(rpc).call("sal_patch", {
     text: [
       "door = blueprint(asset: \"/Game/BP_Door.BP_Door\")",
@@ -167,10 +188,11 @@ test("sal_patch invokes the normalized mutation endpoint", async () => {
       "patch door dry run",
       "set door.BlueprintDescription = \"Door\"",
     ].join("\n"),
-  });
+  }, controller.signal);
 
   assert.equal(result.isError, undefined);
   assert.equal(rpc.calls[0].tool, "sal.patch");
+  assert.equal(rpc.calls[0].signal, undefined);
   assert.equal((rpc.calls[0].args.object as { dryRun: boolean }).dryRun, true);
   assert.match(result.content[0].text, /dryRun: true/);
   assert.match(result.content[0].text, /###\nSAL result\n/);

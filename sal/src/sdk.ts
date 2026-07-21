@@ -6,6 +6,7 @@ import type {
   CreateSalOptions,
   Diagnostic,
   Sal,
+  SalExecutionOptions,
   SalExecutor,
   ObjectText,
   ObjectResult,
@@ -19,11 +20,11 @@ export function createSal(options: CreateSalOptions): Sal {
   const interfaces = selectActiveInterfaces(options.catalog, executor.interfaces);
 
   return {
-    query(text) {
-      return run("query", text, executor);
+    query(text, executionOptions) {
+      return run("query", text, executor, executionOptions);
     },
-    patch(text) {
-      return run("patch", text, executor);
+    patch(text, executionOptions) {
+      return run("patch", text, executor, executionOptions);
     },
     schema(module) {
       return loadInterfaceSchema(interfaces, module);
@@ -35,6 +36,7 @@ async function run(
   expectedKind: "query" | "patch",
   text: string,
   executor: SalExecutor,
+  executionOptions?: SalExecutionOptions,
 ): Promise<TextResult> {
   const parsed = parseSalObject(text);
   if (!parsed.object) {
@@ -72,8 +74,8 @@ async function run(
   }
 
   const result = expectedKind === "query"
-    ? await executor.query(parsed.object as Query)
-    : await patchExecutor!(parsed.object as Patch);
+    ? await executor.query(parsed.object as Query, executionOptions)
+    : await patchExecutor!(parsed.object as Patch, executionOptions);
 
   const resultDiagnostic = await validateObjectResult(result);
   if (resultDiagnostic) {

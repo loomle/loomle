@@ -22,14 +22,14 @@ export async function createMcpServer(service: SalToolService): Promise<Server> 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: toolDefinitions,
   }));
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     if (!publicToolNames.has(request.params.name)) {
       throw new McpError(
         ErrorCode.InvalidParams,
         `Unknown Loomle tool: ${request.params.name}.`,
       );
     }
-    return service.call(request.params.name, request.params.arguments);
+    return service.call(request.params.name, request.params.arguments, extra.signal);
   });
 
   return server;

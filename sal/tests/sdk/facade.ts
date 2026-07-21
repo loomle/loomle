@@ -192,3 +192,18 @@ const inheritedRequestAlias = await createSal({
 }).query(queryText);
 assert.equal(inheritedRequestAlias.diagnostics[0]?.code, "language.invalid_result_shape");
 console.log("[PASS] result Text must declare compact bindings instead of inheriting request aliases");
+
+const controller = new AbortController();
+let receivedSignal: AbortSignal | undefined;
+await createSal({
+  catalog: testInterfaceCatalog,
+  executor: {
+    interfaces: ["graph"],
+    async query(_query, options) {
+      receivedSignal = options?.signal;
+      return { object, diagnostics: [] };
+    },
+  },
+}).query(queryText, { signal: controller.signal });
+assert.equal(receivedSignal, controller.signal);
+console.log("[PASS] SAL forwards execution options without changing Object Text");

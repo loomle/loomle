@@ -26,17 +26,33 @@ public:
     virtual void Stop() override;
 
 private:
+    struct FConnectionState;
+
     bool TryBeginInFlight();
     void EndInFlight();
     void RegisterConnection(int32 ConnectionSerial, void* NativeHandle);
     void UnregisterConnection(int32 ConnectionSerial);
+    void CloseConnectionState(const TSharedPtr<FConnectionState, ESPMode::ThreadSafe>& State);
     void CloseAllConnections();
+    bool DispatchControlRequest(const FString& RequestLine, int32 ConnectionSerial);
+    void DispatchRequest(FString RequestLine, int32 ConnectionSerial);
     bool WriteMessageForConnection(const FString& Message, int32 ExpectedConnectionSerial);
     void HandleWindowsClient(void* NativeHandle, int32 ConnectionSerial);
     void HandleUnixClient(int32 LocalClientFd, int32 ConnectionSerial);
     FString GetSocketPath() const;
 
 private:
+    struct FConnectionState
+    {
+#if PLATFORM_WINDOWS
+        void* NativeHandle = nullptr;
+#else
+        int32 NativeHandle = -1;
+#endif
+        TAtomic<bool> bClosed { false };
+        FCriticalSection WriteMutex;
+    };
+
     FString PipeName;
     FRequestHandler RequestHandler;
     FConnectionClosedHandler ConnectionClosedHandler;
@@ -50,10 +66,8 @@ private:
 
 #if PLATFORM_WINDOWS
     void* PendingPipeHandle = nullptr;
-    TMap<int32, void*> ActivePipeHandles;
-#else
-    int32 ServerFd = -1;
-    TMap<int32, int32> ActiveClientFds;
 #endif
-    mutable FCriticalSection WriteMutex;
+    int32 ServerFd = -1;
+    TMap<int32, TSharedPtr<FConnectionState, ESPMode::ThreadSafe>> ActiveConnections;
+    mutable FCriticalSection ConnectionsMutex;
 };

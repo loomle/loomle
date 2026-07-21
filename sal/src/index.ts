@@ -81,6 +81,10 @@ export type {
 
 export type SalText = string;
 
+export interface SalExecutionOptions {
+  signal?: AbortSignal;
+}
+
 export interface ParseResult {
   object?: SalObject;
   diagnostics: Diagnostic[];
@@ -104,8 +108,8 @@ export interface TextResult {
 }
 
 export interface Sal {
-  query(text: SalText): Promise<TextResult>;
-  patch(text: SalText): Promise<TextResult>;
+  query(text: SalText, options?: SalExecutionOptions): Promise<TextResult>;
+  patch(text: SalText, options?: SalExecutionOptions): Promise<TextResult>;
   schema(module?: string): Promise<TextResult>;
 }
 
@@ -122,8 +126,8 @@ export interface CreateSalOptions {
 
 export interface SalExecutor {
   readonly interfaces: readonly string[];
-  query(object: Query): Promise<Result>;
-  patch?(object: Patch): Promise<MutationResult>;
+  query(object: Query, options?: SalExecutionOptions): Promise<Result>;
+  patch?(object: Patch, options?: SalExecutionOptions): Promise<MutationResult>;
 }
 
 export { formatSalObject } from "./formatter.js";
