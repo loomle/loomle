@@ -700,9 +700,7 @@ object has no SAL interface, Context:
 
 1. returns the nearest exact supported owner when one exists;
 2. preserves native identity and type in an adjacent block comment;
-3. states `interface: unavailable`;
-4. may name the retained `execute` fallback when native identity is sufficient
-   for a deliberate fallback workflow.
+3. states `interface: unavailable`.
 
 It does not omit the selection, map it to a neighboring domain, or introduce a
 universal `object(...)` constructor. UE selections may be UObjects,

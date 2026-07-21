@@ -23,11 +23,9 @@ The Client exposes only four MCP tools:
   index or one static interface when called;
 - `editor_context`: discover the user's current UE interaction target.
 
-This is the implemented SAL and Context surface for the current migration
-step, not the final 0.7 inventory of retained non-SAL utilities. The existing
-`execute` fallback and the confirmed play, log, diagnostic-open, editor-open,
-focus, and screenshot capabilities still require explicit TypeScript Client
-adapters. `jobs` is intentionally not being migrated.
+These four tools are the complete public Client surface. Additional UE behavior
+belongs in SAL and its interface cards rather than parallel compatibility
+tools.
 
 The `sal_schema` tool description carries the resident guide from
 `@loomle/interfaces` exactly once. MCP server instructions remain empty because
@@ -86,7 +84,6 @@ npm run test:executable
 ```
 
 The first accepted executable target is `darwin-arm64`. Remaining platforms,
-Fab assembly, and release signing are separate 0.7 release work. The removed
-shell/PowerShell installers and Cargo-based workflows belong only to the 0.6
-maintenance line. Legacy UE smoke tests remain temporarily as migration input
-and must not be treated as validation of this Client.
+Fab assembly, and release signing are separate 0.7 release work. Editor E2E
+coverage will be designed directly against SAL; current verification consists
+of the focused component tests and UE BuildPlugin compilation.

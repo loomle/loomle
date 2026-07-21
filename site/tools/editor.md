@@ -25,6 +25,5 @@ editor_context({})
 The returned object is a discovery result, not hidden session binding. Copy a
 complete locator into each following `sal_query` or `sal_patch` request.
 
-Editor Context is the complete public editor-facing surface in 0.7. Additional
-Bridge internals are not advertised as Client capabilities until their SAL
-contracts are migrated.
+Editor Context is the public handoff from the user's current editor state into
+the self-contained SAL Query and Patch workflow.

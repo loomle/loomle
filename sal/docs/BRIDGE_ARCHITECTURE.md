@@ -3,8 +3,9 @@
 ## Status
 
 This document defines the Unreal Engine Bridge for the implemented SAL SDK
-contract. The Bridge exposes only `sal.query` and `sal.patch`; the former LGL
-runtime and its grouped JSON model have been removed.
+contract. The Bridge exposes `sal.query`, `sal.patch`, and the separate
+read-only `editor.context` discovery operation. Retired direct-tool runtimes
+and grouped JSON models are not present on the 0.7 branch.
 
 The Bridge migration changes no SAL Text syntax. The normative public contract
 remains:
@@ -33,7 +34,7 @@ enum values, and value text.
 
 ## RPC Boundary
 
-The Bridge exposes two normalized-object RPC methods:
+The Bridge exposes two normalized-object SAL operations:
 
 ```txt
 sal.query
@@ -65,6 +66,9 @@ Both return an `ObjectResult` directly:
 diagnostic shape with execution fields. The Bridge never receives or returns
 SAL Text. It does not expose a Bridge RPC for static `sal.schema`; static cards
 remain SDK-owned. Exact `with schema` is an ordinary live Query.
+
+`editor.context` is a separate read-only Bridge operation. It has no SAL Text
+input and returns the same validated ordered Object Result used by Query.
 
 The RPC handler reuses Loomle's existing game-thread dispatch. No SAL service
 may access Editor UObjects from the pipe worker thread.
@@ -404,29 +408,7 @@ remain inside the owning interface while they depend on its provisional native
 state; they do not require empty public wrapper classes. Public C++ classes and
 namespaces use `FSal*` and `Loomle::Sal`.
 
-## Legacy Migration
-
-The migration does not maintain a compatibility adapter for the old LGL JSON
-model. The old surface is not part of the public SAL SDK and preserving it
-would keep two conflicting sources of truth.
-
-Reusable UE mechanics may be extracted from legacy code only after removing
-old JSON assumptions. Likely reusable areas include Asset Registry filtering,
-Blueprint Graph lookup, Action Menu and spawner enumeration, pin conversion,
-and validated Graph application. The following are replaced rather than
-ported:
-
-- `target.domain` dispatch and `ILglDomainAdapter`;
-- `find` objects and legacy query capabilities;
-- grouped Graph, Asset, and Palette result payloads;
-- old binding/operation parallel arrays;
-- `FLglSchemaValidator` and old request-specific JSON readers;
-- public `lgl.query` and `lgl.patch` registration.
-
-The old RPC methods are removed when `sal.query` and `sal.patch` compile and
-the normalized contract tests pass. No dual-mode runtime is required.
-
-## Implemented Slices
+## Implemented Shape
 
 The implementation is organized as vertical executable slices:
 
@@ -440,7 +422,7 @@ The implementation is organized as vertical executable slices:
 6. Widget composition and tree editing;
 7. Class Reflection and durable Defaults;
 8. factual local and project Reference queries;
-9. cross-interface audit and removal of legacy LGL code.
+9. cross-interface factual reference queries and cooperative read cancellation.
 
 Every slice shares central normalized-object and result validation, and builds
 against UE 5.7 as one plugin module.
@@ -457,6 +439,6 @@ The Bridge phase is complete when:
 - all Query and Patch responses use self-contained ordered Object Text;
 - exact `with schema` describes the same capabilities the Bridge executes;
 - dry run and apply share one plan path;
-- old `lgl.*`, `Private/Lgl`, grouped results, and old protocol validators are
-  removed;
+- retired direct-tool dispatch, grouped results, and parallel protocol
+  validators are absent;
 - the plugin builds cleanly against the supported UE 5.7 toolchain.

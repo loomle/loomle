@@ -20,6 +20,8 @@ SAL Text
 ```
 
 The C++ Bridge does not introduce a second SAL parser or any new public syntax.
+It contains no parallel direct-tool runtime: the only Bridge tools are
+`sal.query`, `sal.patch`, and `editor.context`.
 
 ## Implemented Surface
 
@@ -161,6 +163,14 @@ complete SAL TypeScript suite, all 32 Client unit tests, all five generated
 interface documents, and a clean UE 5.7 Mac arm64 `BuildPlugin` run that
 compiled and linked the full Unity build. No plugin was installed or replaced,
 and no live Editor integration test was run during this increment.
+
+The 0.7 repository and Bridge cleanup was verified on 2026-07-21 with the
+complete root npm suite, all 40 Client tests, all five generated interface
+documents, `git diff --check`, and a UE 5.7 Mac Editor module build. The build
+compiled the reduced Bridge after removing the retired adapters, direct-tool
+RPC dispatch, Python/PCG plugin requirements, and their unused module
+dependencies. No package was produced or installed, and no live Editor
+integration test was run.
 
 ## Deliberate Boundaries
 

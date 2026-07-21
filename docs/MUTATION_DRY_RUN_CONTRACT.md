@@ -1,10 +1,7 @@
 # Mutation Dry Run Contract
 
-Loomle mutation tools should give agents one consistent meaning for
-`dryRun`.
-
-This contract applies to adapters that can change UE state, such as graph,
-Blueprint class, Widget tree, Material, PCG, and asset edits.
+SAL mutation interfaces give agents one consistent meaning for `dryRun`.
+This contract applies to every `sal.patch` provider that can change UE state.
 
 ## Intent
 
@@ -38,12 +35,11 @@ apply logic.
 
 ## Result Shape
 
-For a SAL-backed mutation surface, its mutation result extends the ordinary
-SAL result. Query and mutation responses use the same optional
+The mutation result extends the ordinary SAL result. Query and mutation
+responses use the same optional
 `object: ObjectText`, the same diagnostics, and the same formatter; mutation
 adds execution fields around that object. The SAL executor must not return a
-second mutation-only object or text model. This requirement does not force
-non-SAL tools to adopt SAL Object Text or its formatter.
+second mutation-only object or text model.
 
 Mutation results should use the same core fields where applicable:
 
@@ -114,15 +110,8 @@ mutation plan model and diff computation is expensive enough to justify an
 opt-in flag. Diffs should be derived from the plan or from actual before/after
 state, not hand-written as a separate guess.
 
-## Temporary Implementations
+## Capability Rule
 
-If a tool currently implements only lightweight validation for `dryRun`, its
-public schema and documentation must say so. Do not expose `expectedRevision`,
-`returnDiff`, or rich dry-run result fields unless the bridge actually enforces
-or returns them.
-
-SAL mutation adapters are the current validation surface for this contract.
-Legacy direct-tool implementations may reuse the same helper while they are
-being retired, but they do not define the current public mutation schema. New
-mutation work should use the shared helper before exposing rich dry-run,
-revision, or diff fields.
+Do not advertise `expectedRevision`, `returnDiff`, or rich dry-run result fields
+until the responsible SAL interface actually enforces or returns them. New
+mutation work must use the shared result helper before exposing those fields.

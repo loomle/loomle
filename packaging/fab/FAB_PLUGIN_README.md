@@ -13,13 +13,6 @@ project to local AI coding agents through LOOMLE's MCP tools.
 - `Resources/Loomle/<platform-arch>/loomle(.exe)`: self-contained Loomle Client
   used by Codex, Claude, and other MCP hosts through stdio.
 
-## Unreal Plugin Dependencies
-
-Loomle Bridge enables Unreal's `PCG` plugin for PCG graph tooling and
-`PythonScriptPlugin` for the `execute` runtime bridge. Unreal Python belongs to
-the in-editor fallback and is unrelated to the standalone Client. These are
-Bridge-internal capabilities, not current public MCP tools.
-
 ## Loomle Client
 
 The Fab package includes the matching platform Client under `Resources/Loomle`.

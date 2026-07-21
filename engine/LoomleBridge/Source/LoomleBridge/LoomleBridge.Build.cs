@@ -12,37 +12,27 @@ public class LoomleBridge : ModuleRules
             new[]
             {
                 "Core",
-                "CoreUObject",
-                "Engine"
+                "SlateCore"
             });
 
         PrivateDependencyModuleNames.AddRange(
             new[]
             {
                 "ApplicationCore",
-                "AssetDefinition",
                 "AssetRegistry",
-                "AssetTools",
                 "BlueprintGraph",
                 "ContentBrowser",
                 "ContentBrowserData",
-                "GraphEditor",
+                "CoreUObject",
+                "Engine",
                 "Json",
-                "JsonUtilities",
                 "Kismet",
                 "KismetCompiler",
                 "LevelEditor",
-                "MainFrame",
-                "MaterialEditor",
                 "MovieScene",
-                "PCG",
-                "PCGEditor",
                 "PropertyEditor",
-                "PythonScriptPlugin",
                 "Projects",
-                "RHI",
                 "Slate",
-                "SlateCore",
                 "SubobjectDataInterface",
                 "SubobjectEditor",
                 "ToolMenus",

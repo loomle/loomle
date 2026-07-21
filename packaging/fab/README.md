@@ -23,12 +23,12 @@ The staged plugin is assembled from:
 - `packaging/fab/FAB_PLUGIN_README.md` for the packaged README.
 
 The Client is copied to
-`LoomleBridge/Resources/Loomle/<platform-arch>/loomle(.exe)`. The retired
-Python MCP and `Resources/MCP` are never consumed. The package has no
+`LoomleBridge/Resources/Loomle/<platform-arch>/loomle(.exe)`. No alternative
+Client implementation or resource tree is consumed. The package has no
 `Content/` directory because `LoomleBridge` is an editor-only code plugin with
 `CanContainContent=false`.
 
-Only `darwin-arm64` is accepted in the current 0.7 migration. Assembly narrows
+Only `darwin-arm64` is currently accepted. Assembly narrows
 the derived plugin descriptor to `SupportedTargetPlatforms = ["Mac"]`, the
 `LoomleBridge` module to `PlatformAllowList = ["Mac"]`, and
 `PlatformArchitectureAllowList = ["Mac:arm64"]`. The source descriptor remains
@@ -68,7 +68,6 @@ LoomleBridge/Binaries/
 LoomleBridge/Intermediate/
 LoomleBridge/Saved/
 LoomleBridge/Content/
-LoomleBridge/Resources/MCP/
 ```
 
 Platform binaries and Unreal build outputs are rejected everywhere except for

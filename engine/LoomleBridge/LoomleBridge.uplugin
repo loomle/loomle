@@ -12,16 +12,6 @@
   "SupportURL": "https://github.com/loomle/loomle/issues",
   "CanContainContent": false,
   "IsBetaVersion": true,
-  "Plugins": [
-    {
-      "Name": "PythonScriptPlugin",
-      "Enabled": true
-    },
-    {
-      "Name": "PCG",
-      "Enabled": true
-    }
-  ],
   "Modules": [
     {
       "Name": "LoomleBridge",
