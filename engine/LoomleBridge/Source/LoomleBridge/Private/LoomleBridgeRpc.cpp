@@ -45,7 +45,7 @@ bool TryMakeRpcRequestIdKey(const TSharedPtr<FJsonValue>& IdValue, FString& OutK
     return false;
 }
 
-TSharedPtr<FJsonObject> MakeToolError(const FString& Code, const FString& Message)
+TSharedPtr<FJsonObject> MakeDispatchError(const FString& Code, const FString& Message)
 {
     TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
     Payload->SetBoolField(TEXT("isError"), true);
@@ -56,24 +56,44 @@ TSharedPtr<FJsonObject> MakeToolError(const FString& Code, const FString& Messag
 
 TSharedPtr<FJsonObject> MakeRequestCancelledPayload()
 {
-    return MakeToolError(TEXT("REQUEST_CANCELLED"), TEXT("REQUEST_CANCELLED"));
+    return MakeDispatchError(
+        TEXT("runtime.request_cancelled"),
+        TEXT("The Loomle runtime request was cancelled."));
 }
 
 int32 MapDispatchErrorCode(const FString& Code)
 {
-    if (Code == TEXT("INVALID_ARGUMENT"))
+    if (Code == TEXT("tool.invalid_arguments"))
     {
         return 1000;
     }
-    if (Code == TEXT("TOOL_NOT_FOUND"))
+    if (Code == TEXT("tool.unknown"))
     {
         return 1002;
     }
-    if (Code == TEXT("EXECUTION_TIMEOUT"))
+    if (Code == TEXT("runtime.request_timeout"))
     {
         return 1010;
     }
     return 1011;
+}
+
+FString DefaultDiagnosticCodeForRpcError(const int32 RpcCode)
+{
+    switch (RpcCode)
+    {
+    case -32602:
+    case 1000:
+        return TEXT("tool.invalid_arguments");
+    case -32601:
+        return TEXT("runtime.incompatible");
+    case 1002:
+        return TEXT("tool.unknown");
+    case 1010:
+        return TEXT("runtime.request_timeout");
+    default:
+        return TEXT("runtime.rpc_error");
+    }
 }
 
 TArray<TSharedPtr<FJsonValue>> StringValues(std::initializer_list<const TCHAR*> Values)
@@ -210,7 +230,7 @@ FString FLoomleBridgeModule::HandleRequest(int32 ConnectionSerial, const FString
 
     bool bHasError = false;
     int32 ErrorCode = 1011;
-    FString ErrorMessage = TEXT("INTERNAL_ERROR");
+    FString ErrorMessage = TEXT("The Loomle runtime could not execute the request.");
     TSharedPtr<FJsonObject> ErrorData;
     const TSharedPtr<FJsonObject> Result = BuildRpcInvokeResult(
         Params,
@@ -257,7 +277,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcInvokeResult(
 {
     bOutHasError = false;
     OutErrorCode = 1011;
-    OutErrorMessage = TEXT("INTERNAL_ERROR");
+    OutErrorMessage = TEXT("The Loomle runtime could not execute the request.");
     OutErrorData.Reset();
 
     FString ToolName;
@@ -267,8 +287,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcInvokeResult(
     {
         bOutHasError = true;
         OutErrorCode = 1000;
-        OutErrorMessage = TEXT("INVALID_ARGUMENT");
+        OutErrorMessage = TEXT("rpc.invoke requires a non-empty tool name.");
         OutErrorData = MakeShared<FJsonObject>();
+        OutErrorData->SetStringField(TEXT("code"), TEXT("tool.invalid_arguments"));
         OutErrorData->SetBoolField(TEXT("retryable"), false);
         OutErrorData->SetStringField(TEXT("detail"), TEXT("field tool is required"));
         return nullptr;
@@ -287,8 +308,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcInvokeResult(
     const TSharedPtr<FJsonObject> Payload = DispatchTool(ToolName, Arguments, bDispatchError);
     if (bDispatchError)
     {
-        FString Code = TEXT("INTERNAL_ERROR");
-        FString Message = TEXT("INTERNAL_ERROR");
+        FString Code = TEXT("runtime.internal_error");
+        FString Message = TEXT("The Loomle runtime could not execute the request.");
         if (Payload.IsValid())
         {
             Payload->TryGetStringField(TEXT("code"), Code);
@@ -298,7 +319,8 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcInvokeResult(
         OutErrorCode = MapDispatchErrorCode(Code);
         OutErrorMessage = Message;
         OutErrorData = MakeShared<FJsonObject>();
-        OutErrorData->SetBoolField(TEXT("retryable"), Code == TEXT("EXECUTION_TIMEOUT"));
+        OutErrorData->SetStringField(TEXT("code"), Code);
+        OutErrorData->SetBoolField(TEXT("retryable"), Code == TEXT("runtime.request_timeout"));
         FString Detail;
         const TSharedRef<FCondensedJsonWriter> Writer =
             TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Detail);
@@ -313,7 +335,6 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcInvokeResult(
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("ok"), true);
     Result->SetObjectField(TEXT("payload"), Payload.IsValid() ? Payload : MakeShared<FJsonObject>());
-    Result->SetArrayField(TEXT("diagnostics"), {});
     return Result;
 }
 
@@ -331,7 +352,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(
     if (bIsShuttingDown.Load())
     {
         bOutIsError = true;
-        return MakeToolError(TEXT("EDITOR_SHUTTING_DOWN"), TEXT("Unreal Editor is shutting down."));
+        return MakeDispatchError(TEXT("runtime.editor_shutting_down"), TEXT("Unreal Editor is shutting down."));
     }
 
     if (!IsInGameThread())
@@ -388,7 +409,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(
             if (bIsShuttingDown.Load())
             {
                 bOutIsError = true;
-                return MakeToolError(TEXT("EDITOR_SHUTTING_DOWN"), TEXT("Unreal Editor is shutting down."));
+                return MakeDispatchError(TEXT("runtime.editor_shutting_down"), TEXT("Unreal Editor is shutting down."));
             }
         }
 
@@ -397,7 +418,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(
             CancellationState->Cancel();
         }
         bOutIsError = true;
-        return MakeToolError(TEXT("EXECUTION_TIMEOUT"), TEXT("Tool execution timed out on the game thread."));
+        return MakeDispatchError(TEXT("runtime.request_timeout"), TEXT("Tool execution timed out on the game thread."));
     }
 
     if (Name == SalQueryTool)
@@ -414,7 +435,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(
     }
 
     bOutIsError = true;
-    return MakeToolError(TEXT("TOOL_NOT_FOUND"), FString::Printf(TEXT("Unknown tool: %s"), *Name));
+    return MakeDispatchError(TEXT("tool.unknown"), FString::Printf(TEXT("Unknown tool: %s"), *Name));
 }
 
 FString FLoomleBridgeModule::MakeJsonResponse(
@@ -446,13 +467,18 @@ FString FLoomleBridgeModule::MakeJsonErrorEx(
     const FString& Message,
     const TSharedPtr<FJsonObject>& ErrorData) const
 {
+    TSharedPtr<FJsonObject> PublicErrorData = ErrorData.IsValid()
+        ? ErrorData
+        : MakeShared<FJsonObject>();
+    if (!PublicErrorData->HasField(TEXT("code")))
+    {
+        PublicErrorData->SetStringField(TEXT("code"), DefaultDiagnosticCodeForRpcError(Code));
+    }
+
     TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
     Error->SetNumberField(TEXT("code"), Code);
     Error->SetStringField(TEXT("message"), Message);
-    if (ErrorData.IsValid())
-    {
-        Error->SetObjectField(TEXT("data"), ErrorData);
-    }
+    Error->SetObjectField(TEXT("data"), PublicErrorData);
     TSharedPtr<FJsonObject> Response = MakeShared<FJsonObject>();
     Response->SetStringField(TEXT("jsonrpc"), TEXT("2.0"));
     Response->SetField(TEXT("id"), Id);

@@ -17,7 +17,7 @@ export const DEFAULT_RUNTIME_REQUEST_TIMEOUT_MS = 130_000;
 
 export class RuntimeRpcError extends Error {
   constructor(
-    readonly code: number | string,
+    readonly code: string,
     message: string,
     readonly retryable = false,
     readonly detail?: string,
@@ -42,6 +42,7 @@ interface JsonRpcResponse {
     code?: number;
     message?: string;
     data?: {
+      code?: string;
       retryable?: boolean;
       detail?: string;
     };
@@ -281,7 +282,9 @@ export class RuntimeRpcClient implements RpcInvoker {
 
     if (response.error) {
       pending.reject(new RuntimeRpcError(
-        response.error.code ?? "runtime.rpc_error",
+        typeof response.error.data?.code === "string" && response.error.data.code.length > 0
+          ? response.error.data.code
+          : "runtime.rpc_error",
         response.error.message ?? "The Loomle runtime rejected the request.",
         response.error.data?.retryable ?? false,
         response.error.data?.detail,

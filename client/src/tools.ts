@@ -267,9 +267,6 @@ function toolFailureFromError(error: unknown): McpToolResult {
 
 function errorCode(error: unknown): string {
   if (error instanceof ToolInputError) return "tool.invalid_arguments";
-  if (typeof error === "object" && error !== null && "code" in error) {
-    return String((error as { code: unknown }).code);
-  }
   return "runtime.client_error";
 }
 

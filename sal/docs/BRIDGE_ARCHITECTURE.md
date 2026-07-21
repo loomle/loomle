@@ -70,6 +70,29 @@ remain SDK-owned. Exact `with schema` is an ordinary live Query.
 `editor.context` is a separate read-only Bridge operation. It has no SAL Text
 input and returns the same validated ordered Object Result used by Query.
 
+RPC failures remain transport envelopes rather than `ObjectResult` variants:
+
+```json
+{
+  "error": {
+    "code": -32602,
+    "message": "Invalid params",
+    "data": {
+      "code": "tool.invalid_arguments",
+      "retryable": false,
+      "detail": "field tool is required"
+    }
+  }
+}
+```
+
+The numeric JSON-RPC `error.code` is private transport classification. It must
+never become the public diagnostic code shown to an agent. `error.data.code` is
+the stable public code registered in the shared diagnostic catalog; the Client
+uses it when converting a transport failure into the ordinary diagnostic text
+returned by an MCP tool. Missing public codes fall back to the registered
+`runtime.rpc_error`, never to the numeric value.
+
 The RPC handler reuses Loomle's existing game-thread dispatch. No SAL service
 may access Editor UObjects from the pipe worker thread.
 

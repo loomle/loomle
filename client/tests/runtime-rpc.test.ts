@@ -211,6 +211,32 @@ test("preserves structured Bridge RPC errors", async () => {
     error: {
       code: 1002,
       message: "TARGET_NOT_FOUND",
+      data: {
+        code: "resolution.target_not_found",
+        retryable: false,
+        detail: "missing graph",
+      },
+    },
+  }));
+  const client = new RuntimeRpcClient("mock", async () => socket);
+
+  await assert.rejects(
+    client.invoke("sal.query", {}),
+    (error: unknown) => error instanceof RuntimeRpcError
+      && error.code === "resolution.target_not_found"
+      && error.detail === "missing graph"
+      && !error.retryable,
+  );
+  client.close();
+});
+
+test("maps numeric-only JSON-RPC errors to the registered fallback code", async () => {
+  const socket = new MockRuntimeSocket((request) => ({
+    jsonrpc: "2.0",
+    id: request.id,
+    error: {
+      code: 1002,
+      message: "TARGET_NOT_FOUND",
       data: { retryable: false, detail: "missing graph" },
     },
   }));
@@ -219,7 +245,7 @@ test("preserves structured Bridge RPC errors", async () => {
   await assert.rejects(
     client.invoke("sal.query", {}),
     (error: unknown) => error instanceof RuntimeRpcError
-      && error.code === 1002
+      && error.code === "runtime.rpc_error"
       && error.detail === "missing graph"
       && !error.retryable,
   );

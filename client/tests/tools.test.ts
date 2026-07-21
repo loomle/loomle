@@ -322,7 +322,7 @@ test("arbitrary diagnostic text cannot break the SAL comment envelope", async ()
 
 test("preserves Runtime RPC detail and retry guidance in primary text", async () => {
   const rpc = new ThrowingRpc(new RuntimeRpcError(
-    1002,
+    "resolution.target_not_found",
     "TARGET_NOT_FOUND",
     true,
     "The selected Graph no longer exists.",
@@ -331,11 +331,22 @@ test("preserves Runtime RPC detail and retry guidance in primary text", async ()
   const text = result.content[0].text;
 
   assert.equal(result.isError, true);
-  assert.match(text, /ERROR 1002: TARGET_NOT_FOUND/);
+  assert.match(text, /ERROR resolution\.target_not_found: TARGET_NOT_FOUND/);
   assert.match(text, /detail: The selected Graph no longer exists\./);
   assert.match(text, /retryable: true/);
   assert.match(text, /Re-check the current Editor and object state before retrying/);
   assert.match(text, /Never blindly replay a Patch/);
+});
+
+test("does not expose arbitrary exception codes as public diagnostics", async () => {
+  const error = Object.assign(new Error("unexpected client failure"), {
+    code: "dependency.private_code",
+  });
+  const result = await new SalToolService(new ThrowingRpc(error)).call("editor_context", {});
+
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /ERROR runtime\.client_error: unexpected client failure/);
+  assert.doesNotMatch(result.content[0].text, /dependency\.private_code/);
 });
 
 test("sal_schema is local and does not call Bridge", async () => {

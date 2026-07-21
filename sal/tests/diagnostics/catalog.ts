@@ -10,7 +10,7 @@ interface DiagnosticCatalog {
 
 interface DiagnosticDefinition {
   code: string;
-  layer: "language" | "capability" | "resolution" | "validation";
+  layer: "language" | "capability" | "resolution" | "validation" | "runtime" | "tool";
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -20,7 +20,11 @@ const catalogSchemaPath = join(packageRoot, "diagnostics/catalog.schema.json");
 const sourceRoots = [
   join(packageRoot, "src"),
   join(packageRoot, "tests"),
+  join(packageRoot, "../client/src"),
   join(packageRoot, "../engine/LoomleBridge/Source/LoomleBridge/Private/Sal"),
+];
+const sourceFiles = [
+  join(packageRoot, "../engine/LoomleBridge/Source/LoomleBridge/Private/LoomleBridgeRpc.cpp"),
 ];
 
 const catalog = JSON.parse(await readFile(catalogPath, "utf8")) as DiagnosticCatalog;
@@ -45,24 +49,30 @@ for (const diagnostic of catalog.diagnostics) {
 }
 console.log("[PASS] diagnostic catalog codes are unique and layer-consistent");
 
-const usedCodes = await collectUsedDiagnosticCodes(sourceRoots);
+const usedCodes = await collectUsedDiagnosticCodes(sourceRoots, sourceFiles);
 const missing = [...usedCodes].filter((code) => !byCode.has(code)).sort();
 assert.deepEqual(missing, [], `Unregistered diagnostic codes: ${missing.join(", ")}`);
 console.log("[PASS] source diagnostic codes are registered");
 
-async function collectUsedDiagnosticCodes(roots: string[]): Promise<Set<string>> {
+async function collectUsedDiagnosticCodes(roots: string[], files: string[]): Promise<Set<string>> {
   const codes = new Set<string>();
   for (const root of roots) {
     for (const file of await listSourceFiles(root)) {
-      const source = await readFile(file, "utf8");
-      collectPattern(source, /new\s+ParseError\s*\(\s*"([^"]+)"/g, codes);
-      collectPattern(source, /diagnostic\s*\(\s*"([^"]+)"/g, codes);
-      collectPattern(source, /errorResult\s*\(\s*"([^"]+)"/g, codes);
-      collectPattern(source, /code:\s*"([^"]+)"/g, codes);
-      collectPattern(source, /TEXT\(\"((?:language|capability|resolution|validation)\.[^\"]+)\"\)/g, codes);
+      collectCodesFromSource(await readFile(file, "utf8"), codes);
     }
   }
+  for (const file of files) {
+    collectCodesFromSource(await readFile(file, "utf8"), codes);
+  }
   return codes;
+}
+
+function collectCodesFromSource(source: string, codes: Set<string>): void {
+  collectPattern(
+    source,
+    /["']((?:language|capability|resolution|validation|runtime|tool)\.[a-z][a-z0-9_]*)["']/g,
+    codes,
+  );
 }
 
 function collectPattern(source: string, pattern: RegExp, codes: Set<string>): void {

@@ -142,6 +142,7 @@
     { "code": "validation.reference_scan_incomplete", "layer": "validation", "defaultSeverity": "error", "title": "Reference scan incomplete" },
     { "code": "validation.reference_scan_pending", "layer": "validation", "defaultSeverity": "info", "title": "Reference scan pending" },
     { "code": "validation.remove_invalid", "layer": "validation", "defaultSeverity": "error", "title": "Remove invalid" },
+    { "code": "validation.replace_same_object", "layer": "validation", "defaultSeverity": "error", "title": "Replacement is the target object" },
     { "code": "validation.result_too_large", "layer": "validation", "defaultSeverity": "error", "title": "Query result too large" },
     { "code": "validation.rollback_failed", "layer": "validation", "defaultSeverity": "error", "title": "Rollback failed" },
     { "code": "validation.save_failed", "layer": "validation", "defaultSeverity": "error", "title": "Save failed" },
@@ -156,6 +157,27 @@
     { "code": "validation.timeline_key_invalid", "layer": "validation", "defaultSeverity": "error", "title": "Timeline key invalid" },
     { "code": "validation.timeline_track_invalid", "layer": "validation", "defaultSeverity": "error", "title": "Timeline track invalid" },
     { "code": "validation.unused_binding", "layer": "validation", "defaultSeverity": "error", "title": "Unused binding" },
-    { "code": "validation.widget_patch_invalid", "layer": "validation", "defaultSeverity": "error", "title": "Widget Patch invalid" }
+    { "code": "validation.widget_patch_invalid", "layer": "validation", "defaultSeverity": "error", "title": "Widget Patch invalid" },
+
+    { "code": "runtime.ambiguous", "layer": "runtime", "defaultSeverity": "error", "title": "Runtime selection ambiguous" },
+    { "code": "runtime.client_error", "layer": "runtime", "defaultSeverity": "error", "title": "Runtime client error" },
+    { "code": "runtime.connect_failed", "layer": "runtime", "defaultSeverity": "error", "title": "Runtime connection failed" },
+    { "code": "runtime.connection_closed", "layer": "runtime", "defaultSeverity": "error", "title": "Runtime connection closed" },
+    { "code": "runtime.connection_error", "layer": "runtime", "defaultSeverity": "error", "title": "Runtime connection error" },
+    { "code": "runtime.editor_shutting_down", "layer": "runtime", "defaultSeverity": "error", "title": "Editor shutting down" },
+    { "code": "runtime.incompatible", "layer": "runtime", "defaultSeverity": "error", "title": "Runtime incompatible" },
+    { "code": "runtime.internal_error", "layer": "runtime", "defaultSeverity": "error", "title": "Runtime internal error" },
+    { "code": "runtime.invalid_invoke_result", "layer": "runtime", "defaultSeverity": "error", "title": "Invalid runtime invoke result" },
+    { "code": "runtime.invalid_json", "layer": "runtime", "defaultSeverity": "error", "title": "Invalid runtime JSON" },
+    { "code": "runtime.invalid_response", "layer": "runtime", "defaultSeverity": "error", "title": "Invalid runtime response" },
+    { "code": "runtime.not_found", "layer": "runtime", "defaultSeverity": "error", "title": "Runtime not found" },
+    { "code": "runtime.offline", "layer": "runtime", "defaultSeverity": "error", "title": "Runtime offline" },
+    { "code": "runtime.request_cancelled", "layer": "runtime", "defaultSeverity": "error", "title": "Runtime request cancelled" },
+    { "code": "runtime.request_timeout", "layer": "runtime", "defaultSeverity": "error", "title": "Runtime request timed out" },
+    { "code": "runtime.rpc_error", "layer": "runtime", "defaultSeverity": "error", "title": "Runtime RPC error" },
+    { "code": "runtime.write_failed", "layer": "runtime", "defaultSeverity": "error", "title": "Runtime write failed" },
+
+    { "code": "tool.invalid_arguments", "layer": "tool", "defaultSeverity": "error", "title": "Invalid tool arguments" },
+    { "code": "tool.unknown", "layer": "tool", "defaultSeverity": "error", "title": "Unknown tool" }
   ]
 }

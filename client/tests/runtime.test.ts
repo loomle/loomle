@@ -54,7 +54,7 @@ class ConcurrentFailureClient {
   invoke(tool: string): Promise<unknown> {
     return new Promise((_, reject) => {
       this.pending.push({
-        error: new RuntimeRpcError(1000, `failed:${tool}`),
+        error: new RuntimeRpcError("runtime.rpc_error", `failed:${tool}`),
         reject,
       });
       if (this.pending.length === 2) this.resolveReady();

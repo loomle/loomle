@@ -165,6 +165,30 @@ Example:
 }
 ```
 
+### `runtime.*`
+
+Runtime diagnostics report discovery, compatibility, connection, transport,
+cancellation, timeout, shutdown, and internal execution failures between the
+MCP client and the active Loomle Bridge.
+
+Examples:
+
+- `runtime.not_found`
+- `runtime.incompatible`
+- `runtime.request_cancelled`
+- `runtime.editor_shutting_down`
+- `runtime.internal_error`
+
+### `tool.*`
+
+Tool diagnostics report failures at the public MCP tool or private Bridge tool
+invocation boundary, before a valid SAL operation reaches a domain interface.
+
+Examples:
+
+- `tool.invalid_arguments`
+- `tool.unknown`
+
 ## Rules
 
 1. Codes are stable. Messages may improve over time.
@@ -194,7 +218,7 @@ Each catalog entry records the stable code contract:
 ```ts
 interface DiagnosticDefinition {
   code: string;
-  layer: "language" | "capability" | "resolution" | "validation";
+  layer: "language" | "capability" | "resolution" | "validation" | "runtime" | "tool";
   defaultSeverity: "error" | "warning" | "info";
   title: string;
   requiredFields?: DiagnosticField[];
@@ -270,6 +294,12 @@ After bridge core validation, adapters should produce:
 The UE Bridge uses `FSalDiagnostics` as its shared construction helper. Domain
 interfaces add UE-specific context through that helper after the normalized
 object boundary has been validated centrally.
+
+JSON-RPC numeric error codes belong only to the private transport protocol;
+they are not public Diagnostic codes. An RPC error exposed to an agent must
+carry a registered string Diagnostic code in `error.data.code`. The Client
+normalizes that string into the shared Diagnostic shape and uses
+`runtime.rpc_error` only when an older or malformed peer omits it.
 
 ## Domain Rules
 
