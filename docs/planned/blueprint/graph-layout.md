@@ -1,239 +1,95 @@
 # Blueprint Graph Layout
 
-> **Status: planned redesign.** Current 0.7 SAL can read stored graph layout and
-> apply explicit node movement, but it does not expose automatic graph
-> formatting. The `blueprint_graph_layout` and `blueprint_graph_edit` JSON
-> contracts below belong to the retired 0.6 surface and are design input only,
-> not current public APIs. Automatic layout must be redesigned around SAL and
-> confirmed before implementation.
+## Status
+
+Current SAL reads stored Node layout with `with layout` and can move exact
+Nodes explicitly. It does not automatically format a graph or region. This
+document records the UE 5.7 behavior and the questions that must be resolved
+before an automatic layout operation is designed.
 
 ## Intent
 
-The retired `blueprint_graph_layout` tool was the visual formatting surface for
-Blueprint graphs.
+Automatic layout should make a recently edited Blueprint region readable
+without changing graph behavior. It is a visual mutation over existing Nodes,
+not an alternative creation, connection, or graph-transformation API.
 
-It exists so agents can make a recently edited graph region readable without
-changing Blueprint behavior. The first version is intentionally narrow: it
-formats a selected region or a downstream execution tree. It does not format an
-entire graph.
+## UE 5.7 Source Facts
 
-## Proposed Boundary
+Relevant source:
 
-`blueprint_graph_layout` owns visual organization:
+- `Editor/GraphEditor/Private/GraphEditorActions.cpp`
+- `Editor/GraphEditor/Private/SGraphEditorImpl.h`
+- `Editor/GraphEditor/Private/SGraphEditorImpl.cpp`
+- `Editor/GraphEditor/Private/SGraphPanel.cpp`
+- `Editor/Kismet/Private/BlueprintEditor.cpp`
+- `Runtime/Engine/Private/EdGraph/EdGraphSchema.cpp`
 
-- choose a set of existing nodes
-- compute target node positions
-- move those nodes
-- return a dry-run plan or an applied diff
+The Blueprint Editor maps native Graph Editor commands for aligning selected
+Nodes, distributing them horizontally or vertically, and straightening
+connections. These commands delegate through the focused `SGraphEditorImpl` and
+run inside `FScopedTransaction`.
 
-It does not own:
+The native helpers are editor-view operations:
 
-- node creation, which belongs to `blueprint_graph_edit`
-- pin connection changes, which belong to explicit `blueprint_graph_edit`
-  commands
-- structural transformations; callers should inspect first and compose explicit
-  `blueprint_graph_edit` commands
-- recipe expansion as a separate public abstraction
-- whole-graph formatting
-- reroute insertion, reroute cleanup, or wire routing in the first version
-- comment fitting or comment creation in the first version
+- alignment uses the current selection and measured Node bounds;
+- distribution requires more than two selected Nodes and preserves the first
+  and last positions while spacing the interior Nodes;
+- straightening uses selected or hovered Pins and the live `SGraphPanel` Pin
+  widgets to align connected Nodes;
+- Node size comes from Slate bounds when available, with the Node's stored size
+  as a fallback;
+- movement calls `UEdGraphSchema::SetNodePosition`, whose default
+  implementation calls `Modify()` and writes `NodePosX` and `NodePosY`.
 
-## Retired 0.6 Operation Sketch
+These paths do not provide one headless, deterministic API that accepts an
+arbitrary subgraph and produces a complete layout. Some native behavior depends
+on the open Graph Editor, selection, hover state, and measured Slate geometry.
+That distinction must remain explicit in Loomle.
 
-The first public operation is:
+## Current SAL Boundary
 
-```text
-format
-```
+Graph Object Text already exposes stored positions as part of the graph model,
+and Graph Patch can move an exact Node to an explicit point. Automatic layout
+must compose with that model rather than becoming a separate public tool. It
+must not create Nodes, change links, add reroutes, or silently choose a region
+from editor focus.
 
-No shortcut form is supported. A single node is formatted through
-`scope.mode="selection"` with one node in `scope.nodes`.
+Compilation and save remain terminal operations on the owning Blueprint, not
+implicit side effects of layout.
 
-## Retired 0.6 Request Sketch
+## Design Questions
 
-Recommended first-version request shape:
+The SAL operation must be discussed before implementation:
 
-```json
-{
-  "assetPath": "/Game/Blueprints/BP_Test",
-  "graph": { "name": "EventGraph" },
-  "operation": "format",
-  "scope": {
-    "mode": "tree",
-    "root": { "id": "branch1" }
-  },
-  "direction": "right",
-  "style": "simple",
-  "spacing": { "x": 360, "y": 180 },
-  "origin": { "x": 400, "y": 200 },
-  "dryRun": true
-}
-```
+1. Should Loomle expose faithful native selection operations such as align,
+   distribute, and straighten; a deterministic Loomle region formatter; or
+   both as clearly distinct schema-discovered operations?
+2. How is the region addressed: an explicit Node set, a bounded execution-flow
+   traversal, or another exact selector returned by schema?
+3. Can a headless algorithm obtain authoritative Node and Pin geometry when the
+   Graph is not open, or must it report that native visual geometry is
+   unavailable?
+4. Which Nodes anchor the result, and how are cycles, shared downstream Nodes,
+   comments, reroutes, latent paths, and data-only edges handled?
+5. What deterministic ordering and spacing rules keep repeated layout
+   idempotent across machines and editor sessions?
+6. How should dry run express planned before/after Node positions in ordinary
+   Object Text without inventing a second result language?
+7. Is automatic collision avoidance part of the first operation, or should the
+   first version stay limited to native align/distribute/straighten semantics?
 
-Required fields:
+## Safety Boundary
 
-- `assetPath`
-- graph address, preferably `graph: { "id": "..." }` or
-  `graph: { "name": "EventGraph" }`
-- `operation`
-- `scope`
+Any eventual operation must:
 
-Optional fields:
+- resolve every target Node inside one exact Graph;
+- validate the full move plan before changing positions;
+- use UE transactions and schema-aware Node movement;
+- preserve Nodes, Pins, links, defaults, comments, and graph semantics;
+- produce the same plan in dry run and apply;
+- return the Nodes it moved with their resulting stored layout;
+- refuse partial application when required geometry or identity is missing.
 
-- `direction`
-- `style`
-- `spacing`
-- `origin`
-- `dryRun`
-- `expectedRevision`
-- `returnDiagnostics`
-- `returnDiff`
-
-## Scope Modes
-
-### selection
-
-`selection` formats only the nodes explicitly named by the caller.
-
-```json
-{
-  "operation": "format",
-  "scope": {
-    "mode": "selection",
-    "nodes": [
-      { "id": "nodeA" },
-      { "id": "nodeB" }
-    ]
-  }
-}
-```
-
-Rules:
-
-- `nodes` is required and must contain at least one node.
-- Only listed nodes may be moved.
-- Loomle must not expand the selection automatically.
-- One-node formatting uses this mode.
-
-### tree
-
-`tree` formats a downstream execution tree starting from one root node.
-
-```json
-{
-  "operation": "format",
-  "scope": {
-    "mode": "tree",
-    "root": { "id": "branch1" }
-  }
-}
-```
-
-Rules:
-
-- `root` is required.
-- The root node is included.
-- The first version follows execution output pins downstream.
-- The first version does not follow data-flow-only links.
-- Traversal stays within the addressed graph.
-- Already visited nodes are skipped to avoid cycles.
-- Comment nodes are not included.
-- Reroute nodes are not inserted, removed, or cleaned up.
-
-This mode is the equivalent of asking Loomle to format the connected execution
-region to the right of a selected Blueprint node.
-
-## Formatting Options
-
-### direction
-
-Supported values:
-
-- `right`
-- `down`
-
-Default:
-
-```text
-right
-```
-
-### style
-
-Supported first-version value:
-
-```text
-simple
-```
-
-`simple` lays nodes out in a predictable grid/tree order. It should favor
-readability and deterministic diffs over editor-perfect formatting.
-
-### spacing
-
-Recommended default:
-
-```json
-{ "x": 360, "y": 180 }
-```
-
-### origin
-
-If `origin` is omitted:
-
-- `tree` keeps the root anchored at its current position.
-- `selection` uses the current selection bounding box top-left as the origin.
-
-## Dry Run
-
-`dryRun=true` must compute the same layout plan without mutating the asset.
-
-Dry run is important because layout can move many nodes at once. The returned
-plan should be usable by an agent to decide whether to apply the same request
-without `dryRun`.
-
-## Result Shape
-
-Dry run and execution should use the same result structure:
-
-```json
-{
-  "changed": true,
-  "dryRun": true,
-  "operation": "format",
-  "scope": {
-    "mode": "tree",
-    "resolvedNodeCount": 5
-  },
-  "nodesMoved": [
-    {
-      "node": { "id": "nodeA" },
-      "from": { "x": 100, "y": 200 },
-      "to": { "x": 400, "y": 200 }
-    }
-  ],
-  "warnings": []
-}
-```
-
-Rules:
-
-- `nodesMoved` must include before and after positions.
-- Nodes whose target position equals their current position may be omitted.
-- `changed=false` means the format plan produced no movement.
-- First-version `format` must not report link changes.
-
-## Explicit Non-Goals
-
-The first version must not implement:
-
-- `organizeGraph`
-- implicit single-node shortcut syntax
-- whole-graph formatting
-- automatic region discovery beyond `tree`
-- reroute insertion
-- reroute cleanup
-- wire routing
-- comment creation
-- comment fitting
-- data-flow-only traversal
+Whole-graph formatting, reroute synthesis, wire routing, comment fitting, and
+behavioral graph rewrites remain separate design topics until explicitly
+specified.

@@ -25,8 +25,6 @@ loomle/
     fab/
     release/
   docs/
-  tests/
-  tools/
   site/
 ```
 
@@ -60,8 +58,8 @@ client/
 ```
 
 The current source is intentionally flat while it remains small. New
-subdirectories should be introduced only when retained tools make a concrete
-module too large or mix unrelated responsibilities.
+subdirectories should be introduced only when a concrete module becomes too
+large or mixes unrelated responsibilities.
 
 Production type checking contains only `src/`. The production build then uses
 that single entry point to emit only `client/dist/main.cjs`. Test compilation is
@@ -98,8 +96,8 @@ and executable tests is:
 
 `packaging/client/` owns how that executable is built. Its first accepted
 target is `darwin-arm64`; other targets are not implied until they pass the
-same native executable tests. Callers must not infer Cargo `target/` paths, npm
-internals, or another private build location.
+same native executable tests. Callers consume only the canonical artifact path
+and must not infer another private build location.
 
 ```sh
 npm run build:executable
@@ -136,9 +134,8 @@ LoomleBridge/
   LoomleBridge.uplugin
 ```
 
-`Resources/MCP` is a legacy Python MCP location and is not part of the 0.7
-layout. The 0.7 Fab assembler accepts only the canonical standalone Client
-program and has no script or legacy-server fallback.
+The Fab assembler accepts only the canonical standalone Client program and has
+no alternative Client layout or script fallback.
 
 The Client discovers live Bridge records through `~/.loomle/state/runtimes`.
 That directory is runtime state, not a global Loomle installation and not a
@@ -158,9 +155,9 @@ The executable build writes an adjacent `build.json` receipt containing its
 product version, target, Node version and runtime archive SHA-256, executable
 name, and executable SHA-256. The assembler verifies that receipt and the
 Client bytes, but does not ship the receipt. It rejects a missing or
-receipt-mismatched canonical Client, product-version drift, `Resources/MCP`,
-another staged Client target, and
-unexpected platform build outputs. The receipt does not fingerprint every
+receipt-mismatched canonical Client, product-version drift, another staged
+Client target, unexpected Client resources, and platform build outputs. The
+receipt does not fingerprint every
 source file, so both local QA and automation build and test the Client
 immediately before assembly. For the accepted `darwin-arm64` target it also
 narrows the derived descriptor to Mac and `Mac:arm64`; the source descriptor
@@ -182,7 +179,7 @@ The Bridge resolves exactly one Client path for its current compiled target:
 The platform spelling follows the Client build target (`darwin`, `win32`, or
 `linux`) rather than UE display names. Architecture comes from the current UE
 process target, not the host machine. There is no runtime fallback to
-`Resources/MCP` or `~/.loomle/bin/loomle`.
+another plugin or user-directory location.
 
 Codex and Claude Desktop configuration use the absolute bundled Client as
 `command` with `args = ["mcp"]`. The Bridge status panel is read-only with
@@ -239,19 +236,12 @@ The `--no-git-tag-version` flag remains required until the final manual 0.7
 promotion workflow is designed and enabled. Creating a version must never
 implicitly start a release.
 
-## Legacy Retirement
+## 0.6 History And Upgrade
 
-The following 0.6 mechanisms are not migrated into the Client:
-
-- Rust Client and Cargo `target/` output;
-- Python MCP and `Resources/MCP`;
-- global bundle installation and `project.install`;
-- the old release manifest and plugin-cache workflow.
-
-The 0.6 branch remains the maintenance source for its Python MCP, global
-installers, manifests, plugin cache, and tag-driven release workflow. Those
-implementations are not retained as inactive alternatives on `main`; historical
-design documents live under `docs/archive/legacy/0.6/`.
+The `0.6` branch and its release tags preserve the 0.6 implementation and
+documents. They are not copied into `main` as inactive alternatives. The 0.7
+tree contains one TypeScript Client, one SAL contract, and one Fab packaging
+path.
 
 Before a project moves from 0.6 to the Fab-installed 0.7 plugin, its old
 `<Project>/Plugins/LoomleBridge` copy must be backed up if modified and removed
@@ -266,19 +256,14 @@ Release, latest alias, or public Fab submission. Windows and formal release
 promotion remain unavailable until their native Client, signing, packaging,
 and verification paths satisfy the same contract.
 
-## Migration Order
+## Verification Boundary
 
-1. Establish clean SAL, Interfaces, and Client workspace boundaries.
-2. Separate Client production and test compilation.
-3. Inject the static UE interface catalog into generic SAL discovery.
-4. Centralize product-version injection and embed the SAL runtime schema.
-5. Build one platform-neutral Client bundle.
-6. Produce the standalone program at the canonical artifact path.
-7. Assemble the program into the Fab plugin.
-8. Replace release and verification workflows.
-9. Retire the Python MCP, Cargo paths, and website bootstrap chain.
+Current verification is component-owned: SAL, Interfaces, Client, packaging,
+and Bridge each keep focused tests beside their implementation. The root npm
+suite composes the TypeScript and packaging checks; UE BuildPlugin verifies the
+Bridge and final staged artifact. A future editor E2E framework will be designed
+against SAL rather than preserving a second compatibility harness.
 
-Each increment must preserve workspace tests. Tag-driven release workflows are
-not part of the 0.7 design; formal release promotion is a final explicit manual
-step after every advertised artifact has already passed signing and
-verification.
+Tag-driven release workflows are not part of the 0.7 design. Formal release
+promotion remains a final explicit manual step after every advertised artifact
+has passed signing and verification.

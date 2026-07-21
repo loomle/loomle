@@ -11,7 +11,6 @@ interface DiagnosticCatalog {
 interface DiagnosticDefinition {
   code: string;
   layer: "language" | "capability" | "resolution" | "validation";
-  legacy?: boolean;
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -42,11 +41,7 @@ for (const diagnostic of catalog.diagnostics) {
   byCode.set(diagnostic.code, diagnostic);
 
   const prefix = diagnostic.code.split(".")[0];
-  if (diagnostic.code.includes(".")) {
-    assert.equal(prefix, diagnostic.layer, `Diagnostic ${diagnostic.code} prefix must match layer ${diagnostic.layer}`);
-  } else {
-    assert.equal(diagnostic.legacy, true, `Unprefixed diagnostic ${diagnostic.code} must be marked legacy`);
-  }
+  assert.equal(prefix, diagnostic.layer, `Diagnostic ${diagnostic.code} prefix must match layer ${diagnostic.layer}`);
 }
 console.log("[PASS] diagnostic catalog codes are unique and layer-consistent");
 

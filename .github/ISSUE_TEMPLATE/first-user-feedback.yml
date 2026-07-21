@@ -12,7 +12,7 @@ body:
     id: goal
     attributes:
       label: What were you trying to do?
-      description: Example: attach to a UE project, inspect a Blueprint, add a Material node, edit a PCG parameter.
+      description: Example: inspect a Blueprint, follow an execution flow, query references, or patch a Widget tree.
     validations:
       required: true
   - type: textarea
@@ -36,5 +36,5 @@ body:
     id: logs
     attributes:
       label: Relevant output
-      description: Paste `loomle doctor`, tool output, diagnostics, or logs if useful.
+      description: Paste the SAL request, tool result, compiler diagnostics, or relevant Unreal log lines.
       render: text

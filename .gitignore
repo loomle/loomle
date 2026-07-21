@@ -23,10 +23,3 @@ runtime/local-release-*/
 .tmp/
 node_modules/
 dist/
-
-# Local developer project-root config
-tools/dev.project-root.local.json
-
-# Local exploratory notes and summaries
-tools/layout_overnight_summary.json
-tools/layout_overnight_summary.md

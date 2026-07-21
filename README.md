@@ -155,9 +155,9 @@ contracts.
 - Releases: https://github.com/loomle/loomle/releases
 
 Repository and product design documents live under `docs/`; canonical SAL and
-UE interface contracts live under `sal/docs/` and `interfaces/`. Historical
-0.6 material belongs under `docs/archive/legacy/` and is not the current
-product contract.
+UE interface contracts live under `sal/docs/` and `interfaces/`. Loomle 0.6
+source and documents remain available from the `0.6` branch, its release tags,
+and repository history; `main` contains only the current design and code.
 
 ## License
 

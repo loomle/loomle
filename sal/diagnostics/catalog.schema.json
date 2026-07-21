@@ -19,7 +19,7 @@
       "properties": {
         "code": {
           "type": "string",
-          "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)?$"
+          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
         },
         "layer": {
           "enum": ["language", "capability", "resolution", "validation"]
@@ -36,9 +36,6 @@
         },
         "optionalFields": {
           "$ref": "#/$defs/DiagnosticFields"
-        },
-        "legacy": {
-          "type": "boolean"
         }
       }
     },
