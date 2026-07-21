@@ -8,13 +8,6 @@ public class LoomleBridge : ModuleRules
     {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-        PublicDependencyModuleNames.AddRange(
-            new[]
-            {
-                "Core",
-                "SlateCore"
-            });
-
         PrivateDependencyModuleNames.AddRange(
             new[]
             {
@@ -23,6 +16,7 @@ public class LoomleBridge : ModuleRules
                 "BlueprintGraph",
                 "ContentBrowser",
                 "ContentBrowserData",
+                "Core",
                 "CoreUObject",
                 "Engine",
                 "Json",
@@ -33,6 +27,7 @@ public class LoomleBridge : ModuleRules
                 "PropertyEditor",
                 "Projects",
                 "Slate",
+                "SlateCore",
                 "SubobjectDataInterface",
                 "SubobjectEditor",
                 "ToolMenus",
