@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Sal/SalModel.h"
+#include "UObject/StrongObjectPtr.h"
 
 class FJsonObject;
 
@@ -20,5 +21,15 @@ public:
     static TSharedPtr<FJsonObject> Patch(
         const FSalPatch& Patch,
         const FSalResolvedTarget& Target);
+
+#if WITH_DEV_AUTOMATION_TESTS
+    static TStrongObjectPtr<UBlueprint> MakeTransientPlanForTesting(
+        UBlueprint* Source,
+        FString& OutMessage);
+
+    static bool ValidateModificationClassStateForTesting(
+        UBlueprint* Blueprint,
+        FString& OutMessage);
+#endif
 };
 }

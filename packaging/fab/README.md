@@ -23,6 +23,13 @@ The staged plugin is assembled from:
 - `.tmp/client/<platform-arch>/loomle(.exe)` for the standalone Client;
 - `packaging/fab/FAB_PLUGIN_README.md` for the packaged README.
 
+`engine/LoomleBridge/Source/LoomleBridge/Private/Tests` is development input,
+not release source. The assembler excludes that exact subtree before
+BuildPlugin can run UHT or compile the staged plugin. This includes reflected
+test headers and their generated-code inputs. The descriptor must contain
+exactly one runtime module, `LoomleBridge`; a test module or any other extra
+module is rejected.
+
 The Client is copied to
 `LoomleBridge/Resources/Loomle/<platform-arch>/loomle(.exe)`. No alternative
 Client implementation or resource tree is consumed. The package has no
@@ -69,6 +76,7 @@ LoomleBridge/Binaries/
 LoomleBridge/Intermediate/
 LoomleBridge/Saved/
 LoomleBridge/Content/
+LoomleBridge/Source/LoomleBridge/Private/Tests/
 ```
 
 Platform binaries and Unreal build outputs are rejected everywhere except for
@@ -83,8 +91,10 @@ UE BuildPlugin consumes that staging tree and produces the distributable
 plugin. The final tree must add the matching
 `Binaries/Mac/UnrealEditor-LoomleBridge.dylib`, mark the descriptor
 `Installed=true`, retain `Config/FilterPlugin.ini`, and preserve the exact
-Client bytes and executable permission. For `darwin-arm64`, both the Bridge and
-Client are arm64-only.
+Client bytes and executable permission. Both the BuildPlugin output and the
+final ZIP are audited again for the one-module descriptor and the absence of
+test source, `Intermediate/`, `Saved/`, and `Content/`. For `darwin-arm64`,
+both the Bridge and Client are arm64-only.
 
 Run the assembler tests locally:
 

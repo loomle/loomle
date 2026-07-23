@@ -171,7 +171,12 @@ same single architecture and preserve the exact Client bytes through
 `Config/FilterPlugin.ini`. The final QA or release archive is always the
 BuildPlugin output, never the pre-build staging tree. It must contain the
 matching Bridge binary, `Installed=true` descriptor, retained filter contract,
-and the same one-target Client payload.
+and the same one-target Client payload. Before BuildPlugin runs UHT, Fab
+assembly removes the development-only
+`Source/LoomleBridge/Private/Tests` subtree and requires the descriptor to
+contain exactly one module named `LoomleBridge`. The BuildPlugin output and
+final ZIP repeat that audit and must not contain test source, `Intermediate/`,
+`Saved/`, or `Content/`.
 
 ## Host Setup
 
@@ -271,11 +276,13 @@ and verification paths satisfy the same contract.
 
 ## Verification Boundary
 
-Current verification is component-owned: SAL, Interfaces, Client, packaging,
-and Bridge each keep focused tests beside their implementation. The root npm
-suite composes the TypeScript and packaging checks; UE BuildPlugin verifies the
-Bridge and final staged artifact. A future editor E2E framework will be designed
-against SAL rather than preserving a second compatibility harness.
+Verification is layered. SAL, Interfaces, Client, packaging, and Bridge keep
+focused tests beside their implementation, and the root npm suite composes the
+fast TypeScript and packaging checks. A same-commit test-bearing BuildPlugin
+candidate runs the complete Loomle UE Automation category. A separate stripped
+release candidate is then built, audited, archived, and exercised through the
+small packaged Client-to-UE workflow against that exact ZIP. See
+`TESTING_AND_RELEASE_GATES.md` for the runner and promotion contract.
 
 Tag-driven release workflows are not part of the 0.7 design. Formal release
 promotion remains a final explicit manual step after every advertised artifact

@@ -343,11 +343,16 @@ bool FLoomleBridgeModule::TickHealthSnapshot(float DeltaTime)
     return true;
 }
 
-void FLoomleBridgeModule::UpdateHealthSnapshot()
+void FLoomleBridgeModule::RecordGameThreadProgress()
 {
     check(IsInGameThread());
     GameThreadProgressSequence.fetch_add(1);
     LastGameThreadProgressCycles.store(FPlatformTime::Cycles64());
+}
+
+void FLoomleBridgeModule::UpdateHealthSnapshot()
+{
+    RecordGameThreadProgress();
 
     ELoomleBridgeLifecycle Lifecycle = static_cast<ELoomleBridgeLifecycle>(BridgeLifecycleState.load());
     const ELoomlePipeListenerState ListenerState = PipeServer.IsValid()
@@ -355,7 +360,8 @@ void FLoomleBridgeModule::UpdateHealthSnapshot()
         : ELoomlePipeListenerState::Stopped;
     const ELoomleBridgeLifecycle ResolvedLifecycle = ResolveBridgeLifecycle(
         Lifecycle,
-        ListenerState);
+        ListenerState,
+        bEditorInitialized);
     if (ResolvedLifecycle != Lifecycle)
     {
         const ELoomleBridgeLifecycle PreviousLifecycle = Lifecycle;
@@ -363,9 +369,6 @@ void FLoomleBridgeModule::UpdateHealthSnapshot()
         BridgeLifecycleState.store(static_cast<uint8>(Lifecycle));
         if (Lifecycle == ELoomleBridgeLifecycle::Ready)
         {
-            // LoomleBridge loads in PostEngineInit, after
-            // OnFEngineLoopInitComplete has been broadcast. Reaching this
-            // Game Thread ticker is the remaining readiness boundary.
             UE_LOG(LogLoomleBridge, Display, TEXT("Loomle runtime %s is ready on %s"), *RuntimeId, *RuntimeEndpoint);
         }
         else if (PreviousLifecycle == ELoomleBridgeLifecycle::Ready
@@ -406,11 +409,13 @@ FString FLoomleBridgeModule::GetBridgeLifecycleName() const
 
 ELoomleBridgeLifecycle FLoomleBridgeModule::ResolveBridgeLifecycle(
     const ELoomleBridgeLifecycle CurrentLifecycle,
-    const ELoomlePipeListenerState ListenerState)
+    const ELoomlePipeListenerState ListenerState,
+    const bool bEditorInitialized)
 {
     if (CurrentLifecycle == ELoomleBridgeLifecycle::Starting)
     {
-        if (ListenerState == ELoomlePipeListenerState::Listening)
+        if (ListenerState == ELoomlePipeListenerState::Listening
+            && bEditorInitialized)
         {
             return ELoomleBridgeLifecycle::Ready;
         }
@@ -1041,9 +1046,20 @@ void FLoomleBridgeModule::HandlePreExit()
     BeginBridgeShutdown();
 }
 
+void FLoomleBridgeModule::HandleEditorInitialized(const double Duration)
+{
+    (void)Duration;
+    check(IsInGameThread());
+    bEditorInitialized = true;
+    UpdateHealthSnapshot();
+}
+
 void FLoomleBridgeModule::StartupModule()
 {
     bIsShuttingDown.Store(false);
+    // GIsRunning is false during the configured PostEngineInit loading phase
+    // and true when this module is loaded dynamically after Editor startup.
+    bEditorInitialized = GIsRunning;
     BridgeLifecycleState.store(static_cast<uint8>(ELoomleBridgeLifecycle::Starting));
     GameThreadProgressSequence.store(0);
     LastGameThreadProgressCycles.store(0);
@@ -1051,6 +1067,12 @@ void FLoomleBridgeModule::StartupModule()
     InitializeRuntimeIdentity();
     RegisterLoomleSlateStyle();
     RequestCancellationRegistry = MakeUnique<Loomle::Runtime::FRequestCancellationRegistry>();
+    if (!bEditorInitialized)
+    {
+        EditorInitializedHandle = FEditorDelegates::OnEditorInitialized.AddRaw(
+            this,
+            &FLoomleBridgeModule::HandleEditorInitialized);
+    }
     ShutdownPostPackagesSavedHandle = FEditorDelegates::OnShutdownPostPackagesSaved.AddRaw(
         this,
         &FLoomleBridgeModule::HandleShutdownPostPackagesSaved);
@@ -1085,6 +1107,11 @@ void FLoomleBridgeModule::StartupModule()
         UE_LOG(LogLoomleBridge, Error, TEXT("Failed to start Loomle pipe server."));
         BridgeLifecycleState.store(static_cast<uint8>(ELoomleBridgeLifecycle::Failed));
         PipeServer.Reset();
+        if (EditorInitializedHandle.IsValid())
+        {
+            FEditorDelegates::OnEditorInitialized.Remove(EditorInitializedHandle);
+            EditorInitializedHandle.Reset();
+        }
         FEditorDelegates::OnShutdownPostPackagesSaved.Remove(ShutdownPostPackagesSavedHandle);
         ShutdownPostPackagesSavedHandle.Reset();
         FEditorDelegates::OnEditorPreExit.Remove(EditorPreExitHandle);
@@ -1118,6 +1145,11 @@ void FLoomleBridgeModule::StartupModule()
 void FLoomleBridgeModule::ShutdownModule()
 {
     BeginBridgeShutdown();
+    if (EditorInitializedHandle.IsValid())
+    {
+        FEditorDelegates::OnEditorInitialized.Remove(EditorInitializedHandle);
+        EditorInitializedHandle.Reset();
+    }
     if (ShutdownPostPackagesSavedHandle.IsValid())
     {
         FEditorDelegates::OnShutdownPostPackagesSaved.Remove(ShutdownPostPackagesSavedHandle);

@@ -20,6 +20,7 @@
 #include "StructUtils/PropertyBag.h"
 #include "UObject/Package.h"
 #include "UObject/UObjectGlobals.h"
+#include "UObject/UObjectIterator.h"
 
 namespace
 {
@@ -190,6 +191,36 @@ bool SalMutationHasCode(
         }
     }
     return false;
+}
+
+FString SalMutationDiagnosticSummary(const TSharedPtr<FJsonObject>& Result)
+{
+    const TArray<TSharedPtr<FJsonValue>>* Diagnostics = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetArrayField(TEXT("diagnostics"), Diagnostics)
+        || Diagnostics == nullptr)
+    {
+        return TEXT("<no diagnostics>");
+    }
+    TArray<FString> Summaries;
+    for (const TSharedPtr<FJsonValue>& Value : *Diagnostics)
+    {
+        const TSharedPtr<FJsonObject>* Diagnostic = nullptr;
+        if (!Value.IsValid()
+            || !Value->TryGetObject(Diagnostic)
+            || Diagnostic == nullptr)
+        {
+            continue;
+        }
+        FString Code;
+        FString Message;
+        (*Diagnostic)->TryGetStringField(TEXT("code"), Code);
+        (*Diagnostic)->TryGetStringField(TEXT("message"), Message);
+        Summaries.Add(Code + TEXT(": ") + Message);
+    }
+    return Summaries.IsEmpty()
+        ? TEXT("<empty diagnostics>")
+        : FString::Join(Summaries, TEXT(" | "));
 }
 
 bool SalMutationHasPlannedEffect(
@@ -687,12 +718,12 @@ bool FSalStateTreeMutationBindingCallbackCascadeTest::RunTest(
     FStateTreeEditorNode& Condition =
         Fixture.First->EnterConditions.AddDefaulted_GetRef();
     Condition.ID = ConditionId;
-    Condition.Node.InitializeAs<FStateTreeCompareEnumCondition>();
-    Condition.Instance.InitializeAs<FStateTreeCompareEnumConditionInstanceData>();
+    Condition.Node.InitializeAs<FSalStateTreeOptionalEnumCondition>();
+    Condition.Instance.InitializeAs<FSalStateTreeOptionalEnumConditionInstanceData>();
     FinalizeSalMutationFixture(Fixture);
 
-    FStateTreeCompareEnumConditionInstanceData& Instance =
-        Condition.Instance.GetMutable<FStateTreeCompareEnumConditionInstanceData>();
+    FSalStateTreeOptionalEnumConditionInstanceData& Instance =
+        Condition.Instance.GetMutable<FSalStateTreeOptionalEnumConditionInstanceData>();
     TestNull(
         TEXT("Enum Condition starts without a selected native enum"),
         Instance.Left.Enum.Get());
@@ -1012,7 +1043,7 @@ bool FSalStateTreeMutationPostEditCascadeTest::RunTest(const FString& Parameters
     }
     const FSalMutationFixture Fixture = MakeSalMutationFixture();
     const FGuid NodeId(0xC6000001, 0xC6000002, 0xC6000003, 0xC6000004);
-    FStateTreeEditorNode& Node = AddSalMutationCascadeTask(*Fixture.Root, NodeId);
+    FStateTreeEditorNode& Node = AddSalMutationCascadeTask(*Fixture.First, NodeId);
     FinalizeSalMutationFixture(Fixture);
 
     TSharedRef<FJsonObject> Set = SalMutationKind(TEXT("set"));
@@ -1073,9 +1104,18 @@ bool FSalStateTreeMutationTransitionNativeAddTest::RunTest(const FString& Parame
             MakeShared<FJsonValueObject>(Add),
         }),
         SalMutationTarget(Fixture));
+    if (!SalMutationBool(Added, TEXT("valid")))
+    {
+        AddInfo(TEXT("Transition add diagnostic: ")
+            + SalMutationDiagnosticSummary(Added));
+    }
     TestTrue(TEXT("Transition add validates"), SalMutationBool(Added, TEXT("valid")));
     TestEqual(TEXT("Transition constructor is one logical add"), SalMutationPlannedOperationCount(Added), 1);
     TestEqual(TEXT("Transition is created"), Fixture.First->Transitions.Num(), 1);
+    if (Fixture.First->Transitions.IsEmpty())
+    {
+        return false;
+    }
     FStateTreeTransition& Transition = Fixture.First->Transitions[0];
     TestTrue(
         TEXT("Native ArrayAdd defaults Trigger"),
@@ -1120,8 +1160,14 @@ bool FSalStateTreeMutationCompileCascadeTest::RunTest(const FString& Parameters)
     }
     const FSalMutationFixture Fixture = MakeSalMutationFixture();
     FinalizeSalMutationFixture(Fixture);
+    const FGuid SourceParameterId(0xC6000001, 0xC6000002, 0xC6000003, 0xC6000004);
     const FGuid RemovedId(0xC7000001, 0xC7000002, 0xC7000003, 0xC7000004);
     const FGuid SingleId(0xC8000001, 0xC8000002, 0xC8000003, 0xC8000004);
+    FInstancedPropertyBag& Bag = const_cast<FInstancedPropertyBag&>(
+        Fixture.Data->GetRootParametersPropertyBag());
+    Bag.AddProperties({
+        SalMutationIntParameter(TEXT("CompileSource"), SourceParameterId)
+    });
     AddSalMutationTask(*Fixture.First, RemovedId, TEXT("SchemaRejected"));
     Fixture.Second->SingleTask.ID = SingleId;
     Fixture.Second->SingleTask.Node.InitializeAs<FSalStateTreeBindingTask>();
@@ -1129,12 +1175,19 @@ bool FSalStateTreeMutationCompileCascadeTest::RunTest(const FString& Parameters)
     Fixture.Second->SingleTask.Instance.InitializeAs<FSalStateTreeBindingTaskInstanceData>();
     Fixture.Schema->bAllowMultipleTasks = false;
     Fixture.Data->EditorBindings.AddBinding(
-        FPropertyBindingPath(RemovedId, FName(TEXT("OutputValue"))),
-        FPropertyBindingPath(SingleId, FName(TEXT("InputValue"))));
+        FPropertyBindingPath(
+            Fixture.Data->GetRootParametersGuid(),
+            FName(TEXT("CompileSource"))),
+        FPropertyBindingPath(RemovedId, FName(TEXT("InputValue"))));
 
     const TSharedPtr<FJsonObject> DryRun = FSalStateTreeInterface::Patch(
         SalMutationPatch({MakeShared<FJsonValueObject>(SalMutationKind(TEXT("compile")))}, true),
         SalMutationTarget(Fixture));
+    if (!SalMutationBool(DryRun, TEXT("valid")))
+    {
+        AddInfo(TEXT("Compile cascade dry-run diagnostic: ")
+            + SalMutationDiagnosticSummary(DryRun));
+    }
     TestTrue(TEXT("Compile cascade dry run validates"), SalMutationBool(DryRun, TEXT("valid")));
     TestEqual(TEXT("Dry run preserves schema-rejected Task"), Fixture.First->Tasks.Num(), 1);
     TestTrue(
@@ -1145,11 +1198,19 @@ bool FSalStateTreeMutationCompileCascadeTest::RunTest(const FString& Parameters)
         SalMutationHasPlannedEffect(DryRun, TEXT("compile validation updated node@") + SalMutationGuid(SingleId)));
     TestTrue(
         TEXT("Compile plan enumerates invalid Binding"),
-        SalMutationHasPlannedEffect(DryRun, TEXT("removed native Binding source node@") + SalMutationGuid(RemovedId)));
+        SalMutationHasPlannedEffectContainingBoth(
+            DryRun,
+            TEXT("removed native Binding"),
+            TEXT("target node@") + SalMutationGuid(RemovedId)));
 
     const TSharedPtr<FJsonObject> Applied = FSalStateTreeInterface::Patch(
         SalMutationPatch({MakeShared<FJsonValueObject>(SalMutationKind(TEXT("compile")))}),
         SalMutationTarget(Fixture));
+    if (!SalMutationBool(Applied, TEXT("valid")))
+    {
+        AddInfo(TEXT("Compile cascade live diagnostic: ")
+            + SalMutationDiagnosticSummary(Applied));
+    }
     TestTrue(TEXT("Compile cascade live plan matches dry run"), SalMutationBool(Applied, TEXT("valid")));
     TestEqual(TEXT("Live compile removes schema-rejected Task"), Fixture.First->Tasks.Num(), 0);
     TestEqual(TEXT("Live compile removes invalid Binding"), Fixture.Data->EditorBindings.GetBindings().Num(), 0);
@@ -1174,6 +1235,12 @@ bool FSalStateTreeMutationCompileDryRunTest::RunTest(const FString& Parameters)
     }
     const FSalMutationFixture Fixture = MakeSalMutationFixture();
     FinalizeSalMutationFixture(Fixture);
+    Fixture.Asset->SetFlags(RF_Public | RF_Standalone);
+    TSet<UStateTree*> ExistingTransientTrees;
+    for (TObjectIterator<UStateTree> It; It; ++It)
+    {
+        ExistingTransientTrees.Add(*It);
+    }
     const uint32 BeforeHash = Fixture.Asset->LastCompiledEditorDataHash;
     const TSharedPtr<FJsonObject> Result = FSalStateTreeInterface::Patch(
         SalMutationPatch({MakeShared<FJsonValueObject>(SalMutationKind(TEXT("compile")))}, true),
@@ -1181,6 +1248,46 @@ bool FSalStateTreeMutationCompileDryRunTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Compile dry run executes against transient copy"), SalMutationBool(Result, TEXT("valid")));
     TestFalse(TEXT("Compile dry run does not apply"), SalMutationBool(Result, TEXT("applied")));
     TestEqual(TEXT("Compile dry run preserves live compiled hash"), Fixture.Asset->LastCompiledEditorDataHash, BeforeHash);
+    TestTrue(
+        TEXT("Compile dry run preserves live asset flags"),
+        Fixture.Asset->HasAllFlags(RF_Public | RF_Standalone));
+
+    int32 NewTransientCopies = 0;
+    const auto VerifyTransientFlags = [this](UObject* Object)
+    {
+        TestFalse(
+            TEXT("Preflight object is not public, standalone, or pending PostLoad"),
+            Object != nullptr
+                && Object->HasAnyFlags(
+                    RF_Public
+                    | RF_Standalone
+                    | RF_NeedPostLoad
+                    | RF_NeedPostLoadSubobjects));
+    };
+    for (TObjectIterator<UStateTree> It; It; ++It)
+    {
+        UStateTree* Candidate = *It;
+        if (ExistingTransientTrees.Contains(Candidate)
+            || Candidate->GetOuter() != GetTransientPackage()
+            || !Candidate->GetName().StartsWith(
+                Fixture.Asset->GetName() + TEXT("_SALDryRun")))
+        {
+            continue;
+        }
+        ++NewTransientCopies;
+        VerifyTransientFlags(Candidate);
+        ForEachObjectWithOuter(
+            Candidate,
+            [&VerifyTransientFlags](UObject* Object)
+            {
+                VerifyTransientFlags(Object);
+            },
+            true);
+    }
+    TestTrue(
+        TEXT("Compile dry run produced an inspectable transient copy"),
+        NewTransientCopies > 0);
+    Fixture.Asset->ClearFlags(RF_Public | RF_Standalone);
     return true;
 }
 

@@ -592,7 +592,7 @@ public:
             && GetParameterEntry((*Matches)[0]) == &Entry;
     }
 
-    bool IsCanonicalContext(const FAuthoredContextEntry& Entry) const
+    bool IsCanonicalContextDescriptor(const FAuthoredContextEntry& Entry) const
     {
 #if WITH_EDITORONLY_DATA
         if (!bContextIdentityComplete
@@ -602,12 +602,24 @@ public:
             return false;
         }
         const TArray<int32>* Matches = ContextById.Find(Entry.Desc->ID);
-        const FStateTreeExternalDataDesc* CanonicalDescriptor = nullptr;
-        FString CanonicalError;
         return Matches != nullptr
             && Matches->Num() == 1
-            && GetContextEntry((*Matches)[0]) == &Entry
-            && StateTreeSchema::ResolveCanonicalContext(
+            && GetContextEntry((*Matches)[0]) == &Entry;
+#else
+        return false;
+#endif
+    }
+
+    bool IsCanonicalContextSurface(const FAuthoredContextEntry& Entry) const
+    {
+#if WITH_EDITORONLY_DATA
+        if (!IsCanonicalContextDescriptor(Entry))
+        {
+            return false;
+        }
+        const FStateTreeExternalDataDesc* CanonicalDescriptor = nullptr;
+        FString CanonicalError;
+        return StateTreeSchema::ResolveCanonicalContext(
                 EditorData,
                 Entry.Desc->ID,
                 CanonicalDescriptor,
@@ -2033,7 +2045,7 @@ TSharedPtr<FJsonValue> ContextValue(
 {
     TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
 #if WITH_EDITORONLY_DATA
-    if (Index.IsCanonicalContext(Entry))
+    if (Index.IsCanonicalContextDescriptor(Entry))
     {
         Args->SetStringField(TEXT("id"), GuidText(Desc.ID));
     }
@@ -2901,7 +2913,7 @@ private:
         case ENativeEndpointOwnerKind::Context:
         {
             const FAuthoredContextEntry* Entry = StateIndex.GetContextEntry(NativeOwner.EntryIndex);
-            if (Entry == nullptr || Entry->Desc == nullptr || !StateIndex.IsCanonicalContext(*Entry))
+            if (Entry == nullptr || Entry->Desc == nullptr || !StateIndex.IsCanonicalContextSurface(*Entry))
             {
                 OutError = TEXT("Context endpoint has no canonical object@id owner");
                 return false;
@@ -4959,16 +4971,9 @@ TSharedPtr<FJsonObject> QueryContextObject(
     const FAuthoredContextEntry* Entry = Matches.Num() == 1
         ? Index.GetContextEntry(Matches[0])
         : nullptr;
-    const FStateTreeExternalDataDesc* CanonicalDescriptor = nullptr;
-    FString CanonicalError;
     if (Matches.Num() != 1
         || Entry == nullptr
-        || !StateTreeSchema::ResolveCanonicalContext(
-            *EditorData,
-            Id,
-            CanonicalDescriptor,
-            CanonicalError)
-        || CanonicalDescriptor != Entry->Desc)
+        || !Index.IsCanonicalContextDescriptor(*Entry))
     {
         const bool bMissing = Matches.IsEmpty();
         return QueryError(
@@ -5565,7 +5570,7 @@ bool ResolveReferenceSubject(
                 [&](const int32 Match)
                 {
                     const FAuthoredContextEntry* Entry = Index.GetContextEntry(Match);
-                    return Entry != nullptr && Index.IsCanonicalContext(*Entry);
+                    return Entry != nullptr && Index.IsCanonicalContextDescriptor(*Entry);
                 }))
         {
             return false;
@@ -6262,7 +6267,8 @@ bool PaletteSchemaText(
         const FString& Prefix,
         const bool bBindingSurface,
         const bool bNodeTemplate,
-        const FPaletteWriteFilter& WriteFilter = FPaletteWriteFilter())
+        const FPaletteWriteFilter& WriteFilter = FPaletteWriteFilter(),
+        const bool bAuthoredAssetOwner = false)
     {
         if (Struct == nullptr)
         {
@@ -6277,7 +6283,9 @@ bool PaletteSchemaText(
                 continue;
             }
             const bool bWritable = Property->HasAnyPropertyFlags(CPF_Edit)
-                && !Property->HasAnyPropertyFlags(CPF_EditConst | CPF_DisableEditOnInstance)
+                && !Property->HasAnyPropertyFlags(CPF_EditConst)
+                && (bAuthoredAssetOwner
+                    || !Property->HasAnyPropertyFlags(CPF_DisableEditOnInstance))
                 && (!WriteFilter || WriteFilter(*Property));
             const EStateTreePropertyUsage Usage = UE::StateTree::GetUsageFromMetaData(Property);
             FString Capabilities = bWritable ? TEXT("read/write/reset") : TEXT("read-only");
@@ -6371,23 +6379,22 @@ bool PaletteSchemaText(
                         return EditorData.Schema->IsScheduledTickAllowed();
                     }
                     return true;
-                }))
+                },
+                true))
         {
             return Finish();
         }
         if (Entry.bFixedStateType)
         {
             FString FixedSelection = TEXT("TryEnterState");
-            if (const UStateTreeState* Defaults = GetDefault<UStateTreeState>())
+            if (const UEnum* Enum = StaticEnum<EStateTreeStateSelectionBehavior>())
             {
-                if (const UEnum* Enum = StaticEnum<EStateTreeStateSelectionBehavior>())
+                const FString NativeSelection = Enum->GetNameStringByValue(
+                    static_cast<int64>(
+                        EStateTreeStateSelectionBehavior::TryEnterState));
+                if (!NativeSelection.IsEmpty())
                 {
-                    const FString NativeSelection = Enum->GetNameStringByValue(
-                        static_cast<int64>(Defaults->SelectionBehavior));
-                    if (!NativeSelection.IsEmpty())
-                    {
-                        FixedSelection = NativeSelection;
-                    }
+                    FixedSelection = NativeSelection;
                 }
             }
             if (!Builder.Append(FString::Printf(

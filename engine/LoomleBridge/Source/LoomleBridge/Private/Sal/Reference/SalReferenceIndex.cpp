@@ -205,7 +205,7 @@ bool RecursiveBool(
     return FindScalarRecursive(Root, Lookup, Field, Value) && Value.IsValid() && Value->TryGetBool(Out);
 }
 
-bool RecursiveUint32(
+bool RecursiveGuidWord(
     const TSharedPtr<FJsonValue>& Root,
     const TMap<int32, FText>& Lookup,
     const FString& Field,
@@ -216,13 +216,18 @@ bool RecursiveUint32(
     if (!FindScalarRecursive(Root, Lookup, Field, Value)
         || !Value.IsValid()
         || !Value->TryGetNumber(Number)
-        || Number < 0.0
-        || Number > static_cast<double>(MAX_uint32)
+        || Number < static_cast<double>(MIN_int32)
+        || Number > static_cast<double>(MAX_int32)
         || FMath::FloorToDouble(Number) != Number)
     {
         return false;
     }
-    Out = static_cast<uint32>(Number);
+    // FGuid exposes uint32 words in C++, but its reflected A/B/C/D fields are
+    // int32. UE 5.7 FiB therefore writes words with the high bit set as
+    // negative JSON numbers (and its native search strings use %i as well).
+    // Preserve those exact 32 bits instead of treating the JSON scalar as an
+    // unsigned magnitude.
+    Out = static_cast<uint32>(static_cast<int32>(Number));
     return true;
 }
 
@@ -235,10 +240,10 @@ bool MemberGuid(
     uint32 B = 0;
     uint32 C = 0;
     uint32 D = 0;
-    if (!RecursiveUint32(VariableReference, Lookup, TEXT("A"), A)
-        || !RecursiveUint32(VariableReference, Lookup, TEXT("B"), B)
-        || !RecursiveUint32(VariableReference, Lookup, TEXT("C"), C)
-        || !RecursiveUint32(VariableReference, Lookup, TEXT("D"), D))
+    if (!RecursiveGuidWord(VariableReference, Lookup, TEXT("A"), A)
+        || !RecursiveGuidWord(VariableReference, Lookup, TEXT("B"), B)
+        || !RecursiveGuidWord(VariableReference, Lookup, TEXT("C"), C)
+        || !RecursiveGuidWord(VariableReference, Lookup, TEXT("D"), D))
     {
         return false;
     }

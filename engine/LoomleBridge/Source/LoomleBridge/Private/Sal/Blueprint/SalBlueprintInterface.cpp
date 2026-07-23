@@ -1,6 +1,7 @@
 // Copyright 2026 Loomle contributors.
 
 #include "SalBlueprintInterface.h"
+#include "SalBlueprintSandbox.h"
 
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
@@ -42,6 +43,7 @@
 #include "K2Node_BaseMCDelegate.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_FunctionEntry.h"
+#include "LoomleMutationTransaction.h"
 #include "Misc/SecureHash.h"
 #include "Modules/ModuleManager.h"
 #include "ObjectEditorUtils.h"
@@ -191,7 +193,10 @@ FString QuoteNativeString(FString Text)
     return TEXT("\"") + Text + TEXT("\"");
 }
 
-FString NativeTextForProperty(const FProperty* Property, const TSharedPtr<FJsonValue>& JsonValue)
+FString NativeTextForProperty(
+    const FProperty* Property,
+    const TSharedPtr<FJsonValue>& JsonValue,
+    const bool bDelimited = false)
 {
     if (Property == nullptr || !JsonValue.IsValid())
     {
@@ -207,7 +212,7 @@ FString NativeTextForProperty(const FProperty* Property, const TSharedPtr<FJsonV
         TArray<FString> Items;
         for (const TSharedPtr<FJsonValue>& Item : *Values)
         {
-            Items.Add(NativeTextForProperty(Array->Inner, Item));
+            Items.Add(NativeTextForProperty(Array->Inner, Item, true));
         }
         return TEXT("(") + FString::Join(Items, TEXT(",")) + TEXT(")");
     }
@@ -221,7 +226,7 @@ FString NativeTextForProperty(const FProperty* Property, const TSharedPtr<FJsonV
         TArray<FString> Items;
         for (const TSharedPtr<FJsonValue>& Item : *Values)
         {
-            Items.Add(NativeTextForProperty(Set->ElementProp, Item));
+            Items.Add(NativeTextForProperty(Set->ElementProp, Item, true));
         }
         return TEXT("(") + FString::Join(Items, TEXT(",")) + TEXT(")");
     }
@@ -238,7 +243,10 @@ FString NativeTextForProperty(const FProperty* Property, const TSharedPtr<FJsonV
                 {
                     return FString();
                 }
-                Fields.Add(Pair.Key + TEXT("=") + NativeTextForProperty(Child, Pair.Value));
+                Fields.Add(
+                    Pair.Key
+                    + TEXT("=")
+                    + NativeTextForProperty(Child, Pair.Value, true));
             }
             return TEXT("(") + FString::Join(Fields, TEXT(",")) + TEXT(")");
         }
@@ -248,9 +256,128 @@ FString NativeTextForProperty(const FProperty* Property, const TSharedPtr<FJsonV
         || CastField<FTextProperty>(Property) != nullptr
         || CastField<FNameProperty>(Property) != nullptr)
     {
-        return QuoteNativeString(Text);
+        return bDelimited ? QuoteNativeString(Text) : Text;
     }
     return Text;
+}
+
+bool ImportJsonPropertyValue(
+    FProperty* Property,
+    void* Address,
+    const TSharedPtr<FJsonValue>& JsonValue,
+    const bool bAddressIsContainer,
+    FString& OutMessage)
+{
+    if (Property == nullptr || Address == nullptr
+        || !JsonValue.IsValid())
+    {
+        OutMessage =
+            TEXT("Property or SAL value is unavailable for import.");
+        return false;
+    }
+
+    void* ValueAddress = bAddressIsContainer
+        ? Property->ContainerPtrToValuePtr<void>(Address)
+        : Address;
+    const bool bTextScalar =
+        CastField<FStrProperty>(Property) != nullptr
+        || CastField<FNameProperty>(Property) != nullptr
+        || CastField<FTextProperty>(Property) != nullptr;
+    FString ScalarText;
+    bool bHasScalarText = JsonValue->IsNull()
+        || JsonValue->TryGetString(ScalarText);
+    if (!bHasScalarText)
+    {
+        double Number = 0.0;
+        bool bBool = false;
+        const TSharedPtr<FJsonObject>* Object = nullptr;
+        if (JsonValue->TryGetNumber(Number))
+        {
+            ScalarText = FString::SanitizeFloat(Number);
+            bHasScalarText = true;
+        }
+        else if (JsonValue->TryGetBool(bBool))
+        {
+            ScalarText = bBool ? TEXT("true") : TEXT("false");
+            bHasScalarText = true;
+        }
+        else if (JsonValue->TryGetObject(Object)
+            && Object != nullptr
+            && (*Object).IsValid())
+        {
+            FString Kind;
+            (*Object)->TryGetStringField(TEXT("kind"), Kind);
+            bHasScalarText =
+                (Kind == TEXT("name") || Kind == TEXT("local"))
+                    ? (*Object)->TryGetStringField(
+                        TEXT("name"),
+                        ScalarText)
+                    : (*Object)->TryGetStringField(
+                        TEXT("id"),
+                        ScalarText);
+        }
+    }
+    if (bTextScalar && !bHasScalarText)
+    {
+        OutMessage = FString::Printf(
+            TEXT("SAL value cannot be represented as %s."),
+            *Property->GetCPPType());
+        return false;
+    }
+    if (FStrProperty* String = CastField<FStrProperty>(Property))
+    {
+        String->SetPropertyValue(ValueAddress, ScalarText);
+        return true;
+    }
+    if (FNameProperty* Name = CastField<FNameProperty>(Property))
+    {
+        Name->SetPropertyValue(ValueAddress, FName(*ScalarText));
+        return true;
+    }
+    if (FTextProperty* Text = CastField<FTextProperty>(Property))
+    {
+        Text->SetPropertyValue(
+            ValueAddress,
+            ScalarText.IsEmpty()
+                ? FText::GetEmpty()
+                : FText::FromString(ScalarText));
+        return true;
+    }
+
+    const FString NativeText =
+        NativeTextForProperty(Property, JsonValue);
+    if (NativeText.IsEmpty() && !JsonValue->IsNull())
+    {
+        OutMessage = FString::Printf(
+            TEXT("SAL value cannot be represented as native %s text."),
+            *Property->GetCPPType());
+        return false;
+    }
+    const TCHAR* End = Property->ImportText_Direct(
+        *NativeText,
+        ValueAddress,
+        nullptr,
+        PPF_None,
+        GLog);
+    if (End == nullptr)
+    {
+        OutMessage = FString::Printf(
+            TEXT("UE could not import a native value for %s."),
+            *Property->GetName());
+        return false;
+    }
+    while (*End != TEXT('\0') && FChar::IsWhitespace(*End))
+    {
+        ++End;
+    }
+    if (*End != TEXT('\0'))
+    {
+        OutMessage = FString::Printf(
+            TEXT("Native value for %s contains unconsumed text."),
+            *Property->GetName());
+        return false;
+    }
+    return true;
 }
 
 TSharedPtr<FJsonObject> CallArgs()
@@ -2352,29 +2479,22 @@ bool ValidateConstructorFields(const FPendingBinding& Binding, FString& OutMessa
             OutMessage = FString::Printf(TEXT("Constructor field is unavailable or read-only: %s."), *Pair.Key);
             return false;
         }
-        const FString NativeText = NativeTextForProperty(Property, Pair.Value);
-        if (NativeText.IsEmpty() && !Pair.Value->IsNull())
-        {
-            OutMessage = FString::Printf(TEXT("Constructor field cannot be represented as native text: %s."), *Pair.Key);
-            return false;
-        }
         TArray<uint8> Temp;
         Temp.SetNumZeroed(Property->GetSize());
         Property->InitializeValue(Temp.GetData());
-        const TCHAR* End = Property->ImportText_Direct(*NativeText, Temp.GetData(), nullptr, PPF_None, GLog);
-        bool bValid = End != nullptr;
-        if (End != nullptr)
-        {
-            while (*End != TEXT('\0') && FChar::IsWhitespace(*End))
-            {
-                ++End;
-            }
-            bValid = *End == TEXT('\0');
-        }
+        const bool bValid = ImportJsonPropertyValue(
+            Property,
+            Temp.GetData(),
+            Pair.Value,
+            false,
+            OutMessage);
         Property->DestroyValue(Temp.GetData());
         if (!bValid)
         {
-            OutMessage = FString::Printf(TEXT("UE rejected the native constructor value for %s."), *Pair.Key);
+            OutMessage = FString::Printf(
+                TEXT("UE rejected constructor field %s: %s"),
+                *Pair.Key,
+                *OutMessage);
             return false;
         }
     }
@@ -2424,10 +2544,11 @@ bool ApplyConstructorFields(
         {
             Object->Modify();
         }
-        if (!ImportPropertyValue(
+        if (!ImportJsonPropertyValue(
                 Property,
                 Container,
-                NativeTextForProperty(Property, Pair.Value),
+                Pair.Value,
+                true,
                 OutMessage))
         {
             return false;
@@ -3890,33 +4011,17 @@ bool SetOrResetField(
     }
     else
     {
-        const FString NativeText = NativeTextForProperty(Field.Property, NewValue);
-        if (NativeText.IsEmpty() && !NewValue->IsNull())
-        {
-            OutMessage = FString::Printf(TEXT("SAL value cannot be represented as native %s text."), *Field.Property->GetCPPType());
-            return false;
-        }
         ImportedValue.SetNumZeroed(Field.Property->GetSize());
         Field.Property->InitializeValue(ImportedValue.GetData());
-        const TCHAR* End = Field.Property->ImportText_Direct(
-            *NativeText,
+        const bool bValid = ImportJsonPropertyValue(
+            Field.Property,
             ImportedValue.GetData(),
-            nullptr,
-            PPF_None,
-            GLog);
-        bool bValid = End != nullptr;
-        if (End != nullptr)
-        {
-            while (*End != TEXT('\0') && FChar::IsWhitespace(*End))
-            {
-                ++End;
-            }
-            bValid = *End == TEXT('\0');
-        }
+            NewValue,
+            false,
+            OutMessage);
         if (!bValid)
         {
             Field.Property->DestroyValue(ImportedValue.GetData());
-            OutMessage = FString::Printf(TEXT("UE could not import a native value for %s."), *Field.Field);
             return false;
         }
         if (Field.Kind == TEXT("dispatcher") && Field.Field == TEXT("PropertyFlags"))
@@ -3946,6 +4051,10 @@ bool SetOrResetField(
     {
         return true;
     }
+    if (!ValidateBlueprintModificationClassState(Blueprint, OutMessage))
+    {
+        return false;
+    }
     if (Field.Object != nullptr)
     {
         Field.Object->Modify();
@@ -3956,10 +4065,11 @@ bool SetOrResetField(
     }
     else
     {
-        if (!ImportPropertyValue(
+        if (!ImportJsonPropertyValue(
                 Field.Property,
                 Field.Container,
-                NativeTextForProperty(Field.Property, NewValue),
+                NewValue,
+                true,
                 OutMessage))
         {
             return false;
@@ -6027,90 +6137,6 @@ TSharedPtr<FJsonObject> BlueprintPatchObject(
     return Builder.BuildObject();
 }
 
-UBlueprint* MakeTransientBlueprintPlan(UBlueprint* Source, FString& OutMessage)
-{
-    if (Source == nullptr)
-    {
-        OutMessage = TEXT("Blueprint is unavailable for transient preflight.");
-        return nullptr;
-    }
-    UPackage* TransientPackage = GetTransientPackage();
-    UClass* BlueprintGeneratedClassType = Source->GetBlueprintClass();
-    if (BlueprintGeneratedClassType == nullptr)
-    {
-        OutMessage = TEXT("Blueprint subtype does not expose a generated Class type for transient preflight.");
-        return nullptr;
-    }
-    const bool bWasDuplicatingReadOnly = Source->bDuplicatingReadOnly;
-    Source->bDuplicatingReadOnly = true;
-    UBlueprint* Copy = Cast<UBlueprint>(StaticDuplicateObject(
-        Source,
-        TransientPackage,
-        MakeUniqueObjectName(TransientPackage, Source->GetClass(), Source->GetFName())));
-    Source->bDuplicatingReadOnly = bWasDuplicatingReadOnly;
-    if (Copy == nullptr)
-    {
-        OutMessage = TEXT("UE failed to duplicate the Blueprint into a transient preflight model.");
-        return nullptr;
-    }
-    Copy->SetFlags(RF_Transient | RF_Transactional);
-
-    UClass* PlanGeneratedClass = NewObject<UClass>(
-        TransientPackage,
-        BlueprintGeneratedClassType,
-        MakeUniqueObjectName(TransientPackage, BlueprintGeneratedClassType, FName(*(Source->GetName() + TEXT("_Plan_C")))),
-        RF_Transient | RF_Transactional);
-    if (PlanGeneratedClass == nullptr)
-    {
-        OutMessage = TEXT("UE failed to create a transient generated Class for Blueprint preflight.");
-        return nullptr;
-    }
-    PlanGeneratedClass->SetSuperStruct(Copy->ParentClass);
-    PlanGeneratedClass->ClassGeneratedBy = Copy;
-    Copy->GeneratedClass = PlanGeneratedClass;
-    Copy->SkeletonGeneratedClass = PlanGeneratedClass;
-
-    if (Source->SimpleConstructionScript != nullptr)
-    {
-        USimpleConstructionScript* PlanSCS = Cast<USimpleConstructionScript>(StaticDuplicateObject(
-            Source->SimpleConstructionScript,
-            PlanGeneratedClass,
-            Source->SimpleConstructionScript->GetFName()));
-        UBlueprintGeneratedClass* PlanBPGC = Cast<UBlueprintGeneratedClass>(PlanGeneratedClass);
-        if (PlanSCS == nullptr || PlanBPGC == nullptr)
-        {
-            OutMessage = TEXT("UE failed to duplicate SimpleConstructionScript state for transient preflight.");
-            return nullptr;
-        }
-        PlanSCS->SetFlags(RF_Transient | RF_Transactional);
-        Copy->SimpleConstructionScript = PlanSCS;
-        PlanBPGC->SimpleConstructionScript = PlanSCS;
-        for (USCS_Node* Node : PlanSCS->GetAllNodes())
-        {
-            if (Node == nullptr)
-            {
-                continue;
-            }
-            Node->SetFlags(RF_Transient | RF_Transactional);
-            if (Node->ComponentTemplate != nullptr)
-            {
-                UActorComponent* Template = Cast<UActorComponent>(StaticDuplicateObject(
-                    Node->ComponentTemplate,
-                    PlanGeneratedClass,
-                    Node->ComponentTemplate->GetFName()));
-                if (Template == nullptr)
-                {
-                    OutMessage = TEXT("UE failed to duplicate a Component Template for transient preflight.");
-                    return nullptr;
-                }
-                Template->SetFlags(RF_Transient | RF_Transactional);
-                Node->ComponentTemplate = Template;
-            }
-        }
-    }
-    return Copy;
-}
-
 void ConvertAppliedCommentsToPlan(TArray<FString>& Comments)
 {
     for (FString& Comment : Comments)
@@ -6242,6 +6268,23 @@ bool ValidateTerminalSequence(const TArray<TSharedPtr<FJsonValue>>& Statements, 
     return bCompile || bSave;
 }
 }
+
+#if WITH_DEV_AUTOMATION_TESTS
+TStrongObjectPtr<UBlueprint>
+FSalBlueprintInterface::MakeTransientPlanForTesting(
+    UBlueprint* Source,
+    FString& OutMessage)
+{
+    return MakeBlueprintSandbox(Source, OutMessage);
+}
+
+bool FSalBlueprintInterface::ValidateModificationClassStateForTesting(
+    UBlueprint* Blueprint,
+    FString& OutMessage)
+{
+    return ValidateBlueprintModificationClassState(Blueprint, OutMessage);
+}
+#endif
 
 TSharedPtr<FJsonObject> FSalBlueprintInterface::Patch(
     const FSalPatch& Patch,
@@ -6579,7 +6622,10 @@ TSharedPtr<FJsonObject> FSalBlueprintInterface::Patch(
 
     FString PlanMessage;
     UBlueprint* OriginalBlueprint = Blueprint;
-    UBlueprint* PlanningBlueprint = MakeTransientBlueprintPlan(Blueprint, PlanMessage);
+    TStrongObjectPtr<UBlueprint> PlanningBlueprintGuard =
+        MakeBlueprintSandbox(Blueprint, PlanMessage);
+    UBlueprint* PlanningBlueprint =
+        PlanningBlueprintGuard.Get();
     if (PlanningBlueprint == nullptr)
     {
         return MutationError(
@@ -6636,11 +6682,24 @@ TSharedPtr<FJsonObject> FSalBlueprintInterface::Patch(
     TArray<FString> AppliedComments;
     bool bChanged = false;
     bool bTransactionCaptured = false;
+    bool bRolledBack = false;
     TSharedPtr<FJsonObject> ApplyError;
     {
-        FScopedTransaction Transaction(NSLOCTEXT("Loomle", "SalBlueprintPatch", "SAL Blueprint Patch"));
-        bTransactionCaptured = Blueprint->Modify(false);
-        if (!bTransactionCaptured)
+        LoomleMutation::FScopedAtomicTransaction Transaction(
+            NSLOCTEXT("Loomle", "SalBlueprintPatch", "SAL Blueprint Patch"));
+        bTransactionCaptured =
+            Transaction.IsOutstanding()
+            && Blueprint->Modify(false);
+        if (!Transaction.IsOutstanding())
+        {
+            ApplyError = MutationError(
+                Patch,
+                Target,
+                TEXT("capability.transaction_unavailable"),
+                TEXT("UE did not open the required Blueprint transaction."),
+                TEXT("patch"));
+        }
+        else if (!bTransactionCaptured)
         {
             ApplyError = MutationError(
                 Patch,
@@ -6657,6 +6716,10 @@ TSharedPtr<FJsonObject> FSalBlueprintInterface::Patch(
                 Blueprint->MarkPackageDirty();
             }
         }
+        if (ApplyError.IsValid() || !bChanged)
+        {
+            bRolledBack = Transaction.RevertAndCancel();
+        }
     }
     if (!bTransactionCaptured)
     {
@@ -6664,7 +6727,6 @@ TSharedPtr<FJsonObject> FSalBlueprintInterface::Patch(
     }
     if (ApplyError.IsValid() || !bChanged)
     {
-        const bool bRolledBack = GEditor->UndoTransaction(false);
         if (Package != nullptr)
         {
             Package->SetDirtyFlag(bRolledBack ? bWasDirty : true);

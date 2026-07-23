@@ -6,6 +6,7 @@
 #include "StateTreeExecutionTypes.h"
 #include "StateTreeConditionBase.h"
 #include "StateTreePropertyFunctionBase.h"
+#include "StateTreePropertyBindings.h"
 #include "StateTreeSchema.h"
 #include "StateTreeTaskBase.h"
 #include "StateTreeTypes.h"
@@ -19,16 +20,16 @@ struct FSalStateTreeBindingTaskInstanceData
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Input")
+    UPROPERTY(EditAnywhere, Category = "Input", meta = (Optional))
     int32 InputValue = 0;
 
-    UPROPERTY(EditAnywhere, Category = "Input")
+    UPROPERTY(EditAnywhere, Category = "Input", meta = (Optional))
     int32 SecondaryInputValue = 0;
 
-    UPROPERTY(EditAnywhere, Category = "Input")
+    UPROPERTY(EditAnywhere, Category = "Input", meta = (Optional))
     float FloatInput = 0.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Input")
+    UPROPERTY(EditAnywhere, Category = "Input", meta = (Optional))
     TArray<int32> InputValues;
 
     UPROPERTY(EditAnywhere, Category = "Output")
@@ -37,7 +38,7 @@ struct FSalStateTreeBindingTaskInstanceData
     UPROPERTY(EditAnywhere, Category = "Output")
     TArray<int32> OutputValues;
 
-    UPROPERTY(EditAnywhere, Category = "Input")
+    UPROPERTY(EditAnywhere, Category = "Input", meta = (Optional))
     FInstancedStruct InstancedInput;
 };
 
@@ -78,10 +79,10 @@ struct FSalStateTreePostEditCascadeTaskInstanceData
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere, Category = "Input")
+    UPROPERTY(EditAnywhere, Category = "Input", meta = (Optional))
     int32 TriggerValue = 0;
 
-    UPROPERTY(EditAnywhere, Category = "Input")
+    UPROPERTY(EditAnywhere, Category = "Input", meta = (Optional))
     int32 SynchronizedValue = 0;
 };
 
@@ -125,6 +126,73 @@ struct FSalStateTreeBindingCondition : public FStateTreeConditionBase
     {
         return FInstanceDataType::StaticStruct();
     }
+};
+
+USTRUCT()
+struct FSalStateTreeOptionalEnumConditionInstanceData
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, Category = "Input", meta = (AllowAnyBinding, Optional))
+    FStateTreeAnyEnum Left;
+
+    UPROPERTY(EditAnywhere, Category = "Parameter")
+    FStateTreeAnyEnum Right;
+};
+
+/**
+ * Mirrors UE's native Enum Compare binding cascade while allowing an unbound
+ * baseline, so the test exercises bind and unbind without compiling invalid
+ * fixture data before either operation.
+ */
+USTRUCT()
+struct FSalStateTreeOptionalEnumCondition : public FStateTreeConditionBase
+{
+    GENERATED_BODY()
+
+    using FInstanceDataType = FSalStateTreeOptionalEnumConditionInstanceData;
+
+    virtual const UStruct* GetInstanceDataType() const override
+    {
+        return FInstanceDataType::StaticStruct();
+    }
+
+#if WITH_EDITOR
+    virtual void OnBindingChanged(
+        const FGuid& ID,
+        FStateTreeDataView InstanceData,
+        const FPropertyBindingPath& SourcePath,
+        const FPropertyBindingPath& TargetPath,
+        const IStateTreeBindingLookup& BindingLookup) override
+    {
+        if (!TargetPath.GetStructID().IsValid()
+            || TargetPath.IsPathEmpty()
+            || TargetPath.GetSegments().Last().GetName()
+                != GET_MEMBER_NAME_CHECKED(FInstanceDataType, Left))
+        {
+            return;
+        }
+
+        FInstanceDataType& Instance = InstanceData.GetMutable<FInstanceDataType>();
+        UEnum* NewEnum = nullptr;
+        if (const FProperty* Leaf = BindingLookup.GetPropertyPathLeafProperty(SourcePath))
+        {
+            if (const FByteProperty* ByteProperty = CastField<FByteProperty>(Leaf))
+            {
+                NewEnum = ByteProperty->GetIntPropertyEnum();
+            }
+            else if (const FEnumProperty* EnumProperty = CastField<FEnumProperty>(Leaf))
+            {
+                NewEnum = EnumProperty->GetEnum();
+            }
+        }
+        Instance.Left.Initialize(NewEnum);
+        if (Instance.Right.Enum != Instance.Left.Enum)
+        {
+            Instance.Right.Initialize(Instance.Left.Enum);
+        }
+    }
+#endif
 };
 
 USTRUCT()
@@ -235,7 +303,8 @@ public:
                 && (InScriptStruct == FSalStateTreeBindingTask::StaticStruct()
                     || InScriptStruct == FSalStateTreePostEditCascadeTask::StaticStruct()))
             || (bAllowCommonEnumCondition
-                && InScriptStruct == FStateTreeCompareEnumCondition::StaticStruct())
+                && (InScriptStruct == FStateTreeCompareEnumCondition::StaticStruct()
+                    || InScriptStruct == FSalStateTreeOptionalEnumCondition::StaticStruct()))
             || (bAllowPropertyFunctions
                 && (InScriptStruct == FSalStateTreeIntPropertyFunction::StaticStruct()
                     || InScriptStruct == FSalStateTreeFloatPropertyFunction::StaticStruct()));

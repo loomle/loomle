@@ -212,9 +212,15 @@ FString FLoomleBridgeModule::HandleRequest(int32 ConnectionSerial, const FString
     }
     if (Method == TEXT("rpc.invoke") || Method == TEXT("rpc.cancel"))
     {
-        double ClientProtocolVersion = 0.0;
+        const TSharedPtr<FJsonValue> ProtocolVersionValue =
+            Params->TryGetField(TEXT("protocolVersion"));
         const bool bHasNumericProtocolVersion =
-            Params->TryGetNumberField(TEXT("protocolVersion"), ClientProtocolVersion);
+            ProtocolVersionValue.IsValid()
+            && ProtocolVersionValue->Type == EJson::Number;
+        const double ClientProtocolVersion =
+            bHasNumericProtocolVersion
+                ? ProtocolVersionValue->AsNumber()
+                : 0.0;
         if (!bHasNumericProtocolVersion
             || ClientProtocolVersion != static_cast<double>(Loomle::Protocol::Version))
         {
@@ -466,6 +472,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(
                 {
                     DispatchResult.Payload = MakeRequestCancelledPayload();
                     DispatchResult.bIsError = true;
+                    RecordGameThreadProgress();
                     Promise.SetValue(MoveTemp(DispatchResult));
                     return;
                 }
@@ -478,6 +485,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(
                 {
                     DispatchResult.Payload = DispatchTool(Name, Arguments, DispatchResult.bIsError);
                 }
+                RecordGameThreadProgress();
                 Promise.SetValue(MoveTemp(DispatchResult));
             });
 

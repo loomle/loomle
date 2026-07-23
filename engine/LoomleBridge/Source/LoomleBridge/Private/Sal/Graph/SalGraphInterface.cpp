@@ -51,8 +51,10 @@
 #include "K2Node_Tunnel.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Logging/TokenizedMessage.h"
+#include "LoomleMutationTransaction.h"
 #include "Misc/Crc.h"
 #include "ScopedTransaction.h"
+#include "Sal/Blueprint/SalBlueprintSandbox.h"
 #include "Sal/SalDiagnostics.h"
 #include "Sal/SalModel.h"
 #include "Sal/SalObjectBuilder.h"
@@ -2538,110 +2540,302 @@ bool RunPatch(FPatchState& State, const FSalPatch& Patch)
 }
 
 template <typename TCurve>
-TCurve* DuplicateSandboxCurve(TCurve* Source, UObject* Outer)
+bool IsolateSandboxCurve(
+    TCurve* SourceCurve,
+    const bool bExternal,
+    TObjectPtr<TCurve>& SandboxCurve,
+    UObject* CurveOuter,
+    TMap<const UObject*, UObject*>& CurveCopies,
+    FString& OutError)
 {
-    if (Source == nullptr || Outer == nullptr) return nullptr;
-    const FName Name = MakeUniqueObjectName(Outer, Source->GetClass(), Source->GetFName());
-    TCurve* Copy = DuplicateObject<TCurve>(Source, Outer, Name);
-    if (Copy != nullptr) Copy->SetFlags(RF_Transactional);
-    return Copy;
+    if (bExternal)
+    {
+        // External Timeline assets are references, not sandbox-owned state.
+        SandboxCurve = SourceCurve;
+        return true;
+    }
+    if (SourceCurve == nullptr || CurveOuter == nullptr)
+    {
+        OutError =
+            TEXT("An internal Timeline Curve is unavailable for dry run.");
+        return false;
+    }
+
+    TCurve* CurveCopy = nullptr;
+    if (UObject** Existing = CurveCopies.Find(SourceCurve))
+    {
+        CurveCopy = Cast<TCurve>(*Existing);
+        if (CurveCopy == nullptr)
+        {
+            OutError =
+                TEXT("Internal Timeline Curve aliases disagree on Curve type.");
+            return false;
+        }
+    }
+    else
+    {
+        const FName Name = MakeUniqueObjectName(
+            CurveOuter,
+            SourceCurve->GetClass(),
+            SourceCurve->GetFName());
+        CurveCopy =
+            DuplicateObject<TCurve>(SourceCurve, CurveOuter, Name);
+        if (CurveCopy == nullptr)
+        {
+            OutError =
+                TEXT("Could not isolate an internal Timeline Curve for dry run.");
+            return false;
+        }
+        CurveCopy->ClearFlags(RF_Public | RF_Standalone);
+        CurveCopy->SetFlags(RF_Transient | RF_Transactional);
+        CurveCopies.Add(SourceCurve, CurveCopy);
+    }
+
+    SandboxCurve = CurveCopy;
+    if (SandboxCurve == SourceCurve
+        || !SandboxCurve->IsIn(GetTransientPackage()))
+    {
+        OutError =
+            TEXT("Internal Timeline Curve was not isolated for dry run.");
+        return false;
+    }
+    return true;
 }
 
-void DetachSandboxTimelineCurves(UTimelineTemplate* Timeline, UObject* CurveOuter)
+bool DetachSandboxTimelineCurves(
+    const UTimelineTemplate* Source,
+    UTimelineTemplate* Sandbox,
+    UObject* CurveOuter,
+    TMap<const UObject*, UObject*>& CurveCopies,
+    FString& OutError)
 {
-    if (Timeline == nullptr || CurveOuter == nullptr) return;
-    for (FTTEventTrack& Track : Timeline->EventTracks)
+    if (Source == nullptr || Sandbox == nullptr || CurveOuter == nullptr)
     {
-        if (!Track.bIsExternalCurve) Track.CurveKeys = DuplicateSandboxCurve(Track.CurveKeys.Get(), CurveOuter);
+        OutError = TEXT("A Timeline Template is unavailable for dry run.");
+        return false;
     }
-    for (FTTFloatTrack& Track : Timeline->FloatTracks)
+    if (Source->EventTracks.Num() != Sandbox->EventTracks.Num()
+        || Source->FloatTracks.Num() != Sandbox->FloatTracks.Num()
+        || Source->VectorTracks.Num() != Sandbox->VectorTracks.Num()
+        || Source->LinearColorTracks.Num()
+            != Sandbox->LinearColorTracks.Num())
     {
-        if (!Track.bIsExternalCurve) Track.CurveFloat = DuplicateSandboxCurve(Track.CurveFloat.Get(), CurveOuter);
+        OutError =
+            TEXT("UE transient duplication changed the Timeline track shape.");
+        return false;
     }
-    for (FTTVectorTrack& Track : Timeline->VectorTracks)
+
+    for (int32 Index = 0; Index < Source->EventTracks.Num(); ++Index)
     {
-        if (!Track.bIsExternalCurve) Track.CurveVector = DuplicateSandboxCurve(Track.CurveVector.Get(), CurveOuter);
+        const FTTEventTrack& SourceTrack = Source->EventTracks[Index];
+        FTTEventTrack& SandboxTrack = Sandbox->EventTracks[Index];
+        if (SourceTrack.GetTrackName() != SandboxTrack.GetTrackName()
+            || SourceTrack.bIsExternalCurve
+                != SandboxTrack.bIsExternalCurve
+            || !IsolateSandboxCurve(
+                SourceTrack.CurveKeys.Get(),
+                SourceTrack.bIsExternalCurve,
+                SandboxTrack.CurveKeys,
+                CurveOuter,
+                CurveCopies,
+                OutError))
+        {
+            if (OutError.IsEmpty())
+            {
+                OutError =
+                    TEXT("UE transient duplication changed an Event Timeline track.");
+            }
+            return false;
+        }
     }
-    for (FTTLinearColorTrack& Track : Timeline->LinearColorTracks)
+    for (int32 Index = 0; Index < Source->FloatTracks.Num(); ++Index)
     {
-        if (!Track.bIsExternalCurve) Track.CurveLinearColor = DuplicateSandboxCurve(Track.CurveLinearColor.Get(), CurveOuter);
+        const FTTFloatTrack& SourceTrack = Source->FloatTracks[Index];
+        FTTFloatTrack& SandboxTrack = Sandbox->FloatTracks[Index];
+        if (SourceTrack.GetTrackName() != SandboxTrack.GetTrackName()
+            || SourceTrack.bIsExternalCurve
+                != SandboxTrack.bIsExternalCurve
+            || !IsolateSandboxCurve(
+                SourceTrack.CurveFloat.Get(),
+                SourceTrack.bIsExternalCurve,
+                SandboxTrack.CurveFloat,
+                CurveOuter,
+                CurveCopies,
+                OutError))
+        {
+            if (OutError.IsEmpty())
+            {
+                OutError =
+                    TEXT("UE transient duplication changed a Float Timeline track.");
+            }
+            return false;
+        }
     }
+    for (int32 Index = 0; Index < Source->VectorTracks.Num(); ++Index)
+    {
+        const FTTVectorTrack& SourceTrack = Source->VectorTracks[Index];
+        FTTVectorTrack& SandboxTrack = Sandbox->VectorTracks[Index];
+        if (SourceTrack.GetTrackName() != SandboxTrack.GetTrackName()
+            || SourceTrack.bIsExternalCurve
+                != SandboxTrack.bIsExternalCurve
+            || !IsolateSandboxCurve(
+                SourceTrack.CurveVector.Get(),
+                SourceTrack.bIsExternalCurve,
+                SandboxTrack.CurveVector,
+                CurveOuter,
+                CurveCopies,
+                OutError))
+        {
+            if (OutError.IsEmpty())
+            {
+                OutError =
+                    TEXT("UE transient duplication changed a Vector Timeline track.");
+            }
+            return false;
+        }
+    }
+    for (int32 Index = 0;
+         Index < Source->LinearColorTracks.Num();
+         ++Index)
+    {
+        const FTTLinearColorTrack& SourceTrack =
+            Source->LinearColorTracks[Index];
+        FTTLinearColorTrack& SandboxTrack =
+            Sandbox->LinearColorTracks[Index];
+        if (SourceTrack.GetTrackName() != SandboxTrack.GetTrackName()
+            || SourceTrack.bIsExternalCurve
+                != SandboxTrack.bIsExternalCurve
+            || !IsolateSandboxCurve(
+                SourceTrack.CurveLinearColor.Get(),
+                SourceTrack.bIsExternalCurve,
+                SandboxTrack.CurveLinearColor,
+                CurveOuter,
+                CurveCopies,
+                OutError))
+        {
+            if (OutError.IsEmpty())
+            {
+                OutError =
+                    TEXT("UE transient duplication changed a Linear Color Timeline track.");
+            }
+            return false;
+        }
+    }
+    return true;
 }
 
-UBlueprintGeneratedClass* DuplicateSandboxClass(UBlueprintGeneratedClass* Source, UBlueprint* Blueprint, const TCHAR* Suffix)
-{
-    if (Source == nullptr || Blueprint == nullptr) return nullptr;
-    const FName Name = MakeUniqueObjectName(GetTransientPackage(), Source->GetClass(), FName(*(Source->GetName() + Suffix)));
-    UBlueprintGeneratedClass* Copy = DuplicateObject<UBlueprintGeneratedClass>(Source, GetTransientPackage(), Name);
-    if (Copy != nullptr) Copy->ClassGeneratedBy = Blueprint;
-    return Copy;
-}
-
-bool BuildSandboxTarget(const FSalResolvedTarget& Source, FSalResolvedTarget& Out, FString& OutError)
+bool BuildSandboxTarget(
+    const FSalResolvedTarget& Source,
+    TStrongObjectPtr<UBlueprint>& OutSandboxOwner,
+    FSalResolvedTarget& Out,
+    FString& OutError)
 {
     OutError.Reset();
-    const FName BlueprintName = MakeUniqueObjectName(GetTransientPackage(), Source.Blueprint->GetClass(), FName(*(Source.Blueprint->GetName() + TEXT("_SALDryRun"))));
-    UBlueprint* Sandbox = DuplicateObject<UBlueprint>(Source.Blueprint, GetTransientPackage(), BlueprintName);
+    if (Source.Blueprint == nullptr || Source.Graph == nullptr)
+    {
+        OutError =
+            TEXT("A Blueprint-owned Graph is unavailable for dry run.");
+        return false;
+    }
+
+    OutSandboxOwner =
+        MakeBlueprintSandbox(Source.Blueprint, OutError);
+    UBlueprint* Sandbox = OutSandboxOwner.Get();
     if (Sandbox == nullptr)
     {
-        OutError = TEXT("Could not duplicate the Blueprint into transient dry-run state.");
         return false;
     }
-    Sandbox->SetFlags(RF_Transient);
-    UBlueprintGeneratedClass* Generated = DuplicateSandboxClass(Cast<UBlueprintGeneratedClass>(Source.Blueprint->GeneratedClass.Get()), Sandbox, TEXT("_SALGenerated"));
-    UBlueprintGeneratedClass* Skeleton = DuplicateSandboxClass(Cast<UBlueprintGeneratedClass>(Source.Blueprint->SkeletonGeneratedClass.Get()), Sandbox, TEXT("_SALSkeleton"));
-    if (Source.Blueprint->GeneratedClass != nullptr && Generated == nullptr)
-    {
-        OutError = TEXT("Could not isolate the Blueprint Generated Class for dry run.");
-        return false;
-    }
-    Sandbox->GeneratedClass = Generated;
-    Sandbox->SkeletonGeneratedClass = Skeleton != nullptr ? Skeleton : Generated;
 
-    TArray<TObjectPtr<UTimelineTemplate>> Timelines;
-    UObject* TimelineOuter = Generated != nullptr ? static_cast<UObject*>(Generated) : static_cast<UObject*>(Sandbox);
-    for (UTimelineTemplate* SourceTimeline : Source.Blueprint->Timelines)
+    UBlueprintGeneratedClass* Generated =
+        Cast<UBlueprintGeneratedClass>(Sandbox->GeneratedClass.Get());
+    UObject* TimelineOuter =
+        Generated != nullptr
+            ? static_cast<UObject*>(Generated)
+            : static_cast<UObject*>(Sandbox);
+
+    TMap<FGuid, UTimelineTemplate*> SandboxTimelinesByGuid;
+    for (UTimelineTemplate* Timeline : Sandbox->Timelines)
     {
-        if (SourceTimeline == nullptr) continue;
-        UTimelineTemplate* Copy = FindObjectFast<UTimelineTemplate>(TimelineOuter, SourceTimeline->GetFName());
-        if (Copy == nullptr) Copy = DuplicateObject<UTimelineTemplate>(SourceTimeline, TimelineOuter, SourceTimeline->GetFName());
-        if (Copy == nullptr)
+        if (Timeline == nullptr
+            || Timeline->TimelineGuid.IsValid() == false
+            || SandboxTimelinesByGuid.Contains(Timeline->TimelineGuid))
         {
-            OutError = TEXT("Could not isolate a Timeline Template for dry run.");
+            OutError =
+                TEXT("Transient dry-run state contains an invalid or duplicate Timeline identity.");
             return false;
         }
-        Copy->SetFlags(RF_Transactional);
-        DetachSandboxTimelineCurves(Copy, TimelineOuter);
-        if (!Copy->IsIn(GetTransientPackage()))
-        {
-            OutError = TEXT("Timeline Template did not remain inside transient dry-run state.");
-            return false;
-        }
-        for (const FTTEventTrack& Track : Copy->EventTracks) if (!Track.bIsExternalCurve && (Track.CurveKeys == nullptr || !Track.CurveKeys->IsIn(GetTransientPackage()))) { OutError = TEXT("Internal Timeline Curve was not isolated for dry run."); return false; }
-        for (const FTTFloatTrack& Track : Copy->FloatTracks) if (!Track.bIsExternalCurve && (Track.CurveFloat == nullptr || !Track.CurveFloat->IsIn(GetTransientPackage()))) { OutError = TEXT("Internal Timeline Curve was not isolated for dry run."); return false; }
-        for (const FTTVectorTrack& Track : Copy->VectorTracks) if (!Track.bIsExternalCurve && (Track.CurveVector == nullptr || !Track.CurveVector->IsIn(GetTransientPackage()))) { OutError = TEXT("Internal Timeline Curve was not isolated for dry run."); return false; }
-        for (const FTTLinearColorTrack& Track : Copy->LinearColorTracks) if (!Track.bIsExternalCurve && (Track.CurveLinearColor == nullptr || !Track.CurveLinearColor->IsIn(GetTransientPackage()))) { OutError = TEXT("Internal Timeline Curve was not isolated for dry run."); return false; }
-        Timelines.Add(Copy);
+        SandboxTimelinesByGuid.Add(Timeline->TimelineGuid, Timeline);
     }
-    Sandbox->Timelines = MoveTemp(Timelines);
+    if (SandboxTimelinesByGuid.Num() != Source.Blueprint->Timelines.Num())
+    {
+        OutError =
+            TEXT("UE transient duplication changed the Timeline count.");
+        return false;
+    }
+
+    TMap<const UObject*, UObject*> CurveCopies;
+    for (const UTimelineTemplate* SourceTimeline :
+         Source.Blueprint->Timelines)
+    {
+        UTimelineTemplate* const* SandboxTimelinePtr =
+            SourceTimeline != nullptr
+                ? SandboxTimelinesByGuid.Find(
+                    SourceTimeline->TimelineGuid)
+                : nullptr;
+        UTimelineTemplate* SandboxTimeline =
+            SandboxTimelinePtr != nullptr
+                ? *SandboxTimelinePtr
+                : nullptr;
+        if (SourceTimeline == nullptr
+            || SandboxTimeline == nullptr
+            || SandboxTimeline == SourceTimeline
+            || !SandboxTimeline->IsIn(GetTransientPackage())
+            || !DetachSandboxTimelineCurves(
+                SourceTimeline,
+                SandboxTimeline,
+                TimelineOuter,
+                CurveCopies,
+                OutError))
+        {
+            if (OutError.IsEmpty())
+            {
+                OutError =
+                    TEXT("Could not isolate a Timeline Template for dry run.");
+            }
+            return false;
+        }
+    }
 
     TArray<UEdGraph*> Graphs;
     Sandbox->GetAllGraphs(Graphs);
     UEdGraph* SandboxGraph = nullptr;
     for (UEdGraph* Graph : Graphs)
     {
-        if (Graph != nullptr && Graph->GraphGuid == Source.Graph->GraphGuid)
+        if (Graph != nullptr
+            && Graph->GraphGuid == Source.Graph->GraphGuid)
         {
-            if (!Graph->IsIn(Sandbox)) { OutError = TEXT("Target Graph was not isolated from the live Blueprint during dry run."); return false; }
-            if (SandboxGraph != nullptr) { OutError = TEXT("Dry-run Blueprint contains duplicate Graph identities."); return false; }
+            if (!Graph->IsIn(Sandbox))
+            {
+                OutError =
+                    TEXT("Target Graph was not isolated from the live Blueprint during dry run.");
+                return false;
+            }
+            if (SandboxGraph != nullptr)
+            {
+                OutError =
+                    TEXT("Dry-run Blueprint contains duplicate Graph identities.");
+                return false;
+            }
             SandboxGraph = Graph;
         }
     }
     if (SandboxGraph == nullptr)
     {
-        OutError = TEXT("Could not resolve the target Graph in transient dry-run state.");
+        OutError =
+            TEXT("Could not resolve the target Graph in transient dry-run state.");
         return false;
     }
+
     Out = Source;
     Out.Object = SandboxGraph;
     Out.Package = GetTransientPackage();
@@ -2650,7 +2844,6 @@ bool BuildSandboxTarget(const FSalResolvedTarget& Source, FSalResolvedTarget& Ou
     Out.Graph = SandboxGraph;
     return true;
 }
-
 FString GraphPlanRef(const TSharedPtr<FJsonObject>& Ref)
 {
     if (!Ref.IsValid()) return FString();
@@ -2807,6 +3000,21 @@ TSharedPtr<FJsonObject> BuildGraphPlan(
 }
 }
 
+#if WITH_DEV_AUTOMATION_TESTS
+bool FSalGraphInterface::BuildSandboxTargetForTesting(
+    const FSalResolvedTarget& Source,
+    TStrongObjectPtr<UBlueprint>& OutSandboxOwner,
+    FSalResolvedTarget& OutTarget,
+    FString& OutError)
+{
+    return BuildSandboxTarget(
+        Source,
+        OutSandboxOwner,
+        OutTarget,
+        OutError);
+}
+#endif
+
 TSharedPtr<FJsonObject> FSalGraphInterface::Patch(const FSalPatch& Patch, const FSalResolvedTarget& Target)
 {
     if (Target.Graph == nullptr || Target.Blueprint == nullptr)
@@ -2818,9 +3026,14 @@ TSharedPtr<FJsonObject> FSalGraphInterface::Patch(const FSalPatch& Patch, const 
         return GraphErrorResult(TEXT("capability.transaction_unavailable"), TEXT("Graph Patch requires one available top-level Editor transaction, including for isolated native dry run."), TEXT("patch"));
     }
 
+    TStrongObjectPtr<UBlueprint> SandboxOwner;
     FSalResolvedTarget SandboxTarget;
     FString SandboxError;
-    if (!BuildSandboxTarget(Target, SandboxTarget, SandboxError))
+    if (!BuildSandboxTarget(
+            Target,
+            SandboxOwner,
+            SandboxTarget,
+            SandboxError))
     {
         return GraphErrorResult(TEXT("capability.operation_unavailable"), SandboxError, TEXT("patch"));
     }
@@ -2860,16 +3073,47 @@ TSharedPtr<FJsonObject> FSalGraphInterface::Patch(const FSalPatch& Patch, const 
     FPatchState Apply(Target, true);
     const bool bWasDirty = Target.Package != nullptr && Target.Package->IsDirty();
     bool bApplied = false;
+    bool bRolledBack = false;
+    bool bTransactionAvailable = false;
     {
-        FScopedTransaction Transaction(LOCTEXT("SalGraphPatch", "SAL Graph Patch"));
-        Target.Blueprint->Modify();
-        Target.Graph->Modify();
-        bApplied = RunPatch(Apply, Patch);
-        if (bApplied && Apply.ChangedOps == 0) Transaction.Cancel();
+        LoomleMutation::FScopedAtomicTransaction Transaction(
+            LOCTEXT("SalGraphPatch", "SAL Graph Patch"));
+        bTransactionAvailable = Transaction.IsOutstanding();
+        if (bTransactionAvailable)
+        {
+            Target.Blueprint->Modify();
+            Target.Graph->Modify();
+            bApplied = RunPatch(Apply, Patch);
+            if (!bApplied)
+            {
+                bRolledBack = Transaction.RevertAndCancel();
+            }
+            else if (Apply.ChangedOps == 0)
+            {
+                Transaction.Cancel();
+            }
+        }
+    }
+    if (!bTransactionAvailable)
+    {
+        AddPatchError(
+            Apply,
+            TEXT("capability.transaction_unavailable"),
+            TEXT("UE did not open the required Graph Patch transaction."),
+            TEXT("patch"));
+        return MakeMutationResult(
+            nullptr,
+            Apply.Diagnostics,
+            false,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("patch"),
+            Planned,
+            Apply.ResolvedRefs);
     }
     if (!bApplied)
     {
-        const bool bRolledBack = GEditor->UndoTransaction(false);
         if (Target.Package != nullptr)
         {
             // A failed rollback leaves the live asset in an unknown partially

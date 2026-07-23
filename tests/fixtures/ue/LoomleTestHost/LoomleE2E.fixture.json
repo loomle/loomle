@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "blueprintAssetPath": "/Game/LoomleTests/BP_LoomleE2E.BP_LoomleE2E",
+  "blueprintDescription": "Loomle packaged E2E baseline",
+  "assetType": "/Script/Engine.Blueprint"
+}

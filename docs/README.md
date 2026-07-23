@@ -21,15 +21,17 @@ and repository history instead of being duplicated on `main`.
   artifact, Fab, and repository boundaries.
 - `MUTATION_DRY_RUN_CONTRACT.md`: shared mutation validation, planning,
   revision, diff, and dry-run rules.
+- `TESTING_AND_RELEASE_GATES.md`: native Bridge coverage, packaged end-to-end,
+  lifecycle, fixture, runner, and release-gate contracts.
 
 The current public language and UE-domain contracts live with their runtime
 owners rather than under `docs/`:
 
 - `../sal/`: SAL grammar, schemas, fixtures, and SDK implementation.
-- `../interfaces/`: the five active Asset, Blueprint, Class, Graph, and Widget
-  interface cards, their shared reference-query contract, and the resident
-  guide.
-- `../client/README.md`: current four-tool TypeScript Client boundary.
+- `../interfaces/`: the six active Asset, Blueprint, Class, Graph, StateTree,
+  and Widget interface cards, their shared reference-query contract, and the
+  resident guide.
+- `../client/README.md`: current five-tool TypeScript Client boundary.
 
 ## Planned Designs
 

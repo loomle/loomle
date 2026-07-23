@@ -6,6 +6,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: verify-loomle-fab-mac
+  cancel-in-progress: false
+
 jobs:
   verify-fab-mac:
     runs-on: [self-hosted, macOS]
@@ -65,18 +69,75 @@ jobs:
             echo "RunUAT.sh not found: $run_uat" >&2
             exit 1
           }
+          echo "ue_root=$candidate" >> "$GITHUB_OUTPUT"
           echo "run_uat=$run_uat" >> "$GITHUB_OUTPUT"
+
+      - name: Compile Same-Commit Automation Plugin
+        id: automation-package
+        timeout-minutes: 30
+        shell: bash
+        env:
+          RUN_UAT: ${{ steps.ue.outputs.run_uat }}
+        run: |
+          set -euo pipefail
+          package="$RUNNER_TEMP/loomle-automation-buildplugin-darwin-arm64"
+          rm -rf "$package"
+          "$RUN_UAT" BuildPlugin \
+            -Plugin="$GITHUB_WORKSPACE/engine/LoomleBridge/LoomleBridge.uplugin" \
+            -Package="$package" \
+            -PackageAppendPluginSubdir \
+            -TargetPlatforms=Mac \
+            -Architecture_Mac=arm64 \
+            -Rocket
+          test -d "$package/LoomleBridge/Source/LoomleBridge/Private/Tests"
+          echo "plugin=$package/LoomleBridge" >> "$GITHUB_OUTPUT"
+
+      - name: Require Idle Unreal Editor Before Automation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if pgrep -x UnrealEditor >/dev/null || pgrep -x UnrealEditor-Cmd >/dev/null; then
+            echo "The self-hosted runner already has an Unreal Editor process." >&2
+            pgrep -fl 'UnrealEditor|UnrealEditor-Cmd' >&2 || true
+            exit 1
+          fi
+
+      - name: Run Complete UE Automation
+        timeout-minutes: 35
+        shell: bash
+        env:
+          UE_ROOT: ${{ steps.ue.outputs.ue_root }}
+          AUTOMATION_PLUGIN: ${{ steps.automation-package.outputs.plugin }}
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/loomle-automation-results-darwin-arm64"
+          rm -rf "$results"
+          npm run test:ue-automation -- \
+            --ue-root "$UE_ROOT" \
+            --project-template "$GITHUB_WORKSPACE/tests/fixtures/ue/LoomleTestHost" \
+            --plugin-dir "$AUTOMATION_PLUGIN" \
+            --output-dir "$results" \
+            --target darwin-arm64
+          node -e '
+            const result = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+            if (result.status !== "passed" || result.commit !== process.env.GITHUB_SHA) {
+              throw new Error("UE Automation result does not match the checked-out commit.");
+            }
+          ' "$results/result.json"
 
       - name: Compile Staged Plugin
         id: package
         timeout-minutes: 30
         shell: bash
+        env:
+          RUN_UAT: ${{ steps.ue.outputs.run_uat }}
+          STAGING: ${{ steps.assemble.outputs.staging }}
         run: |
           set -euo pipefail
           package="$RUNNER_TEMP/loomle-fab-buildplugin-darwin-arm64"
           rm -rf "$package"
-          "${{ steps.ue.outputs.run_uat }}" BuildPlugin \
-            -Plugin="${{ steps.assemble.outputs.staging }}/LoomleBridge/LoomleBridge.uplugin" \
+          "$RUN_UAT" BuildPlugin \
+            -Plugin="$STAGING/LoomleBridge/LoomleBridge.uplugin" \
             -Package="$package" \
             -PackageAppendPluginSubdir \
             -TargetPlatforms=Mac \
@@ -86,10 +147,13 @@ jobs:
 
       - name: Audit Packaged Client
         shell: bash
+        env:
+          PACKAGE: ${{ steps.package.outputs.package }}
+          STAGING: ${{ steps.assemble.outputs.staging }}
         run: |
           set -euo pipefail
-          packaged_plugin="${{ steps.package.outputs.package }}/LoomleBridge"
-          source_client="${{ steps.assemble.outputs.staging }}/LoomleBridge/Resources/Loomle/darwin-arm64/loomle"
+          packaged_plugin="$PACKAGE/LoomleBridge"
+          source_client="$STAGING/LoomleBridge/Resources/Loomle/darwin-arm64/loomle"
           packaged_client="$packaged_plugin/Resources/Loomle/darwin-arm64/loomle"
           [[ -x "$packaged_client" ]] || {
             echo "BuildPlugin output is missing the executable Client: $packaged_client" >&2
@@ -103,6 +167,16 @@ jobs:
             echo "BuildPlugin output must not ship the internal Client build receipt." >&2
             exit 1
           }
+          for forbidden_path in \
+            Source/LoomleBridge/Private/Tests \
+            Intermediate \
+            Saved \
+            Content; do
+            [[ ! -e "$packaged_plugin/$forbidden_path" ]] || {
+              echo "BuildPlugin output contains forbidden release path: $forbidden_path" >&2
+              exit 1
+            }
+          done
           [[ -f "$packaged_plugin/Config/FilterPlugin.ini" ]] || {
             echo "BuildPlugin output is missing Config/FilterPlugin.ini." >&2
             exit 1
@@ -122,10 +196,12 @@ jobs:
           descriptor="$packaged_plugin/LoomleBridge.uplugin"
           node -e '
             const descriptor = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
-            const module = descriptor.Modules?.find((entry) => entry.Name === "LoomleBridge");
+            const moduleNames = descriptor.Modules?.map((entry) => entry.Name);
+            const module = descriptor.Modules?.[0];
             const same = (actual, expected) => JSON.stringify(actual) === JSON.stringify(expected);
             if (descriptor.Installed !== true
                 || !same(descriptor.SupportedTargetPlatforms, ["Mac"])
+                || !same(moduleNames, ["LoomleBridge"])
                 || !same(module?.PlatformAllowList, ["Mac"])
                 || !same(module?.PlatformArchitectureAllowList, ["Mac:arm64"])) {
               throw new Error("BuildPlugin output has an invalid target descriptor contract.");
@@ -146,27 +222,41 @@ jobs:
       - name: Archive Verified BuildPlugin Output
         id: archive
         shell: bash
+        env:
+          PACKAGE: ${{ steps.package.outputs.package }}
         run: |
           set -euo pipefail
           archive="$RUNNER_TEMP/loomle-fab-plugin-darwin-arm64.zip"
           rm -f "$archive"
-          cd "${{ steps.package.outputs.package }}"
+          cd "$PACKAGE"
           /usr/bin/zip -qry "$archive" LoomleBridge
-          /usr/bin/unzip -l "$archive" | grep -q 'LoomleBridge/Resources/Loomle/darwin-arm64/loomle'
-          if /usr/bin/unzip -l "$archive" | grep -q 'LoomleBridge/Resources/MCP/'; then
+          archive_entries="$RUNNER_TEMP/loomle-fab-archive-entries-darwin-arm64.txt"
+          /usr/bin/unzip -Z1 "$archive" > "$archive_entries"
+          grep -Fxq 'LoomleBridge/Resources/Loomle/darwin-arm64/loomle' "$archive_entries"
+          if grep -Eq '^LoomleBridge/Resources/MCP(/|$)' "$archive_entries"; then
             echo "Fab archive contains retired Resources/MCP." >&2
             exit 1
           fi
-          if /usr/bin/unzip -l "$archive" | grep -q 'LoomleBridge/Resources/Loomle/darwin-arm64/build.json'; then
+          if grep -Fxq 'LoomleBridge/Resources/Loomle/darwin-arm64/build.json' "$archive_entries"; then
             echo "Fab archive contains the internal Client build receipt." >&2
             exit 1
           fi
+          for forbidden_path in \
+            Source/LoomleBridge/Private/Tests \
+            Intermediate \
+            Saved \
+            Content; do
+            if grep -Eq "^LoomleBridge/$forbidden_path(/|$)" "$archive_entries"; then
+              echo "Fab archive contains forbidden release path: $forbidden_path" >&2
+              exit 1
+            fi
+          done
 
           audit="$RUNNER_TEMP/loomle-fab-archive-audit-darwin-arm64"
           rm -rf "$audit"
           mkdir -p "$audit"
           /usr/bin/unzip -q "$archive" -d "$audit"
-          packaged_plugin="${{ steps.package.outputs.package }}/LoomleBridge"
+          packaged_plugin="$PACKAGE/LoomleBridge"
           extracted_plugin="$audit/LoomleBridge"
           for relative_path in \
             LoomleBridge.uplugin \
@@ -187,7 +277,60 @@ jobs:
             echo "Fab archive Bridge is not arm64-only." >&2
             exit 1
           }
+          node -e '
+            const descriptor = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+            const moduleNames = descriptor.Modules?.map((entry) => entry.Name);
+            if (JSON.stringify(moduleNames) !== JSON.stringify(["LoomleBridge"])) {
+              throw new Error("Fab archive descriptor must contain only the LoomleBridge module.");
+            }
+          ' "$extracted_plugin/LoomleBridge.uplugin"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Require Idle Unreal Editor Before Packaged End-To-End
+        shell: bash
+        run: |
+          set -euo pipefail
+          if pgrep -x UnrealEditor >/dev/null || pgrep -x UnrealEditor-Cmd >/dev/null; then
+            echo "The self-hosted runner already has an Unreal Editor process." >&2
+            pgrep -fl 'UnrealEditor|UnrealEditor-Cmd' >&2 || true
+            exit 1
+          fi
+
+      - name: Run Packaged End-To-End
+        timeout-minutes: 35
+        shell: bash
+        env:
+          UE_ROOT: ${{ steps.ue.outputs.ue_root }}
+          ARCHIVE: ${{ steps.archive.outputs.archive }}
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/loomle-packaged-e2e-results-darwin-arm64"
+          rm -rf "$results"
+          npm run test:packaged-e2e -- \
+            --ue-root "$UE_ROOT" \
+            --project-template "$GITHUB_WORKSPACE/tests/fixtures/ue/LoomleTestHost" \
+            --plugin-archive "$ARCHIVE" \
+            --output-dir "$results" \
+            --target darwin-arm64
+          archive_sha="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
+          node -e '
+            const result = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+            if (result.status !== "passed"
+                || result.commit !== process.env.GITHUB_SHA
+                || result.archiveSha256 !== process.argv[2]) {
+              throw new Error("Packaged E2E result does not match the checked-out commit and exact release archive.");
+            }
+          ' "$results/result.json" "$archive_sha"
+
+      - name: Upload Native Test Results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: loomle-native-test-results-darwin-arm64
+          path: |
+            ${{ runner.temp }}/loomle-automation-results-darwin-arm64
+            ${{ runner.temp }}/loomle-packaged-e2e-results-darwin-arm64
+          if-no-files-found: warn
 
       - name: Upload QA Artifact
         uses: actions/upload-artifact@v7

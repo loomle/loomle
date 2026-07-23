@@ -31,8 +31,10 @@ const IGNORED_SOURCE_NAMES = new Set([
   "Binaries",
   "Intermediate",
   "Saved",
-  "tests",
 ]);
+const RELEASE_EXCLUDED_PLUGIN_PATHS = [
+  "Source/LoomleBridge/Private/Tests",
+];
 const FORBIDDEN_BINARY_SUFFIXES = new Set([
   ".dll",
   ".dylib",
@@ -142,7 +144,14 @@ async function copyPluginSource(source, destination) {
   if (!(await isDirectory(source))) fail(`source not found: ${source}`);
   await cp(source, destination, {
     recursive: true,
-    filter: (path) => !IGNORED_SOURCE_NAMES.has(basename(path)),
+    filter: (path) => {
+      if (IGNORED_SOURCE_NAMES.has(basename(path))) return false;
+      const pluginRelativePath = relative(source, path).split(/[\\/]+/).join("/");
+      return !RELEASE_EXCLUDED_PLUGIN_PATHS.some(
+        (excludedPath) => pluginRelativePath === excludedPath
+          || pluginRelativePath.startsWith(`${excludedPath}/`),
+      );
+    },
   });
 }
 
@@ -235,14 +244,10 @@ async function validateClientBuild({ repoRoot, executablePath, receiptPath, targ
 
 async function specializeDescriptor({ descriptorPath, targetSpec }) {
   const descriptor = await readJson(descriptorPath);
-  const modules = descriptor.Modules;
-  if (!Array.isArray(modules)) {
-    fail("source LoomleBridge.uplugin must contain a Modules array.");
-  }
-  const module = modules.find((entry) => entry?.Name === "LoomleBridge");
-  if (!module) {
-    fail("source LoomleBridge.uplugin must contain the LoomleBridge module.");
-  }
+  const module = requireOnlyBridgeModule(
+    descriptor,
+    "source LoomleBridge.uplugin",
+  );
   if (descriptor.SupportedTargetPlatforms !== undefined
       && (!Array.isArray(descriptor.SupportedTargetPlatforms)
         || !descriptor.SupportedTargetPlatforms.includes(targetSpec.unrealPlatform))) {
@@ -299,6 +304,14 @@ async function validateFabPlugin({
   if (await pathExists(join(pluginRoot, "Resources", "MCP"))) {
     fail("Fab plugin must not include the retired Resources/MCP directory.");
   }
+  if (await pathExists(
+    join(pluginRoot, "Source", "LoomleBridge", "Private", "Tests"),
+  )) {
+    fail(
+      "Fab plugin must not include Source/LoomleBridge/Private/Tests"
+      + " in the pre-BuildPlugin staging tree.",
+    );
+  }
 
   await validateDescriptor(repoRoot, descriptorPath, targetSpec);
   await validateFilterPlugin(filterPath);
@@ -351,10 +364,10 @@ async function validateDescriptor(repoRoot, descriptorPath, targetSpec) {
     [targetSpec.unrealPlatform],
     "staged LoomleBridge.uplugin SupportedTargetPlatforms",
   );
-  const module = descriptor.Modules?.find((entry) => entry?.Name === "LoomleBridge");
-  if (!module) {
-    fail("staged LoomleBridge.uplugin is missing the LoomleBridge module.");
-  }
+  const module = requireOnlyBridgeModule(
+    descriptor,
+    "staged LoomleBridge.uplugin",
+  );
   assertExactArray(
     module.PlatformAllowList,
     [targetSpec.unrealPlatform],
@@ -365,6 +378,16 @@ async function validateDescriptor(repoRoot, descriptorPath, targetSpec) {
     [`${targetSpec.unrealPlatform}:${targetSpec.unrealArchitecture}`],
     "staged LoomleBridge module PlatformArchitectureAllowList",
   );
+}
+
+function requireOnlyBridgeModule(descriptor, label) {
+  const modules = descriptor.Modules;
+  if (!Array.isArray(modules)
+      || modules.length !== 1
+      || modules[0]?.Name !== "LoomleBridge") {
+    fail(`${label} Modules must contain exactly one module named "LoomleBridge".`);
+  }
+  return modules[0];
 }
 
 function assertExactArray(actual, expected, label) {

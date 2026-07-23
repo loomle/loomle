@@ -1272,7 +1272,7 @@ bool FSalStateTreeNodesCollectionAndExactReadTest::RunTest(const FString& Parame
 #if WITH_EDITORONLY_DATA
     Task.Node.GetMutable<FStateTreeTaskBase>().bConsideredForCompletion = false;
 #endif
-    Task.InstanceObject = NewObject<UObject>(Tree.Asset);
+    Task.InstanceObject = NewObject<USalStateTreeTestSchema>(Tree.Asset);
     AddNamedNode<FStateTreeConsiderationBase>(
         Tree.Root->Considerations, ConsiderationId, FName(TEXT("Distance Score")));
     FStateTreeTransition& Transition = Tree.Root->AddTransition(
@@ -1381,7 +1381,32 @@ bool FSalStateTreeNodesCollectionAndExactReadTest::RunTest(const FString& Parame
     SecondPage.PageAfter = Cursor;
     const TSharedPtr<FJsonObject> SecondPageResult = FSalStateTreeInterface::Query(SecondPage, Target);
     TestFalse(TEXT("Second Node page succeeds"), HasError(SecondPageResult));
-    TestEqual(TEXT("Second Node page returns the remaining Nodes"), CallIds(SecondPageResult, TEXT("node")).Num(), 5);
+    const TArray<FString> SecondPageIds = CallIds(SecondPageResult, TEXT("node"));
+    TestEqual(TEXT("Second Node page honors the same limit"), SecondPageIds.Num(), 3);
+    if (SecondPageIds.Num() == 3)
+    {
+        for (int32 Index = 0; Index < SecondPageIds.Num(); ++Index)
+        {
+            TestEqual(
+                *FString::Printf(TEXT("Second Node page resumes at authored offset %d"), Index + 3),
+                SecondPageIds[Index],
+                ExpectedOrder[Index + 3]);
+        }
+    }
+    const FString SecondCursor = NextCursor(SecondPageResult);
+    TestFalse(TEXT("The second truncated Node page returns a cursor"), SecondCursor.IsEmpty());
+    FSalQuery ThirdPage = FirstPage;
+    ThirdPage.PageAfter = SecondCursor;
+    const TSharedPtr<FJsonObject> ThirdPageResult = FSalStateTreeInterface::Query(ThirdPage, Target);
+    TestFalse(TEXT("Third Node page succeeds"), HasError(ThirdPageResult));
+    const TArray<FString> ThirdPageIds = CallIds(ThirdPageResult, TEXT("node"));
+    TestEqual(TEXT("Third Node page returns the final remainder"), ThirdPageIds.Num(), 2);
+    if (ThirdPageIds.Num() == 2)
+    {
+        TestEqual(TEXT("Third Node page resumes at the seventh Node"), ThirdPageIds[0], ExpectedOrder[6]);
+        TestEqual(TEXT("Third Node page preserves the final Node"), ThirdPageIds[1], ExpectedOrder[7]);
+    }
+    TestTrue(TEXT("Final Node page has no next cursor"), NextCursor(ThirdPageResult).IsEmpty());
 
     FSalQuery ExactNode = Query(TEXT("node"));
     ExactNode.Operation->SetStringField(TEXT("id"), TaskId.ToString(EGuidFormats::DigitsWithHyphensLower));
@@ -1678,7 +1703,7 @@ bool FSalStateTreeBlueprintNodeTypeTest::RunTest(const FString& Parameters)
         FName(TEXT("Blueprint Task")));
     Task.Node.GetMutable<FStateTreeBlueprintTaskWrapper>().TaskClass =
         UStateTreeTaskBlueprintBase::StaticClass();
-    Task.InstanceObject = NewObject<UObject>(Tree.Asset);
+    Task.InstanceObject = NewObject<USalStateTreeTestSchema>(Tree.Asset);
 
     FSalQuery Exact = Query(TEXT("node"));
     Exact.Operation->SetStringField(
@@ -2617,8 +2642,10 @@ bool FSalStateTreeExactRelationshipReadTest::RunTest(const FString& Parameters)
     const TSharedPtr<FJsonObject> ContextResult = Exact(TEXT("object"), ContextId);
     const TArray<FString> ContextEdges = EdgeTexts(ContextResult);
     TestFalse(TEXT("Exact Context Data relationship read succeeds"), HasError(ContextResult));
-    TestEqual(TEXT("Exact Context Data returns its direct automatic use"), ContextEdges.Num(), 1);
+    TestEqual(TEXT("Exact Context Data returns both direct automatic uses"), ContextEdges.Num(), 2);
     TestTrue(TEXT("Context exact read preserves the automatic arrow"), ContextEdges.Contains(AutomaticContextEdge));
+    TestTrue(TEXT("Context exact read preserves the second eligible Instance arrow"), ContextEdges.Contains(EligibleInstanceContextEdge));
+    TestFalse(TEXT("Context exact read excludes the ineligible Node-template field"), ContextEdges.Contains(IneligibleNodeContextEdge));
 
     const TSharedPtr<FJsonObject> StateResult = Exact(TEXT("state"), Tree.First->ID);
     const TArray<FString> StateEdges = EdgeTexts(StateResult);

@@ -50,6 +50,21 @@ test("assembles the Bridge source and only the canonical TypeScript Client execu
     assert.notEqual((await stat(stagedClient)).mode & 0o111, 0);
     assert.equal(await readFile(join(pluginRoot, "README.md"), "utf8"), "fab readme\n");
     assert.equal(await exists(join(pluginRoot, "Source", "LoomleBridge", "LoomleBridge.Build.cs")), true);
+    assert.equal(
+      await exists(join(pluginRoot, "Source", "LoomleBridge", "Private", "Tests")),
+      false,
+    );
+    assert.equal(
+      await exists(join(
+        pluginRoot,
+        "Source",
+        "LoomleBridge",
+        "Private",
+        "Tests",
+        "SalTestReflectedSchema.h",
+      )),
+      false,
+    );
     assert.equal(await exists(join(pluginRoot, "Resources", "MCP")), false);
     assert.equal(
       await exists(join(pluginRoot, "Resources", "Loomle", "darwin-arm64", "build.json")),
@@ -107,7 +122,23 @@ test("rejects a source descriptor without the target module", async () => {
         outputDir: fixture.outputDir,
         target: "darwin-arm64",
       }),
-      /must contain the LoomleBridge module/,
+      /Modules must contain exactly one module named "LoomleBridge"/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a source descriptor with a release-visible test module", async () => {
+  const fixture = await createFixture("darwin-arm64", { extraTestModule: true });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /Modules must contain exactly one module named "LoomleBridge"/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -448,14 +479,60 @@ async function createFixture(target, options = {}) {
     VersionName: options.pluginVersion ?? PRODUCT_VERSION,
     CanContainContent: false,
     SupportedTargetPlatforms: options.disallowPluginMac ? ["Win64"] : ["Mac", "Win64"],
-    Modules: [{
-      Name: options.missingModule ? "AnotherModule" : "LoomleBridge",
-      Type: "Editor",
-      LoadingPhase: "PostEngineInit",
-      PlatformAllowList: options.disallowMac ? ["Win64"] : ["Mac", "Win64"],
-    }],
+    Modules: [
+      {
+        Name: options.missingModule ? "AnotherModule" : "LoomleBridge",
+        Type: "Editor",
+        LoadingPhase: "PostEngineInit",
+        PlatformAllowList: options.disallowMac ? ["Win64"] : ["Mac", "Win64"],
+      },
+      ...(options.extraTestModule
+        ? [{
+          Name: "LoomleBridgeTests",
+          Type: "Editor",
+          LoadingPhase: "PostEngineInit",
+          PlatformAllowList: ["Mac", "Win64"],
+        }]
+        : []),
+    ],
   }));
   await write(join(pluginRoot, "Source", "LoomleBridge", "LoomleBridge.Build.cs"), "build rules\n");
+  await write(
+    join(pluginRoot, "Source", "LoomleBridge", "Private", "Tests", "BridgeTests.cpp"),
+    "test-only source\n",
+  );
+  await write(
+    join(
+      pluginRoot,
+      "Source",
+      "LoomleBridge",
+      "Private",
+      "Tests",
+      "SalTestReflectedSchema.h",
+    ),
+    [
+      "#pragma once",
+      "",
+      "#include \"CoreMinimal.h\"",
+      "#include \"SalTestReflectedSchema.generated.h\"",
+      "",
+      "USTRUCT()",
+      "struct FLOOMLETESTREFLECTEDSCHEMA",
+      "{",
+      "  GENERATED_BODY()",
+      "",
+      "  UPROPERTY()",
+      "  int32 Value = 0;",
+      "};",
+      "",
+      "UCLASS()",
+      "class ULOOMLETESTREFLECTEDOBJECT : public UObject",
+      "{",
+      "  GENERATED_BODY()",
+      "};",
+      "",
+    ].join("\n"),
+  );
   await write(
     join(pluginRoot, "Config", "FilterPlugin.ini"),
     options.legacyFilter

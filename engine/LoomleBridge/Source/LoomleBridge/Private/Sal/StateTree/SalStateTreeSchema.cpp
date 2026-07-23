@@ -10,6 +10,7 @@
 #include "PropertyBindingBindableStructDescriptor.h"
 #include "PropertyBindingTypes.h"
 #include "StateTree.h"
+#include "StateTreeAnyEnum.h"
 #include "StateTreeDelegate.h"
 #include "StateTreeEditorData.h"
 #include "StateTreeEditorNode.h"
@@ -449,6 +450,64 @@ bool IsListener(const FProperty* Property)
             || StructProperty->Struct == FStateTreeTransitionDelegateListener::StaticStruct());
 }
 
+bool GetAnyEnumBindingCompatibility(
+    const FResolvedMember& Source,
+    const FResolvedMember& Target,
+    bool& OutCompatible)
+{
+    const FStructProperty* TargetStructProperty =
+        CastField<FStructProperty>(Target.LeafProperty);
+    if (TargetStructProperty == nullptr
+        || TargetStructProperty->Struct != FStateTreeAnyEnum::StaticStruct())
+    {
+        return false;
+    }
+
+    const UEnum* SourceEnum = nullptr;
+    if (const FByteProperty* SourceByteProperty =
+            CastField<FByteProperty>(Source.LeafProperty))
+    {
+        SourceEnum = SourceByteProperty->GetIntPropertyEnum();
+    }
+    else if (const FEnumProperty* SourceEnumProperty =
+                 CastField<FEnumProperty>(Source.LeafProperty))
+    {
+        SourceEnum = SourceEnumProperty->GetEnum();
+    }
+    if (SourceEnum == nullptr)
+    {
+        OutCompatible = false;
+        return true;
+    }
+
+    if (Target.LeafProperty->HasMetaData(TEXT("AllowAnyBinding")))
+    {
+        OutCompatible = true;
+        return true;
+    }
+
+    TArray<FPropertyBindingPathIndirection, TInlineAllocator<16>> Indirections;
+    FString Ignored;
+    if (!Target.OwnerView.IsValid()
+        || !Target.NativePath.ResolveIndirectionsWithValue(
+            Target.OwnerView,
+            Indirections,
+            &Ignored,
+            true)
+        || Indirections.IsEmpty()
+        || Indirections.Last().GetPropertyAddress() == nullptr)
+    {
+        OutCompatible = false;
+        return true;
+    }
+
+    const FStateTreeAnyEnum* TargetAnyEnum =
+        static_cast<const FStateTreeAnyEnum*>(
+            Indirections.Last().GetPropertyAddress());
+    OutCompatible = TargetAnyEnum->Enum == SourceEnum;
+    return true;
+}
+
 bool IsUnsupportedOutputBindingProperty(const FProperty* Property)
 {
     const FStructProperty* StructProperty = CastField<FStructProperty>(Property);
@@ -727,9 +786,14 @@ void FinalizeCapabilities(
 {
     OutMember.bReadable = OutMember.LeafProperty != nullptr;
     OutMember.Usage = UE::StateTree::GetUsageFromMetaData(OutMember.RootProperty);
+    const bool bAuthoredAssetOwner = OutMember.OwnerKind == TEXT("target")
+        || OutMember.OwnerKind == TEXT("state")
+        || OutMember.OwnerKind == TEXT("transition");
     const bool bEdit = OutMember.LeafProperty != nullptr
         && OutMember.LeafProperty->HasAnyPropertyFlags(CPF_Edit)
-        && !OutMember.LeafProperty->HasAnyPropertyFlags(CPF_EditConst | CPF_DisableEditOnInstance);
+        && !OutMember.LeafProperty->HasAnyPropertyFlags(CPF_EditConst)
+        && (bAuthoredAssetOwner
+            || !OutMember.LeafProperty->HasAnyPropertyFlags(CPF_DisableEditOnInstance));
     OutMember.bWritable = bEdit && !OutMember.bReadOnlyOwner;
     OutMember.bResettable = OutMember.bWritable;
 
@@ -787,7 +851,8 @@ bool AppendStructDescription(
     const FString& Prefix = FString(),
     const FSchemaWriteFilter& WriteFilter = FSchemaWriteFilter(),
     const ESchemaBindingSurface BindingSurface = ESchemaBindingSurface::None,
-    const bool bIncludeHeader = true)
+    const bool bIncludeHeader = true,
+    const bool bAuthoredAssetOwner = false)
 {
     if (bIncludeHeader && !Builder.Append(TEXT("schema:\nfields:")))
     {
@@ -803,7 +868,9 @@ bool AppendStructDescription(
         const EStateTreePropertyUsage Usage = UE::StateTree::GetUsageFromMetaData(Property);
         const bool bWritable = !bReadOnly
             && Property->HasAnyPropertyFlags(CPF_Edit)
-            && !Property->HasAnyPropertyFlags(CPF_EditConst | CPF_DisableEditOnInstance)
+            && !Property->HasAnyPropertyFlags(CPF_EditConst)
+            && (bAuthoredAssetOwner
+                || !Property->HasAnyPropertyFlags(CPF_DisableEditOnInstance))
             && (!WriteFilter || WriteFilter(*Property));
         FString Capabilities = bWritable ? TEXT("read/write/reset") : TEXT("read-only");
         if (BindingSurface != ESchemaBindingSurface::None)
@@ -1498,11 +1565,23 @@ bool AreBindingCompatible(
             return false;
         }
     }
-    else if (UE::PropertyBinding::GetPropertyCompatibility(Source.LeafProperty, Target.LeafProperty)
-        == UE::PropertyBinding::EPropertyCompatibility::Incompatible)
+    else
     {
-        OutMessage = TEXT("Native UE Property Binding types are incompatible.");
-        return false;
+        bool bCompatible = false;
+        const bool bAnyEnum = GetAnyEnumBindingCompatibility(
+            Source,
+            Target,
+            bCompatible);
+        if ((!bAnyEnum
+                && UE::PropertyBinding::GetPropertyCompatibility(
+                    Source.LeafProperty,
+                    Target.LeafProperty)
+                    == UE::PropertyBinding::EPropertyCompatibility::Incompatible)
+            || (bAnyEnum && !bCompatible))
+        {
+            OutMessage = TEXT("Native UE Property Binding types are incompatible.");
+            return false;
+        }
     }
 
     const FGuid ExecutionOwnerId = bNativeOutputBinding
@@ -1551,7 +1630,10 @@ bool DescribeExactObject(
             [&](const FProperty& Property)
             {
                 return IsTargetDirectWritable(EditorData, Property);
-                })
+            },
+            ESchemaBindingSurface::None,
+            true,
+            true)
             || !Builder.Append(DescribeNativeSchemaCapabilities(EditorData))
             || !Builder.Append(DescribeTargetDestinations(EditorData)))
         {
@@ -1574,7 +1656,10 @@ bool DescribeExactObject(
                         [&](const FProperty& Property)
                         {
                             return IsStateDirectWritable(EditorData, Property);
-                        })
+                        },
+                        ESchemaBindingSurface::None,
+                        true,
+                        true)
                     || !Builder.Append(DescribeNativeSchemaCapabilities(EditorData))
                     || !Builder.Append(DescribeStateDestinations(EditorData, *State))
                     || !Builder.Append(

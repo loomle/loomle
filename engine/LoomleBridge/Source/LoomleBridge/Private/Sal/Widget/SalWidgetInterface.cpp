@@ -39,6 +39,7 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/Kismet2NameValidators.h"
 #include "Kismet2/KismetEditorUtilities.h"
+#include "LoomleMutationTransaction.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/Crc.h"
 #include "Misc/PackageName.h"
@@ -48,6 +49,7 @@
 #include "MovieScenePossessable.h"
 #include "ObjectEditorUtils.h"
 #include "ScopedTransaction.h"
+#include "Sal/Blueprint/SalBlueprintSandbox.h"
 #include "Serialization/JsonSerializer.h"
 #include "Templates/WidgetTemplateBlueprintClass.h"
 #include "Templates/WidgetTemplateClass.h"
@@ -4069,182 +4071,640 @@ TSharedPtr<FJsonObject> PatchPlan(const FWidgetPatchContext& Context)
     return Plan;
 }
 
-UBlueprintGeneratedClass* DuplicateWidgetSandboxClass(
-    UBlueprintGeneratedClass* Source,
-    UWidgetBlueprint* Blueprint,
-    const TCHAR* Suffix,
-    FString& OutError)
+struct FWidgetBindingPathSegmentSnapshot
 {
-    if (Source == nullptr)
+    UStruct* Struct = nullptr;
+    FName MemberName;
+    FGuid MemberGuid;
+};
+
+struct FWidgetBindingSnapshot
+{
+    FString ObjectName;
+    FName PropertyName;
+    FName FunctionName;
+    FName SourceProperty;
+    FGuid MemberGuid;
+    EBindingKind Kind = EBindingKind::Property;
+    TArray<FWidgetBindingPathSegmentSnapshot> Segments;
+};
+
+struct FWidgetSourceIsolationSnapshot
+{
+    UWidgetTree* WidgetTree = nullptr;
+    TSet<UWidget*> Widgets;
+    TMap<UWidget*, UPanelSlot*> Slots;
+    TMap<UWidget*, UWidgetNavigation*> Navigations;
+    TSet<UEdGraph*> Graphs;
+    TArray<UWidgetAnimation*> Animations;
+    TArray<UMovieScene*> MovieScenes;
+    TArray<UBlueprintExtension*> Extensions;
+    TArray<FWidgetBindingSnapshot> Bindings;
+    TMap<FName, FGuid> VariableGuids;
+};
+
+FWidgetBindingSnapshot CaptureWidgetBinding(
+    const FDelegateEditorBinding& Binding)
+{
+    FWidgetBindingSnapshot Snapshot;
+    Snapshot.ObjectName = Binding.ObjectName;
+    Snapshot.PropertyName = Binding.PropertyName;
+    Snapshot.FunctionName = Binding.FunctionName;
+    Snapshot.SourceProperty = Binding.SourceProperty;
+    Snapshot.MemberGuid = Binding.MemberGuid;
+    Snapshot.Kind = Binding.Kind;
+    Snapshot.Segments.Reserve(Binding.SourcePath.Segments.Num());
+    for (const FEditorPropertyPathSegment& Segment :
+         Binding.SourcePath.Segments)
     {
-        return nullptr;
+        FWidgetBindingPathSegmentSnapshot& SegmentSnapshot =
+            Snapshot.Segments.AddDefaulted_GetRef();
+        SegmentSnapshot.Struct = Segment.GetStruct();
+        SegmentSnapshot.MemberName = Segment.GetMemberName();
+        SegmentSnapshot.MemberGuid = Segment.GetMemberGuid();
     }
-    const FName Name = MakeUniqueObjectName(
-        GetTransientPackage(),
-        Source->GetClass(),
-        FName(*(Source->GetName() + Suffix)));
-    UBlueprintGeneratedClass* Copy = DuplicateObject<UBlueprintGeneratedClass>(Source, GetTransientPackage(), Name);
-    if (Copy == nullptr || !Copy->IsIn(GetTransientPackage()))
-    {
-        OutError = FString::Printf(TEXT("UE could not isolate %s for Widget Patch preflight."), *Source->GetName());
-        return nullptr;
-    }
-    Copy->ClassGeneratedBy = Blueprint;
-    Copy->SetFlags(RF_Transient | RF_Transactional);
-    UObject* SourceCDO = Source->GetDefaultObject(false);
-    UObject* CopyCDO = Copy->GetDefaultObject();
-    if (CopyCDO == nullptr
-        || CopyCDO == SourceCDO
-        || !CopyCDO->IsIn(GetTransientPackage()))
-    {
-        OutError = FString::Printf(TEXT("UE did not isolate the default object for %s."), *Source->GetName());
-        return nullptr;
-    }
-    return Copy;
+    return Snapshot;
 }
 
-UWidgetBlueprint* DuplicateForPreflight(UWidgetBlueprint* Blueprint, FString& OutError)
+FWidgetSourceIsolationSnapshot CaptureWidgetSourceIsolation(
+    UWidgetBlueprint* Blueprint)
+{
+    FWidgetSourceIsolationSnapshot Snapshot;
+    Snapshot.WidgetTree =
+        Blueprint != nullptr ? Blueprint->WidgetTree.Get() : nullptr;
+    if (Blueprint == nullptr)
+    {
+        return Snapshot;
+    }
+
+    for (UWidget* Widget : SourceWidgets(Blueprint))
+    {
+        Snapshot.Widgets.Add(Widget);
+        Snapshot.Slots.Add(Widget, Widget != nullptr ? Widget->Slot.Get() : nullptr);
+        Snapshot.Navigations.Add(
+            Widget,
+            Widget != nullptr ? Widget->Navigation.Get() : nullptr);
+    }
+
+    TArray<UEdGraph*> Graphs;
+    Blueprint->GetAllGraphs(Graphs);
+    Snapshot.Graphs.Append(Graphs);
+    for (UWidgetAnimation* Animation : Blueprint->Animations)
+    {
+        Snapshot.Animations.Add(Animation);
+        Snapshot.MovieScenes.Add(
+            Animation != nullptr ? Animation->MovieScene.Get() : nullptr);
+    }
+    for (UBlueprintExtension* Extension : Blueprint->GetExtensions())
+    {
+        Snapshot.Extensions.Add(Extension);
+    }
+    for (const FDelegateEditorBinding& Binding : Blueprint->Bindings)
+    {
+        Snapshot.Bindings.Add(CaptureWidgetBinding(Binding));
+    }
+    Snapshot.VariableGuids = Blueprint->WidgetVariableNameToGuidMap;
+    return Snapshot;
+}
+
+bool WidgetGuidMapsMatch(
+    const TMap<FName, FGuid>& Expected,
+    const TMap<FName, FGuid>& Actual)
+{
+    if (Expected.Num() != Actual.Num())
+    {
+        return false;
+    }
+    for (const TPair<FName, FGuid>& Pair : Expected)
+    {
+        const FGuid* ActualGuid = Actual.Find(Pair.Key);
+        if (ActualGuid == nullptr || *ActualGuid != Pair.Value)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool WidgetBindingMatches(
+    const FDelegateEditorBinding& Binding,
+    const FWidgetBindingSnapshot& Expected,
+    const UWidgetBlueprint* Sandbox)
+{
+    if (Binding.ObjectName != Expected.ObjectName
+        || Binding.PropertyName != Expected.PropertyName
+        || Binding.FunctionName != Expected.FunctionName
+        || Binding.SourceProperty != Expected.SourceProperty
+        || Binding.MemberGuid != Expected.MemberGuid
+        || Binding.Kind != Expected.Kind
+        || Binding.SourcePath.Segments.Num()
+            != Expected.Segments.Num())
+    {
+        return false;
+    }
+
+    for (int32 Index = 0;
+         Index < Expected.Segments.Num();
+         ++Index)
+    {
+        const FEditorPropertyPathSegment& Segment =
+            Binding.SourcePath.Segments[Index];
+        const FWidgetBindingPathSegmentSnapshot& ExpectedSegment =
+            Expected.Segments[Index];
+        UStruct* ExpectedStruct =
+            Sandbox != nullptr && Index == 0
+                ? Sandbox->GeneratedClass.Get()
+                : ExpectedSegment.Struct;
+        if (Segment.GetStruct() != ExpectedStruct
+            || Segment.GetMemberName() != ExpectedSegment.MemberName
+            || Segment.GetMemberGuid() != ExpectedSegment.MemberGuid)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ValidateWidgetSourceUnchanged(
+    UWidgetBlueprint* Blueprint,
+    const FWidgetSourceIsolationSnapshot& Expected,
+    FString& OutError)
+{
+    if (Blueprint == nullptr
+        || Blueprint->WidgetTree != Expected.WidgetTree)
+    {
+        OutError =
+            TEXT("UE transient duplication changed the source WidgetTree.");
+        return false;
+    }
+
+    TSet<UWidget*> CurrentWidgets;
+    CurrentWidgets.Append(SourceWidgets(Blueprint));
+    if (CurrentWidgets.Num() != Expected.Widgets.Num())
+    {
+        OutError =
+            TEXT("UE transient duplication changed the source Widget set.");
+        return false;
+    }
+    for (UWidget* Widget : Expected.Widgets)
+    {
+        UPanelSlot* const* Slot = Expected.Slots.Find(Widget);
+        UWidgetNavigation* const* Navigation =
+            Expected.Navigations.Find(Widget);
+        if (!CurrentWidgets.Contains(Widget)
+            || Slot == nullptr
+            || Navigation == nullptr
+            || Widget->Slot.Get() != *Slot
+            || Widget->Navigation.Get() != *Navigation)
+        {
+            OutError =
+                TEXT("UE transient duplication changed source Widget ownership state.");
+            return false;
+        }
+    }
+
+    TArray<UEdGraph*> CurrentGraphArray;
+    Blueprint->GetAllGraphs(CurrentGraphArray);
+    TSet<UEdGraph*> CurrentGraphs;
+    CurrentGraphs.Append(CurrentGraphArray);
+    if (CurrentGraphs.Num() != Expected.Graphs.Num())
+    {
+        OutError =
+            TEXT("UE transient duplication changed the source Widget Graph set.");
+        return false;
+    }
+    for (UEdGraph* Graph : Expected.Graphs)
+    {
+        if (!CurrentGraphs.Contains(Graph))
+        {
+            OutError =
+                TEXT("UE transient duplication changed a source Widget Graph.");
+            return false;
+        }
+    }
+
+    if (Blueprint->Animations.Num() != Expected.Animations.Num())
+    {
+        OutError =
+            TEXT("UE transient duplication changed the source Widget Animation count.");
+        return false;
+    }
+    for (int32 Index = 0;
+         Index < Expected.Animations.Num();
+         ++Index)
+    {
+        UWidgetAnimation* Animation = Blueprint->Animations[Index];
+        if (Animation != Expected.Animations[Index]
+            || (Animation != nullptr
+                ? Animation->MovieScene.Get()
+                : nullptr) != Expected.MovieScenes[Index])
+        {
+            OutError =
+                TEXT("UE transient duplication changed source Widget Animation state.");
+            return false;
+        }
+    }
+
+    const TArrayView<const TObjectPtr<UBlueprintExtension>>
+        CurrentExtensions = Blueprint->GetExtensions();
+    if (CurrentExtensions.Num() != Expected.Extensions.Num())
+    {
+        OutError =
+            TEXT("UE transient duplication changed the source Widget Extension count.");
+        return false;
+    }
+    for (int32 Index = 0;
+         Index < Expected.Extensions.Num();
+         ++Index)
+    {
+        if (CurrentExtensions[Index] != Expected.Extensions[Index])
+        {
+            OutError =
+                TEXT("UE transient duplication changed a source Widget Extension.");
+            return false;
+        }
+    }
+
+    if (Blueprint->Bindings.Num() != Expected.Bindings.Num())
+    {
+        OutError =
+            TEXT("UE transient duplication changed the source Widget binding count.");
+        return false;
+    }
+    for (int32 Index = 0;
+         Index < Expected.Bindings.Num();
+         ++Index)
+    {
+        if (!WidgetBindingMatches(
+                Blueprint->Bindings[Index],
+                Expected.Bindings[Index],
+                nullptr))
+        {
+            OutError =
+                TEXT("UE transient duplication changed source Widget binding identity.");
+            return false;
+        }
+    }
+    if (!WidgetGuidMapsMatch(
+            Expected.VariableGuids,
+            Blueprint->WidgetVariableNameToGuidMap))
+    {
+        OutError =
+            TEXT("UE transient duplication changed source Widget variable GUID identity.");
+        return false;
+    }
+    return true;
+}
+
+void MarkWidgetSandboxSubtree(UObject* Root)
+{
+    if (Root == nullptr)
+    {
+        return;
+    }
+    const auto Mark = [](UObject* Object)
+    {
+        if (Object != nullptr)
+        {
+            Object->ClearFlags(RF_Public | RF_Standalone);
+            Object->SetFlags(RF_Transient | RF_Transactional);
+        }
+    };
+    Mark(Root);
+    ForEachObjectWithOuter(
+        Root,
+        [&Mark](UObject* Object)
+        {
+            Mark(Object);
+        },
+        true);
+}
+
+bool ValidateWidgetBindingsAndGuids(
+    const UWidgetBlueprint* Copy,
+    const FWidgetSourceIsolationSnapshot& Expected,
+    FString& OutError)
+{
+    if (Copy == nullptr
+        || Copy->Bindings.Num() != Expected.Bindings.Num())
+    {
+        OutError =
+            TEXT("UE did not preserve Widget bindings in transient preflight state.");
+        return false;
+    }
+    for (int32 Index = 0;
+         Index < Expected.Bindings.Num();
+         ++Index)
+    {
+        if (!WidgetBindingMatches(
+                Copy->Bindings[Index],
+                Expected.Bindings[Index],
+                Copy))
+        {
+            OutError =
+                TEXT("UE did not preserve and rebase Widget binding identity for preflight.");
+            return false;
+        }
+    }
+    if (!WidgetGuidMapsMatch(
+            Expected.VariableGuids,
+            Copy->WidgetVariableNameToGuidMap))
+    {
+        OutError =
+            TEXT("UE did not preserve Widget variable GUID identity for preflight.");
+        return false;
+    }
+    return true;
+}
+
+UWidgetBlueprint* DuplicateForPreflight(
+    UWidgetBlueprint* Blueprint,
+    TStrongObjectPtr<UBlueprint>& OutSandboxOwner,
+    FString& OutError)
 {
     OutError.Reset();
-    const FName Name = MakeUniqueObjectName(
-        GetTransientPackage(),
-        Blueprint->GetClass(),
-        FName(*(Blueprint->GetName() + TEXT("_SALDryRun"))));
-    UWidgetBlueprint* Copy = DuplicateObject<UWidgetBlueprint>(Blueprint, GetTransientPackage(), Name);
-    if (Copy == nullptr || !Copy->IsIn(GetTransientPackage()))
+    if (Blueprint == nullptr)
     {
-        OutError = TEXT("UE could not duplicate the WidgetBlueprint into transient preflight state.");
+        OutError =
+            TEXT("A WidgetBlueprint is unavailable for preflight.");
         return nullptr;
     }
-    Copy->SetFlags(RF_Transient | RF_Transactional);
 
-    if (Copy->WidgetTree == Blueprint->WidgetTree)
+    const FWidgetSourceIsolationSnapshot SourceSnapshot =
+        CaptureWidgetSourceIsolation(Blueprint);
+    OutSandboxOwner = MakeBlueprintSandbox(Blueprint, OutError);
+    UWidgetBlueprint* Copy =
+        Cast<UWidgetBlueprint>(OutSandboxOwner.Get());
+    if (Copy == nullptr)
     {
-        Copy->WidgetTree = DuplicateObject<UWidgetTree>(Blueprint->WidgetTree, Copy);
+        if (OutError.IsEmpty())
+        {
+            OutError =
+                TEXT("UE did not preserve the WidgetBlueprint subtype in transient preflight state.");
+        }
+        return nullptr;
+    }
+
+    if (Copy->WidgetTree == Blueprint->WidgetTree
+        && Blueprint->WidgetTree != nullptr)
+    {
+        Copy->WidgetTree = DuplicateObject<UWidgetTree>(
+            Blueprint->WidgetTree,
+            Copy,
+            MakeUniqueObjectName(
+                Copy,
+                Blueprint->WidgetTree->GetClass(),
+                Blueprint->WidgetTree->GetFName()));
+        MarkWidgetSandboxSubtree(Copy->WidgetTree);
     }
     if (Copy->WidgetTree == nullptr
         || Copy->WidgetTree == Blueprint->WidgetTree
         || !Copy->WidgetTree->IsIn(Copy))
     {
-        OutError = TEXT("UE did not isolate the WidgetTree for Widget Patch preflight.");
+        OutError =
+            TEXT("UE did not isolate the WidgetTree for Widget Patch preflight.");
         return nullptr;
     }
 
-    TSet<UWidget*> LiveWidgets;
-    LiveWidgets.Append(SourceWidgets(Blueprint));
-    for (UWidget* Widget : SourceWidgets(Copy))
+    TMap<FName, UWidget*> LiveWidgetsByName;
+    TSet<UPanelSlot*> LiveSlots;
+    TSet<UWidgetNavigation*> LiveNavigations;
+    for (UWidget* Widget : SourceSnapshot.Widgets)
     {
-        if (Widget == nullptr || LiveWidgets.Contains(Widget) || !Widget->IsIn(Copy))
+        if (Widget == nullptr
+            || LiveWidgetsByName.Contains(Widget->GetFName()))
         {
-            OutError = TEXT("UE did not isolate every source Widget for Widget Patch preflight.");
+            OutError =
+                TEXT("The source WidgetTree contains an invalid or duplicate Widget identity.");
             return nullptr;
         }
-        if ((Widget->Slot != nullptr && !Widget->Slot->IsIn(Copy))
-            || (Widget->Navigation != nullptr && !Widget->Navigation->IsIn(Copy)))
+        LiveWidgetsByName.Add(Widget->GetFName(), Widget);
+        if (Widget->Slot != nullptr)
         {
-            OutError = FString::Printf(TEXT("UE did not isolate Slot or Navigation state for Widget %s."), *Widget->GetName());
+            LiveSlots.Add(Widget->Slot);
+        }
+        if (Widget->Navigation != nullptr)
+        {
+            LiveNavigations.Add(Widget->Navigation);
+        }
+    }
+
+    const TArray<UWidget*> SandboxWidgets = SourceWidgets(Copy);
+    if (SandboxWidgets.Num() != LiveWidgetsByName.Num())
+    {
+        OutError =
+            TEXT("UE transient duplication changed the source Widget count.");
+        return nullptr;
+    }
+    TSet<FName> SandboxWidgetNames;
+    for (UWidget* Widget : SandboxWidgets)
+    {
+        UWidget* const* SourceWidget =
+            Widget != nullptr
+                ? LiveWidgetsByName.Find(Widget->GetFName())
+                : nullptr;
+        if (Widget == nullptr
+            || SourceWidget == nullptr
+            || SandboxWidgetNames.Contains(Widget->GetFName())
+            || Widget == *SourceWidget
+            || Widget->GetClass() != (*SourceWidget)->GetClass()
+            || !Widget->IsIn(Copy))
+        {
+            OutError =
+                TEXT("UE did not isolate every source Widget for Widget Patch preflight.");
+            return nullptr;
+        }
+        SandboxWidgetNames.Add(Widget->GetFName());
+
+        const bool bSourceHasSlot = (*SourceWidget)->Slot != nullptr;
+        const bool bSandboxHasSlot = Widget->Slot != nullptr;
+        const bool bSourceHasNavigation =
+            (*SourceWidget)->Navigation != nullptr;
+        const bool bSandboxHasNavigation =
+            Widget->Navigation != nullptr;
+        if (bSourceHasSlot != bSandboxHasSlot
+            || bSourceHasNavigation != bSandboxHasNavigation
+            || (Widget->Slot != nullptr
+                && (LiveSlots.Contains(Widget->Slot)
+                    || !Widget->Slot->IsIn(Copy)
+                    || Widget->Slot->GetClass()
+                        != (*SourceWidget)->Slot->GetClass()))
+            || (Widget->Navigation != nullptr
+                && (LiveNavigations.Contains(Widget->Navigation)
+                    || !Widget->Navigation->IsIn(Copy)
+                    || Widget->Navigation->GetClass()
+                        != (*SourceWidget)->Navigation->GetClass())))
+        {
+            OutError = FString::Printf(
+                TEXT("UE did not isolate Slot or Navigation state for Widget %s."),
+                *Widget->GetName());
             return nullptr;
         }
     }
 
-    UBlueprintGeneratedClass* Generated = DuplicateWidgetSandboxClass(
-        Cast<UBlueprintGeneratedClass>(Blueprint->GeneratedClass.Get()),
-        Copy,
-        TEXT("_SALGenerated"),
-        OutError);
-    if (Blueprint->GeneratedClass != nullptr && Generated == nullptr)
-    {
-        return nullptr;
-    }
-    UBlueprintGeneratedClass* Skeleton = DuplicateWidgetSandboxClass(
-        Cast<UBlueprintGeneratedClass>(Blueprint->SkeletonGeneratedClass.Get()),
-        Copy,
-        TEXT("_SALSkeleton"),
-        OutError);
-    if (Blueprint->SkeletonGeneratedClass != nullptr && Skeleton == nullptr)
-    {
-        return nullptr;
-    }
-    Copy->GeneratedClass = Generated;
-    Copy->SkeletonGeneratedClass = Skeleton != nullptr ? Skeleton : Generated;
-
-    TArray<UEdGraph*> LiveGraphs;
-    Blueprint->GetAllGraphs(LiveGraphs);
-    TSet<UEdGraph*> LiveGraphSet;
-    LiveGraphSet.Append(LiveGraphs);
     TArray<UEdGraph*> SandboxGraphs;
     Copy->GetAllGraphs(SandboxGraphs);
+    if (SandboxGraphs.Num() != SourceSnapshot.Graphs.Num())
+    {
+        OutError =
+            TEXT("UE transient duplication changed the Widget Graph count.");
+        return nullptr;
+    }
+    TSet<FGuid> SandboxGraphGuids;
     for (UEdGraph* Graph : SandboxGraphs)
     {
-        if (Graph == nullptr || LiveGraphSet.Contains(Graph) || !Graph->IsIn(Copy))
+        if (Graph == nullptr
+            || SourceSnapshot.Graphs.Contains(Graph)
+            || !Graph->IsIn(Copy)
+            || SandboxGraphGuids.Contains(Graph->GraphGuid))
         {
-            OutError = TEXT("UE did not isolate every WidgetBlueprint Graph for Widget Patch preflight.");
+            OutError =
+                TEXT("UE did not isolate every WidgetBlueprint Graph for Widget Patch preflight.");
             return nullptr;
         }
+        SandboxGraphGuids.Add(Graph->GraphGuid);
     }
 
     TArray<TObjectPtr<UWidgetAnimation>> Animations;
     Animations.Reserve(Blueprint->Animations.Num());
-    for (int32 Index = 0; Index < Blueprint->Animations.Num(); ++Index)
+    for (int32 Index = 0;
+         Index < Blueprint->Animations.Num();
+         ++Index)
     {
-        UWidgetAnimation* SourceAnimation = Blueprint->Animations[Index];
+        UWidgetAnimation* SourceAnimation =
+            Blueprint->Animations[Index];
+        UWidgetAnimation* Animation =
+            Copy->Animations.IsValidIndex(Index)
+                ? Copy->Animations[Index].Get()
+                : nullptr;
         if (SourceAnimation == nullptr)
         {
+            if (Animation != nullptr)
+            {
+                OutError =
+                    TEXT("UE transient duplication changed a null Widget Animation entry.");
+                return nullptr;
+            }
             Animations.Add(nullptr);
             continue;
         }
-        UWidgetAnimation* Animation = Copy->Animations.IsValidIndex(Index) ? Copy->Animations[Index].Get() : nullptr;
-        if (Animation == SourceAnimation || Animation == nullptr || !Animation->IsIn(Copy))
+
+        if (Animation == SourceAnimation
+            || Animation == nullptr
+            || !Animation->IsIn(Copy))
         {
-            const FName AnimationName = MakeUniqueObjectName(Copy, SourceAnimation->GetClass(), SourceAnimation->GetFName());
-            Animation = DuplicateObject<UWidgetAnimation>(SourceAnimation, Copy, AnimationName);
+            Animation = DuplicateObject<UWidgetAnimation>(
+                SourceAnimation,
+                Copy,
+                MakeUniqueObjectName(
+                    Copy,
+                    SourceAnimation->GetClass(),
+                    SourceAnimation->GetFName()));
+            MarkWidgetSandboxSubtree(Animation);
         }
-        if (Animation == nullptr || Animation == SourceAnimation || !Animation->IsIn(Copy))
+        if (Animation == nullptr
+            || Animation == SourceAnimation
+            || Animation->GetClass() != SourceAnimation->GetClass()
+            || Animation->GetFName() != SourceAnimation->GetFName()
+            || !Animation->IsIn(Copy))
         {
-            OutError = FString::Printf(TEXT("UE did not isolate Widget Animation %s."), *SourceAnimation->GetName());
+            OutError = FString::Printf(
+                TEXT("UE did not isolate Widget Animation %s."),
+                *SourceAnimation->GetName());
             return nullptr;
         }
+
         if (SourceAnimation->MovieScene != nullptr
             && (Animation->MovieScene == SourceAnimation->MovieScene
                 || Animation->MovieScene == nullptr
                 || !Animation->MovieScene->IsIn(Copy)))
         {
-            const FName MovieSceneName = MakeUniqueObjectName(Animation, SourceAnimation->MovieScene->GetClass(), SourceAnimation->MovieScene->GetFName());
-            Animation->MovieScene = DuplicateObject<UMovieScene>(SourceAnimation->MovieScene, Animation, MovieSceneName);
+            Animation->MovieScene = DuplicateObject<UMovieScene>(
+                SourceAnimation->MovieScene,
+                Animation,
+                MakeUniqueObjectName(
+                    Animation,
+                    SourceAnimation->MovieScene->GetClass(),
+                    SourceAnimation->MovieScene->GetFName()));
+            MarkWidgetSandboxSubtree(Animation->MovieScene);
         }
-        if (SourceAnimation->MovieScene != nullptr
-            && (Animation->MovieScene == nullptr
-                || Animation->MovieScene == SourceAnimation->MovieScene
-                || !Animation->MovieScene->IsIn(Copy)))
+        if ((SourceAnimation->MovieScene == nullptr)
+                != (Animation->MovieScene == nullptr)
+            || (SourceAnimation->MovieScene != nullptr
+                && (Animation->MovieScene
+                        == SourceAnimation->MovieScene
+                    || Animation->MovieScene->GetClass()
+                        != SourceAnimation->MovieScene->GetClass()
+                    || Animation->MovieScene->GetFName()
+                        != SourceAnimation->MovieScene->GetFName()
+                    || !Animation->MovieScene->IsIn(Copy))))
         {
-            OutError = FString::Printf(TEXT("UE did not isolate MovieScene state for Widget Animation %s."), *SourceAnimation->GetName());
+            OutError = FString::Printf(
+                TEXT("UE did not isolate MovieScene state for Widget Animation %s."),
+                *SourceAnimation->GetName());
             return nullptr;
         }
         Animations.Add(Animation);
     }
     Copy->Animations = MoveTemp(Animations);
 
-    const TArrayView<const TObjectPtr<UBlueprintExtension>> LiveExtensions = Blueprint->GetExtensions();
-    const TArrayView<const TObjectPtr<UBlueprintExtension>> SandboxExtensions = Copy->GetExtensions();
-    if (LiveExtensions.Num() != SandboxExtensions.Num())
+    const TArrayView<const TObjectPtr<UBlueprintExtension>>
+        SandboxExtensions = Copy->GetExtensions();
+    if (SourceSnapshot.Extensions.Num()
+        != SandboxExtensions.Num())
     {
-        OutError = TEXT("UE did not preserve WidgetBlueprint Extensions in transient preflight state.");
+        OutError =
+            TEXT("UE did not preserve WidgetBlueprint Extensions in transient preflight state.");
         return nullptr;
     }
-    for (int32 Index = 0; Index < SandboxExtensions.Num(); ++Index)
+    for (int32 Index = 0;
+         Index < SandboxExtensions.Num();
+         ++Index)
     {
         UBlueprintExtension* Extension = SandboxExtensions[Index];
+        UBlueprintExtension* SourceExtension =
+            SourceSnapshot.Extensions[Index];
         if (Extension == nullptr
-            || Extension == LiveExtensions[Index]
+            || SourceExtension == nullptr
+            || Extension == SourceExtension
+            || Extension->GetClass() != SourceExtension->GetClass()
+            || Extension->GetFName() != SourceExtension->GetFName()
             || !Extension->IsIn(Copy))
         {
-            OutError = TEXT("UE did not isolate every WidgetBlueprint Extension for Widget Patch preflight.");
+            OutError =
+                TEXT("UE did not isolate every WidgetBlueprint Extension for Widget Patch preflight.");
             return nullptr;
         }
+    }
+
+    if (!ValidateWidgetBindingsAndGuids(
+            Copy,
+            SourceSnapshot,
+            OutError)
+        || !ValidateWidgetSourceUnchanged(
+            Blueprint,
+            SourceSnapshot,
+            OutError))
+    {
+        return nullptr;
     }
     return Copy;
 }
 }
+
+#if WITH_DEV_AUTOMATION_TESTS
+UWidgetBlueprint*
+FSalWidgetInterface::DuplicateForPreflightForTesting(
+    UWidgetBlueprint* Source,
+    TStrongObjectPtr<UBlueprint>& OutSandboxOwner,
+    FString& OutError)
+{
+    return DuplicateForPreflight(
+        Source,
+        OutSandboxOwner,
+        OutError);
+}
+#endif
 
 TSharedPtr<FJsonObject> FSalWidgetInterface::Patch(const FSalPatch& Patch, const FSalResolvedTarget& Target)
 {
@@ -4275,7 +4735,12 @@ TSharedPtr<FJsonObject> FSalWidgetInterface::Patch(const FSalPatch& Patch, const
     }
 
     FString Error;
-    UWidgetBlueprint* PreflightBlueprint = DuplicateForPreflight(Blueprint, Error);
+    TStrongObjectPtr<UBlueprint> PreflightOwner;
+    UWidgetBlueprint* PreflightBlueprint =
+        DuplicateForPreflight(
+            Blueprint,
+            PreflightOwner,
+            Error);
     if (PreflightBlueprint == nullptr || PreflightBlueprint->WidgetTree == nullptr)
     {
         return MutationError(
@@ -4330,12 +4795,18 @@ TSharedPtr<FJsonObject> FSalWidgetInterface::Patch(const FSalPatch& Patch, const
     const bool bWasDirty = Package != nullptr && Package->IsDirty();
     bool bApplySucceeded = false;
     bool bTransactionAvailable = false;
+    bool bRolledBack = false;
     {
-        FScopedTransaction Transaction(NSLOCTEXT("Loomle", "SalWidgetPatch", "SAL Widget Patch"));
+        LoomleMutation::FScopedAtomicTransaction Transaction(
+            NSLOCTEXT("Loomle", "SalWidgetPatch", "SAL Widget Patch"));
         bTransactionAvailable = Transaction.IsOutstanding();
         if (bTransactionAvailable)
         {
             bApplySucceeded = ApplyWidgetPatch(Patch, Applied, Error);
+            if (!bApplySucceeded)
+            {
+                bRolledBack = Transaction.RevertAndCancel();
+            }
         }
     }
     if (!bTransactionAvailable)
@@ -4349,7 +4820,6 @@ TSharedPtr<FJsonObject> FSalWidgetInterface::Patch(const FSalPatch& Patch, const
     }
     if (!bApplySucceeded)
     {
-        const bool bRolledBack = GEditor != nullptr && GEditor->UndoTransaction(false);
         if (Package != nullptr)
         {
             Package->SetDirtyFlag(bRolledBack ? bWasDirty : true);

@@ -5,6 +5,7 @@
 #include "../SalDiagnostics.h"
 #include "../SalObjectBuilder.h"
 #include "../SalRuntime.h"
+#include "../Blueprint/SalBlueprintSandbox.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "EdGraph/EdGraph.h"
@@ -2600,6 +2601,35 @@ TSharedPtr<FJsonObject> FSalClassInterface::Patch(const FSalPatch& Patch, const 
     const TSharedPtr<FJsonObject> Planned = BuildPlanned(Edits);
     const TSharedPtr<FJsonObject> ResolvedRefs = BuildResolvedRefs(Target, Edits);
     const TSharedPtr<FJsonObject> Diff = BuildDiff(Edits);
+    const bool bNeedsModification = Edits.ContainsByPredicate(
+        [](const TSharedPtr<FPlannedEdit>& Edit)
+        {
+            return Edit.IsValid() && Edit->bFinalChanged;
+        });
+    FString ClassStateError;
+    if (bNeedsModification
+        && !ValidateBlueprintModificationClassState(
+            Blueprint,
+            ClassStateError))
+    {
+        return MakeMutationResult(
+            ClassCurrentObject(Target),
+            {FSalDiagnostics::Error(
+                    TEXT("validation.preflight_failed"),
+                    ClassStateError)
+                .Interface(TEXT("class"))
+                .Operation(TEXT("defaults"))
+                .Ref(Target.AssetPath)
+                .Build()},
+            Patch.bDryRun,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("defaults"),
+            Planned,
+            ResolvedRefs,
+            Diff);
+    }
     if (Patch.bDryRun)
     {
         return MakeMutationResult(
@@ -2717,26 +2747,16 @@ TSharedPtr<FJsonObject> FSalClassInterface::Patch(const FSalPatch& Patch, const 
     }
     UBlueprintGeneratedClass* GeneratedClass = Cast<UBlueprintGeneratedClass>(Class);
     const bool bSparseSerializableBefore = GeneratedClass != nullptr && GeneratedClass->bIsSparseClassDataSerializable;
-    Blueprint->Modify();
-    Class->Modify();
-    CDO->Modify();
     void* WritableSparseData = nullptr;
+    bool bRequiresSparseData = false;
     for (const TSharedPtr<FPlannedEdit>& Edit : FinalEdits)
     {
-        if (Edit->bSparse)
-        {
-            WritableSparseData = Class->GetOrCreateSparseClassData();
-            break;
-        }
+        bRequiresSparseData |= Edit->bSparse;
     }
-    if (WritableSparseData == nullptr)
+    if (bRequiresSparseData)
     {
-        bool bRequiresSparseData = false;
-        for (const TSharedPtr<FPlannedEdit>& Edit : FinalEdits)
-        {
-            bRequiresSparseData |= Edit->bSparse;
-        }
-        if (bRequiresSparseData)
+        WritableSparseData = Class->GetOrCreateSparseClassData();
+        if (WritableSparseData == nullptr)
         {
             Transaction.Cancel();
             if (SourcePackage != nullptr && !bSourcePackageWasDirty)
@@ -2759,11 +2779,19 @@ TSharedPtr<FJsonObject> FSalClassInterface::Patch(const FSalPatch& Patch, const 
                 ResolvedRefs,
                 Diff);
         }
+        if (GeneratedClass != nullptr)
+        {
+            GeneratedClass->bIsSparseClassDataSerializable = true;
+        }
     }
-    else if (GeneratedClass != nullptr)
-    {
-        GeneratedClass->bIsSparseClassDataSerializable = true;
-    }
+    Blueprint->Modify();
+    // UE serializes Sparse Class Data as part of the CDO transaction. Create
+    // that sidecar before Modify so the transaction captures its inherited
+    // pre-edit values; a null sidecar is intentionally omitted by
+    // UObject::Serialize and therefore cannot restore a first sparse edit.
+    // Serializing the complete generated UClass would also capture its field
+    // graph and runtime reference tables, which are not Class Default state.
+    CDO->Modify();
     for (int32 Index = 0; Index < FinalEdits.Num(); ++Index)
     {
         const TSharedPtr<FPlannedEdit>& Edit = FinalEdits[Index];

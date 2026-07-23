@@ -89,11 +89,13 @@ private:
         const FString& Message) const;
 
     bool TickHealthSnapshot(float DeltaTime);
+    void RecordGameThreadProgress();
     void UpdateHealthSnapshot();
     FString GetBridgeLifecycleName() const;
     static ELoomleBridgeLifecycle ResolveBridgeLifecycle(
         ELoomleBridgeLifecycle CurrentLifecycle,
-        ELoomlePipeListenerState ListenerState);
+        ELoomlePipeListenerState ListenerState,
+        bool bEditorInitialized);
     static FString NormalizeProjectRoot(FString RawProjectRoot);
     static FString MakeProjectIdForNormalizedRoot(FString NormalizedProjectRoot, bool bFoldCase);
     static bool RemoveLegacyProjectRegistration(
@@ -123,6 +125,7 @@ private:
     void WriteRuntimeRegistration();
     void RemoveRuntimeRegistration();
     void BeginBridgeShutdown();
+    void HandleEditorInitialized(double Duration);
     void HandleShutdownPostPackagesSaved();
     void HandleEditorPreExit();
     void HandleEnginePreExit();
@@ -133,6 +136,7 @@ private:
     TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
     TSharedPtr<FSlateStyleSet> LoomleSlateStyle;
     FDelegateHandle StatusBarStartupHandle;
+    FDelegateHandle EditorInitializedHandle;
     FDelegateHandle ShutdownPostPackagesSavedHandle;
     FDelegateHandle EditorPreExitHandle;
     FDelegateHandle EnginePreExitHandle;
@@ -160,4 +164,5 @@ private:
     TAtomic<bool> bBridgeRunningSnapshot { false };
     TAtomic<bool> bIsPIESnapshot { false };
     TAtomic<bool> bIsShuttingDown { false };
+    bool bEditorInitialized = false;
 };

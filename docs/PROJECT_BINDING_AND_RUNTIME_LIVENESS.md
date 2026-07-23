@@ -147,8 +147,12 @@ runtime record only after:
 
 1. the Unix socket has successfully bound and entered `listen`, or the Windows
    named pipe listener has been created successfully;
-2. Engine initialization is complete; and
+2. UE Editor initialization is complete; and
 3. the Game Thread has demonstrated forward progress.
+
+`ready` means the Editor RPC host can accept work. It does not mean every
+asynchronous Asset Registry, shader, DDC, or later mount scan is idle; each
+interface waits or reports pending according to the corresponding UE API.
 
 `rpc.health` is handled without Game Thread dispatch and returns the immutable
 runtime/project identities, protocol version, lifecycle state, listener state,
@@ -156,9 +160,13 @@ and recent Game Thread progress. Only `ready` is invokable.
 
 UE 5.7 lifecycle mapping follows native engine boundaries:
 
-- the module's `PostEngineInit` loading phase establishes the completed engine
-  initialization boundary;
-- a lightweight Loomle-owned monotonic heartbeat observes Game Thread progress;
+- the module may create its listener during the `PostEngineInit` loading
+  phase, but that phase still runs inside `FEngineLoop::Init`;
+- `FEditorDelegates::OnEditorInitialized`, after `FEngineLoop::Init`, startup
+  map loading, and core editor-service initialization, establishes Loomle's
+  publication boundary;
+- a lightweight Loomle-owned monotonic heartbeat observes Game Thread progress,
+  and every completed admitted request refreshes the same progress evidence;
 - `FEditorDelegates::OnShutdownPostPackagesSaved` begins normal draining;
 - `FEditorDelegates::OnEditorPreExit` or
   `FCoreDelegates::OnEnginePreExit` provides an idempotent shutdown fallback;
@@ -187,6 +195,11 @@ apply the edit later.
 Once a task has entered `started`, it is not replayed automatically. A lost
 Patch response remains an uncertain outcome and follows the existing no-replay
 contract.
+
+A long native UE operation may legitimately keep the Game Thread busy beyond
+the heartbeat freshness window. Its successful completion refreshes progress
+before the response is released, so the next health probe does not mistake
+completed work for an unresponsive Editor.
 
 ## Client Health And Connections
 
@@ -231,6 +244,10 @@ The implementation is complete only when tests prove:
 - stale records fail live identity/health validation;
 - two Editors for one project produce an explicit conflict;
 - listener startup failure never publishes a ready record;
+- a listening runtime remains `starting` until
+  `FEditorDelegates::OnEditorInitialized`;
+- every completed admitted request refreshes Game Thread progress before its
+  response is released;
 - shutdown unpublishes before late engine teardown;
 - a missed Game Thread admission cannot execute later;
 - `sal_schema` remains available without any bound or online project.

@@ -556,10 +556,14 @@ TSharedPtr<FJsonObject> Call(
 TSharedPtr<FJsonObject> ConstructorBinding(
     const FString& Alias,
     const FString& Callee,
-    const FString& PaletteId)
+    const FString& PaletteId,
+    const FString& Type,
+    const FString& SelectionBehavior)
 {
     TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
     Args->SetStringField(TEXT("palette"), PaletteId);
+    Args->SetStringField(TEXT("Type"), Type);
+    Args->SetStringField(TEXT("SelectionBehavior"), SelectionBehavior);
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetObjectField(TEXT("target"), LocalRef(Alias));
     Result->SetObjectField(TEXT("value"), Call(Callee, Args));
@@ -1362,11 +1366,17 @@ bool FSalStateTreeGlobalBindingIdentityDiscoveryTest::RunTest(const FString& Par
             HasCommentLineContainingAll(
                 NodeSchema,
                 {TEXT("Instance.InputValue"), TEXT("binding target")}));
-        TestTrue(
-            TEXT("A Context exact reference fails when its ID collides with a Node"),
-            HasError(FSalStateTreeInterface::Query(
-                ExactObject(TEXT("object"), GuidText(CollisionId), true),
-                Target)));
+        const TSharedPtr<FJsonObject> ContextSchema = FSalStateTreeInterface::Query(
+            ExactObject(TEXT("object"), GuidText(CollisionId), true),
+            Target);
+        TestFalse(
+            TEXT("A colliding Context descriptor remains exactly readable outside Binding resolution"),
+            HasError(ContextSchema));
+        TestFalse(
+            TEXT("A colliding Context schema does not advertise an unsafe Binding source"),
+            HasCommentLineContainingAll(
+                ContextSchema,
+                {TEXT("Value:"), TEXT("binding source")}));
         const FStateTreeExternalDataDesc* ContextDescriptor = nullptr;
         TestTrue(
             TEXT("The canonical Context helper rejects the same cross-kind collision"),
@@ -2107,7 +2117,12 @@ bool FSalStateTreePatchLifecycleTest::RunTest(const FString& Parameters)
     FSalPatch Lifecycle = Patch(false);
     AddStatement(
         Lifecycle,
-        ConstructorBinding(TEXT("added_state"), TEXT("state"), TEXT("state_tree.state")));
+        ConstructorBinding(
+            TEXT("added_state"),
+            TEXT("state"),
+            TEXT("state_tree.state"),
+            TEXT("State"),
+            TEXT("TrySelectChildrenInOrder")));
 
     TSharedPtr<FJsonObject> Add = Operation(TEXT("add"));
     Add->SetObjectField(TEXT("target"), LocalRef(TEXT("added_state")));

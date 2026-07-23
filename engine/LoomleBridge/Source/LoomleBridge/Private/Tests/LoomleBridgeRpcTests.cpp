@@ -4,10 +4,15 @@
 
 #include "LoomleBridgeModule.h"
 
+#include "Async/Async.h"
+#include "Async/TaskGraphInterfaces.h"
 #include "Dom/JsonObject.h"
 #include "Generated/LoomleProtocolVersion.h"
+#include "HAL/PlatformProcess.h"
+#include "HAL/PlatformTime.h"
 #include "LoomleGameThreadAdmission.h"
 #include "LoomlePipeServer.h"
+#include "LoomleRequestCancellation.h"
 #include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
@@ -21,6 +26,14 @@ struct FLoomleBridgeRpcTestAccess
     static FString Handle(FLoomleBridgeModule& Module, const FString& Request)
     {
         return Module.HandleRequest(1, Request);
+    }
+
+    static void InitializeRequestCancellation(
+        FLoomleBridgeModule& Module)
+    {
+        Module.RequestCancellationRegistry =
+            MakeUnique<
+                Loomle::Runtime::FRequestCancellationRegistry>();
     }
 
     static void InitializeRuntimeIdentity(FLoomleBridgeModule& Module)
@@ -55,11 +68,13 @@ struct FLoomleBridgeRpcTestAccess
 
     static ELoomleBridgeLifecycle ResolveBridgeLifecycle(
         const ELoomleBridgeLifecycle CurrentLifecycle,
-        const ELoomlePipeListenerState ListenerState)
+        const ELoomlePipeListenerState ListenerState,
+        const bool bEditorInitialized = true)
     {
         return FLoomleBridgeModule::ResolveBridgeLifecycle(
             CurrentLifecycle,
-            ListenerState);
+            ListenerState,
+            bEditorInitialized);
     }
 
     static bool RemoveLegacyProjectRegistration(
@@ -73,6 +88,39 @@ struct FLoomleBridgeRpcTestAccess
             Root,
             ProjectId,
             bFoldCase);
+    }
+
+    static void RecordGameThreadProgress(FLoomleBridgeModule& Module)
+    {
+        Module.RecordGameThreadProgress();
+    }
+
+    static uint64 GameThreadProgressSequence(
+        const FLoomleBridgeModule& Module)
+    {
+        return Module.GameThreadProgressSequence.load();
+    }
+
+    static uint64 LastGameThreadProgressCycles(
+        const FLoomleBridgeModule& Module)
+    {
+        return Module.LastGameThreadProgressCycles.load();
+    }
+
+    static void SetBridgeLifecycle(
+        FLoomleBridgeModule& Module,
+        const ELoomleBridgeLifecycle Lifecycle)
+    {
+        Module.BridgeLifecycleState.store(static_cast<uint8>(Lifecycle));
+    }
+
+    static TSharedPtr<FJsonObject> DispatchTool(
+        FLoomleBridgeModule& Module,
+        const FString& Name,
+        const TSharedPtr<FJsonObject>& Arguments,
+        bool& bOutIsError)
+    {
+        return Module.DispatchTool(Name, Arguments, bOutIsError);
     }
 };
 
@@ -105,6 +153,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FLoomleBridgeRpcProtocolBoundaryTest::RunTest(const FString& Parameters)
 {
     FLoomleBridgeModule Module;
+    FLoomleBridgeRpcTestAccess::InitializeRequestCancellation(Module);
 
     for (const FString& Method : {TEXT("ping"), TEXT("rpc.health"), TEXT("rpc.capabilities")})
     {
@@ -231,7 +280,13 @@ bool FLoomleBridgeRuntimeIdentityTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Windows project identity folds path case"), WindowsCanonical, WindowsUpper);
 
     TestTrue(
-        TEXT("a listening runtime becomes ready"),
+        TEXT("a listening runtime remains starting before Editor initialization completes"),
+        FLoomleBridgeRpcTestAccess::ResolveBridgeLifecycle(
+            ELoomleBridgeLifecycle::Starting,
+            ELoomlePipeListenerState::Listening,
+            false) == ELoomleBridgeLifecycle::Starting);
+    TestTrue(
+        TEXT("a listening runtime becomes ready after Editor initialization completes"),
         FLoomleBridgeRpcTestAccess::ResolveBridgeLifecycle(
             ELoomleBridgeLifecycle::Starting,
             ELoomlePipeListenerState::Listening) == ELoomleBridgeLifecycle::Ready);
@@ -250,6 +305,18 @@ bool FLoomleBridgeRuntimeIdentityTest::RunTest(const FString& Parameters)
         FLoomleBridgeRpcTestAccess::ResolveBridgeLifecycle(
             ELoomleBridgeLifecycle::Draining,
             ELoomlePipeListenerState::Stopped) == ELoomleBridgeLifecycle::Draining);
+
+    FLoomleBridgeModule ProgressModule;
+    const uint64 PreviousProgress =
+        FLoomleBridgeRpcTestAccess::GameThreadProgressSequence(ProgressModule);
+    FLoomleBridgeRpcTestAccess::RecordGameThreadProgress(ProgressModule);
+    TestEqual(
+        TEXT("completed Game Thread work advances health progress"),
+        FLoomleBridgeRpcTestAccess::GameThreadProgressSequence(ProgressModule),
+        PreviousProgress + 1);
+    TestTrue(
+        TEXT("completed Game Thread work refreshes monotonic health time"),
+        FLoomleBridgeRpcTestAccess::LastGameThreadProgressCycles(ProgressModule) > 0);
 
     const FString MigrationRoot = TEXT("/CaseSensitive/Game");
     const FString MigrationProjectId =
@@ -356,6 +423,62 @@ bool FLoomleBridgeRuntimeIdentityTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("health projectRoot is normalized and exact"), ProjectRoot, FLoomleBridgeRpcTestAccess::ProjectRoot(First));
     TestEqual(TEXT("a non-started module is offline"), Lifecycle, FString(TEXT("offline")));
     TestEqual(TEXT("a non-started listener is stopped"), ListenerState, FString(TEXT("stopped")));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FLoomleBridgeCompletedDispatchProgressTest,
+    "Loomle.Runtime.Rpc.CompletedDispatchRefreshesGameThreadProgress",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLoomleBridgeCompletedDispatchProgressTest::RunTest(const FString& Parameters)
+{
+    TestTrue(TEXT("Automation dispatch probe starts on the Game Thread"), IsInGameThread());
+
+    FLoomleBridgeModule Module;
+    FLoomleBridgeRpcTestAccess::SetBridgeLifecycle(Module, ELoomleBridgeLifecycle::Ready);
+    const uint64 PreviousProgress =
+        FLoomleBridgeRpcTestAccess::GameThreadProgressSequence(Module);
+
+    TFuture<bool> DispatchFuture = Async(
+        EAsyncExecution::ThreadPool,
+        [&Module]()
+        {
+            bool bDispatchError = false;
+            const TSharedPtr<FJsonObject> Payload =
+                FLoomleBridgeRpcTestAccess::DispatchTool(
+                    Module,
+                    TEXT("loomle_test_unknown_tool"),
+                    MakeShared<FJsonObject>(),
+                    bDispatchError);
+            FString Code;
+            return bDispatchError
+                && Payload.IsValid()
+                && Payload->TryGetStringField(TEXT("code"), Code)
+                && Code == TEXT("tool.unknown");
+        });
+
+    const double Deadline = FPlatformTime::Seconds() + 5.0;
+    while (!DispatchFuture.IsReady() && FPlatformTime::Seconds() < Deadline)
+    {
+        FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+        FPlatformProcess::SleepNoStats(0.001f);
+    }
+
+    TestTrue(TEXT("worker dispatch completed through the Game Thread"), DispatchFuture.IsReady());
+    if (!DispatchFuture.IsReady())
+    {
+        return false;
+    }
+
+    TestTrue(TEXT("worker dispatch returned the expected tool error"), DispatchFuture.Get());
+    TestEqual(
+        TEXT("completed worker dispatch advances health progress"),
+        FLoomleBridgeRpcTestAccess::GameThreadProgressSequence(Module),
+        PreviousProgress + 1);
+    TestTrue(
+        TEXT("completed worker dispatch refreshes monotonic health time"),
+        FLoomleBridgeRpcTestAccess::LastGameThreadProgressCycles(Module) > 0);
     return true;
 }
 

@@ -43,6 +43,7 @@
 #include "StateTreeTaskBase.h"
 #include "StateTreeViewModel.h"
 #include "StructUtils/PropertyBag.h"
+#include "UObject/StrongObjectPtr.h"
 #include "UObject/StructOnScope.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UnrealType.h"
@@ -1352,7 +1353,7 @@ void ComposeIdentityMap(FIdentityMap& Base, const FIdentityMap& Next)
     ComposeIdentityTable(Base.Parameters, Next.Parameters);
 }
 
-UStateTree* DuplicateForPreflight(
+TStrongObjectPtr<UStateTree> DuplicateForPreflight(
     UStateTree& Source,
     FIdentityMap& OutMap,
     FString& OutError)
@@ -1361,7 +1362,31 @@ UStateTree* DuplicateForPreflight(
         GetTransientPackage(),
         Source.GetClass(),
         FName(*(Source.GetName() + TEXT("_SALDryRun"))));
-    UStateTree* Copy = DuplicateObject<UStateTree>(&Source, GetTransientPackage(), Name);
+    TMap<UObject*, UObject*> CreatedObjects;
+    FObjectDuplicationParameters Parameters(&Source, GetTransientPackage());
+    Parameters.DestName = Name;
+    Parameters.FlagMask &= ~(RF_Public | RF_Standalone);
+    Parameters.ApplyFlags |= RF_Transient;
+    Parameters.bSkipPostLoad = true;
+    Parameters.CreatedObjects = &CreatedObjects;
+    UStateTree* Copy = Cast<UStateTree>(StaticDuplicateObjectEx(Parameters));
+    TStrongObjectPtr<UStateTree> CopyOwner(Copy);
+    for (const TPair<UObject*, UObject*>& Pair : CreatedObjects)
+    {
+        if (Pair.Value != nullptr)
+        {
+            // The source graph is already fully loaded. This transient
+            // snapshot intentionally keeps PostDuplicate (including StateTree
+            // ID remapping) but must never run the normal StateTree PostLoad,
+            // which compiles and repairs authored data before SAL can plan it.
+            Pair.Value->ClearFlags(
+                RF_NeedPostLoad
+                | RF_NeedPostLoadSubobjects
+                | RF_Public
+                | RF_Standalone);
+            Pair.Value->SetFlags(RF_Transient);
+        }
+    }
     UStateTreeEditorData* SourceData = Cast<UStateTreeEditorData>(Source.EditorData);
     UStateTreeEditorData* CopyData = Copy != nullptr
         ? Cast<UStateTreeEditorData>(Copy->EditorData)
@@ -1369,15 +1394,15 @@ UStateTree* DuplicateForPreflight(
     if (Copy == nullptr || SourceData == nullptr || CopyData == nullptr || CopyData == SourceData)
     {
         OutError = TEXT("UE could not create an isolated transient StateTree preflight copy.");
-        return nullptr;
+        return {};
     }
     Copy->SetFlags(RF_Transient | RF_Transactional);
     CopyData->SetFlags(RF_Transient | RF_Transactional);
     if (!BuildIdentityMap(Source, *SourceData, *Copy, *CopyData, OutMap, OutError))
     {
-        return nullptr;
+        return {};
     }
-    return Copy;
+    return CopyOwner;
 }
 
 struct FConstructorDefinition
@@ -2893,6 +2918,7 @@ bool MaterializeTransition(
     TArray<TMap<FString, int32>> PerObjectIndices;
     TMap<FString, int32>& Indices = PerObjectIndices.AddDefaulted_GetRef();
     Indices.Add(TransitionsProperty->GetName(), InsertIndex);
+    Event.ObjectIteratorIndex = 0;
     Event.SetArrayIndexPerObject(PerObjectIndices);
     FPropertyChangedChainEvent ChainEvent(Chain, Event);
     Owner->State->PostEditChangeChainProperty(ChainEvent);
@@ -2900,7 +2926,19 @@ bool MaterializeTransition(
         || Array[InsertIndex].Trigger != EStateTreeTransitionTrigger::OnStateCompleted
         || Array[InsertIndex].State.ID != RootState->ID)
     {
-        OutError = TEXT("UE did not apply native Transition ArrayAdd initialization.");
+        OutError = FString::Printf(
+            TEXT("UE did not apply native Transition ArrayAdd initialization")
+            TEXT(" (requested index %d, event index %d, count %d, trigger %d, target %s, root %s)."),
+            InsertIndex,
+            ChainEvent.GetArrayIndex(TransitionsProperty->GetName()),
+            Array.Num(),
+            Array.IsValidIndex(InsertIndex)
+                ? static_cast<int32>(Array[InsertIndex].Trigger)
+                : INDEX_NONE,
+            Array.IsValidIndex(InsertIndex)
+                ? *GuidText(Array[InsertIndex].State.ID)
+                : TEXT("<missing>"),
+            *GuidText(RootState->ID));
         return false;
     }
     // Native ArrayAdd owns all defaults; SAL owns only the preflight-stable id.
@@ -3456,10 +3494,11 @@ struct FChangeNotification
         }
         FProperty* Leaf = Chain.GetTail()->GetValue();
         FPropertyChangedEvent Event(Leaf, ChangeType);
+        TArray<TMap<FString, int32>> PerObject;
         if (!ArrayIndices.IsEmpty())
         {
-            TArray<TMap<FString, int32>> PerObject;
             PerObject.Add(ArrayIndices);
+            Event.ObjectIteratorIndex = 0;
             Event.SetArrayIndexPerObject(PerObject);
         }
         FPropertyChangedChainEvent ChainEvent(Chain, Event);
@@ -8153,10 +8192,11 @@ bool ValidateNoUnplannedRepairs(FPatchContext& Context)
 {
     FIdentityMap ValidationIdentities;
     FString Error;
-    UStateTree* ValidationTree = DuplicateForPreflight(
+    TStrongObjectPtr<UStateTree> ValidationTreeOwner = DuplicateForPreflight(
         Context.Tree,
         ValidationIdentities,
         Error);
+    UStateTree* ValidationTree = ValidationTreeOwner.Get();
     UStateTreeEditorData* ValidationData = ValidationTree != nullptr
         ? Cast<UStateTreeEditorData>(ValidationTree->EditorData)
         : nullptr;
@@ -8458,7 +8498,11 @@ TSharedPtr<FJsonObject> FSalStateTreeInterface::Patch(
             TEXT("patch"));
     }
     FIdentityMap PreflightIdentities;
-    UStateTree* PlanningTree = DuplicateForPreflight(*StateTree, PreflightIdentities, Error);
+    TStrongObjectPtr<UStateTree> PlanningTreeOwner = DuplicateForPreflight(
+        *StateTree,
+        PreflightIdentities,
+        Error);
+    UStateTree* PlanningTree = PlanningTreeOwner.Get();
     UStateTreeEditorData* PlanningData = PlanningTree != nullptr
         ? Cast<UStateTreeEditorData>(PlanningTree->EditorData)
         : nullptr;

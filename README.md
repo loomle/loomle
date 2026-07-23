@@ -39,10 +39,11 @@ The standalone Client exposes five MCP tools:
 - `editor_context`: read the user's current Unreal interaction target as SAL
   Object Text.
 
-The current public SAL modules are Asset, Blueprint, Class, Graph, and Widget.
-They cover Asset Registry discovery, Blueprint declarations and components,
-Class reflection and defaults, graph-local flow and mutation, Widget trees,
-factual reference queries, compilation, save, and editor context.
+The current public SAL modules are Asset, Blueprint, Class, Graph, StateTree,
+and Widget. They cover Asset Registry discovery, Blueprint declarations and
+components, Class reflection and defaults, graph-local flow and mutation,
+StateTree hierarchy and bindings, Widget trees, factual reference queries,
+compilation, save, and editor context.
 
 Example:
 
@@ -144,6 +145,34 @@ Build and test the native Client for the current supported runner:
 ```sh
 npm run build:executable
 npm run test:executable
+```
+
+Run the complete Loomle UE Automation category against a same-commit Apple
+Silicon development plugin compiled with the native tests:
+
+```sh
+npm run test:ue-automation -- \
+  --ue-root <UE-root> \
+  --project-template tests/fixtures/ue/LoomleTestHost \
+  --plugin-dir <compiled-same-commit-test-plugin> \
+  --output-dir <new-artifact-directory> \
+  --target darwin-arm64
+```
+
+The output directory must not already exist. Raw plugin source is not a
+runnable candidate. The final release archive intentionally excludes native
+test code, so it is not the complete Automation candidate.
+
+Run the small packaged Client-to-UE workflow against the exact audited release
+archive and its bundled Client:
+
+```sh
+npm run test:packaged-e2e -- \
+  --ue-root <UE-root> \
+  --project-template tests/fixtures/ue/LoomleTestHost \
+  --plugin-archive <final-release-candidate.zip> \
+  --output-dir <new-artifact-directory> \
+  --target darwin-arm64
 ```
 
 Fab assembly consumes only the canonical program at
