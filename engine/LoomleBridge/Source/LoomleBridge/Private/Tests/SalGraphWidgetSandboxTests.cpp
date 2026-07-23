@@ -27,7 +27,9 @@
 #include "Engine/TimelineTemplate.h"
 #include "GameFramework/Actor.h"
 #include "K2Node_CustomEvent.h"
+#include "K2Node_PromotableOperator.h"
 #include "K2Node_Timeline.h"
+#include "Kismet/KismetMathLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/AutomationTest.h"
@@ -99,6 +101,69 @@ bool BlueprintDebuggerSettingsEqual(
         }
     }
     return true;
+}
+
+UK2Node_PromotableOperator* AddTolerancePromotableNode(
+    UEdGraph* Graph)
+{
+    if (Graph == nullptr)
+    {
+        return nullptr;
+    }
+    UFunction* Function =
+        UKismetMathLibrary::StaticClass()->FindFunctionByName(
+            GET_FUNCTION_NAME_CHECKED(
+                UKismetMathLibrary,
+                EqualEqual_VectorVector));
+    if (Function == nullptr)
+    {
+        return nullptr;
+    }
+    UK2Node_PromotableOperator* Node =
+        NewObject<UK2Node_PromotableOperator>(
+            Graph,
+            NAME_None,
+            RF_Transactional);
+    Node->CreateNewGuid();
+    Graph->AddNode(Node, false, false);
+    Node->SetFromFunction(Function);
+    Node->AllocateDefaultPins();
+    return Node;
+}
+
+UEdGraphPin* FindPinByNodeAndPinGuid(
+    UBlueprint* Blueprint,
+    const FGuid& NodeGuid,
+    const FGuid& PinGuid)
+{
+    if (Blueprint == nullptr)
+    {
+        return nullptr;
+    }
+    TArray<UEdGraph*> Graphs;
+    Blueprint->GetAllGraphs(Graphs);
+    for (UEdGraph* Graph : Graphs)
+    {
+        if (Graph == nullptr)
+        {
+            continue;
+        }
+        for (UEdGraphNode* Node : Graph->Nodes)
+        {
+            if (Node == nullptr || Node->NodeGuid != NodeGuid)
+            {
+                continue;
+            }
+            for (UEdGraphPin* Pin : Node->Pins)
+            {
+                if (Pin != nullptr && Pin->PinId == PinGuid)
+                {
+                    return Pin;
+                }
+            }
+        }
+    }
+    return nullptr;
 }
 
 class FScopedConfigFileOperationsDisabled
@@ -390,6 +455,8 @@ struct FGraphSandboxFixture
         SharedCurve = nullptr;
         TimelineNode = nullptr;
         Timeline = nullptr;
+        TolerancePin = nullptr;
+        PromotableNode = nullptr;
         Node = nullptr;
         Graph = nullptr;
         Blueprint = nullptr;
@@ -403,6 +470,8 @@ struct FGraphSandboxFixture
     UBlueprint* Blueprint = nullptr;
     UEdGraph* Graph = nullptr;
     UK2Node_CustomEvent* Node = nullptr;
+    UK2Node_PromotableOperator* PromotableNode = nullptr;
+    UEdGraphPin* TolerancePin = nullptr;
     UTimelineTemplate* Timeline = nullptr;
     UK2Node_Timeline* TimelineNode = nullptr;
     UCurveFloat* SharedCurve = nullptr;
@@ -449,6 +518,15 @@ void MakeGraphSandboxFixture(FGraphSandboxFixture& Fixture)
         Fixture.Node->NodePosY = 260;
         Fixture.Graph->AddNode(Fixture.Node, false, false);
         Fixture.Node->AllocateDefaultPins();
+        Fixture.PromotableNode =
+            AddTolerancePromotableNode(Fixture.Graph);
+        if (Fixture.PromotableNode != nullptr)
+        {
+            Fixture.TolerancePin =
+                Fixture.PromotableNode->FindPin(
+                    TEXT("ErrorTolerance"),
+                    EGPD_Input);
+        }
     }
 
     Fixture.Timeline = FBlueprintEditorUtils::AddNewTimeline(
@@ -609,6 +687,8 @@ struct FWidgetSandboxFixture
             Blueprint->ClearFlags(RF_Public | RF_Standalone);
         }
         Extension = nullptr;
+        TolerancePin = nullptr;
+        PromotableNode = nullptr;
         MovieScene = nullptr;
         Animation = nullptr;
         Navigation = nullptr;
@@ -631,6 +711,8 @@ struct FWidgetSandboxFixture
     UWidgetAnimation* Animation = nullptr;
     UMovieScene* MovieScene = nullptr;
     UBlueprintExtension* Extension = nullptr;
+    UK2Node_PromotableOperator* PromotableNode = nullptr;
+    UEdGraphPin* TolerancePin = nullptr;
     FName SourceVariableName;
     FGuid ChildGuid;
 
@@ -667,6 +749,19 @@ void MakeWidgetSandboxFixture(FWidgetSandboxFixture& Fixture)
         Fixture.SourceVariableName,
         VariableType);
     FKismetEditorUtilities::CompileBlueprint(Fixture.Blueprint);
+    if (UEdGraph* EventGraph =
+            FBlueprintEditorUtils::FindEventGraph(Fixture.Blueprint))
+    {
+        Fixture.PromotableNode =
+            AddTolerancePromotableNode(EventGraph);
+        if (Fixture.PromotableNode != nullptr)
+        {
+            Fixture.TolerancePin =
+                Fixture.PromotableNode->FindPin(
+                    TEXT("ErrorTolerance"),
+                    EGPD_Input);
+        }
+    }
 
     Fixture.Root =
         Fixture.Blueprint->WidgetTree
@@ -770,6 +865,12 @@ bool FSalGraphDryRunSandboxIsolationTest::RunTest(
     TestNotNull(TEXT("Graph sandbox Blueprint exists"), Fixture.Blueprint);
     TestNotNull(TEXT("Graph sandbox Graph exists"), Fixture.Graph);
     TestNotNull(TEXT("Graph sandbox Node exists"), Fixture.Node);
+    TestNotNull(
+        TEXT("Graph sandbox promotable operator exists"),
+        Fixture.PromotableNode);
+    TestNotNull(
+        TEXT("Graph sandbox tolerance Pin exists"),
+        Fixture.TolerancePin);
     TestNotNull(TEXT("Graph sandbox Timeline exists"), Fixture.Timeline);
     TestNotNull(
         TEXT("Graph sandbox Timeline Node exists"),
@@ -786,6 +887,8 @@ bool FSalGraphDryRunSandboxIsolationTest::RunTest(
     if (Fixture.Blueprint == nullptr
         || Fixture.Graph == nullptr
         || Fixture.Node == nullptr
+        || Fixture.PromotableNode == nullptr
+        || Fixture.TolerancePin == nullptr
         || Fixture.Timeline == nullptr
         || Fixture.TimelineNode == nullptr
         || Fixture.SharedCurve == nullptr
@@ -944,6 +1047,12 @@ bool FSalGraphDryRunSandboxIsolationTest::RunTest(
         SandboxTarget.Graph != nullptr
             && SandboxTarget.Graph->GraphGuid
                 == Fixture.Graph->GraphGuid);
+    TestNotNull(
+        TEXT("Graph sandbox restores reconstructed tolerance pin@id"),
+        FindPinByNodeAndPinGuid(
+            Sandbox,
+            Fixture.PromotableNode->NodeGuid,
+            Fixture.TolerancePin->PinId));
     TestTrue(
         TEXT("Graph sandbox construction preserves complete source Timeline track state"),
         TimelineTrackStateEqual(
@@ -1085,6 +1194,12 @@ bool FSalWidgetDryRunSandboxIsolationTest::RunTest(
     TestNotNull(
         TEXT("Widget sandbox extension exists"),
         Fixture.Extension);
+    TestNotNull(
+        TEXT("Widget sandbox promotable operator exists"),
+        Fixture.PromotableNode);
+    TestNotNull(
+        TEXT("Widget sandbox tolerance Pin exists"),
+        Fixture.TolerancePin);
     const bool bHasBinding =
         Fixture.Blueprint != nullptr
         && Fixture.Blueprint->Bindings.Num() == 1
@@ -1120,6 +1235,8 @@ bool FSalWidgetDryRunSandboxIsolationTest::RunTest(
         || Fixture.Animation == nullptr
         || Fixture.MovieScene == nullptr
         || Fixture.Extension == nullptr
+        || Fixture.PromotableNode == nullptr
+        || Fixture.TolerancePin == nullptr
         || !bHasBinding
         || !bHasAnimation
         || !bHasExtension
@@ -1284,6 +1401,12 @@ bool FSalWidgetDryRunSandboxIsolationTest::RunTest(
         !Sandbox->GetExtensions().IsEmpty()
             && Sandbox->GetExtensions()[0]
                 != Fixture.Extension);
+    TestNotNull(
+        TEXT("Widget sandbox restores reconstructed tolerance pin@id"),
+        FindPinByNodeAndPinGuid(
+            Sandbox,
+            Fixture.PromotableNode->NodeGuid,
+            Fixture.TolerancePin->PinId));
     SandboxOwner.Reset();
     FString CleanupError;
     const bool bCleaned = Fixture.Cleanup(CleanupError);

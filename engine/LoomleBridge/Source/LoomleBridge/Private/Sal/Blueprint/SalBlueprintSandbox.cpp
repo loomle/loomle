@@ -570,6 +570,297 @@ bool ValidateTransientBlueprintIdentity(
                TEXT("plan"));
 }
 
+FString PinStructuralLocator(const UEdGraphPin* Pin)
+{
+    if (Pin == nullptr)
+    {
+        return TEXT("<null>");
+    }
+    const FString Segment = FString::Printf(
+        TEXT("%s:%d"),
+        *Pin->PinName.ToString(),
+        static_cast<int32>(Pin->Direction));
+    return Pin->ParentPin != nullptr
+        ? PinStructuralLocator(Pin->ParentPin) + TEXT("/") + Segment
+        : Segment;
+}
+
+bool PinsHaveEquivalentStructure(
+    const UEdGraphPin* Source,
+    const UEdGraphPin* Copy)
+{
+    return Source != nullptr
+        && Copy != nullptr
+        && Source->PinName == Copy->PinName
+        && Source->Direction == Copy->Direction
+        && Source->PinType == Copy->PinType
+        && (Source->ParentPin != nullptr)
+            == (Copy->ParentPin != nullptr)
+        && Source->SubPins.Num() == Copy->SubPins.Num()
+        && PinStructuralLocator(Source)
+            == PinStructuralLocator(Copy);
+}
+
+bool RestoreNodePinIdentities(
+    const FString& GraphKey,
+    const UEdGraphNode* SourceNode,
+    UEdGraphNode* CopyNode,
+    TSet<FGuid>& SourcePinIds,
+    FString& OutMessage)
+{
+    if (SourceNode == nullptr || CopyNode == nullptr)
+    {
+        OutMessage = FString::Printf(
+            TEXT("Blueprint transient Pin identity has a missing Node in %s."),
+            *GraphKey);
+        return false;
+    }
+    if (SourceNode->GetClass() != CopyNode->GetClass()
+        || SourceNode->NodeGuid != CopyNode->NodeGuid)
+    {
+        OutMessage = FString::Printf(
+            TEXT("UE transient duplication changed Node identity before Pin restoration: %s/%s."),
+            *GraphKey,
+            *SourceNode->GetName());
+        return false;
+    }
+    if (SourceNode->Pins.Num() != CopyNode->Pins.Num())
+    {
+        OutMessage = FString::Printf(
+            TEXT("UE transient duplication changed the Pin count on %s/%s (%d -> %d)."),
+            *GraphKey,
+            *SourceNode->GetName(),
+            SourceNode->Pins.Num(),
+            CopyNode->Pins.Num());
+        return false;
+    }
+
+    TArray<int32> SourceToCopy;
+    SourceToCopy.Init(INDEX_NONE, SourceNode->Pins.Num());
+    TSet<int32> UsedCopyPins;
+
+    const auto MatchPass =
+        [&](
+            const TCHAR* MatchKind,
+            TFunctionRef<bool(
+                const UEdGraphPin*,
+                const UEdGraphPin*)> IsCandidate)
+        {
+            for (int32 SourceIndex = 0;
+                 SourceIndex < SourceNode->Pins.Num();
+                 ++SourceIndex)
+            {
+                if (SourceToCopy[SourceIndex] != INDEX_NONE)
+                {
+                    continue;
+                }
+                const UEdGraphPin* SourcePin =
+                    SourceNode->Pins[SourceIndex];
+                if (SourcePin == nullptr)
+                {
+                    OutMessage = FString::Printf(
+                        TEXT("Blueprint transient identity contains a null source Pin on %s/%s."),
+                        *GraphKey,
+                        *SourceNode->GetName());
+                    return false;
+                }
+
+                int32 MatchIndex = INDEX_NONE;
+                for (int32 CopyIndex = 0;
+                     CopyIndex < CopyNode->Pins.Num();
+                     ++CopyIndex)
+                {
+                    if (UsedCopyPins.Contains(CopyIndex))
+                    {
+                        continue;
+                    }
+                    UEdGraphPin* CopyPin =
+                        CopyNode->Pins[CopyIndex];
+                    if (CopyPin != nullptr
+                        && IsCandidate(SourcePin, CopyPin))
+                    {
+                        if (MatchIndex != INDEX_NONE)
+                        {
+                            OutMessage = FString::Printf(
+                                TEXT("Blueprint transient Pin identity is ambiguous after duplication (%s match): %s/%s/%s."),
+                                MatchKind,
+                                *GraphKey,
+                                *SourceNode->GetName(),
+                                *PinStructuralLocator(SourcePin));
+                            return false;
+                        }
+                        MatchIndex = CopyIndex;
+                    }
+                }
+                if (MatchIndex != INDEX_NONE)
+                {
+                    SourceToCopy[SourceIndex] = MatchIndex;
+                    UsedCopyPins.Add(MatchIndex);
+                }
+            }
+            return true;
+        };
+
+    if (!MatchPass(
+            TEXT("PinId"),
+            [](const UEdGraphPin* SourcePin, const UEdGraphPin* CopyPin)
+            {
+                return SourcePin->PinId == CopyPin->PinId;
+            })
+        || !MatchPass(
+            TEXT("PersistentGuid"),
+            [](const UEdGraphPin* SourcePin, const UEdGraphPin* CopyPin)
+            {
+                return SourcePin->PersistentGuid.IsValid()
+                    && SourcePin->PersistentGuid
+                        == CopyPin->PersistentGuid
+                    && PinsHaveEquivalentStructure(
+                        SourcePin,
+                        CopyPin);
+            })
+        || !MatchPass(
+            TEXT("structure"),
+            [](const UEdGraphPin* SourcePin, const UEdGraphPin* CopyPin)
+            {
+                return PinsHaveEquivalentStructure(
+                    SourcePin,
+                    CopyPin);
+            }))
+    {
+        return false;
+    }
+
+    for (int32 SourceIndex = 0;
+         SourceIndex < SourceNode->Pins.Num();
+         ++SourceIndex)
+    {
+        const UEdGraphPin* SourcePin =
+            SourceNode->Pins[SourceIndex];
+        const int32 CopyIndex = SourceToCopy[SourceIndex];
+        if (SourcePin == nullptr
+            || !CopyNode->Pins.IsValidIndex(CopyIndex)
+            || CopyNode->Pins[CopyIndex] == nullptr)
+        {
+            OutMessage = FString::Printf(
+                TEXT("UE transient duplication could not uniquely restore Pin identity: %s/%s/%s."),
+                *GraphKey,
+                *SourceNode->GetName(),
+                *PinStructuralLocator(SourcePin));
+            return false;
+        }
+        if (!SourcePin->PinId.IsValid()
+            || SourcePinIds.Contains(SourcePin->PinId))
+        {
+            OutMessage = FString::Printf(
+                TEXT("Blueprint source contains an invalid or duplicate PinId: %s/%s/%s."),
+                *GraphKey,
+                *SourceNode->GetName(),
+                *PinStructuralLocator(SourcePin));
+            return false;
+        }
+        SourcePinIds.Add(SourcePin->PinId);
+        CopyNode->Pins[CopyIndex]->PinId = SourcePin->PinId;
+    }
+    return true;
+}
+
+bool RestoreSandboxPinIdentities(
+    const UBlueprint* Source,
+    UBlueprint* Copy,
+    FString& OutMessage)
+{
+    TArray<UEdGraph*> SourceGraphs;
+    TArray<UEdGraph*> CopyGraphs;
+    Source->GetAllGraphs(SourceGraphs);
+    Copy->GetAllGraphs(CopyGraphs);
+    if (SourceGraphs.Num() != CopyGraphs.Num())
+    {
+        OutMessage = FString::Printf(
+            TEXT("UE transient duplication changed the Graph count before Pin restoration (%d -> %d)."),
+            SourceGraphs.Num(),
+            CopyGraphs.Num());
+        return false;
+    }
+
+    TMap<FString, UEdGraph*> CopyGraphsByPath;
+    for (UEdGraph* CopyGraph : CopyGraphs)
+    {
+        if (CopyGraph == nullptr)
+        {
+            OutMessage =
+                TEXT("Blueprint transient identity contains a null copied Graph.");
+            return false;
+        }
+        const FString GraphKey =
+            RelativeBlueprintObjectPath(CopyGraph, Copy);
+        if (CopyGraphsByPath.Contains(GraphKey))
+        {
+            OutMessage = FString::Printf(
+                TEXT("Blueprint transient Graph identity is ambiguous after duplication: %s."),
+                *GraphKey);
+            return false;
+        }
+        CopyGraphsByPath.Add(GraphKey, CopyGraph);
+    }
+
+    TSet<FGuid> SourcePinIds;
+    for (const UEdGraph* SourceGraph : SourceGraphs)
+    {
+        if (SourceGraph == nullptr)
+        {
+            OutMessage =
+                TEXT("Blueprint transient identity contains a null source Graph.");
+            return false;
+        }
+        const FString GraphKey =
+            RelativeBlueprintObjectPath(SourceGraph, Source);
+        UEdGraph* const* CopyGraphPtr =
+            CopyGraphsByPath.Find(GraphKey);
+        UEdGraph* CopyGraph =
+            CopyGraphPtr != nullptr ? *CopyGraphPtr : nullptr;
+        if (CopyGraph == nullptr
+            || CopyGraph->GraphGuid != SourceGraph->GraphGuid
+            || CopyGraph->Nodes.Num() != SourceGraph->Nodes.Num())
+        {
+            OutMessage = FString::Printf(
+                TEXT("UE transient duplication changed Graph identity or Node count before Pin restoration: %s."),
+                *GraphKey);
+            return false;
+        }
+
+        TMap<FName, UEdGraphNode*> CopyNodesByName;
+        for (UEdGraphNode* CopyNode : CopyGraph->Nodes)
+        {
+            if (CopyNode == nullptr
+                || CopyNodesByName.Contains(CopyNode->GetFName()))
+            {
+                OutMessage = FString::Printf(
+                    TEXT("Blueprint transient Node identity is missing or ambiguous after duplication: %s."),
+                    *GraphKey);
+                return false;
+            }
+            CopyNodesByName.Add(CopyNode->GetFName(), CopyNode);
+        }
+        for (const UEdGraphNode* SourceNode : SourceGraph->Nodes)
+        {
+            UEdGraphNode* const* CopyNodePtr =
+                SourceNode != nullptr
+                    ? CopyNodesByName.Find(SourceNode->GetFName())
+                    : nullptr;
+            if (!RestoreNodePinIdentities(
+                    GraphKey,
+                    SourceNode,
+                    CopyNodePtr != nullptr ? *CopyNodePtr : nullptr,
+                    SourcePinIds,
+                    OutMessage))
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool RestoreTransientBlueprintIdentity(
     const UBlueprint* Source,
     UBlueprint* Copy,
@@ -605,6 +896,11 @@ bool RestoreTransientBlueprintIdentity(
         return false;
     }
     *CopyBlueprintGuid = Source->GetBlueprintGuid();
+
+    if (!RestoreSandboxPinIdentities(Source, Copy, OutMessage))
+    {
+        return false;
+    }
 
     TMap<FGuid, FGuid> DuplicatedToSourceVarGuids;
     for (int32 SourceIndex = 0;

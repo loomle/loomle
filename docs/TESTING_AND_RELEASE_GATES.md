@@ -174,12 +174,16 @@ supported substitute.
 
 The sandbox preserves every stable identifier used by SAL, repairs the copied
 Class property-Guid maps after UE's ordinary duplication remap, and then audits
-the source and copy exactly. A mismatch fails closed. The copied Blueprint is
-held by a strong object reference through the entire preflight and sheds its
-copied standalone flag only after native duplication has completed, so neither
-compile-time GC nor a long Editor session can invalidate or leak the sandbox.
-Compiler-error status alone is allowed: agents must remain able to repair a
-broken Blueprint.
+the source and copy exactly. UE may reconstruct a dynamic Pin while duplicating
+a Blueprint and assign the same logical Pin a new `PinId`. Before the exact
+audit, the sandbox must match such Pins one-to-one by native persistent identity
+or an unambiguous structural locator and restore only the copied `PinId`.
+Missing or ambiguous matches fail closed; `PersistentGuid` remains UE-owned and
+is never rewritten. The copied Blueprint is held by a strong object reference
+through the entire preflight and sheds its copied standalone flag only after
+native duplication has completed, so neither compile-time GC nor a long Editor
+session can invalidate or leak the sandbox. Compiler-error status alone is
+allowed: agents must remain able to repair a broken Blueprint.
 
 Graph and Widget may add only their domain-owned isolation after that common
 step. Graph detaches internal Timeline curves while preserving shared-curve
@@ -190,7 +194,10 @@ the valid Classes produced by UE.
 Native tests must cover ordinary Blueprint and Widget Blueprint Class Settings,
 dry-run source isolation, real apply and undo, a cold generated Class, and a
 loaded descendant boundary. Graph, Pin, Variable/Dispatcher, SCS, Timeline, and
-Widget identities must survive the sandbox unchanged.
+Widget identities must survive the sandbox unchanged. A reconstructed
+`UK2Node_PromotableOperator` tolerance Pin is the canonical dynamic-Pin
+regression: dry-run must restore its source `pin@id`, while ambiguous structural
+matches must still fail.
 
 ## Fixture Contract
 
