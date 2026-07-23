@@ -112,17 +112,52 @@ jobs:
         env:
           UE_FROM_VARS: ${{ vars.UE_5_7_ROOT_WINDOWS }}
         run: |
-          $candidate = $env:UE_FROM_VARS
-          if ([string]::IsNullOrWhiteSpace($candidate)) {
-            $candidate = $env:UE_5_7_ROOT_WINDOWS
+          $configured = $env:UE_FROM_VARS
+          if ([string]::IsNullOrWhiteSpace($configured)) {
+            $configured = $env:UE_5_7_ROOT_WINDOWS
           }
-          if ([string]::IsNullOrWhiteSpace($candidate)) {
-            $candidate = "C:\Program Files\Epic Games\UE_5.7"
+
+          $roots = [Collections.Generic.List[string]]::new()
+          if (-not [string]::IsNullOrWhiteSpace($configured)) {
+            $roots.Add($configured)
           }
+          $sourceRoot = "D:\Dev"
+          if (Test-Path -LiteralPath $sourceRoot -PathType Container) {
+            $roots.Add($sourceRoot)
+            Get-ChildItem -LiteralPath $sourceRoot -Directory |
+              ForEach-Object { $roots.Add($_.FullName) }
+          }
+
+          $matches = @(
+            $roots |
+              Select-Object -Unique |
+              Where-Object {
+                $runUat = Join-Path $_ "Engine\Build\BatchFiles\RunUAT.bat"
+                $buildVersion = Join-Path $_ "Engine\Build\Build.version"
+                if ((-not (Test-Path -LiteralPath $runUat -PathType Leaf)) -or
+                    (-not (Test-Path -LiteralPath $buildVersion -PathType Leaf))) {
+                  return $false
+                }
+                try {
+                  $version = Get-Content -LiteralPath $buildVersion -Raw |
+                    ConvertFrom-Json
+                  return $version.MajorVersion -eq 5 -and
+                    $version.MinorVersion -eq 7
+                } catch {
+                  return $false
+                }
+              }
+          )
+          if ($matches.Count -eq 0) {
+            throw "Could not find UE 5.7 under the configured path or D:\Dev direct children."
+          }
+          if ($matches.Count -ne 1) {
+            throw "UE 5.7 root is ambiguous: $($matches -join ', ')"
+          }
+
+          $candidate = $matches[0]
           $runUat = Join-Path $candidate "Engine\Build\BatchFiles\RunUAT.bat"
-          if (-not (Test-Path -LiteralPath $runUat -PathType Leaf)) {
-            throw "RunUAT.bat not found: $runUat"
-          }
+          Write-Host "Resolved UE 5.7 root: $candidate"
           "ue_root=$candidate" >> $env:GITHUB_OUTPUT
           "run_uat=$runUat" >> $env:GITHUB_OUTPUT
 
