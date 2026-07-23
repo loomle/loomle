@@ -319,4 +319,189 @@ bool FEditorContextStaleTrackedTabTest::RunTest(
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FEditorContextBuiltInModalProviderTest,
+    "Loomle.EditorContext.BuiltIn.ModalProvider",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEditorContextBuiltInModalProviderTest::RunTest(
+    const FString& Parameters)
+{
+    FEditorContextService& Service = FEditorContextService::Get();
+    FRecognitionInput Input;
+    Input.bModal = true;
+    FInteractionRecord Record;
+
+    TestTrue(
+        TEXT("The built-in Modal Provider recognizes native modal state"),
+        Service.RecognizeProviderForTesting(
+            FName(TEXT("modal")),
+            Input,
+            Record));
+    TestEqual(
+        TEXT("Modal recognition records the normalized surface"),
+        Record.Surface,
+        FName(TEXT("modal_dialog")));
+
+    const TSharedPtr<FJsonObject> Result =
+        Service.BuildProviderForTesting(FName(TEXT("modal")), Record);
+    TestTrue(
+        TEXT("Modal context suppresses the previous editor selection"),
+        ResultContainsComment(Result, TEXT("previous context: suppressed")));
+
+    Input.bModal = false;
+    FInteractionRecord Rejected;
+    TestFalse(
+        TEXT("The Modal Provider does not infer modal state from other fields"),
+        Service.RecognizeProviderForTesting(
+            FName(TEXT("modal")),
+            Input,
+            Rejected));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FEditorContextBuiltInContentBrowserOwnershipTest,
+    "Loomle.EditorContext.BuiltIn.ContentBrowserOwnership",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEditorContextBuiltInContentBrowserOwnershipTest::RunTest(
+    const FString& Parameters)
+{
+    FEditorContextService& Service = FEditorContextService::Get();
+    FRecognitionInput PickerInput;
+    PickerInput.WidgetTypes.Add(FName(TEXT("SAssetView")));
+    FInteractionRecord Rejected;
+    TestFalse(
+        TEXT("An embedded Asset Picker is not mistaken for the Content Browser"),
+        Service.RecognizeProviderForTesting(
+            FName(TEXT("content_browser")),
+            PickerInput,
+            Rejected));
+
+    FRecognitionInput BrowserInput = PickerInput;
+    BrowserInput.WidgetTypes.Add(FName(TEXT("SContentBrowser")));
+    FInteractionRecord BrowserRecord;
+    TestTrue(
+        TEXT("A native Content Browser ancestor establishes ownership"),
+        Service.RecognizeProviderForTesting(
+            FName(TEXT("content_browser")),
+            BrowserInput,
+            BrowserRecord));
+    TestEqual(
+        TEXT("Content Browser recognition records its stable surface"),
+        BrowserRecord.Surface,
+        FName(TEXT("content_browser")));
+
+    const TSharedPtr<FJsonObject> Result =
+        Service.BuildProviderForTesting(
+            FName(TEXT("content_browser")),
+            BrowserRecord);
+    TestTrue(
+        TEXT("A structurally owned subview without a live SAssetView fails closed"),
+        ResultContainsComment(
+            Result,
+            TEXT("no public side-effect-free selection API")));
+
+    FRecognitionInput DrawerInput;
+    DrawerInput.TabId = FName(TEXT("ContentBrowserDrawer7"));
+    FInteractionRecord DrawerRecord;
+    TestTrue(
+        TEXT("Native Content Browser drawer tab identifiers are recognized"),
+        Service.RecognizeProviderForTesting(
+            FName(TEXT("content_browser")),
+            DrawerInput,
+            DrawerRecord));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FEditorContextBuiltInLevelEditorOwnershipTest,
+    "Loomle.EditorContext.BuiltIn.LevelEditorOwnership",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEditorContextBuiltInLevelEditorOwnershipTest::RunTest(
+    const FString& Parameters)
+{
+    FEditorContextService& Service = FEditorContextService::Get();
+    FRecognitionInput GenericViewportInput;
+    GenericViewportInput.WidgetTypes.Add(FName(TEXT("SEditorViewport")));
+    GenericViewportInput.Tags.Add(FName(TEXT("LevelEditorViewport")));
+    FInteractionRecord Rejected;
+    TestFalse(
+        TEXT("Generic viewport structure cannot claim the global Level selection"),
+        Service.RecognizeProviderForTesting(
+            FName(TEXT("level_editor")),
+            GenericViewportInput,
+            Rejected));
+
+    FRecognitionInput LevelInput = GenericViewportInput;
+    LevelInput.TabId = FName(TEXT("LevelEditorViewport"));
+    FInteractionRecord Record;
+    TestTrue(
+        TEXT("The native Level Editor viewport tab establishes ownership"),
+        Service.RecognizeProviderForTesting(
+            FName(TEXT("level_editor")),
+            LevelInput,
+            Record));
+    TestEqual(
+        TEXT("Level Editor recognition records its stable surface"),
+        Record.Surface,
+        FName(TEXT("level_editor")));
+
+    LevelInput.AssetEditor =
+        reinterpret_cast<IAssetEditorInstance*>(static_cast<UPTRINT>(1));
+    FInteractionRecord AssetOwnedRecord;
+    TestFalse(
+        TEXT("An asset editor hosted viewport cannot claim Level selection"),
+        Service.RecognizeProviderForTesting(
+            FName(TEXT("level_editor")),
+            LevelInput,
+            AssetOwnedRecord));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FEditorContextBuiltInUnknownFallbackTest,
+    "Loomle.EditorContext.BuiltIn.UnknownFallback",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEditorContextBuiltInUnknownFallbackTest::RunTest(
+    const FString& Parameters)
+{
+    FEditorContextService& Service = FEditorContextService::Get();
+    FRecognitionInput Input;
+    Input.TabId = FName(TEXT("LoomleUnrecognizedNativeTab"));
+    FInteractionRecord Record;
+    TestTrue(
+        TEXT("The built-in Unknown Provider is an explicit total fallback"),
+        Service.RecognizeProviderForTesting(
+            FName(TEXT("unknown")),
+            Input,
+            Record));
+
+    const TSharedPtr<FJsonObject> Result =
+        Service.BuildProviderForTesting(FName(TEXT("unknown")), Record);
+    TestTrue(
+        TEXT("Unknown surfaces preserve the structural tab identifier"),
+        ResultContainsComment(Result, TEXT("LoomleUnrecognizedNativeTab")));
+    TestTrue(
+        TEXT("Unknown surfaces do not invent a selection"),
+        ResultContainsComment(Result, TEXT("selection: unavailable")));
+
+    FInteractionRecord MissingRecord;
+    TestFalse(
+        TEXT("A missing Provider name is not silently redirected"),
+        Service.RecognizeProviderForTesting(
+            FName(TEXT("not_registered")),
+            Input,
+            MissingRecord));
+    TestFalse(
+        TEXT("A missing Provider cannot build a result"),
+        Service.BuildProviderForTesting(
+            FName(TEXT("not_registered")),
+            MissingRecord).IsValid());
+    return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

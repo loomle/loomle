@@ -2546,6 +2546,37 @@ public:
         return bStarted;
     }
 
+#if WITH_DEV_AUTOMATION_TESTS
+    bool RecognizeProviderForTesting(
+        const FName ProviderName,
+        const FRecognitionInput& Input,
+        FInteractionRecord& OutRecord) const
+    {
+        for (const TSharedRef<IEditorContextProvider>& Provider : Providers)
+        {
+            if (Provider->Name() == ProviderName)
+            {
+                return Provider->Recognize(Input, OutRecord);
+            }
+        }
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> BuildProviderForTesting(
+        const FName ProviderName,
+        const FInteractionRecord& Record) const
+    {
+        for (const TSharedRef<IEditorContextProvider>& Provider : Providers)
+        {
+            if (Provider->Name() == ProviderName)
+            {
+                return Validate(Provider->Build(Record));
+            }
+        }
+        return nullptr;
+    }
+#endif
+
 private:
     bool ObserveCurrentFocus()
     {
@@ -2823,4 +2854,21 @@ TSharedPtr<FJsonObject> FEditorContextService::BuildResult()
 {
     return Impl->BuildResult();
 }
+
+#if WITH_DEV_AUTOMATION_TESTS
+bool FEditorContextService::RecognizeProviderForTesting(
+    const FName ProviderName,
+    const FRecognitionInput& Input,
+    FInteractionRecord& OutRecord) const
+{
+    return Impl->RecognizeProviderForTesting(ProviderName, Input, OutRecord);
+}
+
+TSharedPtr<FJsonObject> FEditorContextService::BuildProviderForTesting(
+    const FName ProviderName,
+    const FInteractionRecord& Record) const
+{
+    return Impl->BuildProviderForTesting(ProviderName, Record);
+}
+#endif
 }

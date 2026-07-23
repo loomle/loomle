@@ -3993,6 +3993,11 @@ bool SetOrResetField(
         }
         if (Field.Kind == TEXT("variable") || Field.Kind == TEXT("dispatcher"))
         {
+            // FBPVariableDescription's constructor is only the struct-level
+            // baseline. UE's declaration creation path assigns the visible
+            // default category separately in AddMemberVariable().
+            VariableDefaults.Category =
+                UEdGraphSchema_K2::VR_DefaultCategory;
             DefaultsContainer = &VariableDefaults;
         }
         else

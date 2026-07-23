@@ -93,6 +93,21 @@ public:
 
     TSharedPtr<FJsonObject> BuildResult();
 
+#if WITH_DEV_AUTOMATION_TESTS
+    /**
+     * Exercises one registered Provider directly without changing the tracked
+     * editor interaction. This keeps structural recognition rules testable in
+     * unattended Automation without exposing them through the public protocol.
+     */
+    bool RecognizeProviderForTesting(
+        FName ProviderName,
+        const FRecognitionInput& Input,
+        FInteractionRecord& OutRecord) const;
+    TSharedPtr<FJsonObject> BuildProviderForTesting(
+        FName ProviderName,
+        const FInteractionRecord& Record) const;
+#endif
+
 private:
     FEditorContextService();
     ~FEditorContextService();

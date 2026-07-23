@@ -1213,6 +1213,11 @@ export async function runPackagedE2E(options, {
             clientExecutable: prepared.clientExecutable,
             clientWorkingDirectory: prepared.projectDirectory,
             clientEnvironment: editorEnvironment,
+            runtimeLifecycleStateRoot: join(
+              paths.runtimeState,
+              "packaged-client-lifecycle",
+            ),
+            platform,
             signal: phaseSignal,
             cleanupTimeoutMs: options.shutdownGraceMs,
             stderrSink: (text) => {
@@ -2048,7 +2053,29 @@ async function defaultPackagedMcpSmoke(options) {
   const { runPackagedMcpSmoke } = await import(
     "../integration/packaged-mcp-smoke.mjs"
   );
-  return runPackagedMcpSmoke(options);
+  const smoke = await runPackagedMcpSmoke(options);
+  const { runPackagedRuntimeLifecycle } = await import(
+    "../integration/packaged-runtime-lifecycle.mjs"
+  );
+  const runtimeLifecycle = await runPackagedRuntimeLifecycle({
+    projectRoot: options.projectRoot,
+    fixture: options.fixture,
+    stateRoot: options.runtimeLifecycleStateRoot,
+    clientExecutable: options.clientExecutable,
+    clientWorkingDirectory: options.clientWorkingDirectory,
+    clientEnvironment: options.clientEnvironment,
+    platform: options.platform,
+    signal: options.signal,
+    connectTimeoutMs: options.connectTimeoutMs,
+    requestTimeoutMs: options.requestTimeoutMs,
+    cleanupTimeoutMs: options.cleanupTimeoutMs,
+    stderrSink: options.stderrSink,
+    onScenario: options.onStep,
+  });
+  return {
+    ...smoke,
+    runtimeLifecycle,
+  };
 }
 
 function moduleSupportsPlatform(module, unrealPlatform) {

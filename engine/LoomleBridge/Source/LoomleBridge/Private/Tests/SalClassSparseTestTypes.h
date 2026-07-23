@@ -20,4 +20,8 @@ UCLASS(Blueprintable, SparseClassDataTypes = SalClassSparseTestData)
 class USalClassSparseTestObject : public UObject
 {
     GENERATED_BODY()
+
+public:
+    UPROPERTY(EditDefaultsOnly, Category = "Loomle Tests")
+    int32 FixedValues[3] = {1, 2, 3};
 };

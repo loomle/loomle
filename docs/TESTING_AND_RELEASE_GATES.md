@@ -23,8 +23,9 @@ The repository now provides:
 - one macOS Apple Silicon runner with `automation` and `packaged_e2e` profiles,
   isolated project copies, bounded process ownership, crash/log inspection, and
   durable results;
-- in-module UE Automation infrastructure and partial coverage for the shared
-  Bridge/RPC contracts and the active SAL interfaces;
+- 127 in-module UE Automation tests covering the shared Bridge/RPC contracts
+  and representative success, failure, lifecycle, and persistence paths across
+  the active SAL interfaces;
 - an authored Blueprint fixture plus a real packaged Client-to-UE smoke
   workflow; and
 - Fab assembly and archive audits that exclude all native test code and test
@@ -51,6 +52,10 @@ The existing root `npm test` command is the fast gate. It covers:
 
 These tests do not launch Unreal Editor. The current Fab verification workflow
 invokes them before native assembly.
+
+The fast gate runs the runtime-lifecycle harness against the built JavaScript
+Client entry. The packaged profile reruns the same harness against the exact
+bundled executable.
 
 The fast gate is a host-platform contract, not only a source-platform contract.
 Tests that exercise another platform's project identity must pass that platform
@@ -133,6 +138,13 @@ compact vertical workflow:
 This suite is intentionally small. Domain combinations and native edge cases
 belong in UE Automation.
 
+After the real UE vertical smoke, the candidate Client is exercised as a real
+child process over a real local Unix socket or named pipe against a
+deterministic private-Bridge test double. This phase verifies runtime
+replacement without losing project binding, stale runtime-record rejection,
+bounded failure of an in-flight request after disconnect, and recovery through
+a replacement runtime without replay.
+
 ### Process Lifecycle
 
 The same end-to-end runner owns lifecycle scenarios:
@@ -147,9 +159,13 @@ The same end-to-end runner owns lifecycle scenarios:
 Readiness polling is allowed. Failed assertions and scenarios are never retried
 automatically.
 
-The current packaged workflow covers clean stop/offline observation and Client
-reconnection. Editor restart, forced exit, and an in-flight request during
-shutdown remain pending lifecycle scenarios.
+The real Editor workflow currently covers clean Editor stop, offline
+observation, and Client reconnection. A separate candidate-Client transport
+phase covers runtime identity replacement, stale-record rejection, and
+in-flight disconnect against a deterministic Bridge test double. It does not
+constitute a real Editor restart or shutdown test. Real Editor restart, forced
+Editor termination, a request interrupted by real UE shutdown, and execution
+of the named-pipe path on Windows remain pending.
 
 ## Blueprint Preflight Regression
 

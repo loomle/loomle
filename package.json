@@ -21,7 +21,7 @@
     "test:fab": "node --test packaging/fab/assemble.test.mjs",
     "test:release": "node --test packaging/release/validate-promotion.test.mjs",
     "test:ue-runner": "node --test tests/runner/ue-test-runner.test.mjs",
-    "test:packaged-smoke-unit": "npm run build --workspace @loomle/sal && node --test tests/integration/packaged-mcp-smoke.test.mjs",
+    "test:packaged-smoke-unit": "npm run build --workspace @loomle/client && node --test tests/integration/packaged-mcp-smoke.test.mjs tests/integration/packaged-runtime-lifecycle.test.mjs",
     "test:ue-automation": "node tests/runner/ue-test-runner.mjs --profile automation",
     "test:packaged-e2e": "node tests/runner/ue-test-runner.mjs --profile packaged_e2e",
     "test": "npm run check:version && node --test packaging/tools/product-version.test.mjs packaging/tools/pe-machine.test.mjs && npm run test:fab && npm run test:release && npm run test:ue-runner && npm run test:packaged-smoke-unit && npm run test --workspace @loomle/sal && npm run test --workspace @loomle/interfaces && npm run test --workspace @loomle/client"

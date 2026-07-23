@@ -9,6 +9,7 @@
 #include "Logging/LogMacros.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopeExit.h"
+#include "Policies/CondensedJsonPrintPolicy.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 
@@ -72,7 +73,11 @@ FString MakeBusyErrorResponse(const FString& RequestLine)
     ResponseObject->SetObjectField(TEXT("error"), ErrorObject);
 
     FString Output;
-    const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Output);
+    const TSharedRef<
+        TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+        TJsonWriterFactory<
+            TCHAR,
+            TCondensedJsonPrintPolicy<TCHAR>>::Create(&Output);
     FJsonSerializer::Serialize(ResponseObject.ToSharedRef(), Writer);
     return Output;
 }
@@ -314,9 +319,35 @@ void FLoomlePipeServer::Stop()
     }
     if (LocalServerFd >= 0)
     {
-        // Run() owns and closes the listener. Stop only wakes accept(); this
-        // avoids a double-close race if the descriptor is reused meanwhile.
+        // shutdown() is not required to wake accept() on a listening AF_UNIX
+        // socket on every supported POSIX platform (notably Darwin). Keep
+        // ownership of the listener in Run(), then make one local connection
+        // so accept() returns and observes bStopRequested without a
+        // cross-thread close/double-close race.
         shutdown(LocalServerFd, SHUT_RDWR);
+
+        const FString SocketPath = GetSocketPath();
+        const FTCHARToUTF8 PathUtf8(*SocketPath);
+        if (PathUtf8.Length()
+            < static_cast<int32>(sizeof(((sockaddr_un*)nullptr)->sun_path)))
+        {
+            const int32 WakeFd = socket(AF_UNIX, SOCK_STREAM, 0);
+            if (WakeFd >= 0)
+            {
+                sockaddr_un WakeAddress;
+                FMemory::Memzero(WakeAddress);
+                WakeAddress.sun_family = AF_UNIX;
+                FCStringAnsi::Strncpy(
+                    WakeAddress.sun_path,
+                    PathUtf8.Get(),
+                    UE_ARRAY_COUNT(WakeAddress.sun_path));
+                connect(
+                    WakeFd,
+                    reinterpret_cast<const sockaddr*>(&WakeAddress),
+                    sizeof(WakeAddress));
+                close(WakeFd);
+            }
+        }
     }
 #endif
 
@@ -474,6 +505,11 @@ uint32 FLoomlePipeServer::Run()
                 UE_LOG(LogLoomlePipe, Warning, TEXT("Failed to accept unix socket client on %s"), *SocketPath);
             }
             continue;
+        }
+        if (bStopRequested)
+        {
+            close(LocalClientFd);
+            break;
         }
 
         const int32 ConnectionSerial = NextConnectionSerial.Increment();

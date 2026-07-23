@@ -93,6 +93,67 @@ public normalized path currently has one representative Class target.
 | Editor Context | Smoke | Deterministic built-in Blueprint, Widget, Content Browser, and Level Provider recognition |
 | Pipe lifecycle | RPC contract | Real connection close, busy limit, blocked I/O, and server-stop integration |
 
+## Second Remediation
+
+The second coverage pass raises the native suite from 97 to 127 tests. A
+packaged macOS arm64 Development plugin build succeeded, and an isolated
+`UnrealEditor-Cmd` run reported all 127 tests as `Success`; 14 contained
+ordinary warning entries. The run had zero failure, timeout, missing test,
+crash report, or runner-classified log hazard.
+
+The 30 added tests cover:
+
+- normalized Query routing across every resolved SAL target kind, composed
+  Widget and StateTree interfaces, normalized dry-run Patch routing, and the
+  final 128 KiB result gate;
+- Asset and Class filtering, schema, native field shapes, save, unload, reload,
+  and zero-load reads;
+- Blueprint declarations, Graphs, Components, Graph traversal, Palette schema,
+  structural Nodes, Edges, insertion, dynamic Pins, Undo, and PostLoad
+  topology;
+- Widget tree depth, detached discovery, Panel/Slot placement, compound
+  operations, and stable identity across compile/save/reload;
+- Reference declaration kinds, Blueprint/Graph scopes, pagination, and
+  deduplication;
+- class-backed StateTree Nodes and Bindings through Palette, schema, Undo,
+  compile, save, and reload;
+- built-in Editor Context recognition for modal, Content Browser, Level
+  Editor, and unknown surfaces; and
+- real native Pipe round trips, synchronous control messages, stale-response
+  isolation, and shutdown while a request worker is active.
+
+The pass exposed and fixed five implementation defects:
+
+- Darwin could leave the listener blocked in `accept()` during shutdown;
+- the Pipe busy response used pretty JSON even though newline is the transport
+  frame boundary;
+- Blueprint Variable reset used the struct constructor instead of UE's visible
+  declaration-category default;
+- Graph `NodeComment` was incorrectly excluded from Graph-editor-writable
+  state; and
+- exact Graph Palette schema could inspect an unprimed Node template before UE
+  had allocated its future Pins.
+
+This is a green result for the current matrix, not a claim that every active
+operation has reached Lifecycle or Persistent coverage. Applying the level
+definitions strictly gives the following state:
+
+| Surface | Current level | Verified higher-level anchors | Principal remaining boundary |
+|---|---|---|---|
+| Public Query | Contract | All target routing, composed interfaces, result-size gate | — |
+| Public Patch | Smoke | All mutable interfaces route through normalized dry-run | Normalized failure and real apply/RPC |
+| Asset | Persistent | Save dry/live, unload/reload, zero-load Query | I/O failure behavior |
+| Class | Contract | Fixed-array save/unload/reload | Failure after live mutation begins |
+| Blueprint | Persistent for representative operations | Declaration, Graph, Component, rollback | Compound Interface/Component operations |
+| Graph Query | Contract | Flow, context, Palette, schema | `nodes` condition/order/cursor matrix |
+| Graph Patch | Smoke with broad Lifecycle anchors | Add, connect, insert, break, dynamic Pin, Undo, persistent native topology | Invalid Patch, live rollback, reset, SAL-authored persistent topology |
+| Widget Query | Smoke | Tree depth, detached objects, Palette/schema | `widgets` condition/order/cursor and failure matrix |
+| Widget Patch | Smoke with a Persistent anchor | Add, Slot, wrap, rename, duplicate, replace, save/reload | Move, Named Slot, invalid Patch, live rollback |
+| Reference | Contract | Six local declaration kinds, Blueprint/Graph scope, pagination, zero-load project index | Widget, Macro, native member, and project parity |
+| StateTree | Contract with a Persistent anchor | Class-backed Node/Binding and compile/save/reload | Failure after live mutation begins |
+| Editor Context | Smoke | Modal, Content Browser, Level Editor, unknown fallback | Real Blueprint/Widget/Details focus and selection recovery |
+| Pipe | Real transport contract with Lifecycle anchors | Round trip, control, stale isolation, worker-aware stop | Busy saturation, partial frames, blocked I/O, multiple clients, Windows execution |
+
 ## Release Gate
 
 An active public operation must have a matrix entry and a named native test.
@@ -107,6 +168,12 @@ The 0.7 native release gate must at minimum close:
 4. one real persistent save/unload/reload round trip;
 5. Editor Context recognition for its primary editor surfaces; and
 6. in-flight cancellation and shutdown behavior at the transport boundary.
+
+The second remediation provides representative anchors for items 1–4 and the
+transport behavior in item 6. Item 5 remains partial until real Blueprint and
+Widget editor focus/selection paths are exercised. The stricter per-surface
+boundaries in the table above remain release risks even though the current
+127-test matrix is green.
 
 Synthetic fixtures remain useful for deterministic edge cases. At least one
 authored, compiled asset fixture must protect each Blueprint-owned interface so

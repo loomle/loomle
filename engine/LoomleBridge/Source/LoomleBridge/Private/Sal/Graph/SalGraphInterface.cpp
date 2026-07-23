@@ -1121,11 +1121,19 @@ FNodePropertyAccess GetNodePropertyAccess(const UObject* Object, const FProperty
 
     Access.bReadable = true;
     Access.DefaultObject = Object->GetClass() != nullptr ? Object->GetClass()->GetDefaultObject() : nullptr;
-    Access.bWritable = Property->HasAnyPropertyFlags(CPF_Edit)
-        && !Property->HasAnyPropertyFlags(CPF_EditConst)
-        && !(Object->IsTemplate() && Property->HasAnyPropertyFlags(CPF_DisableEditOnTemplate))
-        && !(!Object->IsTemplate() && Property->HasAnyPropertyFlags(CPF_DisableEditOnInstance))
-        && Object->CanEditChange(Property);
+    // NodeComment is persistent editor state authored directly through the
+    // Graph editor, but UE does not mark the native property CPF_Edit because
+    // it is not exposed through the Details panel. SAL's documented Graph
+    // contract intentionally exposes that native editor operation.
+    const bool bGraphEditorWritable =
+        Property->GetFName()
+        == GET_MEMBER_NAME_CHECKED(UEdGraphNode, NodeComment);
+    Access.bWritable = bGraphEditorWritable
+        || (Property->HasAnyPropertyFlags(CPF_Edit)
+            && !Property->HasAnyPropertyFlags(CPF_EditConst)
+            && !(Object->IsTemplate() && Property->HasAnyPropertyFlags(CPF_DisableEditOnTemplate))
+            && !(!Object->IsTemplate() && Property->HasAnyPropertyFlags(CPF_DisableEditOnInstance))
+            && Object->CanEditChange(Property));
     Access.bResettable = Access.bWritable
         && !Property->HasMetaData(TEXT("NoResetToDefault"))
         && Access.DefaultObject != nullptr;
@@ -4494,7 +4502,16 @@ UEdGraphNode* TemplateForAction(const TSharedPtr<FEdGraphSchemaAction>& Action, 
     }
     const FBlueprintActionMenuItem* Item = static_cast<const FBlueprintActionMenuItem*>(Action.Get());
     const UBlueprintNodeSpawner* Spawner = Item->GetRawAction();
-    return Spawner != nullptr ? Spawner->GetTemplateNode(Graph) : nullptr;
+    UEdGraphNode* Template =
+        Spawner != nullptr ? Spawner->GetTemplateNode(Graph) : nullptr;
+    // GetTemplateNode(TargetGraph) may produce a graph-specific template that
+    // has not been primed. UE's own Blueprint action filter allocates the
+    // default Pins before inspecting such a template.
+    if (Template != nullptr && Template->Pins.IsEmpty())
+    {
+        Template->AllocateDefaultPins();
+    }
+    return Template;
 }
 
 const UK2Node_Event* ExistingBoundEvent(
