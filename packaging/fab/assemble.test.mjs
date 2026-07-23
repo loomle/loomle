@@ -531,7 +531,11 @@ test("resolves symbolic-link output aliases before allowing destructive reset", 
   );
   const sourceFile = join(sourceDirectory, "LoomleBridge", "LoomleBridge.Build.cs");
   const outputAlias = join(fixture.root, "output-alias");
-  await symlink(sourceDirectory, outputAlias, "dir");
+  await symlink(
+    sourceDirectory,
+    outputAlias,
+    process.platform === "win32" ? "junction" : "dir",
+  );
   try {
     await assert.rejects(
       assembleFabPlugin({

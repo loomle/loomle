@@ -198,7 +198,11 @@ async function validateClientExecutable(path, target) {
   if (!fileStat.isFile() || fileStat.size === 0) {
     fail(`canonical Client executable must be a non-empty file: ${path}`);
   }
-  if (!target.startsWith("win32-") && (fileStat.mode & 0o111) === 0) {
+  // Windows does not expose a meaningful POSIX executable bit, including
+  // when a cross-target fixture represents a Unix Client.
+  if (process.platform !== "win32"
+      && !target.startsWith("win32-")
+      && (fileStat.mode & 0o111) === 0) {
     fail(`canonical Client executable is not executable: ${path}`);
   }
 }
