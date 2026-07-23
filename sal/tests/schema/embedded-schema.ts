@@ -6,10 +6,9 @@ import { salObjectSchemaText } from "../../src/generated/sal-object-schema-data.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(here, "../../..");
-const canonicalSchemaText = await readFile(
-  join(packageRoot, "schema/sal-object.schema.json"),
-  "utf8",
-);
+const canonicalSchemaText = (
+  await readFile(join(packageRoot, "schema/sal-object.schema.json"), "utf8")
+).replace(/\r\n?/g, "\n");
 
 assert.equal(salObjectSchemaText, canonicalSchemaText);
 assert.doesNotThrow(() => JSON.parse(salObjectSchemaText));
