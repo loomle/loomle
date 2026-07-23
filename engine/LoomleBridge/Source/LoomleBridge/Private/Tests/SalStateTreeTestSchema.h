@@ -47,7 +47,7 @@ struct FSalStateTreeInstancedInputA
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere)
+    UPROPERTY(EditAnywhere, Category = "Input")
     int32 SharedValue = 0;
 };
 
@@ -56,7 +56,7 @@ struct FSalStateTreeInstancedInputB
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere)
+    UPROPERTY(EditAnywhere, Category = "Input")
     int32 SharedValue = 0;
 };
 
@@ -218,7 +218,7 @@ struct FSalStateTreeBindingEventPayload
 {
     GENERATED_BODY()
 
-    UPROPERTY(EditAnywhere)
+    UPROPERTY(EditAnywhere, Category = "Payload")
     int32 Value = 0;
 };
 
