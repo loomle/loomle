@@ -27,11 +27,41 @@ jobs:
             throw "The win32-x64 Client must be built on a native Windows AMD64 runner."
           }
 
-      - name: Set Up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
+      - name: Set Up Pinned Node.js
+        timeout-minutes: 10
+        run: |
+          $manifest = Get-Content `
+            -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "packaging\client\node-runtime.json") `
+            -Raw | ConvertFrom-Json
+          $runtime = $manifest.targets.'win32-x64'
+          $archiveName = [IO.Path]::GetFileName(([Uri] $runtime.url).AbsolutePath)
+          $archive = Join-Path $env:RUNNER_TEMP $archiveName
+          $runtimeRoot = Join-Path $env:RUNNER_TEMP "loomle-node-$($manifest.nodeVersion)-win32-x64"
+
+          Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $runtimeRoot -Recurse -Force -ErrorAction SilentlyContinue
+          Invoke-WebRequest -Uri $runtime.url -OutFile $archive
+          $actualHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne $runtime.sha256) {
+            throw "Pinned Node archive checksum mismatch: $actualHash"
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $runtimeRoot
+          $nodeDirectory = Join-Path $runtimeRoot $runtime.archiveRoot
+          $node = Join-Path $nodeDirectory $runtime.nodePath
+          $npm = Join-Path $nodeDirectory "npm.cmd"
+          if (-not (Test-Path -LiteralPath $node -PathType Leaf)
+              -or -not (Test-Path -LiteralPath $npm -PathType Leaf)) {
+            throw "Pinned Node archive is missing node.exe or npm.cmd."
+          }
+          $version = (& $node --version).Trim()
+          if ($version -ne "v$($manifest.nodeVersion)") {
+            throw "Pinned Node reports $version; expected v$($manifest.nodeVersion)."
+          }
+          $nodeDirectory >> $env:GITHUB_PATH
+
+          $clientCache = Join-Path $env:GITHUB_WORKSPACE ".tmp\client-cache"
+          New-Item -ItemType Directory -Path $clientCache -Force | Out-Null
+          Copy-Item -LiteralPath $archive -Destination (Join-Path $clientCache $archiveName)
 
       - name: Install Dependencies
         run: npm ci
