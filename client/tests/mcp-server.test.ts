@@ -7,7 +7,9 @@ import {
   ListRootsRequestSchema,
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
+import { resolve } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { productVersion } from "../src/generated/product-version.js";
 import { createMcpServer } from "../src/mcp-server.js";
 import { RuntimeRpcError, type RpcInvoker } from "../src/runtime-rpc.js";
@@ -126,17 +128,19 @@ test("feature-detects MCP Roots and refreshes them on list-changed notifications
     { name: "loomle-roots-test", version: "1.0.0" },
     { capabilities: { roots: { listChanged: true } } },
   );
-  let roots = [{ uri: "file:///Projects/Alpha", name: "Alpha" }];
+  const alphaRoot = resolve("Projects", "Alpha");
+  const betaRoot = resolve("Projects", "Beta");
+  let roots = [{ uri: pathToFileURL(alphaRoot).href, name: "Alpha" }];
   client.setRequestHandler(ListRootsRequestSchema, async () => ({ roots }));
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   await client.connect(clientTransport);
 
   try {
-    await waitFor(() => rpc.updates.some((update) => update.roots?.[0] === "/Projects/Alpha"));
-    roots = [{ uri: "file:///Projects/Beta", name: "Beta" }];
+    await waitFor(() => rpc.updates.some((update) => update.roots?.[0] === alphaRoot));
+    roots = [{ uri: pathToFileURL(betaRoot).href, name: "Beta" }];
     await client.sendRootsListChanged();
-    await waitFor(() => rpc.updates.some((update) => update.roots?.[0] === "/Projects/Beta"));
+    await waitFor(() => rpc.updates.some((update) => update.roots?.[0] === betaRoot));
     assert.ok(rpc.updates.every((update) => update.supported));
   } finally {
     await client.close();
@@ -176,6 +180,8 @@ test("ignores a late response from an older MCP Roots refresh", async () => {
     { capabilities: { roots: { listChanged: true } } },
   );
   let requestCount = 0;
+  const staleRoot = resolve("Projects", "Stale");
+  const currentRoot = resolve("Projects", "Current");
   let releaseFirst!: () => void;
   const firstPending = new Promise<void>((resolve) => {
     releaseFirst = resolve;
@@ -184,9 +190,9 @@ test("ignores a late response from an older MCP Roots refresh", async () => {
     requestCount += 1;
     if (requestCount === 1) {
       await firstPending;
-      return { roots: [{ uri: "file:///Projects/Stale", name: "Stale" }] };
+      return { roots: [{ uri: pathToFileURL(staleRoot).href, name: "Stale" }] };
     }
-    return { roots: [{ uri: "file:///Projects/Current", name: "Current" }] };
+    return { roots: [{ uri: pathToFileURL(currentRoot).href, name: "Current" }] };
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -196,16 +202,16 @@ test("ignores a late response from an older MCP Roots refresh", async () => {
     await waitFor(() => requestCount === 1);
     const changed = client.sendRootsListChanged();
     await waitFor(() => requestCount === 2);
-    await waitFor(() => rpc.updates.some((update) => update.roots?.[0] === "/Projects/Current"));
+    await waitFor(() => rpc.updates.some((update) => update.roots?.[0] === currentRoot));
     releaseFirst();
     await changed;
     await new Promise<void>((resolve) => setTimeout(resolve, 1));
     assert.equal(
-      rpc.updates.some((update) => update.roots?.[0] === "/Projects/Stale"),
+      rpc.updates.some((update) => update.roots?.[0] === staleRoot),
       false,
     );
     assert.deepEqual(rpc.updates.at(-1), {
-      roots: ["/Projects/Current"],
+      roots: [currentRoot],
       supported: true,
     });
   } finally {

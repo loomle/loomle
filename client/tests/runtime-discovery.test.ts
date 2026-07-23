@@ -147,7 +147,7 @@ test("discovers a valid offline project root and computes the Bridge-stable ID",
   assert.equal(project?.projectRoot, root);
   assert.equal(project?.projectId, stableProjectId(root));
   assert.equal(
-    stableProjectId("/Users/gao/Dev/ProjectOdyssey"),
+    stableProjectId("/Users/gao/Dev/ProjectOdyssey", "darwin"),
     "085fc4e32c582270",
   );
 });

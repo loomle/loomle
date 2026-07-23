@@ -52,6 +52,27 @@ The existing root `npm test` command is the fast gate. It covers:
 These tests do not launch Unreal Editor. The current Fab verification workflow
 invokes them before native assembly.
 
+The fast gate is a host-platform contract, not only a source-platform contract.
+Tests that exercise another platform's project identity must pass that platform
+explicitly and the implementation must use its matching path resolver. Tests
+that exercise live MCP Roots use valid local `file:` URLs for the current host
+and compare the paths produced by that host. Asynchronous Roots tests must
+either release every pending operation or fail within their own bounded wait;
+an impossible platform path must not leave the suite running indefinitely.
+
+Native Client assembly also follows host process semantics. Subprocess commands
+that are command wrappers use the host executable name (`npm.cmd` on Windows
+and `npm` elsewhere), independent of the requested output target. Windows
+command wrappers are launched through the Windows command shell because Node
+cannot execute a `.cmd` file directly; native executables remain direct child
+processes. Failure to resolve a required build command is an immediate build
+failure and must never be mistaken for an executable smoke-test failure.
+
+This repair changes no public MCP tool, input or output schema, edit operation,
+or diagnostic code. Acceptance requires the complete root `npm test` gate and
+the pinned-runtime `build:executable` plus `test:executable` pair to pass on the
+Windows x64 verification host without orphaned test processes.
+
 ### UE Automation
 
 UE Automation is the primary Bridge functional suite. Every public Bridge
@@ -322,6 +343,13 @@ the AMD64 machine type. That ZIP is a QA artifact only: current release
 promotion and advertised platform support do not consume it until a later
 explicit release decision. The QA executable may remain unsigned; distributing
 it requires a separately confirmed Authenticode and SmartScreen policy.
+
+The 2026-07-23 local Windows acceptance audit used pinned Node 24.18.0 and the
+UE 5.7.4 Installed Build. The repository test command passed, UE BuildPlugin
+completed for Win64, and the complete Loomle Automation category passed 81 of
+81 tests with no log hazards or new crash reports. This validates the
+test-bearing Windows candidate; packaged end-to-end and release-archive gates
+remain separate requirements for promotion.
 
 Manual promotion takes a successful `verify-fab-mac.yml` run ID. It verifies
 the run identity, commit, results, candidate hash, product version, and release

@@ -49,7 +49,15 @@ if (!Number.isInteger(protocolVersion) || protocolVersion < 1 || protocolVersion
 }
 
 console.log(`Building Loomle executable for ${target} with Node.js ${manifest.nodeVersion}.`);
-run("npm", ["run", "build"], { cwd: repoRoot });
+if (process.platform === "win32") {
+  const commandShell = process.env.ComSpec;
+  if (!commandShell) {
+    throw new Error("Windows executable assembly requires the ComSpec command shell.");
+  }
+  run(commandShell, ["/d", "/s", "/c", "npm.cmd run build"], { cwd: repoRoot });
+} else {
+  run("npm", ["run", "build"], { cwd: repoRoot });
+}
 
 const cacheDirectory = resolve(repoRoot, ".tmp/client-cache");
 const archivePath = join(cacheDirectory, runtime.url.slice(runtime.url.lastIndexOf("/") + 1));

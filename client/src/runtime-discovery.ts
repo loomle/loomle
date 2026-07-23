@@ -1,6 +1,6 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, extname, resolve, win32 } from "node:path";
+import { basename, extname, posix, resolve, win32 } from "node:path";
 
 export interface RuntimeRecord {
   runtimeId: string;
@@ -89,10 +89,10 @@ export async function discoverProjectAtRoot(
   projectRoot: string,
   platform: NodeJS.Platform = process.platform,
 ): Promise<ProjectRecord | undefined> {
-  const normalizedRoot = normalizePath(projectRoot, platform);
+  const resolvedRoot = resolvePlatformPath(projectRoot, platform);
   let entries;
   try {
-    entries = await readdir(normalizedRoot, { withFileTypes: true });
+    entries = await readdir(resolvedRoot, { withFileTypes: true });
   } catch {
     return undefined;
   }
@@ -100,11 +100,16 @@ export async function discoverProjectAtRoot(
     entry.isFile() && extname(entry.name).toLowerCase() === ".uproject");
   if (projectFiles.length !== 1) return undefined;
 
-  const uproject = resolve(normalizedRoot, projectFiles[0].name);
+  const uproject = resolvePlatformPath(
+    platform === "win32"
+      ? win32.join(resolvedRoot, projectFiles[0].name)
+      : posix.join(resolvedRoot, projectFiles[0].name),
+    platform,
+  );
   return {
-    projectId: stableProjectId(normalizedRoot, platform),
+    projectId: stableProjectId(resolvedRoot, platform),
     name: basename(projectFiles[0].name, extname(projectFiles[0].name)),
-    projectRoot: normalizedRoot,
+    projectRoot: resolvedRoot,
     uproject,
   };
 }
@@ -206,9 +211,13 @@ export function normalizePath(
   if (platform === "win32") {
     // UE's FPaths::NormalizeFilename uses forward slashes before hashing the
     // stable project identity. Match it even though Node uses backslashes.
-    return win32.resolve(value).replaceAll("\\", "/").toLowerCase();
+    return resolvePlatformPath(value, platform).replaceAll("\\", "/").toLowerCase();
   }
-  return resolve(value);
+  return resolvePlatformPath(value, platform);
+}
+
+function resolvePlatformPath(value: string, platform: NodeJS.Platform): string {
+  return platform === "win32" ? win32.resolve(value) : posix.resolve(value);
 }
 
 async function loadJsonDirectory<T>(

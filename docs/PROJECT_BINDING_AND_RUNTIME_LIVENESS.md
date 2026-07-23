@@ -103,6 +103,22 @@ case-sensitive platforms preserve it. `runtimeId` is a new random identity for
 every Editor process. Every runtime owns a unique record and transport
 endpoint:
 
+The Client must reproduce that identity independently of its host test
+platform. Windows roots use Win32 absolute-path resolution, forward slashes,
+and case folding for identity and comparison. macOS and Linux roots use POSIX
+absolute-path resolution and preserve case. A platform argument selects both
+the resolver and the comparison rules; it must not select POSIX case rules
+while still calling the Windows host resolver.
+
+`projectRoot` remains a usable absolute filesystem path rather than the folded
+identity string. Direct offline discovery preserves the platform-native
+absolute path spelling for display and file access, while `projectId` is
+derived from the UE-compatible normalized identity. Runtime health and
+selection compare roots through the normalized identity, so a Windows root
+written by UE with forward slashes still matches the equivalent native Client
+path. MCP `file:` Roots are converted with the host URL implementation before
+the same project matching rules are applied.
+
 ```text
 ~/.loomle/state/runtimes/<runtimeId>.json
 ```

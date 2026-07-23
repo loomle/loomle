@@ -1189,6 +1189,31 @@ and mutation results. `unbind` names the complete
 existing pair; a source mismatch is an error rather than permission to remove
 whichever Binding currently reaches the target.
 
+On UE 5.7, an external Windows plugin cannot link the StateTree editor binding
+vtable because `FStateTreeEditorPropertyBindings::AddBindingInternal` is the
+only binding-collection override in that table without `UE_API`. Avoiding a
+direct call is insufficient: compiling code that materializes the vtable still
+requires the same missing symbol from the Installed Build import library.
+
+The Windows compatibility unit therefore supplies the missing member definition
+with the exact UE 5.7 implementation: append an
+`FStateTreePropertyPathBinding` constructed from the source path, target path,
+and `bIsOutputBinding = false`, and return the appended record through the base
+binding pointer. Ordinary Bindings continue to enter through the generic
+`AddBinding` operation, so UE's target replacement behavior remains unchanged;
+effective output Bindings continue through exported `AddOutputBinding`.
+
+This is a Windows-only ABI completion for an omitted export, not a second
+binding model. It must remain source-identical to the supported UE implementation
+and should be removed when the supported UE build exports `AddBindingInternal`.
+It changes neither SAL arrow direction nor the `bind` / `unbind` schema,
+replacement rules, diagnostics, or mutation result.
+
+The Windows acceptance audit builds the plugin with the UE 5.7.4 Installed
+Build and runs the complete Loomle Automation category. The compatibility unit
+is accepted only when Win64 linking succeeds and the StateTree mutation tests
+remain part of the passing category.
+
 Binding an explicit source to a Context-usage Property creates or replaces its
 authored override and suppresses automatic Context resolution for that target.
 `unbind` accepts only an explicit authored Binding. If removing that override

@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 import { protocolVersion } from "../src/generated/protocol-version.js";
 import {
+  normalizePath,
   stableProjectId,
   type ProjectRecord,
   type RuntimeRecord,
@@ -191,13 +192,21 @@ test("an offline legacy root binding reconnects to the new canonical runtime ide
     protocolVersion,
   };
   const client = new MockRuntimeClient(record.endpoint, record);
+  const discoveredProject: ProjectRecord = {
+    projectId: currentProjectId,
+    name: "Game",
+    projectRoot: root,
+    uproject: resolve(root, "Game.uproject"),
+  };
   const invoker = new DiscoveredRuntimeInvoker({
     homeDirectory: state.home,
     cwd: "/Elsewhere",
     env: {},
     platform: "darwin",
     endpointAvailable: async () => true,
-  }, () => client);
+  }, () => client, async (candidateRoot) => (
+    candidateRoot === root ? discoveredProject : undefined
+  ));
 
   const offline = await invoker.project({ projectRoot: root });
   assert.equal(offline.boundProjectId, currentProjectId);
@@ -444,6 +453,7 @@ test("pending or failed MCP Roots do not create a sticky global binding", async 
 
 test("a Roots change invalidates an older in-flight auto-binding pass", async () => {
   const state = await fixture();
+  const alphaRoot = normalizePath("/Projects/Alpha");
   let markDiscoveryStarted!: () => void;
   const discoveryStarted = new Promise<void>((resolve) => {
     markDiscoveryStarted = resolve;
@@ -458,11 +468,11 @@ test("a Roots change invalidates an older in-flight auto-binding pass", async ()
     env: {},
     endpointAvailable: async () => true,
   }, () => assert.fail("no runtime should be selected"), async (root) => {
-    if (root !== "/Projects/Alpha") return undefined;
+    if (root !== alphaRoot) return undefined;
     markDiscoveryStarted();
     return delayedDiscovery;
   });
-  invoker.setMcpRoots(["/Projects/Alpha"], true);
+  invoker.setMcpRoots([alphaRoot], true);
 
   const oldPass = invoker.project();
   await discoveryStarted;
@@ -470,8 +480,8 @@ test("a Roots change invalidates an older in-flight auto-binding pass", async ()
   finishDiscovery({
     projectId: "Alpha",
     name: "Alpha",
-    projectRoot: "/Projects/Alpha",
-    uproject: "/Projects/Alpha/Alpha.uproject",
+    projectRoot: alphaRoot,
+    uproject: `${alphaRoot}/Alpha.uproject`,
   });
 
   assert.equal((await oldPass).boundProjectId, undefined);
