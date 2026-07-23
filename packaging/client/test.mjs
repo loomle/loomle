@@ -131,7 +131,7 @@ try {
       arguments: { text: 'query asset\nassets "door"' },
     });
     assert.equal(query.isError, true);
-    assert.match(JSON.stringify(query), /No online Loomle runtime was found/);
+    assert.match(JSON.stringify(query), /project\.selection_required/);
   } finally {
     await client.close().catch(() => undefined);
   }
