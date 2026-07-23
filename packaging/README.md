@@ -27,6 +27,8 @@ The packaged Client contains SAL, Interfaces, MCP support, and its runtime. A
 release does not depend on Rust, Python MCP, `uv`, a global Loomle installation,
 or a project-local Client copy.
 
-`darwin-arm64` is the first accepted target. Another target becomes releasable
-only after its executable builder, isolated MCP smoke test, Fab assembly, and UE
-BuildPlugin verification all pass on a native runner.
+`darwin-arm64` and `win32-x64` have native QA paths. A target becomes releasable
+only after its executable builder, isolated MCP smoke test, Fab assembly, UE
+BuildPlugin verification, packaged end-to-end, signing policy, and promotion
+contract are explicitly accepted. Passing QA alone does not advertise a
+release target.

@@ -38,6 +38,11 @@ takes a successful Mac verification run ID, checks out that run's exact commit,
 verifies its result files and archive hash, derives `v<product-version>`, and
 publishes the already-tested ZIP without rebuilding or recompressing it.
 
+`.github/workflows/verify-fab-windows.yml` independently proves the native
+Windows x64 Client, Bridge, Automation, package audit, and exact-ZIP end-to-end
+path. Its uploaded ZIP is QA-only. The current promotion workflow does not
+consume it, and a successful run does not change advertised release platforms.
+
 Unsigned `0.7.0-rc.*` candidates may be published only as GitHub prereleases
 whose checked-in notes explain the macOS Gatekeeper limitation. Stable
 promotion deliberately fails until Developer ID signing and notarization are

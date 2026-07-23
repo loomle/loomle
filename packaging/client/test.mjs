@@ -17,10 +17,15 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { guide } from "@loomle/interfaces";
+import { assertPeAmd64 } from "../tools/pe-machine.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 const target = parseTarget(process.argv.slice(2));
-const executablePath = resolve(repoRoot, `.tmp/client/${target}/loomle`);
+const targetSpec = resolveTarget(target);
+const executablePath = resolve(
+  repoRoot,
+  `.tmp/client/${target}/${targetSpec.executableName}`,
+);
 const receiptPath = resolve(repoRoot, `.tmp/client/${target}/build.json`);
 const nodeLicensePath = resolve(repoRoot, `.tmp/client/${target}/node-license.txt`);
 const product = JSON.parse(await readFile(resolve(repoRoot, "package.json"), "utf8"));
@@ -30,7 +35,10 @@ const runtimeManifest = JSON.parse(await readFile(
 ));
 
 assert.equal(target, `${process.platform}-${process.arch}`, "Executable smoke tests must run natively.");
-await access(executablePath, constants.X_OK);
+await access(
+  executablePath,
+  process.platform === "win32" ? constants.F_OK : constants.X_OK,
+);
 assert.ok((await stat(executablePath)).size > 0, "Executable is empty.");
 const executableHash = await sha256(executablePath);
 assert.ok((await stat(nodeLicensePath)).size > 0, "Node runtime license is empty.");
@@ -42,7 +50,7 @@ assert.deepEqual(JSON.parse(await readFile(receiptPath, "utf8")), {
   target,
   nodeVersion: runtimeManifest.nodeVersion,
   runtimeSha256: runtimeManifest.targets[target].sha256,
-  executable: "loomle",
+  executable: targetSpec.executableName,
   sha256: executableHash,
   nodeLicenseSha256: nodeLicenseHash,
 });
@@ -52,20 +60,31 @@ assert.equal(
   "Executable contains its build checkout path.",
 );
 
-const fileResult = run("file", [executablePath]);
-assert.match(fileResult.stdout, /Mach-O 64-bit executable arm64/);
-run("codesign", ["--verify", "--strict", "--verbose=2", executablePath]);
+if (target === "darwin-arm64") {
+  const fileResult = run("file", [executablePath]);
+  assert.match(fileResult.stdout, /Mach-O 64-bit executable arm64/);
+  run("codesign", ["--verify", "--strict", "--verbose=2", executablePath]);
+} else {
+  await assertPeAmd64(executablePath);
+}
 
 const directory = await mkdtemp(join(tmpdir(), "loomle sea smoke "));
-const isolatedExecutable = join(directory, "Loomle Client");
+const isolatedExecutable = join(
+  directory,
+  process.platform === "win32" ? "Loomle Client.exe" : "Loomle Client",
+);
 await copyFile(executablePath, isolatedExecutable);
-await chmod(isolatedExecutable, 0o755);
+if (process.platform !== "win32") await chmod(isolatedExecutable, 0o755);
 
 try {
   const environment = {
+    ...(process.platform === "win32" ? process.env : {}),
     HOME: directory,
+    USERPROFILE: directory,
     TMPDIR: directory,
-    PATH: "/usr/bin:/bin",
+    TMP: directory,
+    TEMP: directory,
+    PATH: process.platform === "win32" ? process.env.PATH ?? "" : "/usr/bin:/bin",
     NODE_PATH: "",
     NODE_OPTIONS: "",
     LOOMLE_PROJECT_ROOT: "",
@@ -151,6 +170,16 @@ function parseTarget(args) {
   if (args.length === 0) return `${process.platform}-${process.arch}`;
   if (args.length === 2 && args[0] === "--target" && args[1]) return args[1];
   throw new Error("Usage: node packaging/client/test.mjs [--target <platform-arch>]");
+}
+
+function resolveTarget(targetValue) {
+  const targets = {
+    "darwin-arm64": { executableName: "loomle" },
+    "win32-x64": { executableName: "loomle.exe" },
+  };
+  const result = targets[targetValue];
+  if (!result) throw new Error(`Unsupported executable target: ${targetValue}.`);
+  return result;
 }
 
 function run(command, args, options = {}) {

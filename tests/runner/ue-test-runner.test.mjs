@@ -133,14 +133,12 @@ test("rejects ambiguous, incomplete, and unsupported invocations", () => {
     ),
     /unsupported target/,
   );
-  assert.throws(
-    () => parseRunnerArgs(
-      VALID_ARGUMENTS.map((argument) => (
-        argument === "darwin-arm64" ? "win32-x64" : argument
-      )),
-    ),
-    /unsupported target/,
+  const windowsOptions = parseRunnerArgs(
+    VALID_ARGUMENTS.map((argument) => (
+      argument === "darwin-arm64" ? "win32-x64" : argument
+    )),
   );
+  assert.equal(windowsOptions.target, "win32-x64");
   assert.throws(
     () => parseRunnerArgs([
       ...VALID_ARGUMENTS,
@@ -229,6 +227,56 @@ test("accepts a compiled plugin directory and validates every Mac Editor module"
     assert.equal(
       await validatePluginDirectoryCandidate(pluginDir, "darwin-arm64"),
       join(pluginDir, "LoomleBridge.uplugin"),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("accepts a compiled Win64 plugin and its target-bundled Client", async () => {
+  const root = await mkdtemp(join(tmpdir(), "loomle-win64-plugin-"));
+  const pluginDir = join(root, "LoomleBridge");
+  const binariesDir = join(pluginDir, "Binaries", "Win64");
+  const clientPath = join(
+    pluginDir,
+    "Resources",
+    "Loomle",
+    "win32-x64",
+    "loomle.exe",
+  );
+  await mkdir(binariesDir, { recursive: true });
+  await mkdir(join(pluginDir, "Resources", "Loomle", "win32-x64"), {
+    recursive: true,
+  });
+  await writeFile(
+    join(pluginDir, "LoomleBridge.uplugin"),
+    `${JSON.stringify({
+      FileVersion: 3,
+      VersionName: "0.7.0-test",
+      Modules: [{
+        Name: "LoomleBridge",
+        Type: "Editor",
+        PlatformAllowList: ["Win64"],
+      }],
+    }, null, 2)}\n`,
+  );
+  await writeFile(
+    join(binariesDir, "UnrealEditor-LoomleBridge.dll"),
+    "compiled LoomleBridge",
+  );
+  await writeFile(clientPath, "windows client");
+
+  try {
+    assert.deepEqual(
+      await validatePackagedPluginDirectoryCandidate(
+        pluginDir,
+        "win32-x64",
+      ),
+      {
+        descriptorPath: join(pluginDir, "LoomleBridge.uplugin"),
+        versionName: "0.7.0-test",
+        clientExecutable: clientPath,
+      },
     );
   } finally {
     await rm(root, { recursive: true, force: true });

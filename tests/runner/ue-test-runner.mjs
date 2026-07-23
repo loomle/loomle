@@ -62,6 +62,22 @@ const TARGETS = new Map([
       join("UnrealEditor.app", "Contents", "MacOS", "UnrealEditor"),
     ],
   }],
+  ["win32-x64", {
+    hostPlatform: "win32",
+    unrealPlatform: "Win64",
+    binariesDirectory: "Win64",
+    moduleBinaryName: (moduleName) => `UnrealEditor-${moduleName}.dll`,
+    bundledClientPath: join(
+      "Resources",
+      "Loomle",
+      "win32-x64",
+      "loomle.exe",
+    ),
+    commandPaths: [
+      "UnrealEditor-Cmd.exe",
+      "UnrealEditor.exe",
+    ],
+  }],
 ]);
 
 const PATH_OPTIONS = new Set([

@@ -25,6 +25,10 @@ const TARGETS = new Map([
     executableName: "loomle",
     unrealPlatform: "Mac",
   }],
+  ["win32-x64", {
+    executableName: "loomle.exe",
+    unrealPlatform: "Win64",
+  }],
 ]);
 const IGNORED_SOURCE_NAMES = new Set([
   ".DS_Store",

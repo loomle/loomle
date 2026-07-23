@@ -87,17 +87,18 @@ exact Node.js 24 LTS runtime and verifies its official archive checksum. SEA
 compatibility is accepted per platform only after building and running the
 final platform program.
 
-The only platform program path consumed by Fab packaging, release workflows,
-and executable tests is:
+The only platform program paths consumed by Fab packaging, verification
+workflows, and executable tests are:
 
 ```text
-.tmp/client/<platform-arch>/loomle(.exe)
+.tmp/client/darwin-arm64/loomle
+.tmp/client/win32-x64/loomle.exe
 ```
 
-`packaging/client/` owns how that executable is built. Its first accepted
-target is `darwin-arm64`; other targets are not implied until they pass the
-same native executable tests. Callers consume only the canonical artifact path
-and must not infer another private build location.
+`packaging/client/` owns how each executable is built. Accepted native QA
+targets are `darwin-arm64` and `win32-x64`. Callers consume only the canonical
+artifact path and must not infer another private build location. A QA target
+does not become an advertised release target merely by existing here.
 
 ```sh
 npm run build:executable
@@ -168,14 +169,14 @@ missing or receipt-mismatched canonical Client, product- or protocol-version
 drift, another staged Client target, unexpected Client resources, and platform
 build outputs. The receipt does not fingerprint every source file, so both
 local QA and automation build and test the Client immediately before assembly.
-For the accepted `darwin-arm64` target it narrows the derived descriptor to
-Mac but deliberately omits a module architecture allow-list. UE represents a
-universal Mac Editor as architecture `MULTI`, even when its active process
-slice is arm64, so `Mac:arm64` would prevent the module from loading. The source
-descriptor remains development input for later targets. UE BuildPlugin must
-compile the same single architecture, native audits must prove both bundled
-binaries are arm64-only, and `Config/FilterPlugin.ini` must preserve the exact
-Client bytes. The final QA or release archive is always the
+For `darwin-arm64` it narrows the derived descriptor to Mac; for `win32-x64`
+it narrows it to Win64. Both deliberately omit a module architecture
+allow-list. UE represents a universal Mac Editor as architecture `MULTI`, even
+when its active process slice is arm64, so `Mac:arm64` would prevent the module
+from loading. The source descriptor remains multi-platform development input.
+UE BuildPlugin must compile the matching target, native audits must prove the
+requested Client and Bridge architecture, and `Config/FilterPlugin.ini` must
+preserve the exact Client bytes. The final QA or release archive is always the
 BuildPlugin output, never the pre-build staging tree. It must contain the
 matching Bridge binary, `Installed=true` descriptor, retained filter contract,
 and the same one-target Client payload. Before BuildPlugin runs UHT, Fab
@@ -279,13 +280,14 @@ the engine plugin, so the old Bridge would otherwise shadow 0.7. Fab cannot
 perform this project-file migration, and the shadowed 0.7 plugin cannot detect
 it from inside that project.
 
-The active Mac/Fab workflow is manual QA only. It has read-only repository
-permission, uploads the audited ZIP and durable result files, and never creates
-a tag, GitHub Release, latest alias, or public Fab submission. A separate
-manual promotion workflow can consume one successful run and publish its exact
-ZIP as a GitHub prerelease. It cannot build, sign, or recompress the candidate.
-Windows remains unavailable until its native Client, packaging, and
-verification paths satisfy the same contract.
+The Mac and Windows/Fab workflows are manual QA only. They have read-only
+repository permission, upload audited ZIPs and durable result files, and never
+create a tag, GitHub Release, latest alias, or public Fab submission. The
+separate manual promotion workflow currently consumes only one successful Mac
+run and may publish its exact ZIP as a GitHub prerelease. It cannot build,
+sign, or recompress the candidate. Windows QA is intentionally independent:
+passing it proves the native implementation path, but does not yet add Windows
+to release notes or promotion.
 
 ## Verification Boundary
 

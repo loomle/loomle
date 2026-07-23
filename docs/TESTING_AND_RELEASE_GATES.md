@@ -196,20 +196,21 @@ public tools and must not require a private test RPC in the product.
 
 ## Runner Contract
 
-One Node runner owns Editor processes and test artifacts. The initial
-implementation accepts only a `darwin-arm64` candidate on a Darwin host; new
-platforms extend the same contract after their release path is accepted. It
-accepts explicit engine, project-template, plugin/archive, profile, target, and
-output paths. It must:
+One Node runner owns Editor processes and test artifacts. It accepts
+`darwin-arm64` candidates on Darwin hosts and `win32-x64` candidates on Windows
+x64 hosts. It accepts explicit engine, project-template, plugin/archive,
+profile, target, and output paths. It must:
 
-- spawn the Editor directly and retain its PID and process group;
+- spawn the Editor directly and retain its PID plus a process group where the
+  host supports one;
 - use a durable per-run Client state directory, exposed through a short
   temporary `HOME` alias on platforms whose Unix socket paths are bounded;
 - enforce a deadline for every phase;
 - on the first `SIGINT` or `SIGTERM`, request a graceful abort and keep
   handling repeated signals until cleanup and `result.json` are complete;
-- terminate, then force-kill only its own process group when necessary, and
-  confirm that group has disappeared before removing its workspace;
+- terminate, then force-kill only its owned Editor or process group when
+  necessary, and confirm that owned process has disappeared before removing
+  its workspace;
 - snapshot crash locations before and after the run;
 - bind every report to the commit and candidate identity;
 - record SHA-256 when the candidate is an archive; and
@@ -310,8 +311,17 @@ The current workflow implements this sequence for macOS Apple Silicon.
 used by QA, with the Gatekeeper limitation stated in their release notes.
 Stable release promotion remains blocked until Developer ID signing and Apple
 notarization are performed before packaged end-to-end, so the tested bytes are
-also the published bytes. Other platforms join the same gates only after their
-release build and runner support exist.
+also the published bytes.
+
+The independent Windows x64 workflow follows the same candidate construction:
+it builds a pinned native Node SEA Client, runs the complete UE Automation
+category against a same-commit test-bearing plugin, builds and audits a stripped
+Win64 plugin, and runs packaged end-to-end against the exact ZIP it uploads.
+PE audits require both `loomle.exe` and `UnrealEditor-LoomleBridge.dll` to use
+the AMD64 machine type. That ZIP is a QA artifact only: current release
+promotion and advertised platform support do not consume it until a later
+explicit release decision. The QA executable may remain unsigned; distributing
+it requires a separately confirmed Authenticode and SmartScreen policy.
 
 Manual promotion takes a successful `verify-fab-mac.yml` run ID. It verifies
 the run identity, commit, results, candidate hash, product version, and release

@@ -39,17 +39,17 @@ It also includes Loomle's `LICENSE` and a generated
 `THIRD_PARTY_NOTICES.txt` covering the pinned Node runtime and bundled
 production dependencies.
 
-Only `darwin-arm64` is currently accepted. Assembly narrows
-the derived plugin descriptor to `SupportedTargetPlatforms = ["Mac"]`, the
-`LoomleBridge` module to `PlatformAllowList = ["Mac"]`, and removes any module
+Accepted native QA targets are `darwin-arm64` and `win32-x64`. Assembly narrows
+the derived descriptor to Mac or Win64 respectively, narrows the module
+`PlatformAllowList` to the same platform, and removes any module
 `PlatformArchitectureAllowList`. UE builds a universal Mac Editor with the
 runtime architecture token `MULTI`; an `arm64` module allow-list would silently
 skip Loomle even while that Editor is running its arm64 slice. Architecture is
-therefore an artifact property enforced by native Client tests, BuildPlugin's
-architecture argument, and `lipo` audits of the Client and Bridge. The source
-descriptor remains multi-platform development input; accepting another release
-target requires a new explicit target specification and its native verification
-path.
+therefore an artifact property enforced by native Client tests, BuildPlugin,
+and native binary audits. Mac artifacts must be arm64-only and Windows
+artifacts must be PE32+ AMD64. The source descriptor remains multi-platform
+development input. Accepting a QA target does not by itself advertise a release
+target.
 
 Build and test the canonical Client before assembling the Fab plugin:
 
@@ -101,15 +101,15 @@ generates deterministic third-party notices from the production dependency
 set in `package-lock.json`.
 
 UE BuildPlugin consumes that staging tree and produces the distributable
-plugin. The final tree must add the matching
-`Binaries/Mac/UnrealEditor-LoomleBridge.dylib`, mark the descriptor
-`Installed=true`, retain `Config/FilterPlugin.ini`, and preserve the exact
-Client bytes and executable permission. Both the BuildPlugin output and the
-final ZIP are audited again for the one-module descriptor and the absence of
-test source, `Intermediate/`, `Saved/`, and files below the empty `Content/`
+plugin. The final tree must add the matching Mac dylib or Win64 DLL, mark the
+descriptor `Installed=true`, retain `Config/FilterPlugin.ini`, and preserve the
+exact Client bytes and executable permission. Both the BuildPlugin output and
+the final ZIP are audited again for the one-module descriptor and the absence
+of test source, `Intermediate/`, `Saved/`, and files below the empty `Content/`
 directory. Because archive tools cannot infer an empty directory that
-BuildPlugin omitted, release staging restores it before the final audit and
-ZIP creation. For `darwin-arm64`, both the Bridge and Client are arm64-only.
+BuildPlugin omitted, release staging restores it before the final audit and ZIP
+creation. For `darwin-arm64`, both binaries are arm64-only; for `win32-x64`,
+both use the PE AMD64 machine type.
 
 Run the assembler tests locally:
 

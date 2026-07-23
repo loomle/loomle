@@ -10,14 +10,16 @@ npm run build:executable
 npm run test:executable
 ```
 
-The first accepted target is `darwin-arm64` and its canonical output is:
+The accepted native QA targets and canonical outputs are:
 
 ```text
 .tmp/client/darwin-arm64/loomle
 .tmp/client/darwin-arm64/build.json
+.tmp/client/win32-x64/loomle.exe
+.tmp/client/win32-x64/build.json
 ```
 
-`build.json` schema version 2 records the product version, Client–Bridge
+`build.json` schema version 3 records the product version, Client–Bridge
 protocol version, native target, pinned Node version and runtime archive
 SHA-256, executable name, and executable SHA-256. Fab assembly requires this
 receipt and rechecks the executable bytes, so a receipt from another product or
@@ -28,10 +30,11 @@ receipt is not shipped in the plugin.
 
 `node-runtime.json` pins the exact official Node.js 24 LTS archive and SHA-256.
 The build verifies that archive, uses the extracted Node binary to generate the
-SEA blob, injects it into a copy of the same binary, and applies an ad-hoc local
-signature. Snapshot and code cache generation are disabled so the executable
-does not capture build-machine state.
+SEA blob, and injects it into a copy of the same binary. The Mac QA executable
+receives an ad-hoc local signature. The Windows QA executable remains unsigned.
+Snapshot and code cache generation are disabled so the executable does not
+capture build-machine state.
 
-The ad-hoc signature is only for local execution and smoke testing. Developer
-ID signing, notarization, Windows Authenticode signing, license staging, and the
-remaining native targets belong to the later release-assembly step.
+The ad-hoc Mac signature and unsigned Windows program are only for native QA.
+Developer ID signing, notarization, and Windows Authenticode policy belong to
+the later release decision.

@@ -100,17 +100,49 @@ test("assembles the Bridge source and only the canonical TypeScript Client execu
   }
 });
 
-test("rejects native targets that have not completed the release acceptance path", async () => {
+test("assembles the canonical Windows x64 Client and narrows the descriptor to Win64", async () => {
   const fixture = await createFixture("win32-x64");
   try {
-    for (const target of ["win32-x64", "darwin-x64", "unknown"]) {
+    const result = await assembleFabPlugin({
+      repoRoot: fixture.repoRoot,
+      outputDir: fixture.outputDir,
+      target: "win32-x64",
+    });
+    const pluginRoot = join(fixture.outputDir, "LoomleBridge");
+    const stagedClient = join(
+      pluginRoot,
+      "Resources",
+      "Loomle",
+      "win32-x64",
+      "loomle.exe",
+    );
+
+    assert.equal(result.client, stagedClient);
+    assert.equal(result.target, "win32-x64");
+    assert.equal(await readFile(stagedClient, "utf8"), "canonical-client");
+    const descriptor = JSON.parse(await readFile(
+      join(pluginRoot, "LoomleBridge.uplugin"),
+      "utf8",
+    ));
+    assert.deepEqual(descriptor.SupportedTargetPlatforms, ["Win64"]);
+    assert.deepEqual(descriptor.Modules[0].PlatformAllowList, ["Win64"]);
+    assert.equal(descriptor.Modules[0].PlatformArchitectureAllowList, undefined);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects native targets that have not completed the QA acceptance path", async () => {
+  const fixture = await createFixture("darwin-arm64");
+  try {
+    for (const target of ["darwin-x64", "linux-x64", "unknown"]) {
       await assert.rejects(
         assembleFabPlugin({
           repoRoot: fixture.repoRoot,
           outputDir: fixture.outputDir,
           target,
         }),
-        /unsupported Fab target .*; accepted targets: darwin-arm64/,
+        /unsupported Fab target .*; accepted targets: darwin-arm64, win32-x64/,
       );
     }
   } finally {

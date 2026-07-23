@@ -25,6 +25,7 @@ const manifestPath = fileURLToPath(new URL("node-runtime.json", import.meta.url)
 const bundleEntry = "client/dist/main.cjs";
 const target = parseTarget(process.argv.slice(2));
 const hostTarget = `${process.platform}-${process.arch}`;
+const targetSpec = resolveTarget(target);
 
 if (target !== hostTarget) {
   throw new Error(
@@ -58,7 +59,12 @@ await ensureArchive(runtime.url, archivePath, runtime.sha256);
 const runtimeDirectory = join(cacheDirectory, `runtime-${target}`);
 await rm(runtimeDirectory, { recursive: true, force: true });
 await mkdir(runtimeDirectory, { recursive: true });
-run("tar", ["-xzf", archivePath, "-C", runtimeDirectory]);
+run("tar", [
+  targetSpec.archiveFormat === "tar.gz" ? "-xzf" : "-xf",
+  archivePath,
+  "-C",
+  runtimeDirectory,
+]);
 
 const nodePath = join(runtimeDirectory, runtime.archiveRoot, runtime.nodePath);
 const nodeVersion = run(nodePath, ["--version"], { capture: true });
@@ -68,10 +74,10 @@ if (nodeVersion !== `v${manifest.nodeVersion}`) {
 
 const buildDirectory = resolve(repoRoot, `.tmp/client-build/${target}`);
 const outputDirectory = resolve(repoRoot, `.tmp/client/${target}`);
-const outputPath = join(outputDirectory, "loomle");
+const outputPath = join(outputDirectory, targetSpec.executableName);
 const receiptPath = join(outputDirectory, "build.json");
 const nodeLicensePath = join(outputDirectory, "node-license.txt");
-const temporaryOutputPath = join(buildDirectory, "loomle");
+const temporaryOutputPath = join(buildDirectory, targetSpec.executableName);
 const blobPath = join(buildDirectory, "loomle.blob");
 const configPath = join(buildDirectory, "sea-config.json");
 await rm(buildDirectory, { recursive: true, force: true });
@@ -94,20 +100,28 @@ run(nodePath, ["--experimental-sea-config", configPath], {
 });
 
 await copyFile(nodePath, temporaryOutputPath);
-await chmod(temporaryOutputPath, 0o755);
-run("codesign", ["--remove-signature", temporaryOutputPath]);
+if (targetSpec.signAdHoc) {
+  await chmod(temporaryOutputPath, 0o755);
+  run("codesign", ["--remove-signature", temporaryOutputPath]);
+}
 
 await inject(temporaryOutputPath, "NODE_SEA_BLOB", await readFile(blobPath), {
-  machoSegmentName: "NODE_SEA",
+  ...(targetSpec.machoSegmentName
+    ? { machoSegmentName: targetSpec.machoSegmentName }
+    : {}),
   sentinelFuse: "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2",
 });
 
-await chmod(temporaryOutputPath, 0o755);
-run("codesign", ["--force", "--sign", "-", "--timestamp=none", temporaryOutputPath]);
-run("codesign", ["--verify", "--strict", "--verbose=2", temporaryOutputPath]);
+if (targetSpec.signAdHoc) {
+  await chmod(temporaryOutputPath, 0o755);
+  run("codesign", ["--force", "--sign", "-", "--timestamp=none", temporaryOutputPath]);
+  run("codesign", ["--verify", "--strict", "--verbose=2", temporaryOutputPath]);
+}
 await assertFileExcludes(temporaryOutputPath, repoRoot);
 await rename(temporaryOutputPath, outputPath);
-run("codesign", ["--verify", "--strict", "--verbose=2", outputPath]);
+if (targetSpec.signAdHoc) {
+  run("codesign", ["--verify", "--strict", "--verbose=2", outputPath]);
+}
 await copyFile(
   join(runtimeDirectory, runtime.archiveRoot, "LICENSE"),
   nodeLicensePath,
@@ -123,7 +137,7 @@ await writeFile(receiptPath, `${JSON.stringify({
   target,
   nodeVersion: manifest.nodeVersion,
   runtimeSha256: runtime.sha256,
-  executable: "loomle",
+  executable: targetSpec.executableName,
   sha256: outputHash,
   nodeLicenseSha256: nodeLicenseHash,
 }, null, 2)}\n`);
@@ -137,6 +151,25 @@ function parseTarget(args) {
   if (args.length === 0) return `${process.platform}-${process.arch}`;
   if (args.length === 2 && args[0] === "--target" && args[1]) return args[1];
   throw new Error("Usage: node packaging/client/build.mjs [--target <platform-arch>]");
+}
+
+function resolveTarget(targetValue) {
+  const targets = {
+    "darwin-arm64": {
+      executableName: "loomle",
+      archiveFormat: "tar.gz",
+      machoSegmentName: "NODE_SEA",
+      signAdHoc: true,
+    },
+    "win32-x64": {
+      executableName: "loomle.exe",
+      archiveFormat: "zip",
+      signAdHoc: false,
+    },
+  };
+  const result = targets[targetValue];
+  if (!result) throw new Error(`Unsupported executable target: ${targetValue}.`);
+  return result;
 }
 
 function validateRuntime(nodeVersionValue, runtimeValue) {

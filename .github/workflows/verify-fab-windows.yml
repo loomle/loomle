@@ -1,0 +1,371 @@
+name: Verify Loomle Fab Plugin (Windows)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-loomle-fab-windows
+  cancel-in-progress: false
+
+jobs:
+  verify-fab-windows:
+    runs-on: [self-hosted, Windows, X64, loomle-win, ue57]
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Require Windows X64 Runner
+        run: |
+          if ($env:RUNNER_OS -ne "Windows" -or $env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
+            throw "The win32-x64 Client must be built on a native Windows AMD64 runner."
+          }
+
+      - name: Set Up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Verify Workspaces And Fab Assembler
+        run: npm test
+
+      - name: Build And Test Standalone Client
+        run: |
+          npm run build:executable -- --target win32-x64
+          npm run test:executable -- --target win32-x64
+
+      - name: Assemble Fab Plugin
+        id: assemble
+        run: |
+          $staging = Join-Path $env:RUNNER_TEMP "loomle-fab-win32-x64"
+          node packaging/fab/assemble.mjs `
+            --repo-root $env:GITHUB_WORKSPACE `
+            --output-dir $staging `
+            --target win32-x64
+          "staging=$staging" >> $env:GITHUB_OUTPUT
+
+      - name: Resolve Unreal Engine Root
+        id: ue
+        env:
+          UE_FROM_VARS: ${{ vars.UE_5_7_ROOT_WINDOWS }}
+        run: |
+          $candidate = $env:UE_FROM_VARS
+          if ([string]::IsNullOrWhiteSpace($candidate)) {
+            $candidate = $env:UE_5_7_ROOT_WINDOWS
+          }
+          if ([string]::IsNullOrWhiteSpace($candidate)) {
+            $candidate = "C:\Program Files\Epic Games\UE_5.7"
+          }
+          $runUat = Join-Path $candidate "Engine\Build\BatchFiles\RunUAT.bat"
+          if (-not (Test-Path -LiteralPath $runUat -PathType Leaf)) {
+            throw "RunUAT.bat not found: $runUat"
+          }
+          "ue_root=$candidate" >> $env:GITHUB_OUTPUT
+          "run_uat=$runUat" >> $env:GITHUB_OUTPUT
+
+      - name: Compile Same-Commit Automation Plugin
+        id: automation-package
+        timeout-minutes: 30
+        env:
+          RUN_UAT: ${{ steps.ue.outputs.run_uat }}
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP "loomle-automation-buildplugin-win32-x64"
+          Remove-Item -LiteralPath $package -Recurse -Force -ErrorAction SilentlyContinue
+          $plugin = Join-Path $env:GITHUB_WORKSPACE "engine\LoomleBridge\LoomleBridge.uplugin"
+          & $env:RUN_UAT BuildPlugin `
+            "-Plugin=$plugin" `
+            "-Package=$package" `
+            -PackageAppendPluginSubdir `
+            -TargetPlatforms=Win64 `
+            -Rocket
+          if ($LASTEXITCODE -ne 0) {
+            throw "BuildPlugin failed for the Automation candidate."
+          }
+          $tests = Join-Path $package "LoomleBridge\Source\LoomleBridge\Private\Tests"
+          if (-not (Test-Path -LiteralPath $tests -PathType Container)) {
+            throw "Automation candidate is missing native tests: $tests"
+          }
+          "plugin=$(Join-Path $package 'LoomleBridge')" >> $env:GITHUB_OUTPUT
+
+      - name: Require Idle Unreal Editor Before Automation
+        run: |
+          $editors = @(Get-Process UnrealEditor, UnrealEditor-Cmd -ErrorAction SilentlyContinue)
+          if ($editors.Count -ne 0) {
+            $editors | Format-Table Id, ProcessName, Path
+            throw "The self-hosted runner already has an Unreal Editor process."
+          }
+
+      - name: Run Complete UE Automation
+        timeout-minutes: 35
+        env:
+          UE_ROOT: ${{ steps.ue.outputs.ue_root }}
+          AUTOMATION_PLUGIN: ${{ steps.automation-package.outputs.plugin }}
+        run: |
+          $results = Join-Path $env:RUNNER_TEMP "loomle-automation-results-win32-x64"
+          Remove-Item -LiteralPath $results -Recurse -Force -ErrorAction SilentlyContinue
+          npm run test:ue-automation -- `
+            --ue-root $env:UE_ROOT `
+            --project-template (Join-Path $env:GITHUB_WORKSPACE "tests\fixtures\ue\LoomleTestHost") `
+            --plugin-dir $env:AUTOMATION_PLUGIN `
+            --output-dir $results `
+            --target win32-x64
+          if ($LASTEXITCODE -ne 0) {
+            throw "UE Automation failed."
+          }
+          node -e '
+            const result = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+            if (result.status !== "passed" || result.commit !== process.env.GITHUB_SHA) {
+              throw new Error("UE Automation result does not match the checked-out commit.");
+            }
+          ' (Join-Path $results "result.json")
+
+      - name: Compile Staged Plugin
+        id: package
+        timeout-minutes: 30
+        env:
+          RUN_UAT: ${{ steps.ue.outputs.run_uat }}
+          STAGING: ${{ steps.assemble.outputs.staging }}
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP "loomle-fab-buildplugin-win32-x64"
+          Remove-Item -LiteralPath $package -Recurse -Force -ErrorAction SilentlyContinue
+          $plugin = Join-Path $env:STAGING "LoomleBridge\LoomleBridge.uplugin"
+          & $env:RUN_UAT BuildPlugin `
+            "-Plugin=$plugin" `
+            "-Package=$package" `
+            -PackageAppendPluginSubdir `
+            -TargetPlatforms=Win64 `
+            -Rocket
+          if ($LASTEXITCODE -ne 0) {
+            throw "BuildPlugin failed for the stripped candidate."
+          }
+          New-Item -ItemType Directory `
+            -Path (Join-Path $package "LoomleBridge\Content") `
+            -Force | Out-Null
+          "package=$package" >> $env:GITHUB_OUTPUT
+
+      - name: Audit Packaged Client
+        env:
+          PACKAGE: ${{ steps.package.outputs.package }}
+          STAGING: ${{ steps.assemble.outputs.staging }}
+        run: |
+          function Assert-SameHash([string] $first, [string] $second, [string] $label) {
+            $firstHash = (Get-FileHash -LiteralPath $first -Algorithm SHA256).Hash
+            $secondHash = (Get-FileHash -LiteralPath $second -Algorithm SHA256).Hash
+            if ($firstHash -ne $secondHash) {
+              throw "BuildPlugin changed $label."
+            }
+          }
+
+          $plugin = Join-Path $env:PACKAGE "LoomleBridge"
+          $sourceClient = Join-Path $env:STAGING "LoomleBridge\Resources\Loomle\win32-x64\loomle.exe"
+          $client = Join-Path $plugin "Resources\Loomle\win32-x64\loomle.exe"
+          if (-not (Test-Path -LiteralPath $client -PathType Leaf)) {
+            throw "BuildPlugin output is missing the Windows Client: $client"
+          }
+          foreach ($forbidden in @(
+            "Resources\MCP",
+            "Resources\Loomle\win32-x64\build.json",
+            "Source\LoomleBridge\Private\Tests",
+            "Intermediate",
+            "Saved"
+          )) {
+            if (Test-Path -LiteralPath (Join-Path $plugin $forbidden)) {
+              throw "BuildPlugin output contains forbidden release path: $forbidden"
+            }
+          }
+          $content = Join-Path $plugin "Content"
+          if (-not (Test-Path -LiteralPath $content -PathType Container)) {
+            throw "BuildPlugin output is missing the required empty Content directory."
+          }
+          if (@(Get-ChildItem -LiteralPath $content -Force).Count -ne 0) {
+            throw "BuildPlugin output Content directory must be empty."
+          }
+          foreach ($required in @("LICENSE", "THIRD_PARTY_NOTICES.txt")) {
+            $packagedPath = Join-Path $plugin $required
+            $sourcePath = Join-Path (Join-Path $env:STAGING "LoomleBridge") $required
+            if (-not (Test-Path -LiteralPath $packagedPath -PathType Leaf)
+                -or (Get-Item -LiteralPath $packagedPath).Length -eq 0) {
+              throw "BuildPlugin output is missing $required."
+            }
+            Assert-SameHash $sourcePath $packagedPath $required
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $plugin "Config\FilterPlugin.ini"))) {
+            throw "BuildPlugin output is missing Config\FilterPlugin.ini."
+          }
+          $targets = @(Get-ChildItem `
+            -LiteralPath (Join-Path $plugin "Resources\Loomle") `
+            -Directory)
+          if ($targets.Count -ne 1 -or $targets[0].Name -ne "win32-x64") {
+            throw "BuildPlugin output must contain exactly the win32-x64 Client target."
+          }
+          Assert-SameHash $sourceClient $client "the bundled Client"
+          & $client --help
+          if ($LASTEXITCODE -ne 0) {
+            throw "The packaged Client did not run."
+          }
+
+          $descriptor = Join-Path $plugin "LoomleBridge.uplugin"
+          node -e '
+            const descriptor = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+            const moduleNames = descriptor.Modules?.map((entry) => entry.Name);
+            const module = descriptor.Modules?.[0];
+            const same = (actual, expected) => JSON.stringify(actual) === JSON.stringify(expected);
+            if (descriptor.Installed !== true
+                || !same(descriptor.SupportedTargetPlatforms, ["Win64"])
+                || !same(moduleNames, ["LoomleBridge"])
+                || !same(module?.PlatformAllowList, ["Win64"])
+                || module?.PlatformArchitectureAllowList !== undefined) {
+              throw new Error("BuildPlugin output has an invalid target descriptor contract.");
+            }
+          ' $descriptor
+
+          $bridge = Join-Path $plugin "Binaries\Win64\UnrealEditor-LoomleBridge.dll"
+          if (-not (Test-Path -LiteralPath $bridge -PathType Leaf)) {
+            throw "BuildPlugin output is missing the Win64 Bridge binary: $bridge"
+          }
+          node packaging/tools/pe-machine.mjs $client $bridge
+
+      - name: Archive Verified BuildPlugin Output
+        id: archive
+        env:
+          PACKAGE: ${{ steps.package.outputs.package }}
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "loomle-fab-plugin-win32-x64.zip"
+          Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
+          tar.exe -a -cf $archive -C $env:PACKAGE LoomleBridge
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not create the Windows QA ZIP."
+          }
+          $entries = @(tar.exe -tf $archive)
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not list the Windows QA ZIP."
+          }
+          foreach ($required in @(
+            "LoomleBridge/Resources/Loomle/win32-x64/loomle.exe",
+            "LoomleBridge/Content/",
+            "LoomleBridge/LICENSE",
+            "LoomleBridge/THIRD_PARTY_NOTICES.txt"
+          )) {
+            if ($entries -notcontains $required) {
+              throw "Fab archive is missing $required."
+            }
+          }
+          foreach ($entry in $entries) {
+            if ($entry -match '^LoomleBridge/Resources/MCP(/|$)'
+                -or $entry -eq 'LoomleBridge/Resources/Loomle/win32-x64/build.json'
+                -or $entry -match '^LoomleBridge/Source/LoomleBridge/Private/Tests(/|$)'
+                -or $entry -match '^LoomleBridge/(Intermediate|Saved)(/|$)'
+                -or $entry -match '^LoomleBridge/Content/.+') {
+              throw "Fab archive contains a forbidden entry: $entry"
+            }
+          }
+
+          $audit = Join-Path $env:RUNNER_TEMP "loomle-fab-archive-audit-win32-x64"
+          Remove-Item -LiteralPath $audit -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $audit | Out-Null
+          tar.exe -xf $archive -C $audit
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not extract the Windows QA ZIP for audit."
+          }
+          $packaged = Join-Path $env:PACKAGE "LoomleBridge"
+          $extracted = Join-Path $audit "LoomleBridge"
+          foreach ($relative in @(
+            "LoomleBridge.uplugin",
+            "Config\FilterPlugin.ini",
+            "LICENSE",
+            "THIRD_PARTY_NOTICES.txt",
+            "Resources\Loomle\win32-x64\loomle.exe",
+            "Binaries\Win64\UnrealEditor-LoomleBridge.dll"
+          )) {
+            $packagedHash = (Get-FileHash `
+              -LiteralPath (Join-Path $packaged $relative) `
+              -Algorithm SHA256).Hash
+            $extractedHash = (Get-FileHash `
+              -LiteralPath (Join-Path $extracted $relative) `
+              -Algorithm SHA256).Hash
+            if ($packagedHash -ne $extractedHash) {
+              throw "Fab archive changed or omitted $relative."
+            }
+          }
+          node packaging/tools/pe-machine.mjs `
+            (Join-Path $extracted "Resources\Loomle\win32-x64\loomle.exe") `
+            (Join-Path $extracted "Binaries\Win64\UnrealEditor-LoomleBridge.dll")
+          node -e '
+            const descriptor = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+            const moduleNames = descriptor.Modules?.map((entry) => entry.Name);
+            if (JSON.stringify(moduleNames) !== JSON.stringify(["LoomleBridge"])
+                || descriptor.Modules?.[0]?.PlatformArchitectureAllowList !== undefined) {
+              throw new Error("Fab archive descriptor has an invalid module contract.");
+            }
+          ' (Join-Path $extracted "LoomleBridge.uplugin")
+
+          $archiveSha = "$archive.sha256"
+          $archiveHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$archiveHash  $([IO.Path]::GetFileName($archive))" | `
+            Set-Content -LiteralPath $archiveSha -Encoding utf8NoBOM
+          "archive=$archive" >> $env:GITHUB_OUTPUT
+          "archive_sha=$archiveSha" >> $env:GITHUB_OUTPUT
+
+      - name: Require Idle Unreal Editor Before Packaged End-To-End
+        run: |
+          $editors = @(Get-Process UnrealEditor, UnrealEditor-Cmd -ErrorAction SilentlyContinue)
+          if ($editors.Count -ne 0) {
+            $editors | Format-Table Id, ProcessName, Path
+            throw "The self-hosted runner already has an Unreal Editor process."
+          }
+
+      - name: Run Packaged End-To-End
+        timeout-minutes: 35
+        env:
+          UE_ROOT: ${{ steps.ue.outputs.ue_root }}
+          ARCHIVE: ${{ steps.archive.outputs.archive }}
+        run: |
+          $results = Join-Path $env:RUNNER_TEMP "loomle-packaged-e2e-results-win32-x64"
+          Remove-Item -LiteralPath $results -Recurse -Force -ErrorAction SilentlyContinue
+          npm run test:packaged-e2e -- `
+            --ue-root $env:UE_ROOT `
+            --project-template (Join-Path $env:GITHUB_WORKSPACE "tests\fixtures\ue\LoomleTestHost") `
+            --plugin-archive $env:ARCHIVE `
+            --output-dir $results `
+            --target win32-x64
+          if ($LASTEXITCODE -ne 0) {
+            throw "Packaged end-to-end failed."
+          }
+          $archiveHash = (Get-FileHash -LiteralPath $env:ARCHIVE -Algorithm SHA256).Hash.ToLowerInvariant()
+          node -e '
+            const result = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+            if (result.status !== "passed"
+                || result.commit !== process.env.GITHUB_SHA
+                || result.archiveSha256 !== process.argv[2]) {
+              throw new Error("Packaged E2E result does not match the checked-out commit and exact QA archive.");
+            }
+          ' (Join-Path $results "result.json") $archiveHash
+
+      - name: Upload Native Test Results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: loomle-native-test-results-win32-x64
+          path: |
+            ${{ runner.temp }}/loomle-automation-results-win32-x64
+            ${{ runner.temp }}/loomle-packaged-e2e-results-win32-x64
+          if-no-files-found: warn
+
+      - name: Upload Windows QA Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: loomle-fab-plugin-win32-x64
+          path: |
+            ${{ steps.archive.outputs.archive }}
+            ${{ steps.archive.outputs.archive_sha }}
+          if-no-files-found: error
