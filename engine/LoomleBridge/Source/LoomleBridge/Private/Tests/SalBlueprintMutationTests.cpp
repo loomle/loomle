@@ -26,6 +26,7 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/AutomationTest.h"
+#include "ScopedTransaction.h"
 #include "UObject/GarbageCollection.h"
 #include "UObject/UObjectHash.h"
 #include "UObject/Package.h"
@@ -197,6 +198,79 @@ FSalPatch DescriptionPatch(
     Patch.bDryRun = bDryRun;
     Patch.Statements = {MakeShared<FJsonValueObject>(Set)};
     return Patch;
+}
+
+/**
+ * Test-only fault injector for the gap between transient preflight and live
+ * apply. A writable string field is imported twice during preflight (validate,
+ * then apply to the sandbox). The next import is the live validation pass and
+ * fails, after an earlier statement has already mutated the live Blueprint.
+ *
+ * Production SAL JSON values are immutable. This deliberately stateful value
+ * models an equivalent UE-native failure that can occur only on the live
+ * object, without adding a production-only failure hook.
+ */
+class FJsonValueFailAfterPreflight final : public FJsonValueString
+{
+public:
+    explicit FJsonValueFailAfterPreflight(const FString& InValue)
+        : FJsonValueString(InValue)
+    {
+    }
+
+    virtual ~FJsonValueFailAfterPreflight() override = default;
+
+    virtual bool TryGetString(FString& OutString) const override
+    {
+        ++ReadCount;
+        if (ShouldFailConversions())
+        {
+            return false;
+        }
+        return FJsonValueString::TryGetString(OutString);
+    }
+
+    virtual bool TryGetNumber(double& OutNumber) const override
+    {
+        return ShouldFailConversions()
+            ? false
+            : FJsonValueString::TryGetNumber(OutNumber);
+    }
+
+    virtual bool TryGetBool(bool& OutBool) const override
+    {
+        return ShouldFailConversions()
+            ? false
+            : FJsonValueString::TryGetBool(OutBool);
+    }
+
+    int32 GetReadCount() const
+    {
+        return ReadCount;
+    }
+
+private:
+    bool ShouldFailConversions() const
+    {
+        return ReadCount > 2;
+    }
+
+    mutable int32 ReadCount = 0;
+};
+
+TSharedRef<FJsonObject> DescriptionSetStatement(
+    const TSharedPtr<FJsonValue>& Value)
+{
+    static const FString Alias = TEXT("blueprint");
+    TSharedRef<FJsonObject> Set = MakeShared<FJsonObject>();
+    Set->SetStringField(TEXT("kind"), TEXT("set"));
+    Set->SetObjectField(
+        TEXT("target"),
+        MemberReference(
+            LocalReference(Alias),
+            TEXT("BlueprintDescription")));
+    Set->SetField(TEXT("value"), Value);
+    return Set;
 }
 
 FSalResolvedTarget BlueprintTarget(UBlueprint* Blueprint)
@@ -466,6 +540,149 @@ bool FSalBlueprintDescriptionMutationTest::RunTest(const FString& Parameters)
                 *CleanupError),
             bCleaned);
     }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalBlueprintAtomicApplyRollbackTest,
+    "Loomle.Sal.Blueprint.Mutation.AtomicApplyRollback",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalBlueprintAtomicApplyRollbackTest::RunTest(
+    const FString& Parameters)
+{
+    (void)Parameters;
+    if (GEditor == nullptr)
+    {
+        AddError(TEXT("Blueprint rollback test requires GEditor."));
+        return false;
+    }
+
+    FBlueprintMutationFixture Fixture(
+        EBlueprintMutationFixtureKind::Blueprint);
+    if (!TestNotNull(
+            TEXT("Rollback fixture Blueprint is created"),
+            Fixture.Blueprint))
+    {
+        return false;
+    }
+
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(
+            TEXT("Rollback test owns an isolated UE transaction buffer"),
+            Transactions.Initialize()))
+    {
+        return false;
+    }
+
+    const FString OriginalDescription =
+        TEXT("Description before failed atomic Patch");
+    const FString IntermediateDescription =
+        TEXT("Live mutation that must be rolled back");
+    const FString OriginalCategory = TEXT("Before redo");
+    const FString RedoCategory = TEXT("After redo");
+    Fixture.Blueprint->BlueprintDescription = OriginalDescription;
+    Fixture.Blueprint->BlueprintCategory = OriginalCategory;
+    Fixture.Package->SetDirtyFlag(false);
+
+    {
+        FScopedTransaction SeedTransaction(
+            FText::FromString(TEXT("Loomle rollback test redo seed")));
+        if (!TestTrue(
+                TEXT("Redo seed transaction opened"),
+                SeedTransaction.IsOutstanding()))
+        {
+            return false;
+        }
+        Fixture.Blueprint->Modify();
+        Fixture.Blueprint->BlueprintCategory = RedoCategory;
+    }
+    TestTrue(
+        TEXT("Redo seed can be undone while retaining redo"),
+        GEditor->UndoTransaction(true));
+    TestEqual(
+        TEXT("Seed undo restores BlueprintCategory"),
+        Fixture.Blueprint->BlueprintCategory,
+        OriginalCategory);
+    TestTrue(
+        TEXT("Seed undo exposes a redo entry"),
+        GEditor->Trans->CanRedo());
+    const FTransactionContext ExpectedRedo =
+        GEditor->Trans->GetRedoContext();
+    TestTrue(
+        TEXT("Seed redo has a stable identity"),
+        ExpectedRedo.TransactionId.IsValid());
+    Fixture.Package->SetDirtyFlag(false);
+
+    const TSharedRef<FJsonValueFailAfterPreflight> FailingValue =
+        MakeShared<FJsonValueFailAfterPreflight>(
+            TEXT("Value accepted only by transient preflight"));
+    FSalPatch Patch;
+    Patch.Alias = TEXT("blueprint");
+    Patch.bDryRun = false;
+    Patch.Statements = {
+        MakeShared<FJsonValueObject>(
+            DescriptionSetStatement(
+                MakeShared<FJsonValueString>(
+                    IntermediateDescription))),
+        MakeShared<FJsonValueObject>(
+            DescriptionSetStatement(FailingValue))};
+
+    const TSharedPtr<FJsonObject> Result =
+        FSalBlueprintInterface::Patch(
+            Patch,
+            BlueprintTarget(Fixture.Blueprint));
+
+    TestFalse(
+        TEXT("Live-only second-statement failure rejects the Patch"),
+        ResultBool(Result, TEXT("valid"), true));
+    TestFalse(
+        TEXT("Rolled-back Patch is not reported as applied"),
+        ResultBool(Result, TEXT("applied"), true));
+    TestEqual(
+        TEXT("Atomic rollback restores the earlier live statement"),
+        Fixture.Blueprint->BlueprintDescription,
+        OriginalDescription);
+    TestFalse(
+        TEXT("Atomic rollback restores the original package dirty state"),
+        Fixture.Package->IsDirty());
+    TestEqual(
+        TEXT("Fault injector reaches live validation after sandbox apply"),
+        FailingValue->GetReadCount(),
+        3);
+    TestFalse(
+        TEXT("Failed Patch leaves no active UE transaction"),
+        GEditor->IsTransactionActive());
+    TestTrue(
+        TEXT("Failed Patch preserves the user's pre-existing redo"),
+        GEditor->Trans->CanRedo());
+    const FTransactionContext ActualRedo =
+        GEditor->Trans->GetRedoContext();
+    TestEqual(
+        TEXT("Failed Patch preserves the redo transaction identity"),
+        ActualRedo.TransactionId,
+        ExpectedRedo.TransactionId);
+    TestTrue(
+        TEXT("Preserved redo still executes"),
+        GEditor->RedoTransaction());
+    TestEqual(
+        TEXT("Preserved redo still restores its authored value"),
+        Fixture.Blueprint->BlueprintCategory,
+        RedoCategory);
+    TestEqual(
+        TEXT("Preserved redo does not reintroduce the failed Patch"),
+        Fixture.Blueprint->BlueprintDescription,
+        OriginalDescription);
+
+    Fixture.Package->SetDirtyFlag(false);
+    Transactions.Restore();
+    FString CleanupError;
+    const bool bCleaned = Fixture.Cleanup(CleanupError);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Rollback fixture unloads cleanly: %s"),
+            *CleanupError),
+        bCleaned);
     return true;
 }
 

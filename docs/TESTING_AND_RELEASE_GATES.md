@@ -23,8 +23,8 @@ The repository now provides:
 - one macOS Apple Silicon runner with `automation` and `packaged_e2e` profiles,
   isolated project copies, bounded process ownership, crash/log inspection, and
   durable results;
-- in-module UE Automation coverage for the shared Bridge/RPC contracts and the
-  active Asset, Blueprint, Class, Graph, StateTree, and Widget surfaces;
+- in-module UE Automation infrastructure and partial coverage for the shared
+  Bridge/RPC contracts and the active SAL interfaces;
 - an authored Blueprint fixture plus a real packaged Client-to-UE smoke
   workflow; and
 - Fab assembly and archive audits that exclude all native test code and test
@@ -91,6 +91,11 @@ Complete Bridge coverage means complete operation and state coverage. It does
 not mean enumerating every UE Node class, reflected property type, palette
 entry, or project asset. Generic reflected behavior uses representative native
 types plus targeted regressions.
+
+The maintained operation/state matrix is
+[`UE_AUTOMATION_COVERAGE.md`](UE_AUTOMATION_COVERAGE.md). A green Automation
+run is a release signal only when that matrix covers the active public surface;
+test count alone is not a coverage metric.
 
 Tests run in a dedicated `UnrealEditor-Cmd` process. The runner must fail when:
 

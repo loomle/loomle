@@ -11,6 +11,7 @@
 #include "Dom/JsonValue.h"
 #include "Editor.h"
 #include "Misc/AutomationTest.h"
+#include "Serialization/JsonSerializer.h"
 #include "StateTree.h"
 #include "StateTreeEditingSubsystem.h"
 #include "StateTreeEditorData.h"
@@ -288,6 +289,24 @@ int32 SalMutationPlannedOperationCount(const TSharedPtr<FJsonObject>& Result)
         && Operations != nullptr
         ? Operations->Num()
         : INDEX_NONE;
+}
+
+FString SalMutationPlannedJson(const TSharedPtr<FJsonObject>& Result)
+{
+    const TSharedPtr<FJsonObject>* Planned = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetObjectField(TEXT("planned"), Planned)
+        || Planned == nullptr
+        || !(*Planned).IsValid())
+    {
+        return FString();
+    }
+    FString Serialized;
+    const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+        TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Serialized);
+    return FJsonSerializer::Serialize((*Planned).ToSharedRef(), Writer)
+        ? Serialized
+        : FString();
 }
 
 FStateTreeEditorNode& AddSalMutationTask(
@@ -1080,8 +1099,8 @@ bool FSalStateTreeMutationTransitionNativeAddTest::RunTest(const FString& Parame
 {
     if (GEditor == nullptr || GEditor->IsPlaySessionInProgress())
     {
-        AddWarning(TEXT("Transition add test skipped while the Editor is unavailable or PIE is active."));
-        return true;
+        AddError(TEXT("Transition add test requires an available Editor outside PIE."));
+        return false;
     }
     const FSalMutationFixture Fixture = MakeSalMutationFixture();
     FinalizeSalMutationFixture(Fixture);
@@ -1155,8 +1174,8 @@ bool FSalStateTreeMutationCompileCascadeTest::RunTest(const FString& Parameters)
 {
     if (GEditor == nullptr || GEditor->IsPlaySessionInProgress())
     {
-        AddWarning(TEXT("Compile cascade test skipped while the Editor is unavailable or PIE is active."));
-        return true;
+        AddError(TEXT("Compile cascade test requires an available Editor outside PIE."));
+        return false;
     }
     const FSalMutationFixture Fixture = MakeSalMutationFixture();
     FinalizeSalMutationFixture(Fixture);
@@ -1211,7 +1230,12 @@ bool FSalStateTreeMutationCompileCascadeTest::RunTest(const FString& Parameters)
         AddInfo(TEXT("Compile cascade live diagnostic: ")
             + SalMutationDiagnosticSummary(Applied));
     }
-    TestTrue(TEXT("Compile cascade live plan matches dry run"), SalMutationBool(Applied, TEXT("valid")));
+    TestTrue(TEXT("Compile cascade live apply validates"), SalMutationBool(Applied, TEXT("valid")));
+    TestFalse(TEXT("Compile dry-run exposes a non-empty plan"), SalMutationPlannedJson(DryRun).IsEmpty());
+    TestEqual(
+        TEXT("Compile cascade live plan matches dry run"),
+        SalMutationPlannedJson(Applied),
+        SalMutationPlannedJson(DryRun));
     TestEqual(TEXT("Live compile removes schema-rejected Task"), Fixture.First->Tasks.Num(), 0);
     TestEqual(TEXT("Live compile removes invalid Binding"), Fixture.Data->EditorBindings.GetBindings().Num(), 0);
     TestEqual(
@@ -1230,8 +1254,8 @@ bool FSalStateTreeMutationCompileDryRunTest::RunTest(const FString& Parameters)
 {
     if (GEditor == nullptr || GEditor->IsPlaySessionInProgress())
     {
-        AddWarning(TEXT("Compile dry-run test skipped while the Editor is unavailable or PIE is active."));
-        return true;
+        AddError(TEXT("Compile dry-run test requires an available Editor outside PIE."));
+        return false;
     }
     const FSalMutationFixture Fixture = MakeSalMutationFixture();
     FinalizeSalMutationFixture(Fixture);

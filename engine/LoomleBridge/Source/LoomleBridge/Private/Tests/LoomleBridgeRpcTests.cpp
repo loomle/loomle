@@ -28,6 +28,19 @@ struct FLoomleBridgeRpcTestAccess
         return Module.HandleRequest(1, Request);
     }
 
+    static int32 ActiveGameThreadDispatchCount(
+        const FLoomleBridgeModule& Module)
+    {
+        return Module.ActiveGameThreadDispatchCount.GetValue();
+    }
+
+    static void SetShuttingDown(
+        FLoomleBridgeModule& Module,
+        const bool bShuttingDown)
+    {
+        Module.bIsShuttingDown.Store(bShuttingDown);
+    }
+
     static void InitializeRequestCancellation(
         FLoomleBridgeModule& Module)
     {
@@ -143,6 +156,70 @@ FString MakeRequest(const FString& Method, const FString& Params)
         *Method,
         *Params);
 }
+
+bool WaitForActiveGameThreadDispatch(
+    const FLoomleBridgeModule& Module,
+    const TFuture<FString>& Future,
+    const double TimeoutSeconds = 5.0)
+{
+    const double Deadline = FPlatformTime::Seconds() + TimeoutSeconds;
+    while (FLoomleBridgeRpcTestAccess::ActiveGameThreadDispatchCount(Module) == 0
+        && !Future.IsReady()
+        && FPlatformTime::Seconds() < Deadline)
+    {
+        FPlatformProcess::SleepNoStats(0.001f);
+    }
+    return FLoomleBridgeRpcTestAccess::ActiveGameThreadDispatchCount(Module) > 0;
+}
+
+bool WaitForRpcWorker(
+    const TFuture<FString>& Future,
+    const double TimeoutSeconds = 5.0)
+{
+    const double Deadline = FPlatformTime::Seconds() + TimeoutSeconds;
+    while (!Future.IsReady() && FPlatformTime::Seconds() < Deadline)
+    {
+        FPlatformProcess::SleepNoStats(0.001f);
+    }
+    return Future.IsReady();
+}
+
+void DrainGameThreadDispatches(FLoomleBridgeModule& Module)
+{
+    const double Deadline = FPlatformTime::Seconds() + 5.0;
+    while (FLoomleBridgeRpcTestAccess::ActiveGameThreadDispatchCount(Module) > 0
+        && FPlatformTime::Seconds() < Deadline)
+    {
+        FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+        FPlatformProcess::SleepNoStats(0.001f);
+    }
+}
+
+FString RpcDiagnosticCode(
+    FAutomationTestBase& Test,
+    const TSharedPtr<FJsonObject>& Response)
+{
+    const TSharedPtr<FJsonObject>* Error = nullptr;
+    const TSharedPtr<FJsonObject>* Data = nullptr;
+    if (!Response.IsValid()
+        || !Response->TryGetObjectField(TEXT("error"), Error)
+        || Error == nullptr
+        || !(*Error).IsValid()
+        || !(*Error)->TryGetObjectField(TEXT("data"), Data)
+        || Data == nullptr
+        || !(*Data).IsValid())
+    {
+        Test.AddError(TEXT("RPC response did not contain public error data."));
+        return FString();
+    }
+
+    FString Code;
+    if (!(*Data)->TryGetStringField(TEXT("code"), Code))
+    {
+        Test.AddError(TEXT("RPC error data did not contain a diagnostic code."));
+    }
+    return Code;
+}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -254,6 +331,78 @@ bool FLoomleBridgeRpcProtocolBoundaryTest::RunTest(const FString& Parameters)
         }
     }
 
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FLoomleBridgeRpcSalQueryTest,
+    "Loomle.Runtime.Rpc.SalQueryPublicPath",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLoomleBridgeRpcSalQueryTest::RunTest(const FString& Parameters)
+{
+    FLoomleBridgeModule Module;
+    FLoomleBridgeRpcTestAccess::InitializeRequestCancellation(Module);
+    FLoomleBridgeRpcTestAccess::SetBridgeLifecycle(
+        Module,
+        ELoomleBridgeLifecycle::Ready);
+
+    const FString Params = FString::Printf(
+        TEXT(
+            "{\"protocolVersion\":%d,\"tool\":\"sal.query\",\"args\":{\"object\":{"
+            "\"kind\":\"query\","
+            "\"target\":{\"alias\":\"actorClass\",\"value\":{\"kind\":\"call\","
+            "\"callee\":\"class\",\"args\":{\"path\":\"/Script/Engine.Actor\"}}},"
+            "\"operation\":{\"kind\":\"summary\"}}}}"),
+        Loomle::Protocol::Version);
+    const TSharedPtr<FJsonObject> Response = ParseResponse(
+        *this,
+        FLoomleBridgeRpcTestAccess::Handle(
+            Module,
+            MakeRequest(TEXT("rpc.invoke"), Params)));
+    if (!Response.IsValid())
+    {
+        return false;
+    }
+    TestFalse(
+        TEXT("Successful SAL Query is not an RPC error"),
+        Response->HasField(TEXT("error")));
+
+    const TSharedPtr<FJsonObject>* Result = nullptr;
+    const TSharedPtr<FJsonObject>* Payload = nullptr;
+    bool bOk = false;
+    bool bIsError = false;
+    TestTrue(
+        TEXT("rpc.invoke returns its result envelope"),
+        Response->TryGetObjectField(TEXT("result"), Result)
+            && Result != nullptr
+            && (*Result).IsValid());
+    if (Result == nullptr || !(*Result).IsValid())
+    {
+        return false;
+    }
+    TestTrue(
+        TEXT("rpc.invoke reports successful dispatch"),
+        (*Result)->TryGetBoolField(TEXT("ok"), bOk) && bOk);
+    TestTrue(
+        TEXT("rpc.invoke returns the normalized SAL payload"),
+        (*Result)->TryGetObjectField(TEXT("payload"), Payload)
+            && Payload != nullptr
+            && (*Payload).IsValid());
+    if (Payload == nullptr || !(*Payload).IsValid())
+    {
+        return false;
+    }
+    (*Payload)->TryGetBoolField(TEXT("isError"), bIsError);
+    TestFalse(
+        TEXT("SAL payload does not report a query error"),
+        bIsError);
+    TestTrue(
+        TEXT("SAL payload contains ordered object text"),
+        (*Payload)->HasTypedField<EJson::Object>(TEXT("object")));
+    TestTrue(
+        TEXT("SAL payload contains diagnostics"),
+        (*Payload)->HasTypedField<EJson::Array>(TEXT("diagnostics")));
     return true;
 }
 
@@ -483,6 +632,165 @@ bool FLoomleBridgeCompletedDispatchProgressTest::RunTest(const FString& Paramete
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FLoomleBridgeInFlightCancellationTest,
+    "Loomle.Runtime.Rpc.InFlightCancellationPreventsGameThreadAdmission",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLoomleBridgeInFlightCancellationTest::RunTest(const FString& Parameters)
+{
+    TestTrue(TEXT("Automation cancellation probe starts on the Game Thread"), IsInGameThread());
+
+    FLoomleBridgeModule Module;
+    FLoomleBridgeRpcTestAccess::InitializeRequestCancellation(Module);
+    FLoomleBridgeRpcTestAccess::SetBridgeLifecycle(Module, ELoomleBridgeLifecycle::Ready);
+
+    const FString CancellationToken =
+        FString::Printf(TEXT("automation-%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits));
+    const FString InvokeParams = FString::Printf(
+        TEXT(
+            "{\"protocolVersion\":%d,\"tool\":\"sal.query\","
+            "\"cancellationToken\":\"%s\",\"args\":{}}"),
+        Loomle::Protocol::Version,
+        *CancellationToken);
+    TFuture<FString> InvokeFuture = Async(
+        EAsyncExecution::Thread,
+        [&Module, InvokeParams]()
+        {
+            return FLoomleBridgeRpcTestAccess::Handle(
+                Module,
+                MakeRequest(TEXT("rpc.invoke"), InvokeParams));
+        });
+
+    const bool bQueued =
+        WaitForActiveGameThreadDispatch(Module, InvokeFuture);
+    TestTrue(
+        TEXT("SAL Query reached the in-flight Game Thread admission boundary"),
+        bQueued);
+
+    const FString CancelParams = FString::Printf(
+        TEXT("{\"protocolVersion\":%d,\"cancellationToken\":\"%s\"}"),
+        Loomle::Protocol::Version,
+        *CancellationToken);
+    const TSharedPtr<FJsonObject> CancelResponse = ParseResponse(
+        *this,
+        FLoomleBridgeRpcTestAccess::Handle(
+            Module,
+            MakeRequest(TEXT("rpc.cancel"), CancelParams)));
+    const TSharedPtr<FJsonObject>* CancelResult = nullptr;
+    bool bCancelled = false;
+    TestTrue(
+        TEXT("rpc.cancel returns a result"),
+        CancelResponse.IsValid()
+            && CancelResponse->TryGetObjectField(TEXT("result"), CancelResult)
+            && CancelResult != nullptr
+            && (*CancelResult).IsValid());
+    if (CancelResult != nullptr && (*CancelResult).IsValid())
+    {
+        TestTrue(
+            TEXT("rpc.cancel confirms cancellation"),
+            (*CancelResult)->TryGetBoolField(TEXT("cancelled"), bCancelled)
+                && bCancelled);
+    }
+
+    bool bWorkerCompleted = WaitForRpcWorker(InvokeFuture);
+    TestTrue(
+        TEXT("the cancelled worker returns without waiting for the Game Thread"),
+        bWorkerCompleted);
+    if (!bWorkerCompleted)
+    {
+        DrainGameThreadDispatches(Module);
+        bWorkerCompleted = WaitForRpcWorker(InvokeFuture);
+        TestTrue(
+            TEXT("the cancelled worker retires after its queued task is drained"),
+            bWorkerCompleted);
+        if (!bWorkerCompleted)
+        {
+            return false;
+        }
+    }
+
+    const TSharedPtr<FJsonObject> InvokeResponse =
+        ParseResponse(*this, InvokeFuture.Get());
+    TestEqual(
+        TEXT("the public RPC reports cooperative cancellation"),
+        RpcDiagnosticCode(*this, InvokeResponse),
+        FString(TEXT("runtime.request_cancelled")));
+
+    // The queued task still owns the module until it observes the cancelled
+    // one-shot admission. Drain it before this stack-owned module is destroyed.
+    DrainGameThreadDispatches(Module);
+    TestEqual(
+        TEXT("the cancelled queued task retires without executing the provider"),
+        FLoomleBridgeRpcTestAccess::ActiveGameThreadDispatchCount(Module),
+        0);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FLoomleBridgeInFlightShutdownTest,
+    "Loomle.Runtime.Rpc.InFlightShutdownPreventsGameThreadAdmission",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLoomleBridgeInFlightShutdownTest::RunTest(const FString& Parameters)
+{
+    TestTrue(TEXT("Automation shutdown probe starts on the Game Thread"), IsInGameThread());
+
+    FLoomleBridgeModule Module;
+    FLoomleBridgeRpcTestAccess::InitializeRequestCancellation(Module);
+    FLoomleBridgeRpcTestAccess::SetBridgeLifecycle(Module, ELoomleBridgeLifecycle::Ready);
+
+    const FString InvokeParams = FString::Printf(
+        TEXT("{\"protocolVersion\":%d,\"tool\":\"sal.patch\",\"args\":{}}"),
+        Loomle::Protocol::Version);
+    TFuture<FString> InvokeFuture = Async(
+        EAsyncExecution::Thread,
+        [&Module, InvokeParams]()
+        {
+            return FLoomleBridgeRpcTestAccess::Handle(
+                Module,
+                MakeRequest(TEXT("rpc.invoke"), InvokeParams));
+        });
+
+    const bool bQueued =
+        WaitForActiveGameThreadDispatch(Module, InvokeFuture);
+    TestTrue(
+        TEXT("SAL Patch reached the in-flight Game Thread admission boundary"),
+        bQueued);
+
+    FLoomleBridgeRpcTestAccess::SetShuttingDown(Module, true);
+    bool bWorkerCompleted = WaitForRpcWorker(InvokeFuture);
+    TestTrue(
+        TEXT("the in-flight worker observes shutdown without Game Thread execution"),
+        bWorkerCompleted);
+    if (!bWorkerCompleted)
+    {
+        DrainGameThreadDispatches(Module);
+        bWorkerCompleted = WaitForRpcWorker(InvokeFuture);
+        TestTrue(
+            TEXT("the shutdown worker retires after its queued task is drained"),
+            bWorkerCompleted);
+        if (!bWorkerCompleted)
+        {
+            return false;
+        }
+    }
+
+    const TSharedPtr<FJsonObject> InvokeResponse =
+        ParseResponse(*this, InvokeFuture.Get());
+    TestEqual(
+        TEXT("the public RPC reports Editor shutdown"),
+        RpcDiagnosticCode(*this, InvokeResponse),
+        FString(TEXT("runtime.editor_shutting_down")));
+
+    DrainGameThreadDispatches(Module);
+    TestEqual(
+        TEXT("the shutdown-cancelled queued task retires without executing the provider"),
+        FLoomleBridgeRpcTestAccess::ActiveGameThreadDispatchCount(Module),
+        0);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FLoomleBridgeGameThreadAdmissionTest,
     "Loomle.Runtime.Rpc.GameThreadAdmissionIsOneShot",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -503,6 +811,76 @@ bool FLoomleBridgeGameThreadAdmissionTest::RunTest(const FString& Parameters)
         TEXT("started state is retained"),
         Started.GetState() == Loomle::Runtime::EGameThreadAdmissionState::Started);
     return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FLoomleBridgeConcurrentGameThreadAdmissionTest,
+    "Loomle.Runtime.Rpc.GameThreadAdmissionHasSingleConcurrentWinner",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLoomleBridgeConcurrentGameThreadAdmissionTest::RunTest(const FString& Parameters)
+{
+    using namespace Loomle::Runtime;
+
+    constexpr int32 ParticipantCount = 8;
+    FGameThreadAdmission Admission;
+    FThreadSafeCounter ReadyCount;
+    TAtomic<bool> bStartRace { false };
+    TArray<TFuture<int32>> Futures;
+    Futures.Reserve(ParticipantCount);
+
+    for (int32 Index = 0; Index < ParticipantCount; ++Index)
+    {
+        Futures.Add(Async(
+            EAsyncExecution::Thread,
+            [&Admission, &ReadyCount, &bStartRace, Index]()
+            {
+                ReadyCount.Increment();
+                while (!bStartRace.Load())
+                {
+                    FPlatformProcess::SleepNoStats(0.0005f);
+                }
+
+                const bool bWon = (Index % 2 == 0)
+                    ? Admission.TryStart()
+                    : Admission.TryCancel();
+                if (!bWon)
+                {
+                    return 0;
+                }
+                return Index % 2 == 0 ? 1 : 2;
+            }));
+    }
+
+    const double ReadyDeadline = FPlatformTime::Seconds() + 5.0;
+    while (ReadyCount.GetValue() < ParticipantCount
+        && FPlatformTime::Seconds() < ReadyDeadline)
+    {
+        FPlatformProcess::SleepNoStats(0.001f);
+    }
+    const bool bAllReady = ReadyCount.GetValue() == ParticipantCount;
+    TestTrue(TEXT("all admission contenders reached the race"), bAllReady);
+    bStartRace.Store(true);
+
+    int32 WinnerCount = 0;
+    int32 WinnerKind = 0;
+    for (TFuture<int32>& Future : Futures)
+    {
+        const int32 Result = Future.Get();
+        if (Result != 0)
+        {
+            ++WinnerCount;
+            WinnerKind = Result;
+        }
+    }
+
+    TestEqual(TEXT("exactly one concurrent admission transition wins"), WinnerCount, 1);
+    const EGameThreadAdmissionState FinalState = Admission.GetState();
+    TestTrue(
+        TEXT("the retained state matches the winning transition"),
+        (WinnerKind == 1 && FinalState == EGameThreadAdmissionState::Started)
+            || (WinnerKind == 2 && FinalState == EGameThreadAdmissionState::Cancelled));
+    return bAllReady;
 }
 
 #endif

@@ -23,6 +23,8 @@ and repository history instead of being duplicated on `main`.
   revision, diff, and dry-run rules.
 - `TESTING_AND_RELEASE_GATES.md`: native Bridge coverage, packaged end-to-end,
   lifecycle, fixture, runner, and release-gate contracts.
+- `UE_AUTOMATION_COVERAGE.md`: capability/state coverage levels, current gaps,
+  and the native release matrix.
 
 The current public language and UE-domain contracts live with their runtime
 owners rather than under `docs/`:
