@@ -91,11 +91,18 @@ async function createFixture(options = {}) {
     join(payloadRoot, "LoomleBridge", "LoomleBridge.uplugin"),
     JSON.stringify({ VersionName: options.descriptorVersion ?? VERSION }),
   );
-  const zipped = spawnSync(
-    "zip",
-    ["-qry", archivePath, "LoomleBridge"],
-    { cwd: payloadRoot, encoding: "utf8" },
-  );
+  const zipped = process.platform === "win32"
+    ? spawnSync(
+      "tar.exe",
+      ["-a", "-cf", archivePath, "-C", payloadRoot, "LoomleBridge"],
+      { encoding: "utf8" },
+    )
+    : spawnSync(
+      "zip",
+      ["-qry", archivePath, "LoomleBridge"],
+      { cwd: payloadRoot, encoding: "utf8" },
+    );
+  if (zipped.error) throw zipped.error;
   assert.equal(zipped.status, 0, zipped.stderr);
 
   const archiveSha256 = createHash("sha256")

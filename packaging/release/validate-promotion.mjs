@@ -84,10 +84,16 @@ function parseSha256Sidecar(text, expectedName) {
 }
 
 function readZipEntry(archivePath, entry) {
-  const result = spawnSync("unzip", ["-p", archivePath, entry], {
-    encoding: "utf8",
-    maxBuffer: 1024 * 1024,
-  });
+  const result = spawnSync(
+    process.platform === "win32" ? "tar.exe" : "unzip",
+    process.platform === "win32"
+      ? ["-xOf", archivePath, entry]
+      : ["-p", archivePath, entry],
+    {
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024,
+    },
+  );
   if (result.error) throw result.error;
   if (result.status !== 0 || result.stdout.length === 0) {
     fail(`verified archive is missing ${entry}.`);
