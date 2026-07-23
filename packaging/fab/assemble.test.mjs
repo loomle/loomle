@@ -48,7 +48,9 @@ test("assembles the Bridge source and only the canonical TypeScript Client execu
     assert.equal(result.packageKind, "fab-plugin");
     assert.match(result.clientSha256, /^[0-9a-f]{64}$/);
     assert.equal(await readFile(stagedClient, "utf8"), "canonical-client");
-    assert.notEqual((await stat(stagedClient)).mode & 0o111, 0);
+    if (process.platform !== "win32") {
+      assert.notEqual((await stat(stagedClient)).mode & 0o111, 0);
+    }
     assert.equal(await readFile(join(pluginRoot, "README.md"), "utf8"), "fab readme\n");
     assert.equal(await exists(join(pluginRoot, "Source", "LoomleBridge", "LoomleBridge.Build.cs")), true);
     assert.equal(
@@ -243,7 +245,7 @@ test("fails instead of falling back when the canonical Client is missing", async
         outputDir: fixture.outputDir,
         target: "darwin-arm64",
       }),
-      /canonical Client executable not found: .*\.tmp\/client\/darwin-arm64\/loomle/,
+      /canonical Client executable not found: .*\.tmp[\\/]client[\\/]darwin-arm64[\\/]loomle/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -259,7 +261,7 @@ test("rejects a canonical Client without its build receipt", async () => {
         outputDir: fixture.outputDir,
         target: "darwin-arm64",
       }),
-      /canonical Client build receipt not found: .*\.tmp\/client\/darwin-arm64\/build\.json/,
+      /canonical Client build receipt not found: .*\.tmp[\\/]client[\\/]darwin-arm64[\\/]build\.json/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
