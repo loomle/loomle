@@ -1,53 +1,50 @@
 ---
 layout: default
 title: Interfaces
-nav_order: 5
+nav_order: 6
 has_children: true
-description: Loomle 0.7 MCP calls and current SAL interface modules.
+description: The six active Loomle 0.7 SAL interface modules and their UE ownership boundaries.
 permalink: /tools/
 ---
 
 # Interfaces
 
-Loomle has a deliberately small MCP surface. Rich UE behavior is expressed in
-SAL Text and discovered through interface cards rather than registered as
-hundreds of independent tools.
+Interfaces describe the UE objects and operations carried through `sal_query`
+and `sal_patch`. They are separate from the Client's
+[five public MCP calls](../calls/).
 
-## MCP Calls
+Loomle 0.7 has six active interface modules:
 
-| Call | Purpose |
-| --- | --- |
-| `sal_query({ text })` | Read one target using self-contained SAL Query Text. |
-| `sal_patch({ text })` | Dry-run or apply one ordered SAL Patch Text. |
-| `sal_schema({})` | Return the active interface-module index. |
-| `sal_schema({ module })` | Return one static interface card. |
-| `editor_context({})` | Read the user's current UE interaction target as SAL Object Text. |
+| Module | Owns | Complete target |
+| --- | --- | --- |
+| [Asset](asset.html) | Asset Registry discovery and exact package save | exact Asset Object Path |
+| [Blueprint](blueprint/) | Class Settings, declarations, Graph lifecycle, SCS Components, compile, and save | Asset Path plus Blueprint Guid |
+| [Class](blueprint/class.html) | Reflection and effective Class Defaults | native Class Path |
+| [Graph](blueprint/graph.html) | Nodes, Pins, Edges, flow, Palette-backed creation, and layout | exact asset-backed Graph owner chain |
+| [StateTree](state-tree.html) | Authored hierarchy, Nodes, Transitions, Parameters, Bindings, compile, and save | exact StateTree Asset Path and Class Path |
+| [Widget](widget/) | Authored Widget tree, Slot state, and structural edits | exact WidgetBlueprint locator |
 
-`sal_schema` is one MCP tool with two argument forms. Its tool description
-contains the resident SAL guide exactly once, so agents receive the basic
-language model without repeating it across every tool.
+These names organize static documentation. They are not target-routing fields
+inside SAL.
 
-## Current Modules
+## Use the Installed Contract
 
-- [Asset](asset.html): search the UE Asset Registry and obtain exact paths.
-- [Blueprint](blueprint/): inspect and edit declarations, Graph lifecycle,
-  Components, Class Settings, compile, and save.
-- [Class](blueprint/class.html): inspect reflection and effective Defaults;
-  edit durable Blueprint Generated Class Defaults.
-- [Graph](blueprint/graph.html): inspect and edit Nodes, Pins, Edges, flow,
-  Palette-backed creation, stored layout, explicit movement, and native graph
-  health.
-- [Widget](widget/): inspect and edit authored Widget trees and Slot state.
+The website explains concepts, ownership, and workflows. The Client's embedded
+interface card is the precise contract that matches the installed build:
 
-Use `sal_schema({ module: "<module>" })` as the authoritative current contract.
-The website provides orientation and examples; the Client's interface card is
-the copy that matches its installed Bridge.
+```text
+sal_schema({})
+sal_schema({ module: "graph" })
+```
+
+Use exact `with schema` discovery for fields, constraints, and UE operations
+that depend on one resolved object or Palette capability.
 
 ## Common Query Shape
 
 ```text
 query <bound-target>
-<one primary operation>
+[one primary operation]
 [where <condition>]
 [with <detail>]
 [order by <field> asc|desc]
@@ -55,9 +52,19 @@ query <bound-target>
 [page after "<cursor>"]
 ```
 
-Every Query and Patch is self-contained. Existing nested UE objects use typed
-stable references such as `graph@id`, `node@id`, `pin@id`, and `widget@id`
-inside a complete owner binding.
+Every Query is self-contained. Collections provide orientation and discovery;
+exact reads provide complete current state and, where supported, dynamic
+schema.
+
+The shared factual-reference operation is:
+
+```text
+references to <typed-ref>[.<native-member-path>] [in project]
+```
+
+Scope and project-wide support depend on the selected interface. Results remain
+ordinary Object Text and include the owner bindings needed to interpret each
+page independently.
 
 ## Common Patch Shape
 
@@ -68,12 +75,20 @@ patch <bound-target> [dry run]
 ```
 
 Core operations include `add`, `remove`, `set`, `reset`, `move`, `invoke`, and
-`save`. Modules add operations such as Graph `connect` and Widget `wrap`.
-Creation always starts from a Palette result; exact `with schema` gives current
-fields, constraints, and invokable UE operations.
+`save`. Modules add operations such as Graph `connect`, StateTree `bind`,
+Widget `wrap`, and Blueprint `compile`.
 
-## Diagnostics
+Every object created directly through `add` starts from a Palette capability in
+the real target context.
 
-Results remain valid ordered Object Text. Compiler messages, object health,
-pagination guidance, dry-run plans, and failures are returned as adjacent SAL
-comments rather than a second response language. See [Diagnostics](diagnostics.html).
+## Ownership and Handoffs
+
+One authored Patch belongs to one interface planner. Composed targets may
+support queries from several interfaces, but mixed mutation families use
+following requests.
+
+Graph and Widget authored changes finalize through their owning Blueprint.
+StateTree compiles and saves through its asset target. Each interface page
+states its own handoff and finalization boundary.
+
+See [Diagnostics](diagnostics.html) for result health and compiler information.

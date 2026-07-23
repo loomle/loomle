@@ -2,6 +2,7 @@
 layout: default
 title: Palette
 parent: Blueprint
+grand_parent: Interfaces
 nav_order: 5
 ---
 

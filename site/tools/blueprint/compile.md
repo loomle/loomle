@@ -2,6 +2,7 @@
 layout: default
 title: Compile and Save
 parent: Blueprint
+grand_parent: Interfaces
 nav_order: 6
 ---
 

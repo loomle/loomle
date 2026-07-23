@@ -2,50 +2,73 @@
 layout: default
 title: Quickstart
 nav_order: 3
-description: Go from the Fab-installed Client to a first SAL query and dry-run patch.
+description: Bind a project, inspect a Blueprint, dry-run a SAL patch, apply it, and finalize the asset.
 ---
 
 # Quickstart
 
-This guide assumes Loomle is installed from Fab, `LoomleBridge` is active in
-the target Unreal project, and the MCP host uses the bundled Client.
+This guide completes one read-and-edit workflow. It assumes that the matching
+Loomle 0.7 plugin is installed, `LoomleBridge` is enabled, the MCP host launches
+the bundled Client, and the target Unreal project is open.
 
-Loomle 0.7 is not public yet; this workflow applies to the accepted QA build
-and to the matching Fab package after it is published.
+Loomle 0.7 is not public yet; this workflow currently applies to the accepted
+QA build and will apply to the matching Fab package after publication.
 
-## 1. Start From the Editor
+{: .note }
+> Paths and ids below are examples. Always copy Asset Paths, typed ids, Palette
+> entries, and invocation templates returned by the current project.
 
-Open the asset you want to discuss, then call:
+## 1. Bind One Project
+
+Inspect the current session and known projects:
+
+```text
+project({})
+```
+
+If Loomle reports no bound project or more than one candidate, bind the desired
+one:
+
+```text
+project({ projectId: "<returned-project-id>" })
+```
+
+The binding is session-local and sticky. If the Editor restarts or the project
+goes offline, Loomle preserves the same project intent.
+
+## 2. Start From the Editor
+
+Open or select the asset you want to discuss, then call:
 
 ```text
 editor_context({})
 ```
 
-The result is ordinary ordered SAL Object Text. It may identify an active
-asset, Graph, selected Node, Widget, Actor, or the focused editor surface. Use
-the returned locator instead of guessing from what happens to be visible.
+The result is ordered SAL Object Text. It may identify an active asset, Graph,
+selected Node, Widget, Actor, or the focused editor surface. Use the returned
+locator instead of guessing from the visible UI.
 
-## 2. Discover the Interface
+## 3. Discover the Interface
 
-Call the local schema index:
+List the active interface modules:
 
 ```text
 sal_schema({})
 ```
 
-Then load only the relevant interface card, for example:
+Load the Blueprint card when exact domain syntax is unfamiliar:
 
 ```text
 sal_schema({ module: "blueprint" })
 ```
 
-The `sal_schema` tool description already contains the compact resident SAL
-guide. Module calls are for exact domain details, not a prerequisite before
-every request.
+The `sal_schema` tool description already carries the compact resident SAL
+guide. Static module cards are for exact domain boundaries; they are not a
+prerequisite before every request.
 
-## 3. Read a Blueprint Summary
+## 4. Read a Blueprint Summary
 
-Pass one self-contained SAL Text to `sal_query`:
+Send one self-contained Query Text to `sal_query`:
 
 ```sal
 door = blueprint(asset: "/Game/Blueprints/BP_Door.BP_Door")
@@ -54,50 +77,54 @@ query door
 summary
 ```
 
-A first path-based query returns the Blueprint id for later stable access plus
-compact counts for Variables, Dispatchers, Graphs, and Components. It does not
-download the full Blueprint.
+The first path-based query returns the Blueprint id and compact counts for
+Variables, Dispatchers, Graphs, and Components. It does not download the
+complete Blueprint.
 
-Use a discovered id in later exact requests:
+Use the returned id in later exact requests:
 
 ```sal
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid"
+  id: "returned-blueprint-guid"
 )
 
 query door
 graphs "Event"
 ```
 
-## 4. Follow a Graph Locally
+Every Query and Patch supplies its own complete target binding. A typed id is a
+stable selector inside that owner scope, not a global target.
 
-Bind the owner chain returned by the previous query:
+## 5. Follow the Graph Locally
+
+Bind the exact Graph returned by the Blueprint query:
 
 ```sal
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid"
+  id: "returned-blueprint-guid"
 )
-eventGraph = graph(asset: door, id: "graph-guid")
+eventGraph = graph(asset: door, id: "returned-graph-guid")
 
 query eventGraph
-exec flow from node@node-guid depth 2
+exec flow from node@returned-node-guid depth 2
 ```
 
-Flow queries return compact Nodes and only the Pins needed to describe the
-Edges. For every Pin on one Node, query that exact Node instead.
+Flow queries return compact Nodes and only the Pins needed to express the
+Edges. Query an exact `node@id` when an operation needs every current Pin or
+dynamic schema.
 
-## 5. Discover Before Creating
+## 6. Discover Before Creating
 
-Never guess a Node constructor. Query the target Graph Palette:
+Never guess a Node constructor. Search the target Graph Palette:
 
 ```sal
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid"
+  id: "returned-blueprint-guid"
 )
-eventGraph = graph(asset: door, id: "graph-guid")
+eventGraph = graph(asset: door, id: "returned-graph-guid")
 
 query eventGraph
 palette entries "Print String"
@@ -106,35 +133,41 @@ palette entries "Print String"
 Inspect the selected entry with `palette @id` and `with schema`, then copy its
 returned constructor into a Patch.
 
-## 6. Dry Run, Then Apply
+## 7. Dry Run
 
-Use the complete owner binding and set `dry run` on the Patch header:
+Send the complete Patch Text to `sal_patch` with `dry run` on the Patch header:
 
 ```sal
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid"
+  id: "returned-blueprint-guid"
 )
-eventGraph = graph(asset: door, id: "graph-guid")
+eventGraph = graph(asset: door, id: "returned-graph-guid")
 
 patch eventGraph dry run
-print = node(palette: "palette-entry-id")
+print = node(palette: "returned-palette-entry-id")
 add print
 ```
 
 Dry run parses, resolves, validates, and plans through the real edit path
-without changing UE state. If the result is valid, send the same Patch without
-`dry run`.
+without changing live authored state. Review the returned diagnostics,
+resolved references, operations, effects, and diff.
 
-## 7. Finalize Through the Owner
+## 8. Apply and Read Back
 
-Graph edits do not compile or save automatically. Finalize the exact owning
-Blueprint in a separate terminal Patch:
+If the dry run is valid, send the same authored Patch without `dry run`.
+Afterward, query the affected Graph or exact Node again rather than assuming
+that the intended result was applied.
+
+## 9. Finalize Through the Owner
+
+Graph edits do not compile or save their owning Blueprint automatically.
+Finalize in a separate terminal Patch:
 
 ```sal
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid"
+  id: "returned-blueprint-guid"
 )
 
 patch door
@@ -143,4 +176,13 @@ save
 ```
 
 Compiler messages and mutation diagnostics return as SAL comments beside the
-relevant Object Text. Continue with the [interface overview](tools/).
+relevant Object Text.
+
+You have now completed the standard Loomle loop:
+
+```text
+bind → locate → inspect → discover → dry run → apply → read back → finalize
+```
+
+Continue with [Core Concepts](concepts/) or browse the
+[Interfaces](tools/).

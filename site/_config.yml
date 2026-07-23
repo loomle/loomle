@@ -1,5 +1,5 @@
 title: LOOMLE
-description: Agent-native Unreal Engine tools for Blueprint, Widget, Class, Graph, and Asset workflows through SAL.
+description: Agent-native Unreal Engine tools for Asset, Blueprint, Class, Graph, StateTree, and Widget workflows through SAL.
 url: "https://loomle.ai"
 baseurl: ""
 

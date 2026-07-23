@@ -1,8 +1,9 @@
 ---
 layout: default
 title: Graph
-parent: Blueprint
-nav_order: 3
+parent: Interfaces
+nav_order: 4
+has_children: true
 ---
 
 # Graph

@@ -2,76 +2,86 @@
 layout: default
 title: Install
 nav_order: 2
-description: Track Loomle 0.7 Fab availability and connect its bundled Client when published.
+description: Install Loomle 0.7 from Fab, configure an MCP host, and verify the connection.
 ---
 
 # Install
 
-Fab is the only planned installation channel for Loomle 0.7. The public
-package is not available yet.
+Loomle 0.7 uses Fab as its only installation channel. The plugin contains both
+the Unreal Bridge and the matching self-contained Loomle Client.
 
-The current [Fab listing](https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428)
-still distributes Loomle 0.6 and does not match this 0.7 guide. The first
-accepted 0.7 QA target is Unreal Engine 5.7 on Apple Silicon macOS. This page
-will become the installation guide when the matching Fab build is published.
+{: .warning }
+> Loomle 0.7 is not public yet. The current
+> [Fab listing](https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428)
+> still distributes Loomle 0.6 and does not match this guide. Do not combine
+> the 0.6 package with the 0.7 documentation.
 
-The installed plugin contains the Unreal Bridge source and the matching
-self-contained Loomle Client. There is no website installer, global Loomle
-installation, Python MCP server, `uv` environment, or project-local plugin
-installation step.
+## Compatibility
 
-## Upgrade From Loomle 0.6
+The first accepted Loomle 0.7 QA target is:
 
-Loomle 0.6 could install `LoomleBridge` inside each Unreal project. A project
-plugin with the same name takes precedence over the Fab-installed engine
-plugin, so leaving it in place silently keeps that project on 0.6.
+| Component | Accepted target |
+| --- | --- |
+| Unreal Engine | 5.7 |
+| Operating system | macOS |
+| Architecture | Apple Silicon |
+| Installation channel | Fab |
 
-Before installing or testing 0.7:
+Other engine versions and platforms are not implied until they pass the same
+native and packaged verification.
 
-1. Close Unreal Editor for every affected project.
-2. Check `<Project>/Plugins/LoomleBridge`.
-3. If it is the old Loomle plugin, back up any local modifications, then remove
-   it or move it outside the project's `Plugins` directory.
-4. Install/enable the Fab plugin and restart the project.
-
-Repeat this for every project that previously used the project-local plugin.
-Fab cannot delete project files, and the 0.7 engine plugin cannot warn from a
-project where the old copy shadows it.
-
-## Install the Plugin
-
-After Loomle 0.7 is published for the supported target:
-
-1. Install the Loomle plugin for Unreal Engine 5.7 from Fab.
-2. Enable `LoomleBridge` in Unreal Editor if it is not already enabled.
-3. Restart Unreal Editor when prompted.
-4. Open the Loomle toolbar/status panel.
-
-Fab/Epic Launcher owns plugin installation and updates.
-
-## Configure the MCP Host
-
-The Loomle status panel locates the Client bundled for the current platform:
+The 0.7 plugin contains the Client at:
 
 ```text
 <PluginPath>/Resources/Loomle/<platform-arch>/loomle(.exe)
 ```
 
-The status panel detects Codex and Claude Desktop configuration, classifies an
-existing Loomle entry, and provides exact copyable setup or migration guidance.
-It never writes host configuration files. Recognized 0.6, stale, custom,
-ambiguous, and unreadable states are reported without modification. Codex
-detection respects `CODEX_HOME` and otherwise uses `~/.codex`.
+The executable is self-contained. The machine does not need a separate
+Python, `uv`, Node.js, or global Loomle installation.
 
-Restart the MCP host after configuration so it launches the bundled Client.
-The executable is self-contained; the machine does not need a separate Node.js,
-Python, or `uv` installation.
+## Upgrade From Loomle 0.6
 
-## Manual Configuration
+Loomle 0.6 could install `LoomleBridge` inside each Unreal project. A
+project-local plugin with the same name takes precedence over the
+Fab-installed engine plugin, so leaving an old copy in place can silently keep
+that project on 0.6.
 
-Use the absolute bundled Client path reported by the Loomle status panel.
+Before installing or testing 0.7:
 
-Codex TOML:
+1. Close Unreal Editor for every affected project.
+2. Check `<Project>/Plugins/LoomleBridge`.
+3. If it is the old Loomle plugin, back up local modifications.
+4. Remove it or move it outside the project's `Plugins` directory.
+5. Repeat the check for every project that previously used Loomle 0.6.
+
+Fab cannot remove project files, and a shadowed 0.7 engine plugin cannot warn
+from a project that loaded the old copy.
+
+## Install the Plugin
+
+After the matching Loomle 0.7 package is published:
+
+1. Install Loomle for Unreal Engine 5.7 from Fab.
+2. Open the target Unreal project.
+3. Enable `LoomleBridge` if it is not already enabled.
+4. Restart Unreal Editor when prompted.
+5. Open the Loomle toolbar/status panel.
+
+Fab and Epic Launcher own plugin installation and updates.
+
+## Configure the MCP Host
+
+The Loomle status panel reports the exact bundled Client path for the current
+platform and gives copyable host configuration guidance. It detects supported
+Codex and Claude Desktop configurations and classifies exact, missing, 0.6,
+stale, custom, ambiguous, and unreadable entries.
+
+The panel never modifies host configuration files. Copy the guidance, update
+the host configuration yourself, then restart the MCP host.
+
+### Codex
+
+Use the absolute path reported by the Loomle panel:
 
 ```toml
 [mcp_servers.loomle]
@@ -79,7 +89,7 @@ command = "/absolute/path/to/LoomleBridge/Resources/Loomle/<platform-arch>/looml
 args = ["mcp"]
 ```
 
-Claude Desktop-style JSON:
+### Claude Desktop-style hosts
 
 ```json
 {
@@ -92,39 +102,40 @@ Claude Desktop-style JSON:
 }
 ```
 
-Use a real absolute path; do not copy the Client out of the plugin or replace
-`<platform-arch>` literally. Windows is not yet an accepted 0.7 target and is
-not implied by this configuration example.
+Replace the example with the real absolute path. Do not copy the Client out of
+the plugin and do not use `<platform-arch>` literally.
 
-## Runtime Discovery
+## Verify the Connection
 
-When Unreal Editor runs with `LoomleBridge`, the plugin publishes a local
-runtime record. The Client reads runtime records from:
+After restarting the MCP host:
+
+1. Keep the target Unreal project open.
+2. Call `project({})`.
+3. If the session is not bound, copy the returned `projectId` into
+   `project({ projectId: "<id>" })`.
+4. Call `editor_context({})`.
+5. Confirm that the result identifies the current editor surface or active
+   asset.
+6. Call `sal_schema({})` and confirm that the active interface index is
+   available.
+
+`sal_schema` is local and works without an online Editor. The other UE-backed
+tools require the session's bound project to have one healthy Editor runtime.
+
+Continue with the [Quickstart](quickstart.html).
+
+## Project Discovery
+
+When Unreal Editor runs with `LoomleBridge`, the plugin publishes transient
+local discovery state under:
 
 ```text
 ~/.loomle/state/runtimes
 ```
 
-This directory is transient discovery state, not an installation. There is no
-separate project installation, session attachment, global command, update
-daemon, or project-local Client in 0.7. Fab updates the installed plugin and
-its bundled Client together.
-
-One MCP session binds to one project. Loomle auto-binds only when the project is
-unambiguous; otherwise call `project({})` to inspect candidates, then bind one
-returned `projectId`. The binding is sticky across Editor restarts. If that
-project is offline, Loomle reports it and never silently switches to another
+This directory is not an installation. One MCP session binds to one project,
+and that binding remains sticky across Editor restarts. If the bound project
+goes offline, Loomle reports it instead of silently switching to another
 online project.
 
-## Verify Setup
-
-After restarting the MCP host:
-
-1. Keep the target Unreal project open.
-2. If Loomle asks for project selection, call `project({})` and bind the target
-   project.
-3. Call `editor_context`.
-4. Confirm the result identifies the current editor surface or active asset.
-5. Call `sal_schema` to see the active SAL module index.
-
-Continue with the [Quickstart](quickstart.html).
+See [Project Binding](calls/project.html) for the complete user-facing model.

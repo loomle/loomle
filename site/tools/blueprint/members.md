@@ -2,6 +2,7 @@
 layout: default
 title: Blueprint Objects and Components
 parent: Blueprint
+grand_parent: Interfaces
 nav_order: 2
 ---
 

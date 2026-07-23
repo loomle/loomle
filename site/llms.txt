@@ -1,47 +1,65 @@
 # Loomle
 
-Loomle is an agent-native Unreal Engine integration. It turns complex UE
-editor state into SAL, the Structured Agent Language: compact ordered text that
-people and agents can read, copy, query, and patch without replacing UE's
-native object model.
+Loomle is an agent-native Unreal Engine integration. It turns complex editor
+state into SAL, the Structured Agent Language: compact ordered text that people
+and agents can read, copy, query, and patch without replacing UE's native
+object model.
 
-Canonical documentation:
+Canonical user documentation:
 
+- Home: https://loomle.ai/
 - Install: https://loomle.ai/install.html
 - Quickstart: https://loomle.ai/quickstart.html
+- Core concepts: https://loomle.ai/concepts/
+- MCP calls: https://loomle.ai/calls/
 - Interfaces: https://loomle.ai/tools/
+- Workflows: https://loomle.ai/workflows/
 - Source: https://github.com/loomle/loomle
 
-Installation:
+Availability and installation:
 
 - Loomle 0.7 will ship only through Fab, but its public package is not yet
-  available. The current listing still distributes 0.6:
+  available. The current Fab listing still distributes 0.6:
   https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428
 - The first accepted 0.7 QA target is UE 5.7 on Apple Silicon macOS.
-- The plugin contains the Bridge and the self-contained Client at
+- The plugin contains the Bridge and self-contained Client at
   `Resources/Loomle/<platform-arch>/loomle(.exe)`.
 - No website installer, Python, uv, Node.js, global Loomle install, separate
-  project installation, or session attachment step is required.
-- When upgrading from 0.6, first close Unreal Editor and remove or move the old
+  project Client, or session-attachment daemon is required.
+- When upgrading from 0.6, close Unreal Editor and remove or move the old
   `<Project>/Plugins/LoomleBridge` out of every affected project's `Plugins`
-  directory. A project plugin shadows the Fab engine plugin; back up local
-  modifications first.
-- Open the Loomle toolbar/status panel for the exact bundled path and copyable
-  host configuration guidance, then restart that host. The panel never rewrites
-  Codex or Claude Desktop configuration files.
+  directory. A project plugin shadows the Fab engine plugin.
 
-Public MCP tools:
+Five public MCP tools:
 
+- `project`: inspect projects and bind one MCP session to one project.
 - `sal_query({ text })`: execute one self-contained SAL Query Text.
-- `sal_patch({ text })`: validate or apply one ordered SAL Patch Text.
-- `sal_schema({})`: return the active module index.
+- `sal_patch({ text })`: dry-run or apply one ordered SAL Patch Text.
+- `sal_schema({})`: return the active interface-module index.
 - `sal_schema({ module })`: return one static interface card.
-- `editor_context({})`: return the current UE interaction target as SAL Object
-  Text.
+- `editor_context({})`: return the current UE interaction target as ordered SAL
+  Object Text.
 
-Current public modules: Asset, Blueprint, Class, Graph, and Widget.
+Six active SAL interfaces:
 
-Recommended workflow: read editor context; query a summary or local view;
-discover exact static or dynamic schema only when needed; use UE Palette
-constructors for creation; dry-run the Patch; apply it; compile and save through
-the owning asset. Do not guess UE Classes, fields, Pins, or operation names.
+- Asset
+- Blueprint
+- Class
+- Graph
+- StateTree
+- Widget
+
+Recommended workflow:
+
+1. Bind one project.
+2. Locate the exact target.
+3. Query a compact view.
+4. Discover static or dynamic schema only when needed.
+5. Use a UE Palette capability before creation.
+6. Dry-run the complete Patch.
+7. Apply the same authored Patch and read back.
+8. Compile and save through the owning asset.
+
+Do not guess UE Classes, fields, Pins, object ids, destinations, Palette
+entries, or operation names. The Client's `sal_schema` interface cards and
+exact `with schema` results are authoritative for the installed build.

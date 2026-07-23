@@ -1,8 +1,9 @@
 ---
 layout: default
 title: Exact Nodes and Pins
-parent: Blueprint
-nav_order: 4
+parent: Graph
+grand_parent: Interfaces
+nav_order: 1
 ---
 
 # Exact Nodes and Pins
