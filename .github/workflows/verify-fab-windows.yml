@@ -23,7 +23,12 @@ jobs:
 
       - name: Normalize Persistent Checkout
         run: |
-          git checkout-index --all --force
+          git config --local core.autocrlf false
+          git reset --hard HEAD
+          git ls-files --eol `
+            client/src/generated/product-version.ts `
+            client/src/generated/protocol-version.ts `
+            engine/LoomleBridge/Source/LoomleBridge/Private/Generated/LoomleProtocolVersion.h
 
       - name: Require Windows X64 Runner
         run: |
