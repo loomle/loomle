@@ -17,12 +17,13 @@ The first accepted target is `darwin-arm64` and its canonical output is:
 .tmp/client/darwin-arm64/build.json
 ```
 
-`build.json` records the product version, native target, pinned Node version and
-runtime archive SHA-256, executable name, and executable SHA-256. Fab assembly
-requires this receipt and rechecks the executable bytes, so a receipt from
-another version, target, Node runtime, or executable is rejected. The receipt
-is build provenance, not proof that an unchanged product version has no newer
-source edits; always build and test the Client immediately before assembly. The
+`build.json` schema version 2 records the product version, Client–Bridge
+protocol version, native target, pinned Node version and runtime archive
+SHA-256, executable name, and executable SHA-256. Fab assembly requires this
+receipt and rechecks the executable bytes, so a receipt from another product or
+protocol version, target, Node runtime, or executable is rejected. The receipt
+is build provenance, not proof that unchanged versions have no newer source
+edits; always build and test the Client immediately before assembly. The
 receipt is not shipped in the plugin.
 
 `node-runtime.json` pins the exact official Node.js 24 LTS archive and SHA-256.

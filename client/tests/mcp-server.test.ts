@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { guide } from "@loomle/interfaces";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+import {
+  ErrorCode,
+  ListRootsRequestSchema,
+  McpError,
+} from "@modelcontextprotocol/sdk/types.js";
 import test from "node:test";
 import { productVersion } from "../src/generated/product-version.js";
 import { createMcpServer } from "../src/mcp-server.js";
@@ -44,6 +48,14 @@ class CancellableRpc implements RpcInvoker {
       if (signal.aborted) abort();
       else signal.addEventListener("abort", abort, { once: true });
     });
+  }
+}
+
+class RootAwareRpc extends CountingRpc {
+  readonly updates: Array<{ roots?: readonly string[]; supported: boolean }> = [];
+
+  setMcpRoots(roots: readonly string[] | undefined, supported: boolean): void {
+    this.updates.push({ ...(roots ? { roots } : {}), supported });
   }
 }
 
@@ -102,6 +114,102 @@ test("forwards MCP request cancellation to the runtime invocation", async () => 
     ));
     await waitFor(() => rpc.aborted);
   } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("feature-detects MCP Roots and refreshes them on list-changed notifications", async () => {
+  const rpc = new RootAwareRpc();
+  const server = await createMcpServer(new SalToolService(rpc));
+  const client = new Client(
+    { name: "loomle-roots-test", version: "1.0.0" },
+    { capabilities: { roots: { listChanged: true } } },
+  );
+  let roots = [{ uri: "file:///Projects/Alpha", name: "Alpha" }];
+  client.setRequestHandler(ListRootsRequestSchema, async () => ({ roots }));
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  try {
+    await waitFor(() => rpc.updates.some((update) => update.roots?.[0] === "/Projects/Alpha"));
+    roots = [{ uri: "file:///Projects/Beta", name: "Beta" }];
+    await client.sendRootsListChanged();
+    await waitFor(() => rpc.updates.some((update) => update.roots?.[0] === "/Projects/Beta"));
+    assert.ok(rpc.updates.every((update) => update.supported));
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("keeps unsupported MCP Roots authoritative instead of converting them to empty", async () => {
+  const rpc = new RootAwareRpc();
+  const server = await createMcpServer(new SalToolService(rpc));
+  const client = new Client(
+    { name: "loomle-roots-test", version: "1.0.0" },
+    { capabilities: { roots: {} } },
+  );
+  client.setRequestHandler(ListRootsRequestSchema, async () => ({
+    roots: [{ uri: "https://example.com/workspace", name: "Remote workspace" }],
+  }));
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  try {
+    await waitFor(() => rpc.updates.length >= 2);
+    assert.deepEqual(rpc.updates.at(-1), { supported: true });
+    assert.equal(rpc.updates.some((update) => update.roots?.length === 0), false);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("ignores a late response from an older MCP Roots refresh", async () => {
+  const rpc = new RootAwareRpc();
+  const server = await createMcpServer(new SalToolService(rpc));
+  const client = new Client(
+    { name: "loomle-roots-test", version: "1.0.0" },
+    { capabilities: { roots: { listChanged: true } } },
+  );
+  let requestCount = 0;
+  let releaseFirst!: () => void;
+  const firstPending = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  client.setRequestHandler(ListRootsRequestSchema, async () => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      await firstPending;
+      return { roots: [{ uri: "file:///Projects/Stale", name: "Stale" }] };
+    }
+    return { roots: [{ uri: "file:///Projects/Current", name: "Current" }] };
+  });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  try {
+    await waitFor(() => requestCount === 1);
+    const changed = client.sendRootsListChanged();
+    await waitFor(() => requestCount === 2);
+    await waitFor(() => rpc.updates.some((update) => update.roots?.[0] === "/Projects/Current"));
+    releaseFirst();
+    await changed;
+    await new Promise<void>((resolve) => setTimeout(resolve, 1));
+    assert.equal(
+      rpc.updates.some((update) => update.roots?.[0] === "/Projects/Stale"),
+      false,
+    );
+    assert.deepEqual(rpc.updates.at(-1), {
+      roots: ["/Projects/Current"],
+      supported: true,
+    });
+  } finally {
+    releaseFirst();
     await client.close();
     await server.close();
   }

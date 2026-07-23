@@ -8,10 +8,18 @@ StateTree Editor Nodes, Transitions, Parameters, Context Data, Property
 Bindings, Schema-driven discovery, Palette-backed creation, authored edits,
 compilation, diagnostics, and Package save.
 
-This document records the confirmed authored-language contract. The StateTree
-interface card, SDK schema/executor support, and UE Bridge adapter are not
-active yet; they must implement this contract without introducing another
-public object model or creation path.
+This document records the complete active authored-language contract. The UE
+5.7 Bridge implements exact target and object reads, `summary`, `tree`, the
+State, Node, and Parameter collections, local factual references, dynamic
+exact `with schema`, destination-bound Palette, authored Patch, Property
+Bindings, Property Function ownership, native compile, and Core save
+composition. The compact operational surface is the static
+[`state_tree` interface card](../../../interfaces/state_tree.md). Binding
+readback is deliberately local: exact contained-object reads emit only directly
+incident explicit Property Bindings and derived automatic Context
+relationships as ordinary arrows. References never load other assets and
+project-wide StateTree references remain unavailable until a zero-load index
+exists.
 
 The first version is intentionally an authored-asset domain. It does not expose
 live execution instances, Rewind Debugger traces, runtime instance data,
@@ -109,7 +117,10 @@ canonical stable reference. It never falls back to a display name after an id
 lookup fails. Parameter identity is deliberately composite because linked
 State Parameter bags may reuse a property Guid under different containers.
 The `/` in `parameter@container-id/property-id` is the canonical text encoding
-of those two native identity components; it is not a global synthetic id.
+of those two native identity components; it is not a global synthetic id. The
+owner State id is navigation rather than a third identity component, so an
+otherwise canonical Parameter remains exact-readable when only its owner
+State id is malformed or colliding.
 
 A Schema Context descriptor becomes `object(...)` only when its ID is valid and
 unique within the resolved target. A malformed Schema may still return a
@@ -134,7 +145,7 @@ The primary StateTree object shapes are deliberately small:
 | `node(...)` | `FStateTreeEditorNode` | one Evaluator, Task, Condition, Consideration, or Property Function |
 | `transition(...)` | `FStateTreeTransition` | one ordered Transition owned by a State |
 | `parameter(...)` | one Property Bag descriptor and value | one ordered root or State Parameter |
-| `object(...)` | `FStateTreeExternalDataDesc` | one valid, uniquely identified read-only Schema Context Data slot |
+| `object(...)` | `FStateTreeExternalDataDesc` | one read-only Schema Context Data descriptor; exact-readable only with a valid, unique id |
 
 `node(...)` is shared with the Graph domain only as a small SAL structural
 constructor. It does not claim that `FStateTreeEditorNode` is a
@@ -344,24 +355,43 @@ system.
 
 Parameter text combines one ordered Property Bag descriptor with its current
 value and metadata. Its `id` is the same `container-id/property-id` pair used
-by its stable reference. Exact `with schema` supplies the native member paths
-for name, type, value, metadata, override state, and every allowed edit; SAL
-does not freeze those paths into a second Parameter schema.
+by its stable reference. `Value` is the explicit public field for the current
+authored value. Lowercase `type` uses the same UE-native Property Reflection
+codec as the Class domain; remaining descriptor fields retain their UE names,
+and `MetaData` remains an ordered array of native `Key` / `Value` entries.
+Owner, fixed-layout, inheritance, and override facts are adjacent comments
+rather than a second Parameter object model. Exact `with schema` supplies the
+native member paths and allowed edits without changing this read shape.
 
 Context Data `object(...)` text maps `id` to a valid, unique
 `FStateTreeExternalDataDesc::ID` and preserves the native `Name`, `Struct`, and
 `Requirement` fields. `Handle` is compiled/runtime indexing state and is not
-authored text. Context Data descriptors are read-only. A member after
-`object@id` resolves against the descriptor's `Struct` Binding surface, not
-against the descriptor metadata. Invalid or duplicate descriptor IDs remain
-visible as adjacent diagnostic comments rather than false `object@id` values.
+authored text, and the asset contains no runtime Context value. Context Data
+descriptors are read-only. A missing or invalid `Struct` remains visible with a
+diagnostic but cannot expose a member Binding surface. Direct Binding-arrow
+endpoints after `object@id` and exact schema discovery resolve against a valid
+descriptor `Struct`, not its metadata. Invalid or duplicate descriptor IDs
+remain visible as adjacent diagnostic comments rather than false `object@id`
+values.
 
 An Object Text arrow renders actual data-flow direction. It may represent an
 explicit authored Property Binding or UE's derived automatic Context
 resolution; an adjacent comment identifies the latter. The arrow remains a
-relationship statement, not a `binding(...)` object. For a native UE output
-Binding, the adapter reverses the storage-oriented path pair as needed so the
-SAL arrow still points from producer to consumer.
+relationship statement, not a `binding(...)` object. Readback determines the
+effective Binding direction from the resolved native `TargetPath` root
+Property, matching UE's compiler rule: `Usage=Output` is an output Binding and
+every other usage is ordinary. Ordinary explicit Bindings render native
+`SourcePath -> TargetPath`, and UE's ordinary add path replaces the existing
+Binding for that exact `TargetPath`. Effective output Bindings render native
+`TargetPath -> SourcePath`; their native `TargetPath` is the logical producer,
+so multiple authored output records may preserve fan-out from that producer.
+
+The stored `bIsOutputBinding` bit is not authoritative because UE compilation
+may repair it from the target root Property usage. Query performs the same
+classification without modifying the Binding, compiling, dirtying, or saving
+the asset. If the stored bit disagrees with the effective classification, SAL
+still renders the effective data-flow direction and returns a diagnostic with
+the native Binding index and path evidence.
 
 `State` on a Transition preserves the native `FStateTreeStateLink` fields. For
 a concrete Goto State, its native `ID` value is rendered as a stable
@@ -389,8 +419,8 @@ Summary returns:
 
 1. the compact exact Asset binding;
 2. the native StateTree Schema Class Path;
-3. every valid, uniquely identified Schema Context Data slot as a compact
-   `object(...)` binding, in Schema order;
+3. every Schema Context Data descriptor as a compact `object(...)` binding, in
+   Schema order; malformed or colliding descriptors omit a canonical id;
 4. every Evaluator and Global Task as compact `node(...)` bindings, in authored
    order;
 5. every top-level State as a compact `state(...)` binding, in authored order;
@@ -513,12 +543,16 @@ their `node(...)` text and `node@id` remains exact-readable.
 
 `parameters ["text"]` searches root and State Parameter names, native Property
 Bag types, metadata, and visible owner paths. Each result includes the complete
-container/property identity and preserves descriptor order inside its
-container.
+container/property identity, omits the current value, and preserves descriptor
+order inside its container. Context Data have no collection operation:
+`summary` is their compact discovery surface and `object@context-id` is their
+exact read.
 
 Collection results use shared bounded cursor pagination with a default page of
-50. Result order follows authored document order, not relevance, unless an
-explicit supported `order by` is later defined by the domain.
+50 and a maximum page of 200. Result order follows authored document order, not
+relevance. `states`, `nodes`, and `parameters` accept only their optional
+search text and cursor `page` clauses; they accept no `where`, `order by`,
+`with schema`, or `depth`.
 
 `state@id`, `node@id`, `transition@id`, and
 `parameter@container-id/property-id` are exact within the bound Asset. A valid,
@@ -527,6 +561,48 @@ Exact reads return the object's full meaningful authored fields and enough
 owner context to copy its reference into a later Patch. Context Data objects
 are read-only. A Property Function `node@id` is exact but retains its outer
 Binding-owned lifecycle.
+
+All active contained-object exact reads start with a compact Asset owner
+binding. Node and Transition reads preserve the exact object's owning global
+role, State, or Transition context, and a Transition read returns its owned
+Conditions in UE authored order. Parameter reads return their descriptor and
+current `Value`; owner, layout, inheritance, and override facts remain adjacent
+comments. An exact native Parameter value above 1 MiB fails the complete Query
+with `validation.result_too_large` and is never truncated. Exact Node native
+fields use the same fail-complete rule at 2,048 fields or 1 MiB of native value
+text; partial Node/Instance/ExecutionRuntimeData objects are never returned.
+Context Data exact reads return only the Schema-authored descriptor, never
+compiled `Handle` state or a runtime value. Like every Query in this domain,
+these reads inspect authored data without validating, repairing, compiling,
+dirtying, or saving it.
+
+Exact State, Node, Transition, Parameter, and Context Data reads additionally
+append only the Binding arrows directly incident to the exact selected stable
+object. Ownership expansion does not expand relationship scope: for example,
+`state@id` may return its owned Nodes and `transition@id` its Conditions, but
+their arrows require their own exact Queries. `summary`, `tree`, and collection
+reads do not emit Binding arrows.
+
+Explicit relationships preserve their authored order in
+`FStateTreeEditorPropertyBindings::PropertyBindings`. Derived automatic Context
+relationships have no authored array position; they are marked as automatic
+and emitted in deterministic target/member traversal order without pretending
+to be stored records. If either endpoint cannot be mapped uniquely to an
+existing stable owner and native member path, SAL emits no malformed or
+invented Edge. It instead returns a diagnostic with the native Binding index
+and path evidence so the corrupt authored fact remains inspectable.
+
+Ordinary Target replacement and duplicate detection use UE's native
+`FPropertyBindingPath` equality, including Struct id, Segment name, concrete
+Instance Struct, and array index. A rendered SAL member path is navigation
+text, not a substitute for that native identity. If a malformed Binding still
+resolves its Target root to a Context-usage Property, that authored root remains
+an override and suppresses the derived automatic Context arrow; failure in a
+later Segment must not invent an unbound Context relationship. Diagnostics for
+a malformed Binding with no canonical endpoint owner are returned by
+`summary`; they are not attached to unrelated exact objects. A global
+relationship-analysis budget failure may appear on both `summary` and exact
+reads because it makes every relationship result incomplete.
 
 ### References
 
@@ -628,6 +704,11 @@ compilation by default.
 As in every SAL domain, schema guidance is returned in adjacent comments around
 ordinary Object Text. StateTree introduces no schema-result object.
 
+Exact schema discovery is fail-complete. The adapter permits at most 2,048
+reflected fields and 1 MiB of schema text across the requested exact surface;
+if either bound is exceeded it returns `validation.result_too_large` instead of
+silently omitting fields that an Agent might otherwise assume do not exist.
+
 ## Palette
 
 Every StateTree Palette query includes the exact destination it is meant to
@@ -671,9 +752,25 @@ document; the agent copies the returned constructor call into the Patch and may
 choose a new alias.
 
 State and Transition entries wrap UE-native construction behavior but keep
-their `type` as the native Class or Struct path. State `Type`, Transition
-`Trigger`, target, and other required arguments remain named native fields
-returned by the exact entry's schema.
+their `type` as the native Class or Struct path. A new Transition starts from
+UE's own Array-add defaults: `Trigger` is `OnStateCompleted` and `State` links
+to the root State unless copied constructor fields explicitly change them.
+State `Type`, Transition `Trigger`, target, and other required arguments remain
+named native fields returned by the exact entry's schema.
+
+The ordinary State entry covers the native `State`, `Group`, and `Subtree`
+types allowed by the current Schema. A `Linked` State entry is target-specific:
+it is returned only when a valid Subtree target exists outside the destination
+State's ancestor chain, and its copyable constructor includes that exact
+`LinkedSubtree: state@id`. `LinkedAsset` has one separate fixed-type entry; UE
+5.7 permits its native asset reference to remain null, so discovery does not
+scan or load candidate assets and the reference can be supplied through its
+ordinary native field. Patch revalidates every fixed State type and exact
+linked target against the same entry; neither requirement can be substituted.
+Parameter entries likewise derive a deterministic unique `Name` from their
+exact destination bag (`NewParameter`, `NewParameter_1`, and so on), and exact
+Palette reads recompute that constructor so a stale name cannot silently
+collide.
 
 A Property Function entry is a destination-bound `node(...)` candidate. It is
 consumed by the first owning
@@ -690,20 +787,21 @@ every Blueprint Node asset merely to answer an unbounded Palette query.
 
 ## Patch
 
-StateTree reuses Core lifecycle operations:
+StateTree activates these Core lifecycle operations:
 
 - `add`
 - `remove`
 - `set`
 - `reset`
 - `move`
-- `invoke`
 - `save`
 
 StateTree additionally defines the relationship operations `bind` and
 `unbind`. They edit Property Bindings but do not create a Binding object.
 `compile` is a StateTree terminal statement following the already established
-Blueprint terminal model.
+Blueprint terminal model. No StateTree `invoke` capability is currently
+advertised; an exact schema must expose an Operation before that syntax becomes
+valid.
 
 ### Add
 
@@ -866,14 +964,28 @@ readback uses the same composite text in `id`:
 ```sal
 speed = parameter(
   id: "container-guid/property-guid",
-  type: "<schema-returned native type>"
+  type: "FloatProperty",
+  Name: Speed,
+  Value: 600.0,
+  MetaData: [
+    { Key: ClampMin, Value: "0" }
+  ]
 )
+
+###
+owner: state@companion-guid
+bFixedLayout: true
+value source: local override
+###
 ```
 
-This is the compact identity form. An exact read continues with the meaningful
-native fields returned by the active Property Bag schema and UE Reflection
-rather than a parallel SAL Parameter type system. Editable local layouts
-support Palette-backed `add`,
+Collection results use the compact identity form; the example above is an
+exact read. `Value` is the explicit public current-value field. `type` uses the
+same UE-native Property Reflection text as the Class domain, remaining
+descriptor fields retain UE names, and `MetaData` preserves descriptor order as
+`Key` / `Value` entries. Owner, fixed-layout, inheritance, and override facts
+are comments because they describe the owning container rather than fields on
+the descriptor. Editable local layouts support Palette-backed `add`,
 schema-approved rename and type/value/metadata edits, same-container reorder,
 and `remove`. Linked fixed layouts retain the inherited descriptor identity;
 only value override `set` and `reset` are local edits.
@@ -903,6 +1015,26 @@ StateTree adds no `automatic` keyword, relationship constructor, or normalized
 object. An automatic Context arrow is queryable but has no authored record or
 independent lifecycle.
 
+Readback walks explicit `PropertyBindings` in stored authored order. It resolves
+each native `TargetPath` root Property and applies UE's effective rule:
+`Usage=Output` makes the Binding output; every other usage makes it ordinary.
+For an ordinary Binding, `TargetPath` is the unique input slot and the SAL arrow
+is `SourcePath -> TargetPath`. For an effective output Binding, the SAL arrow is
+`TargetPath -> SourcePath`, and several output records may share that native
+`TargetPath` to fan out from one logical producer. The adapter must not collapse
+those records under the ordinary TargetPath-uniqueness rule.
+
+The authored `bIsOutputBinding` value is retained evidence, not the source of
+truth for Query direction. If it differs from the target Property's effective
+usage, Query does not invoke UE's mutating repair path; it emits the effective
+arrow and a diagnostic identifying the mismatch.
+
+Automatic Context arrows are derived by applying the current Context-usage
+Property and `UStateTreeEditorData::FindContextData()` behavior only when an
+explicit Binding does not override the target. They are not inserted into the
+authored order or counted as `EditorBindings`. Their adjacent annotation makes
+their derived status explicit.
+
 An endpoint is one stable owner plus an ordered native member path. Array
 segments use non-negative `[N]` indexes and normalize as numeric path segments;
 the adapter never stores only a localized display path. Bindable StateTree Node
@@ -927,6 +1059,11 @@ Property Binding path resolution. They are never guessed from display names or
 dropped from execution state. If the public member path cannot reconstruct one
 unique native path, the adapter rejects it and returns schema guidance; this
 document does not silently add another path syntax.
+
+Readback follows the same fail-closed rule. A corrupt native path that cannot
+be converted to one canonical stable owner and member path is preserved as a
+diagnostic with its native array location and path text, not emitted as a fake
+SAL Edge, alias, or typed id.
 
 `object@context-id` selects one valid, uniquely identified Schema Context Data
 slot. Its following member path is resolved against the descriptor's native
@@ -1042,13 +1179,15 @@ bind node@producer-guid.Instance.OnFinished ->
 The adapter resolves member identity, visibility, direction, and native type
 compatibility, then maps the pair to UE's Source Path, Target Path, and output
 flag. For an ordinary input Binding, the native Target Path is the arrow's
-right endpoint. For a UE output Binding, the native Target Path is the arrow's
-left endpoint because UE stores that copy direction inversely. That native
-Target Path is the unique replacement key. A `bind` that replaces an existing
-relationship must expose that replacement and every cascade in preflight and
-mutation results. `unbind` names the complete existing pair; a source mismatch
-is an error rather than permission to remove whichever Binding currently
-reaches the target.
+right endpoint and is its unique replacement slot. For a UE output Binding, the
+native Target Path is the arrow's left endpoint because UE stores that copy
+direction inversely; it is a fan-out producer rather than an ordinary unique
+input slot, and multiple output records may share it. `bind` applies the
+matching native ordinary or output operation instead of one generic TargetPath
+replacement rule and exposes every replacement or fan-out effect in preflight
+and mutation results. `unbind` names the complete
+existing pair; a source mismatch is an error rather than permission to remove
+whichever Binding currently reaches the target.
 
 Binding an explicit source to a Context-usage Property creates or replaces its
 authored override and suppresses automatic Context resolution for that target.
@@ -1057,6 +1196,18 @@ causes UE to derive an automatic Context relationship again, preflight and the
 mutation result report the restored data flow. Attempting to `unbind` an
 automatic arrow is an error because there is no authored relationship to
 remove.
+
+After changing an explicit Node-targeted Binding, the adapter follows UE's
+editor path and calls `FStateTreeNodeBase::OnBindingChanged`. Native Nodes may
+use that callback to synchronize authored Instance data, for example an enum
+comparison's selected enum type. The callback runs after the requested
+Binding change; its complete authored before/after manifest is captured
+separately, every resulting cascade is included in the mutation plan, and an
+authored hash change outside that manifest fails closed. Bind passes the
+resolved Source Path; unbind follows UE's removal path and passes an empty
+Source Path so dependent Node metadata is cleared rather than retaining the
+removed source's type. Non-Node targets do not run this callback or pay for
+its manifest snapshots.
 
 Delegate Bindings use the same target-owned replacement rule. One Dispatcher
 may feed multiple Listeners, while one Listener has at most one Dispatcher.
@@ -1228,8 +1379,16 @@ StateTree uses the shared mutation result and dry-run contract:
    compile consequence, or a dormant authored diagnostic, then compare every
    applied cascade with the mutation plan;
 8. stop for dry run, or execute one live top-level transaction;
-9. roll back the whole transaction and restore prior dirty state on failure;
-10. mark the Package dirty and notify an already-open ViewModel after success.
+9. roll back that transaction and restore prior dirty state on an in-memory
+   edit or compile execution failure;
+10. mark the Package dirty and notify an already-open ViewModel after success;
+11. after the transaction is complete, perform any requested Package save as
+    external I/O.
+
+A save failure is not a transaction failure. Already completed authored edits
+or compile state remain in memory and dirty but unsaved; Loomle reports the
+save diagnostic and does not pretend that external I/O could roll the in-memory
+transaction back.
 
 `ValidateStateTree()` is a mutating repair pass. An unplanned removal, id
 change, link rewrite, or Binding cleanup is not silently accepted just because
@@ -1240,12 +1399,12 @@ native property edit preserves. When the Patch explicitly includes `compile`,
 the validation performed by that native compile path and its reported cleanup
 are part of the terminal operation.
 
-One SAL Patch produces one Undo step. The Bridge must not drive
+One SAL Patch produces one Undo step. The Bridge does not drive
 `FStateTreeViewModel` selection-oriented commands as its primary edit API,
-because they alter user selection and open separate transactions. A thin
-StateTree edit adapter should use public UE types and APIs, reproduce the
-native initialization and notification sequence, then ask an existing
-ViewModel only to refresh.
+because they alter user selection and open separate transactions. Its thin
+StateTree edit adapter uses public UE types and APIs, reproduces the native
+initialization and notification sequence, then asks an existing ViewModel only
+to refresh.
 
 ## Diagnostics
 
@@ -1263,11 +1422,15 @@ diagnostic conditions include:
 - read-only Context Data mutation;
 - invisible, incorrectly directed, indexed-path-invalid, or type-incompatible
   Binding endpoint;
+- explicit or derived Binding endpoint that cannot map to one canonical SAL
+  path; the diagnostic preserves native evidence and no false Edge is emitted;
 - inactive or inaccessible Required Event Binding source, invalid Event
   descriptor, or Event Binding invalidated by a Payload type change;
 - Delegate source/target direction mismatch, cross-asset Delegate endpoint,
   dormant Transition Delegate Binding, or active On Delegate Transition with no
   Dispatcher Binding;
+- stored `bIsOutputBinding` disagreement with the resolved target root
+  Property's effective Output usage;
 - attempt to `unbind` a derived automatic Context relationship, or failure to
   report automatic Context data flow restored after removing an override;
 - attempt to add, remove, or move a Binding-owned Property Function directly;
@@ -1312,28 +1475,20 @@ Asset creation design may expose the StateTree Factory through Asset Palette,
 but this domain must not hide Asset creation inside `patch state_tree`, guess a
 Schema, or invent a second creation path.
 
-## Implementation Sequence
+## Implementation Status
 
-Implementation should proceed in this order:
+The UE 5.7 Bridge now implements the complete authored contract above: parser
+and normalized operations, exact identity and traversal, relationships and
+local references, dynamic schema, destination-bound Palette, transactional
+Patch with transient dry-run preflight, Property Function ownership, native
+compile, registered diagnostics, and explicit save composition. The complete
+LoomleBridge module and StateTree automation-test sources compile and link with
+UBT.
 
-1. extend the shared parser and normalized contract for exact target read,
-   indexed member paths, StateTree operations, and `bind`/`unbind`;
-2. register the static StateTree interface card and domain capability;
-3. implement exact Asset resolution, target schema, and read-only
-   `EditorData` traversal;
-4. implement Summary globals, Tree, collections, exact references, local
-   references, and destination-bound Palette reads;
-5. implement Parameters, Context Data, Binding arrows, and exact schema;
-6. implement the thin native edit adapter, Property Function ownership, and
-   transient preflight path;
-7. implement compile, diagnostics, and Core save composition;
-8. add focused parser/formatter, contract, Bridge, dry-run, transaction,
-   compile, and regression tests against UE 5.7;
-9. audit token cost and an Omle `ST_OmleLocalBehavior` authoring workflow.
-
-The first acceptance workflow should be able to inspect and author the ordered
-`SafetyRecovery`, `ExternalActionControl`, and `Companion` hierarchy, add exact
-Schema-allowed Nodes and Transitions through Palette, verify the result with
-exact queries, create and bind Parameters and one Property Function, compile
-with object-linked diagnostics, and save without any implicit runtime or
-project-wide asset scan.
+Runtime automation has not yet been executed in the local source-built Editor
+because that Editor installation lacks its `UnrealEditor-SandboxFile` dynamic
+library. This is an environment limitation rather than a StateTree compilation
+failure. The remaining acceptance work is a real-project authored workflow and
+runtime automation once that Editor dependency is available. Live execution,
+debugger control, StateTree asset creation, and zero-load project-wide
+references remain intentionally outside the active domain.

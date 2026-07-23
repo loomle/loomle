@@ -33,6 +33,8 @@ const collectionKinds = new Set([
   "functions",
   "defaults",
   "widgets",
+  "states",
+  "parameters",
 ]);
 
 const namedKinds = new Set([
@@ -55,6 +57,10 @@ const idKinds = new Set([
   "node",
   "pin",
   "widget",
+  "state",
+  "transition",
+  "parameter",
+  "object",
 ]);
 
 const queryHeader = /^query\s+[A-Za-z_][A-Za-z0-9_]*$/;
@@ -193,17 +199,16 @@ function parseQuery(
     throw new ParseError("language.invalid_query_header", "Expected query <target>.", spanForLine(header));
   }
   const body = lines.slice(queryIndex + 1).filter((line) => line.kind === "code");
-  if (body.length === 0) {
-    throw new ParseError("language.missing_query_operation", "Query requires one primary operation.", spanForLine(header));
-  }
+  const hasPrimaryOperation = body.length > 0 && !isQueryClause(body[0].text);
 
   const query: Query = {
     kind: "query",
     target: parseTarget(match[1], bindings, header, true),
-    operation: parseQueryOperation(body[0]),
+    operation: hasPrimaryOperation ? parseQueryOperation(body[0]) : { kind: "target" },
   };
   const aliases = new Set([match[1]]);
-  for (const line of body.slice(1)) {
+  assertQueryRefsKnown(query.operation, aliases, hasPrimaryOperation ? body[0] : header);
+  for (const line of body.slice(hasPrimaryOperation ? 1 : 0)) {
     if (line.text.startsWith("where ")) {
       if (query.where) duplicateClause("where", line);
       query.where = parseCondition(line.text.slice(6), line, aliases);
@@ -275,19 +280,36 @@ function parseQueryOperation(line: ParsedLine): QueryOperation {
   if (text === "palette entries" || text.startsWith("palette entries ")) {
     let rest = text.slice("palette entries".length).trim();
     let pinContext: { direction: "from" | "to"; pin: StableRef } | undefined;
-    const contextMatch = /(?:^|\s)(from|to)\s+(\S+)$/.exec(rest);
-    if (contextMatch) {
-      pinContext = { direction: contextMatch[1] as "from" | "to", pin: stableRef(contextMatch[2], line) };
-      rest = rest.slice(0, contextMatch.index).trim();
+    let destination: Ref | undefined;
+    const context = paletteContext(rest);
+    if (context) {
+      const ref = parseRef(context.ref, line);
+      if ("id" in ref && ref.kind === "pin") {
+        pinContext = { direction: context.direction, pin: ref };
+      } else if (context.direction === "from") {
+        throw new ParseError("language.expected_stable_reference", "Graph Palette from context requires a typed pin@id reference.", spanForLine(line));
+      } else {
+        destination = ref;
+      }
+      rest = context.search;
     }
     const search = rest === "" ? undefined : quotedText(rest, line);
-    return { kind: "palette_entries", ...(search ? { text: search } : {}), ...(pinContext ? { pinContext } : {}) };
+    return {
+      kind: "palette_entries",
+      ...(search ? { text: search } : {}),
+      ...(pinContext ? { pinContext } : {}),
+      ...(destination ? { to: destination } : {}),
+    };
   }
-  const palette = /^palette\s+@(\S+)$/.exec(text);
+  const palette = /^palette\s+@(\S+?)(?:\s+to\s+(.+))?$/.exec(text);
   if (palette) {
-    return { kind: "palette", id: palette[1] };
+    return {
+      kind: "palette",
+      id: palette[1],
+      ...(palette[2] ? { to: parseRef(palette[2], line) } : {}),
+    };
   }
-  const exact = /^([A-Za-z_][A-Za-z0-9_]*)@([^\s]+)$/.exec(text);
+  const exact = /^([A-Za-z_][A-Za-z0-9_]*)@([^\s.\[\]]+)$/.exec(text);
   if (exact && idKinds.has(exact[1])) {
     return { kind: exact[1], id: exact[2] } as QueryOperation;
   }
@@ -397,6 +419,10 @@ function parsePatchOperation(
     const body = text.slice(kind.length + 1);
     const edge = parseEdge(body, line);
     return { statements: [{ kind, ...edge }], outputs: [] };
+  }
+  if (text.startsWith("bind ") || text.startsWith("unbind ")) {
+    const kind = text.startsWith("bind ") ? "bind" : "unbind";
+    return { statements: [{ kind, ...parseEdge(text.slice(kind.length + 1), line) }], outputs: [] };
   }
   if (text.startsWith("insert ")) {
     const parts = splitTopLevelExact(text.slice(7), "->");
@@ -585,6 +611,8 @@ function assertPatchRefsKnown(
       return;
     case "connect":
     case "disconnect":
+    case "bind":
+    case "unbind":
       assertRefKnown(operation.from, aliases, line);
       assertRefKnown(operation.to, aliases, line);
       return;
@@ -609,6 +637,48 @@ function assertPatchRefsKnown(
     case "save":
       return;
   }
+}
+
+function assertQueryRefsKnown(
+  operation: QueryOperation,
+  aliases: ReadonlySet<string>,
+  line: ParsedLine,
+): void {
+  if ((operation.kind === "palette_entries" || operation.kind === "palette") && "to" in operation) {
+    assertRefKnown(operation.to, aliases, line);
+  }
+}
+
+function isQueryClause(text: string): boolean {
+  return text.startsWith("where ")
+    || text.startsWith("with ")
+    || text.startsWith("order by ")
+    || text.startsWith("page ");
+}
+
+function paletteContext(rest: string): { direction: "from" | "to"; search: string; ref: string } | undefined {
+  let selected: { direction: "from" | "to"; index: number; refStart: number } | undefined;
+  for (const direction of ["from", "to"] as const) {
+    const prefix = `${direction} `;
+    const token = ` ${direction} `;
+    const index = rest.startsWith(prefix) ? 0 : findTopLevel(rest, token);
+    if (index < 0 || (selected && selected.index <= index)) {
+      continue;
+    }
+    selected = {
+      direction,
+      index,
+      refStart: index + (index === 0 ? prefix.length : token.length),
+    };
+  }
+  if (!selected) {
+    return undefined;
+  }
+  return {
+    direction: selected.direction,
+    search: rest.slice(0, selected.index).trim(),
+    ref: rest.slice(selected.refStart).trim(),
+  };
 }
 
 function assertBindingTargetKnown(

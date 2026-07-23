@@ -96,7 +96,7 @@ export function tryParseRef(
   allowBareLocal = false,
 ): Ref | undefined {
   const trimmed = text.trim();
-  const stable = /^([A-Za-z_][A-Za-z0-9_]*)@([^\.\s]+)(?:\.(.+))?$/.exec(trimmed);
+  const stable = /^([A-Za-z_][A-Za-z0-9_]*)@([^\.\[\]\s]+)((?:\.[A-Za-z_][A-Za-z0-9_]*|\[\d+\])*)$/.exec(trimmed);
   if (stable) {
     if (!isLocalIdentifier(stable[1])) {
       return undefined;
@@ -109,7 +109,7 @@ export function tryParseRef(
     return path ? { kind: "member", object, path } : undefined;
   }
 
-  const local = /^([A-Za-z_][A-Za-z0-9_]*)(?:\.(.+))?$/.exec(trimmed);
+  const local = /^([A-Za-z_][A-Za-z0-9_]*)((?:\.[A-Za-z_][A-Za-z0-9_]*|\[\d+\])*)$/.exec(trimmed);
   if (!local || (!allowBareLocal && !local[2] && !aliases.has(local[1]))) {
     return undefined;
   }
@@ -124,10 +124,29 @@ export function tryParseRef(
   return path ? { kind: "member", object, path } : undefined;
 }
 
-function parseMemberPath(text: string): [string, ...string[]] | undefined {
-  const parts = text.split(".");
-  return parts.length > 0 && parts.every((part) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(part))
-    ? parts as [string, ...string[]]
+function parseMemberPath(text: string): [string | number, ...(string | number)[]] | undefined {
+  const parts: Array<string | number> = [];
+  let index = 0;
+  while (index < text.length) {
+    const identifier = /^\.([A-Za-z_][A-Za-z0-9_]*)/.exec(text.slice(index));
+    if (identifier) {
+      parts.push(identifier[1]);
+      index += identifier[0].length;
+      continue;
+    }
+    const arrayIndex = /^\[(\d+)\]/.exec(text.slice(index));
+    if (!arrayIndex) {
+      return undefined;
+    }
+    const value = Number(arrayIndex[1]);
+    if (!Number.isSafeInteger(value) || value > 2147483647) {
+      return undefined;
+    }
+    parts.push(value);
+    index += arrayIndex[0].length;
+  }
+  return parts.length > 0
+    ? parts as [string | number, ...(string | number)[]]
     : undefined;
 }
 
@@ -205,9 +224,13 @@ export function formatRef(ref: Ref): string {
     return ref.name;
   }
   if ("object" in ref) {
-    return `${formatRef(ref.object)}.${ref.path.join(".")}`;
+    return `${formatRef(ref.object)}${formatMemberPath(ref.path)}`;
   }
   return `${ref.kind}@${ref.id}`;
+}
+
+export function formatMemberPath(path: readonly (string | number)[]): string {
+  return path.map((segment) => typeof segment === "number" ? `[${segment}]` : `.${segment}`).join("");
 }
 
 export function localRef(name: string): LocalRef {

@@ -37,8 +37,10 @@ inventing a replacement object model for Unreal.
 
 ## Current 0.7 Surface
 
-The Client exposes four MCP calls:
+The Client exposes five MCP calls:
 
+- `project` inspects available projects and binds this MCP session to one
+  project.
 - `sal_query` reads one self-contained SAL Query Text.
 - `sal_patch` validates or applies one ordered SAL Patch Text.
 - `sal_schema` discovers SAL and the active UE interface cards.

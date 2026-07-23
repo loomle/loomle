@@ -80,6 +80,7 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
     assert.equal(client.getInstructions(), undefined);
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name), [
+      "project",
       "sal_query",
       "sal_patch",
       "sal_schema",
@@ -95,14 +96,14 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
     );
 
     // A valid Query forces the embedded AJV validators to compile before the
-    // isolated runtime lookup fails. This catches hidden package loads that a
+    // isolated project lookup fails. This catches hidden package loads that a
     // handshake-only smoke test cannot see.
     const query = await client.callTool({
       name: "sal_query",
       arguments: { text: "query asset\nassets \"door\"" },
     });
     assert.equal(query.isError, true);
-    assert.match(JSON.stringify(query), /No online Loomle runtime was found/);
+    assert.match(JSON.stringify(query), /project\.selection_required/);
   } finally {
     await client.close().catch(() => undefined);
     await rm(isolated.directory, { recursive: true, force: true });

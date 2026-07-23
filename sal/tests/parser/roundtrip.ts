@@ -3,7 +3,7 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatSalObject, parseSalObject, type Query } from "../../src/index.js";
+import { formatSalObject, parseSalObject, type Patch, type Query } from "../../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(here, "../../..");
@@ -42,6 +42,46 @@ where loaded = false and (path ~= "/Game" or name ~= "Door") and not deprecated`
     text: `bp = blueprint(asset: "/Game/Doors/BP_Door.BP_Door")
 query bp
 summary`,
+  },
+  {
+    name: "bare StateTree target read with schema",
+    text: `omle = asset(path: "/Game/AI/ST_Omle.ST_Omle")
+query omle
+with schema`,
+  },
+  {
+    name: "StateTree tree rooted at a stable State",
+    text: `omle = asset(path: "/Game/AI/ST_Omle.ST_Omle")
+query omle
+tree state@ROOT depth 8`,
+  },
+  {
+    name: "StateTree collection search",
+    text: `omle = asset(path: "/Game/AI/ST_Omle.ST_Omle")
+query omle
+parameters "speed"
+page limit 20`,
+  },
+  {
+    name: "StateTree exact compound Parameter id",
+    text: `omle = asset(path: "/Game/AI/ST_Omle.ST_Omle")
+query omle
+parameter@CONTAINER/SPEED
+with schema`,
+  },
+  {
+    name: "StateTree Palette search bound to a destination",
+    text: `omle = asset(path: "/Game/AI/ST_Omle.ST_Omle")
+query omle
+palette entries "Follow" to state@COMPANION.Tasks
+page limit 10`,
+  },
+  {
+    name: "exact StateTree Palette entry bound to a destination",
+    text: `omle = asset(path: "/Game/AI/ST_Omle.ST_Omle")
+query omle
+palette @P_Omle.Follow[Task] to state@COMPANION.Tasks
+with schema`,
   },
   {
     name: "full object bindings remain reusable target locators",
@@ -122,6 +162,11 @@ open it only when needed
 ###`,
   },
   {
+    name: "indexed local member binding",
+    text: `task = node(id: "TASK")
+task.Instance.Targets[0].Location = object(type: "/Script/CoreUObject.Vector")`,
+  },
+  {
     name: "opaque comment whitespace and delimiter text",
     text: "###\n  preserve this whitespace" + "  \n###\n# ###",
   },
@@ -150,6 +195,14 @@ wrap [widget@TITLE, widget@START] with box
 replace widget@OLD with box
 replace widget@PLACEHOLDER with widget@EXISTING
 save`,
+  },
+  {
+    name: "StateTree bind and unbind patch",
+    text: `omle = asset(path: "/Game/AI/ST_Omle.ST_Omle")
+patch omle dry run
+
+bind parameter@CONTAINER/POINTS[0].X -> node@TASK.Instance.Targets[1].X
+unbind node@PRODUCER.Instance.OnFinished -> transition@FAILED.DelegateListener`,
   },
 ];
 
@@ -181,3 +234,81 @@ assert.deepEqual((normalizedReference.object as Query).operation, {
 });
 assert.deepEqual((normalizedReference.object as Query).page, { limit: 50 });
 console.log("[PASS] references text has the confirmed normalized shape");
+
+const bareTarget = parseSalObject(`omle = asset(path: "/Game/AI/ST_Omle.ST_Omle")
+query omle
+with schema`);
+assert.deepEqual((bareTarget.object as Query).operation, { kind: "target" });
+assert.deepEqual((bareTarget.object as Query).with, ["schema"]);
+console.log("[PASS] bare exact-target read has the shared target operation");
+
+const indexedReference = parseSalObject(`omle = asset(path: "/Game/AI/ST_Omle.ST_Omle")
+query omle
+references to parameter@CONTAINER/POINTS[0].X`);
+assert.deepEqual((indexedReference.object as Query).operation, {
+  kind: "references",
+  target: {
+    kind: "member",
+    object: { kind: "parameter", id: "CONTAINER/POINTS" },
+    path: [0, "X"],
+  },
+});
+console.log("[PASS] compound Parameter ids remain distinct from indexed member paths");
+
+const destinationPalette = parseSalObject(`omle = asset(path: "/Game/AI/ST_Omle.ST_Omle")
+query omle
+palette entries "Follow" to state@COMPANION.Tasks`);
+assert.deepEqual((destinationPalette.object as Query).operation, {
+  kind: "palette_entries",
+  text: "Follow",
+  to: {
+    kind: "member",
+    object: { kind: "state", id: "COMPANION" },
+    path: ["Tasks"],
+  },
+});
+console.log("[PASS] StateTree Palette search preserves its exact destination");
+
+const graphPalette = parseSalObject(`g = graph(asset: "/Game/BP_Test.BP_Test", name: "EventGraph")
+query g
+palette entries "Branch" to pin@INPUT`);
+assert.deepEqual((graphPalette.object as Query).operation, {
+  kind: "palette_entries",
+  text: "Branch",
+  pinContext: { direction: "to", pin: { kind: "pin", id: "INPUT" } },
+});
+console.log("[PASS] Graph Palette pin context remains distinct from StateTree destination context");
+
+const stateTreePatch = parseSalObject(`omle = asset(path: "/Game/AI/ST_Omle.ST_Omle")
+patch omle
+bind parameter@CONTAINER/POINTS[0].X -> node@TASK.Instance.Targets[1].X
+unbind node@PRODUCER.Instance.OnFinished -> transition@FAILED.DelegateListener`);
+assert.deepEqual((stateTreePatch.object as Patch).statements, [
+  {
+    kind: "bind",
+    from: {
+      kind: "member",
+      object: { kind: "parameter", id: "CONTAINER/POINTS" },
+      path: [0, "X"],
+    },
+    to: {
+      kind: "member",
+      object: { kind: "node", id: "TASK" },
+      path: ["Instance", "Targets", 1, "X"],
+    },
+  },
+  {
+    kind: "unbind",
+    from: {
+      kind: "member",
+      object: { kind: "node", id: "PRODUCER" },
+      path: ["Instance", "OnFinished"],
+    },
+    to: {
+      kind: "member",
+      object: { kind: "transition", id: "FAILED" },
+      path: ["DelegateListener"],
+    },
+  },
+]);
+console.log("[PASS] bind and unbind preserve exact indexed endpoints in data-flow order");

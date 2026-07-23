@@ -17,6 +17,7 @@
 #include "SalModel.h"
 #include "SalRuntime.h"
 #include "SalTargetResolver.h"
+#include "StateTree/SalStateTreeInterface.h"
 #include "Widget/SalWidgetInterface.h"
 
 namespace Loomle::Sal
@@ -694,12 +695,22 @@ TSharedPtr<FJsonObject> DispatchQuery(const FSalQuery& Query, const FSalResolved
 {
     if (OperationKind(Query.Operation) == TEXT("references"))
     {
+        if (Target.Kind == ESalTargetKind::Asset
+            && Target.HasInterface(FName(TEXT("state_tree"))))
+        {
+            return FSalStateTreeInterface::Query(Query, Target);
+        }
         return FSalReferenceInterface::Query(Query, Target);
     }
     switch (Target.Kind)
     {
     case ESalTargetKind::AssetRoot:
+        return FSalAssetInterface::Query(Query, Target);
     case ESalTargetKind::Asset:
+        if (Target.HasInterface(FName(TEXT("state_tree"))))
+        {
+            return FSalStateTreeInterface::Query(Query, Target);
+        }
         return FSalAssetInterface::Query(Query, Target);
     case ESalTargetKind::Blueprint:
         if (Target.HasInterface(FName(TEXT("widget"))))
@@ -726,6 +737,10 @@ TSharedPtr<FJsonObject> DispatchPatch(const FSalPatch& Patch, const FSalResolved
     switch (Target.Kind)
     {
     case ESalTargetKind::Asset:
+        if (Target.HasInterface(FName(TEXT("state_tree"))))
+        {
+            return FSalStateTreeInterface::Patch(Patch, Target);
+        }
         return FSalAssetInterface::Patch(Patch, Target);
     case ESalTargetKind::Blueprint:
         if (Target.HasInterface(FName(TEXT("widget"))) && PatchUsesWidget(Patch))

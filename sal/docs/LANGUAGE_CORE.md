@@ -139,7 +139,7 @@ type BindingTarget =
 interface BindingMemberRef {
   kind: "member";
   object: LocalRef;
-  path: string[];
+  path: (string | number)[];
 }
 ```
 
@@ -156,7 +156,7 @@ Core does not give it a second creation-only expression type.
 | Constructor | `Name(arg: value)` | `node(graph: g, type: "/Script/BlueprintGraph.K2Node_CallFunction")` |
 | Reference | `name` | `g` |
 | Member reference | `name.member` | `begin.Then` |
-| Stable reference | `object@id` | `node@A001` |
+| Stable reference | `<kind>@<id>` | `node@A001` |
 | String | `"text"` | `"Ready"` |
 | Number | number literal | `1.0` |
 | Boolean | `true`, `false` | `enabled: true` |
@@ -229,21 +229,30 @@ object exists. After creation, the adapter returns its real native locator,
 including `id` when applicable. Use aliases and member paths within one SAL
 document, and repeat the complete owner locator chain in later requests.
 
-Stable references always state the object kind before `@`:
+Stable references always state the canonical object-shape kind before `@`:
 
 ```sal
 node@A001
 pin@P001
 graph@G001
+object@C001
 ```
 
-`object@id` is the common cross-query spelling for concrete objects with a
-native UE identifier, but it is always resolved inside the exact request
-target. It is a scoped selector, not a global address. A bare `@id` is invalid.
-The current stable-id token contains no whitespace or `.`; `.` separates a
-following member path. Current typed stable refs map to UE Guid-like ids. If a
-future domain has a native stable id that needs `.` or whitespace, its quoted
-form must be designed explicitly rather than emitted as ambiguous text.
+`<kind>@<id>` is the common cross-query form. `object@C001` is the
+literal form for an object whose resolved domain explicitly declares the
+generic `object(...)` shape; `object` is not a placeholder that may replace
+another returned kind. Every stable reference is resolved inside the exact
+request target. It is a scoped selector, not a global address. A bare `@id` is
+invalid.
+The current stable-id token contains no whitespace, `.`, or `[`; `.` and `[`
+begin a following member path. Stable refs normally map to UE Guid-like ids. A
+domain may define an unambiguous composite id inside that token, such as
+`parameter@container-guid/property-guid`, when every component and its owner
+scope are native identity. Consequently,
+`parameter@container-guid/property-guid[0].X` has stable id
+`container-guid/property-guid` and member path `[0, "X"]`. If a future domain
+has a native stable id that needs `.`, `[`, or whitespace, its quoted form must
+be designed explicitly rather than emitted as ambiguous text.
 Domains map the public `id` field to native identity such as BlueprintGuid,
 GraphGuid, VarGuid, VariableGuid, NodeGuid, or PinId. The object word is part of
 the reference and must match the returned object kind; an adapter never guesses
@@ -277,15 +286,29 @@ interface StableRef {
 interface MemberRef {
   kind: "member";
   object: LocalRef | StableRef;
-  path: string[];
+  path: (string | number)[];
 }
 ```
 
+Identifier members use `.Name`; array elements use `[N]` and normalize the
+index as a number in the same ordered path:
+
+```sal
+node@task-guid.Instance.Targets[0].Location
+```
+
+This normalizes to `path: ["Instance", "Targets", 0, "Location"]`. A domain
+whose native property path supports indexes must preserve them rather than
+stringifying an index into an invented member name.
+
 Each adapter schema defines the object words it supports. For example, Graph
-may use `node`, `pin`, and `graph`. The word before `@` selects that schema's
-identity namespace; it is not a native UE `type` and is not inferred from one.
+may use `node`, `pin`, and `graph`, while another closed domain model may also
+declare the literal generic kind `object`. The word before `@` selects that
+schema's identity namespace; it is not a native UE `type` and is not inferred
+from one. One materialized object has exactly one canonical kind: an adapter
+must not return both `state@id` and `object@id` for the same object.
 `MemberRef.path` preserves every member segment after either a local alias or a
-typed stable reference. The same shape therefore covers `begin.Then`,
+kind-qualified stable reference. The same shape therefore covers `begin.Then`,
 `node@id.NodeComment`, and `menu.NamedSlots.Body` without separate field-path
 types.
 
@@ -357,9 +380,9 @@ Each domain must define:
 - whether an exact current name is available for discovery;
 - how missing, mismatched, or duplicate identity is reported.
 
-An id-bearing object uses its typed id for later exact access. An exact-name
-Query may discover such an object, but Patch must not use its current name as a
-substitute for the returned id. An object without a native stable id continues
+An id-bearing object uses its kind-qualified id for later exact access. An
+exact-name Query may discover such an object, but Patch must not use its current
+name as a substitute for the returned id. An object without a native stable id continues
 to use its UE Path or an exact name inside an already resolved owner. An object
 that does not exist yet uses a Patch-local alias until mutation returns its real
 id.
@@ -429,6 +452,41 @@ Palette Entry in the current target context before applying anything.
 Creation performed by `invoke`, or native subordinate effects such as default
 Graph Nodes, generated Pins, and Dispatcher Signature Graphs, is not a second
 direct `add` and therefore does not require another Palette Entry.
+
+### Generic Object Shape
+
+A resolved domain may explicitly declare `object(...)` for a closed set of
+low-frequency objects that have real native identity and capabilities but do
+not justify another public constructor word. Its exact stable reference is
+`object@id`:
+
+```sal
+contextActor = object(
+  id: "context-guid",
+  type: "/Script/StateTreeModule.StateTreeExternalDataDesc",
+  Name: Actor,
+  Struct: "/Script/Engine.Actor",
+  Requirement: Required
+)
+```
+
+This uses the existing generic `Call` and `StableRef` grammar; it adds no
+special object expression. The declaring domain must define the closed native
+object set, id owner scope, exact resolver, returned fields, schema surface,
+and supported operations. The native `type` and native fields remain the
+source of truth.
+
+`object(...)` is not an automatic wrapper for arbitrary UE values or editor
+selections. Core, Editor Context, and adapters must not infer it merely because
+a value is a UObject, UStruct, Property, typed element, or unknown native
+model. Unsupported values remain unsupported. Declaring the generic object
+shape also does not create an `objects` collection query or grant generic
+mutation; discovery and operations remain domain-defined.
+
+Specific concise shapes remain appropriate for frequent structural objects
+such as `graph`, `node`, or `state`. A domain chooses either that specific
+shape or `object` for one native object, never both. The generic shape is a
+long-tail fallback, not a replacement for useful structural vocabulary.
 
 Constructor arguments are named because they are clear for agents, easy to
 validate, and safe to evolve:
@@ -591,8 +649,8 @@ boundary.
 
 ### Query Envelope
 
-Query text uses a shared multi-line envelope around one domain-owned primary
-operation:
+Query text uses a shared multi-line envelope around an exact bound target and,
+normally, one domain-owned primary operation:
 
 ```sal
 query <target>
@@ -600,27 +658,42 @@ query <target>
 <allowed clauses>
 ```
 
+An exact bound target may be read directly by omitting the operation:
+
+```sal
+query <target>
+
+query <target>
+with schema
+```
+
+The first form returns the target's own compact meaningful object fields. The
+second also returns its usable schema. This is not `summary`: it reads one
+exact target rather than producing an orientation view. A collection root such
+as `query asset` is not an exact target and cannot use the bare form. All other
+queries contain one explicit primary operation.
+
 Reads follow one small, reusable model. Each operation below occupies the line
 after `query <target>`:
 
 ```sal
 summary
-<objects> ["text"]
-<object> <name>
-<object>@<id>
+<collection> ["text"]
+<kind> <name>
+<kind>@<id>
 ```
 
-The plural object form enumerates or searches one domain-owned collection. The
-singular object form resolves one exact object by its current local name inside
-the bound target. A typed stable reference is itself the exact-id primary
-operation; it needs no `find` prefix. Stable references always include their
-object word, such as `node@id`, `pin@id`, or `graph@id`; bare `@id` is invalid.
+The plural collection form enumerates or searches one domain-owned view. The
+singular name form resolves one exact object by its current local name inside
+the bound target. A kind-qualified stable reference is itself the exact-id
+primary operation; it needs no `find` prefix. If the declared kind is literally
+`object`, the request is literally `object@id`. Bare `@id` is invalid.
 A domain supports only the forms that match its UE objects; for example, Class
 Reflection has no universal id and Graph Nodes have no reliable local name.
 
 Domains may also define clear relationship operations such as Graph `context`,
 `exec flow`, `data flow`, `palette entries`, and `palette @id`. Every query
-contains exactly one primary operation. That operation explicitly defines
+contains exactly one normalized operation. That operation explicitly defines
 whether `where`, `with`, `order by`, `page`, or operation-local arguments such
 as `depth` are legal.
 
@@ -628,7 +701,7 @@ The shared factual reference relationship is:
 
 ```sal
 query <target>
-references to <typed-ref>[.<native-member-path>] [in project]
+references to <stable-ref>[.<native-member-path>] [in project]
 page limit 50
 ```
 
@@ -649,16 +722,16 @@ literal.
 | Clause | Purpose | Example |
 | --- | --- | --- |
 | `query` | target domain or bound object | `query asset`, `query g` |
-| primary operation | choose one domain-defined read | `assets "door"`, `context node@node-id depth 2` |
+| primary operation | choose one domain read; omit only for exact target read | `assets "door"`, `context node@node-id depth 2` |
 | `where` | structured filter expression | `where type = "/Script/Engine.Blueprint" and not loaded` |
 | `with` | expand beyond the domain default result | `with registryTags`, `with schema, layout` |
 | `order by` | deterministic result ordering | `order by score desc, path asc` |
 | `page limit` | maximum result count | `page limit 50` |
 | `page after` | continue after a returned cursor | `page after "cursor"` |
 
-There is no `select` clause. Each primary operation defines its default result
-shape and allowed expansions. Unsupported clauses are errors rather than
-ignored generic options.
+There is no `select` clause. The target read or primary operation defines its
+default result shape and allowed expansions. Unsupported clauses are errors
+rather than ignored generic options.
 
 The optional quoted text after a plural collection operation is its primary
 search text. `where` is for structured filters:
@@ -701,9 +774,9 @@ Supported condition operators:
 Condition precedence follows the usual SQL subset: parentheses first, then
 `not`, then `and`, then `or`.
 
-Normalized JSON uses one explicit primary-operation field. The shared envelope
-does not interpret domain operations, but it guarantees that every local query
-has exactly one:
+Normalized JSON always has one explicit operation. A bare exact-target Query
+normalizes to the shared `target` operation; every other operation comes from
+the owning domain:
 
 ```ts
 interface Query {
@@ -715,15 +788,20 @@ interface Query {
   orderBy?: OrderBy[];
   page?: Page;
 }
+
+interface TargetOperation {
+  kind: "target";
+}
 ```
 
 The interface above shows only the shared envelope. The actual JSON Schema
 replaces `operation: {kind: string}` with a closed union assembled from the
 operation types defined by implemented domains, and replaces `with: string[]`
 with the shared `schema` literal plus the closed set of domain details. Every
-operation has a readable snake_case `kind` and only its own arguments. Plural
+operation has a readable snake_case `kind` and only its own arguments. Target
+read uses `{kind: "target"}`. Plural
 operations normally carry optional `text`; singular operations carry `name`;
-stable-id operations carry `id`, with their `kind` preserving the typed object
+stable-id operations carry `id`, with their `kind` preserving the canonical object
 word. Relationship operations define
 their own fields. Summary uses `{kind: "summary"}` and carries no operation
 arguments.
@@ -775,6 +853,13 @@ node@id
 with schema
 ```
 
+An exact request target uses the same expansion through the bare target read:
+
+```sal
+query target
+with schema
+```
+
 An exact name operation may request the same expansion:
 
 ```sal
@@ -783,9 +868,10 @@ property Health
 with schema
 ```
 
-The subject must resolve to exactly one existing object, one exact
-object-backed value surface, or one exact creation entry. Existing objects use
-either a typed stable reference or a domain-owned singular name operation;
+The subject must resolve to exactly one bound target, one existing object, one
+exact object-backed value surface, or one exact creation entry. Existing
+objects use either a kind-qualified stable reference or a domain-owned singular
+name operation;
 object-backed values such as one Class Default reuse the exact owning object;
 creation entries use the owning domain's exact palette identity. `with schema`
 is not valid for summary results, collections, or ambiguous palette searches.
@@ -1030,8 +1116,8 @@ invoke node@sequence-id AddExecutionPin() as next
 invoke pin@vector-id SplitStructPin() as subpins.X: x, subpins.Z: z
 ```
 
-The target is one typed stable reference or one already materialized local
-alias. `Operation` is copied exactly from the target's `with schema` result.
+The target is one kind-qualified stable reference or one already materialized
+local alias. `Operation` is copied exactly from the target's `with schema` result.
 Arguments use the existing named-argument and line-wrapping rules; when the
 argument list wraps, the closing `)` and optional `as` clause remain in the same
 statement. `invoke` is a statement, never an expression nested inside another
@@ -1244,12 +1330,12 @@ ordinary object; it does not introduce a second mutation-specific object or
 text format. Optional revision fields remain absent from a concrete tool's
 public response until that tool enforces them.
 
-A result returns the state requested by its primary operation. It must not
+A result returns the state requested by its normalized operation. It must not
 repeat a complete target snapshot merely to identify the request again, and it
 must not inherit local aliases from the request. When returned statements refer
 to the target or another owner, the result first declares a compact binding for
-that object using only the typed id, native Path, or other state needed by the
-returned relationships. This compact result binding is not a substitute for a
+that object using only the kind-qualified id, native Path, or other state needed
+by the returned relationships. This compact result binding is not a substitute for a
 complete request locator. When a result navigates to a different target, it
 must provide enough owning locator information to construct a later
 self-contained request; a scoped id alone is insufficient.
@@ -1308,9 +1394,9 @@ should be changed.
 14. `save` is the shared terminal Patch operation for a target with persistent
     owning Package state; it is final, non-interactive, and never means save all.
 15. A Query or Patch target alias expands to a complete domain-defined locator
-    chain; a scoped `object@id` cannot replace that chain.
-16. Exact names discover existing id-bearing objects, typed ids access and
-    modify them, native Paths or scoped names identify objects that have no
+    chain; a scoped `<kind>@<id>` cannot replace that chain.
+16. Exact names discover existing id-bearing objects, kind-qualified ids access
+    and modify them, native Paths or scoped names identify objects that have no
     native id, and Patch-local aliases identify objects that do not exist yet.
 17. Constructors describe SAL object shape. Native UE Class and inheritance
     determine adapter capabilities and are never translated into constructor

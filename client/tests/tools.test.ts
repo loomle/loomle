@@ -41,8 +41,9 @@ const emptyObjectResult = {
   diagnostics: [],
 };
 
-test("exposes only the four public SAL tools", () => {
+test("exposes only the five public Loomle tools", () => {
   assert.deepEqual(toolDefinitions.map((tool) => tool.name), [
+    "project",
     "sal_query",
     "sal_patch",
     "sal_schema",
@@ -60,8 +61,48 @@ test("keeps the resident guide only on sal_schema", () => {
   assert.ok(
     toolDefinitions
       .filter((tool) => tool.name !== "sal_schema")
-      .every((tool) => tool.description.length < 200),
+      .every((tool) => tool.description.length < 300),
   );
+});
+
+test("project inspects or changes only the Client session binding", async () => {
+  class ProjectRpc extends MockRpc {
+    readonly selectors: unknown[] = [];
+
+    async project(selector: unknown) {
+      this.selectors.push(selector);
+      return {
+        boundProjectId: "alpha",
+        projects: [{
+          projectId: "alpha",
+          name: "Alpha",
+          projectRoot: "/Projects/Alpha",
+          status: "ready" as const,
+          bound: true,
+        }],
+      };
+    }
+  }
+  const rpc = new ProjectRpc(emptyObjectResult);
+  const result = await new SalToolService(rpc).call("project", { projectId: "alpha" });
+
+  assert.equal(result.isError, undefined);
+  assert.match(result.content[0].text, /^bound: alpha$/m);
+  assert.match(result.content[0].text, /^- alpha$/m);
+  assert.match(result.content[0].text, /^  status: ready$/m);
+  assert.deepEqual(rpc.selectors, [{ projectId: "alpha", projectRoot: undefined }]);
+  assert.equal(rpc.calls.length, 0);
+});
+
+test("project rejects two selectors without changing the binding", async () => {
+  const rpc = new MockRpc(emptyObjectResult);
+  const result = await new SalToolService(rpc).call("project", {
+    projectId: "alpha",
+    projectRoot: "/Projects/Alpha",
+  });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /tool\.invalid_arguments/);
+  assert.equal(rpc.calls.length, 0);
 });
 
 test("sal_query parses and normalizes Text before invoking Bridge", async () => {
@@ -351,9 +392,13 @@ test("does not expose arbitrary exception codes as public diagnostics", async ()
 
 test("sal_schema is local and does not call Bridge", async () => {
   const rpc = new MockRpc(emptyObjectResult);
-  const result = await new SalToolService(rpc).call("sal_schema", { module: "graph" });
-  assert.equal(result.isError, undefined);
-  assert.match(result.content[0].text, /^# graph$/m);
+  const service = new SalToolService(rpc);
+  const graph = await service.call("sal_schema", { module: "graph" });
+  const stateTree = await service.call("sal_schema", { module: "state_tree" });
+  assert.equal(graph.isError, undefined);
+  assert.match(graph.content[0].text, /^# graph$/m);
+  assert.equal(stateTree.isError, undefined);
+  assert.match(stateTree.content[0].text, /^# state_tree$/m);
   assert.equal(rpc.calls.length, 0);
 });
 

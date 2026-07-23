@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import { catalog, guide } from "../src/index.js";
 
-const expectedNames = ["asset", "blueprint", "class", "graph", "widget"];
+const expectedNames = ["asset", "blueprint", "class", "graph", "state_tree", "widget"];
 
 assert.match(guide, /^# SAL\n/);
+assert.match(guide, /project\(\{\}\)/);
+assert.match(guide, /project\(\{ projectId: "<id>" \}\)/);
+assert.match(guide, /## Project Binding/);
+assert.match(guide, /binding is sticky/);
 assert.match(guide, /sal_query\(\{ text \}\)/);
 assert.match(guide, /editor_context\(\{\}\)/);
 assert.match(guide, /## Schema Discovery/);
+assert.match(guide, /operation-less form is the shared exact-target read/);
 assert.deepEqual(
   catalog.map(({ name }) => name),
   expectedNames,

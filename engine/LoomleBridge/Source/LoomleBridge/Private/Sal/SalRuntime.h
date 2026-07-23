@@ -20,6 +20,8 @@ bool ParseNonNegativeInt32(const FString& Text, int32& OutValue);
 FString ExportPropertyValue(const FProperty* Property, const void* Container);
 bool ImportPropertyValue(FProperty* Property, void* Container, const FString& Text, FString& OutError);
 TSharedPtr<FJsonValue> NativeValue(const FString& Text);
+FString NativePropertyTypeText(const FProperty* Property);
+FString NativePropertyFlagsText(uint64 Flags);
 
 TSharedPtr<FJsonObject> MakeMutationResult(
     const TSharedPtr<FJsonObject>& Object,

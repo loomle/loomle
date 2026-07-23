@@ -7,6 +7,10 @@
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "EditorContext/EditorContextService.h"
+#include "Generated/LoomleProtocolVersion.h"
+#include "HAL/PlatformTime.h"
+#include "LoomleGameThreadAdmission.h"
+#include "LoomlePipeServer.h"
 #include "LoomleRequestCancellation.h"
 #include "Misc/DateTime.h"
 #include "Misc/ScopeExit.h"
@@ -18,7 +22,6 @@
 
 namespace
 {
-constexpr const TCHAR* RpcVersion = TEXT("1.0");
 constexpr const TCHAR* SalQueryTool = TEXT("sal.query");
 constexpr const TCHAR* SalPatchTool = TEXT("sal.patch");
 constexpr const TCHAR* EditorContextTool = TEXT("editor.context");
@@ -75,7 +78,32 @@ int32 MapDispatchErrorCode(const FString& Code)
     {
         return 1010;
     }
+    if (Code == TEXT("runtime.editor_unresponsive"))
+    {
+        return 1012;
+    }
+    if (Code == TEXT("runtime.starting"))
+    {
+        return 1013;
+    }
+    if (Code == TEXT("runtime.editor_shutting_down"))
+    {
+        return 1014;
+    }
+    if (Code == TEXT("project.offline"))
+    {
+        return 1015;
+    }
     return 1011;
+}
+
+bool IsRetryableDispatchError(const FString& Code)
+{
+    return Code == TEXT("runtime.request_timeout")
+        || Code == TEXT("runtime.editor_unresponsive")
+        || Code == TEXT("runtime.starting")
+        || Code == TEXT("runtime.editor_shutting_down")
+        || Code == TEXT("project.offline");
 }
 
 FString DefaultDiagnosticCodeForRpcError(const int32 RpcCode)
@@ -182,6 +210,34 @@ FString FLoomleBridgeModule::HandleRequest(int32 ConnectionSerial, const FString
     {
         return MakeJsonResponse(Id, BuildRpcCapabilitiesResult());
     }
+    if (Method == TEXT("rpc.invoke") || Method == TEXT("rpc.cancel"))
+    {
+        double ClientProtocolVersion = 0.0;
+        const bool bHasNumericProtocolVersion =
+            Params->TryGetNumberField(TEXT("protocolVersion"), ClientProtocolVersion);
+        if (!bHasNumericProtocolVersion
+            || ClientProtocolVersion != static_cast<double>(Loomle::Protocol::Version))
+        {
+            const FString ActualVersion = bHasNumericProtocolVersion
+                ? FString::Printf(TEXT("%.17g"), ClientProtocolVersion)
+                : (Params->HasField(TEXT("protocolVersion")) ? TEXT("non-numeric") : TEXT("missing"));
+            TSharedPtr<FJsonObject> ErrorData = MakeShared<FJsonObject>();
+            ErrorData->SetStringField(TEXT("code"), TEXT("runtime.incompatible"));
+            ErrorData->SetBoolField(TEXT("retryable"), false);
+            ErrorData->SetNumberField(TEXT("expected"), Loomle::Protocol::Version);
+            ErrorData->SetStringField(
+                TEXT("detail"),
+                FString::Printf(
+                    TEXT("Client protocol version %s does not match Bridge protocol version %d."),
+                    *ActualVersion,
+                    Loomle::Protocol::Version));
+            return MakeJsonErrorEx(
+                Id,
+                1001,
+                TEXT("Client–Bridge protocol version mismatch."),
+                ErrorData);
+        }
+    }
     if (Method == TEXT("rpc.cancel"))
     {
         FString CancellationToken;
@@ -246,9 +302,27 @@ FString FLoomleBridgeModule::HandleRequest(int32 ConnectionSerial, const FString
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcHealthResult() const
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetStringField(TEXT("status"), bBridgeRunningSnapshot.Load() ? TEXT("ok") : TEXT("error"));
+    const FString Lifecycle = GetBridgeLifecycleName();
+    const FString ListenerState = PipeServer.IsValid()
+        ? PipeServer->GetListenerStateName()
+        : TEXT("stopped");
+    const bool bReady = Lifecycle == TEXT("ready") && ListenerState == TEXT("listening");
+    const uint64 LastProgressCycles = LastGameThreadProgressCycles.load();
+    const double ProgressAgeMs = LastProgressCycles == 0
+        ? -1.0
+        : FPlatformTime::ToMilliseconds64(FPlatformTime::Cycles64() - LastProgressCycles);
+    Result->SetStringField(TEXT("status"), bReady ? TEXT("ok") : TEXT("error"));
     Result->SetStringField(TEXT("service"), TEXT("loomle-rpc-listener"));
-    Result->SetStringField(TEXT("rpcVersion"), RpcVersion);
+    Result->SetNumberField(TEXT("protocolVersion"), Loomle::Protocol::Version);
+    Result->SetStringField(TEXT("runtimeId"), RuntimeId);
+    Result->SetStringField(TEXT("projectId"), ProjectId);
+    Result->SetStringField(TEXT("projectRoot"), ProjectRoot);
+    Result->SetStringField(TEXT("lifecycle"), Lifecycle);
+    Result->SetStringField(TEXT("listenerState"), ListenerState);
+    Result->SetNumberField(
+        TEXT("gameThreadProgressSequence"),
+        static_cast<double>(GameThreadProgressSequence.load()));
+    Result->SetNumberField(TEXT("gameThreadProgressAgeMs"), ProgressAgeMs);
     Result->SetStringField(TEXT("timestamp"), FDateTime::UtcNow().ToIso8601());
     Result->SetBoolField(TEXT("isPIE"), bIsPIESnapshot.Load());
     Result->SetStringField(TEXT("editorBusyReason"), bIsPIESnapshot.Load() ? TEXT("PIE_ACTIVE") : TEXT(""));
@@ -258,7 +332,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcHealthResult() const
 TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
 {
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetStringField(TEXT("rpcVersion"), RpcVersion);
+    Result->SetNumberField(TEXT("protocolVersion"), Loomle::Protocol::Version);
     Result->SetArrayField(
         TEXT("methods"),
         StringValues({TEXT("ping"), TEXT("rpc.health"), TEXT("rpc.capabilities"), TEXT("rpc.invoke"), TEXT("rpc.cancel")}));
@@ -320,7 +394,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcInvokeResult(
         OutErrorMessage = Message;
         OutErrorData = MakeShared<FJsonObject>();
         OutErrorData->SetStringField(TEXT("code"), Code);
-        OutErrorData->SetBoolField(TEXT("retryable"), Code == TEXT("runtime.request_timeout"));
+        OutErrorData->SetBoolField(TEXT("retryable"), IsRetryableDispatchError(Code));
         FString Detail;
         const TSharedRef<FCondensedJsonWriter> Writer =
             TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Detail);
@@ -354,6 +428,17 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(
         bOutIsError = true;
         return MakeDispatchError(TEXT("runtime.editor_shutting_down"), TEXT("Unreal Editor is shutting down."));
     }
+    const ELoomleBridgeLifecycle Lifecycle =
+        static_cast<ELoomleBridgeLifecycle>(BridgeLifecycleState.load());
+    if (Lifecycle != ELoomleBridgeLifecycle::Ready)
+    {
+        bOutIsError = true;
+        if (Lifecycle == ELoomleBridgeLifecycle::Starting)
+        {
+            return MakeDispatchError(TEXT("runtime.starting"), TEXT("The Unreal Editor runtime is still starting."));
+        }
+        return MakeDispatchError(TEXT("project.offline"), TEXT("The Unreal Editor runtime is not available."));
+    }
 
     if (!IsInGameThread())
     {
@@ -365,16 +450,25 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(
 
         TPromise<FDispatchResult> Promise;
         TFuture<FDispatchResult> Future = Promise.GetFuture();
+        const TSharedRef<Loomle::Runtime::FGameThreadAdmission, ESPMode::ThreadSafe> Admission =
+            MakeShared<Loomle::Runtime::FGameThreadAdmission, ESPMode::ThreadSafe>();
         const TSharedPtr<Loomle::Runtime::FRequestCancellationState, ESPMode::ThreadSafe> CancellationState =
             Loomle::Runtime::GetRequestCancellationState();
         const bool bSupportsCooperativeCancellation = Name == SalQueryTool;
         ActiveGameThreadDispatchCount.Increment();
         AsyncTask(
             ENamedThreads::GameThread,
-            [this, Name, Arguments, CancellationState, Promise = MoveTemp(Promise)]() mutable
+            [this, Name, Arguments, CancellationState, Admission, Promise = MoveTemp(Promise)]() mutable
             {
                 ON_SCOPE_EXIT { ActiveGameThreadDispatchCount.Decrement(); };
                 FDispatchResult DispatchResult;
+                if (!Admission->TryStart())
+                {
+                    DispatchResult.Payload = MakeRequestCancelledPayload();
+                    DispatchResult.bIsError = true;
+                    Promise.SetValue(MoveTemp(DispatchResult));
+                    return;
+                }
                 if (CancellationState.IsValid())
                 {
                     Loomle::Runtime::FScopedRequestCancellation Scope(CancellationState.ToSharedRef());
@@ -387,10 +481,52 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(
                 Promise.SetValue(MoveTemp(DispatchResult));
             });
 
-        constexpr uint32 TimeoutMs = 120000;
-        constexpr uint32 PollMs = 100;
-        uint32 WaitedMs = 0;
-        while (WaitedMs < TimeoutMs)
+        constexpr uint32 AdmissionTimeoutMs = 2000;
+        constexpr uint32 ExecutionTimeoutMs = 120000;
+        constexpr uint32 PollMs = 25;
+        uint32 AdmissionWaitedMs = 0;
+        while (AdmissionWaitedMs < AdmissionTimeoutMs)
+        {
+            if (bSupportsCooperativeCancellation
+                && CancellationState.IsValid()
+                && CancellationState->IsCancellationRequested())
+            {
+                if (Admission->TryCancel())
+                {
+                    bOutIsError = true;
+                    return MakeRequestCancelledPayload();
+                }
+            }
+            if (Future.WaitFor(FTimespan::FromMilliseconds(PollMs)))
+            {
+                FDispatchResult Result = Future.Get();
+                bOutIsError = Result.bIsError;
+                return Result.Payload;
+            }
+            if (Admission->GetState() == Loomle::Runtime::EGameThreadAdmissionState::Started)
+            {
+                break;
+            }
+            AdmissionWaitedMs += PollMs;
+            if (bIsShuttingDown.Load())
+            {
+                Admission->TryCancel();
+                bOutIsError = true;
+                return MakeDispatchError(TEXT("runtime.editor_shutting_down"), TEXT("Unreal Editor is shutting down."));
+            }
+        }
+
+        if (Admission->GetState() == Loomle::Runtime::EGameThreadAdmissionState::Waiting
+            && Admission->TryCancel())
+        {
+            bOutIsError = true;
+            return MakeDispatchError(
+                TEXT("runtime.editor_unresponsive"),
+                TEXT("The Unreal Editor game thread did not admit the request."));
+        }
+
+        uint32 ExecutionWaitedMs = 0;
+        while (ExecutionWaitedMs < ExecutionTimeoutMs)
         {
             if (bSupportsCooperativeCancellation
                 && CancellationState.IsValid()
@@ -405,7 +541,7 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(
                 bOutIsError = Result.bIsError;
                 return Result.Payload;
             }
-            WaitedMs += PollMs;
+            ExecutionWaitedMs += PollMs;
             if (bIsShuttingDown.Load())
             {
                 bOutIsError = true;

@@ -10,11 +10,12 @@ is the canonical executable produced and tested by `packaging/client`:
 .tmp/client/<platform-arch>/build.json
 ```
 
-The adjacent build receipt binds that executable to the current product
-version, native target, pinned Node runtime archive, and SHA-256. It is verified
-during assembly but is not copied into the plugin. Local QA must still build
-and test the Client immediately before assembly because the receipt does not
-fingerprint the entire source checkout.
+The adjacent schema-version-2 build receipt binds that executable to the
+current product version, Client–Bridge protocol version, native target, pinned
+Node runtime archive, and SHA-256. It is verified during assembly but is not
+copied into the plugin. Local QA must still build and test the Client
+immediately before assembly because the receipt does not fingerprint the
+entire source checkout.
 
 The staged plugin is assembled from:
 
@@ -71,8 +72,9 @@ LoomleBridge/Content/
 ```
 
 Platform binaries and Unreal build outputs are rejected everywhere except for
-the one exact Client executable path. The staged descriptor version and Client
-build receipt are checked against the root product version, the receipt
+the one exact Client executable path. Before copying, the assembler verifies
+all generated product/protocol artifacts, then checks the staged descriptor and
+Client receipt against the root product and protocol versions. The receipt
 SHA-256 is checked against both source and staged Client bytes, target fields
 are checked against the accepted target, and `FilterPlugin.ini` must explicitly
 keep itself and `Resources/Loomle`.

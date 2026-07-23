@@ -1,0 +1,8 @@
+{
+  "statements": [
+    {
+      "from": { "kind": "state", "id": "root[0]" },
+      "to": { "kind": "node", "id": "task" }
+    }
+  ]
+}

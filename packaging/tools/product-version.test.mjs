@@ -6,10 +6,13 @@ import test from "node:test";
 import {
   checkProductVersion,
   generateProductVersion,
+  renderBridgeProtocolVersionHeader,
+  renderClientProtocolVersionModule,
   renderProductVersionModule,
 } from "./product-version.mjs";
 
 const VERSION = "0.7.0-dev.1";
+const PROTOCOL_VERSION = 2;
 
 async function writeJson(root, relativePath, value) {
   const path = join(root, relativePath);
@@ -19,7 +22,11 @@ async function writeJson(root, relativePath, value) {
 
 async function createFixture() {
   const root = await mkdtemp(join(tmpdir(), "loomle-product-version-"));
-  await writeJson(root, "package.json", { name: "loomle", version: VERSION });
+  await writeJson(root, "package.json", {
+    name: "loomle",
+    version: VERSION,
+    loomle: { protocolVersion: PROTOCOL_VERSION },
+  });
   for (const workspace of ["client", "sal", "interfaces"]) {
     await writeJson(root, `${workspace}/package.json`, {
       name: `@loomle/${workspace}`,
@@ -51,12 +58,21 @@ test("generates runtime product versions without changing the Fab build number",
     const result = await generateProductVersion(root);
     assert.deepEqual(result, {
       version: VERSION,
+      protocolVersion: PROTOCOL_VERSION,
       generatedChanged: true,
       pluginChanged: true,
     });
     assert.equal(
       await readFile(join(root, "client/src/generated/product-version.ts"), "utf8"),
       renderProductVersionModule(VERSION),
+    );
+    assert.equal(
+      await readFile(join(root, "client/src/generated/protocol-version.ts"), "utf8"),
+      renderClientProtocolVersionModule(PROTOCOL_VERSION),
+    );
+    assert.equal(
+      await readFile(join(root, "engine/LoomleBridge/Source/LoomleBridge/Private/Generated/LoomleProtocolVersion.h"), "utf8"),
+      renderBridgeProtocolVersionHeader(PROTOCOL_VERSION),
     );
     const plugin = JSON.parse(
       await readFile(join(root, "engine/LoomleBridge/LoomleBridge.uplugin"), "utf8"),
@@ -84,5 +100,47 @@ test("check mode rejects stale generated values without rewriting them", async (
     assert.equal(await readFile(generatedPath, "utf8"), "stale\n");
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("check mode rejects stale generated protocol values", async () => {
+  for (const relativePath of [
+    "client/src/generated/protocol-version.ts",
+    "engine/LoomleBridge/Source/LoomleBridge/Private/Generated/LoomleProtocolVersion.h",
+  ]) {
+    const root = await createFixture();
+    try {
+      await generateProductVersion(root);
+      const generatedPath = join(root, relativePath);
+      await writeFile(generatedPath, "stale\n", "utf8");
+      await assert.rejects(
+        checkProductVersion(root),
+        (error) => error instanceof Error
+          && error.message.includes(relativePath)
+          && error.message.includes("npm run generate:version"),
+      );
+      assert.equal(await readFile(generatedPath, "utf8"), "stale\n");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("rejects an invalid Client–Bridge protocol version", async () => {
+  for (const protocolVersion of [0, 2_147_483_648]) {
+    const root = await createFixture();
+    try {
+      await writeJson(root, "package.json", {
+        name: "loomle",
+        version: VERSION,
+        loomle: { protocolVersion },
+      });
+      await assert.rejects(
+        generateProductVersion(root),
+        /Invalid Client–Bridge protocol version/,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   }
 });

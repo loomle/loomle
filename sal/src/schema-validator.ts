@@ -70,7 +70,12 @@ function isReferenceSafeSalObject(object: SalObject): boolean {
 }
 
 function isReferenceSafeQuery(query: Query): boolean {
-  return !query.where || isConditionReferenceSafe(query.where, new Set([query.target.alias]));
+  const aliases = new Set([query.target.alias]);
+  if (query.where && !isConditionReferenceSafe(query.where, aliases)) {
+    return false;
+  }
+  return !((query.operation.kind === "palette_entries" || query.operation.kind === "palette") && "to" in query.operation)
+    || isRefSafe(query.operation.to, aliases);
 }
 
 function isReferenceSafePatch(patch: Patch): boolean {
@@ -152,6 +157,8 @@ function isPatchOperationSafe(operation: PatchOperation, aliases: ReadonlySet<st
         && (!operation.after || isRefSafe(operation.after, aliases));
     case "connect":
     case "disconnect":
+    case "bind":
+    case "unbind":
       return isRefSafe(operation.from, aliases) && isRefSafe(operation.to, aliases);
     case "insert":
       return isRefSafe(operation.from, aliases)

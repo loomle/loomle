@@ -32,7 +32,7 @@ what those constructs mean for their UE area.
 
 Every target-owning domain must define one complete locator chain. The chain
 starts from a UE-global address such as Asset Path or Class Path and then adds
-native ids only inside their real owner scopes. A typed `object@id` is exact
+native ids only inside their real owner scopes. A stable `<kind>@<id>` is exact
 inside the resolved target but is never a replacement for the target chain.
 Domains must distinguish exact-name discovery, stable-id access, native
 path-based identity, and Patch-local creation aliases, and must reject identity
@@ -44,6 +44,12 @@ composition follows that object's native Class and inheritance chain. A
 specialized Blueprint asset therefore retains one `blueprint(...)` target and
 adds the capabilities valid for its actual subclass. Domain documents remain
 modular descriptions of those capabilities, not competing public target types.
+
+Constructor vocabulary remains small. A domain may declare literal
+`object(...)` / `object@id` for a closed, explicitly supported set of
+long-tail objects. It must define their identity scope, resolver, fields, and
+capabilities, and it must not expose a second concise kind for the same object.
+This does not create a universal UE wrapper or an `objects` collection.
 
 For the `summary` query operation, the resolved target's composed capabilities
 define the useful orientation view. Their most-specific adapter chooses the
@@ -160,7 +166,17 @@ Current interface cards:
 - [`../../interfaces/blueprint.md`](../../interfaces/blueprint.md)
 - [`../../interfaces/class.md`](../../interfaces/class.md)
 - [`../../interfaces/graph.md`](../../interfaces/graph.md)
+- [`../../interfaces/state_tree.md`](../../interfaces/state_tree.md)
 - [`../../interfaces/widget.md`](../../interfaces/widget.md)
+
+StateTree exposes the authored target, `summary`, `tree`, State, Node, and
+Parameter collections, exact contained-object reads, local factual references,
+dynamic exact schema, destination-bound Palette, transactional authored Patch,
+Property Bindings and Property Functions, native compile, and explicit save
+composition. Exact contained-object reads return only their directly incident
+explicit and derived Property Binding arrows. Project-wide references, live
+execution and debugger state, and StateTree asset lifecycle remain outside the
+active interface.
 
 ## Current Domains
 
@@ -183,8 +199,12 @@ Shared cross-domain relationship design:
 - [`domains/widget.md`](domains/widget.md): authored Widget objects, tree views,
   Panel Slot and Named Slot relationships, queries, Palette-backed creation,
   and widget tree patching.
+- [`domains/state_tree.md`](domains/state_tree.md): authored State hierarchy,
+  Nodes, Transitions, Parameters, Context Data, Property Bindings,
+  destination-bound Palette, compile diagnostics, and runtime boundary.
 
 The TypeScript SDK includes the shared parser, formatter, schema, fixtures,
 examples, and deterministic in-memory contract coverage. Loomle's UE 5.7
-Bridge implements the live asset, Blueprint, class, graph, and widget executor
-surfaces over the same normalized request and ordered result model.
+Bridge implements the live asset, Blueprint, class, graph, widget, and
+StateTree executor surfaces over the same normalized request and ordered result
+model.

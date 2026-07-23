@@ -115,6 +115,10 @@ interface Query {
   page?: Page;
 }
 
+interface TargetOperation {
+  kind: "target";
+}
+
 interface Patch {
   kind: "patch";
   target: Target;
@@ -125,8 +129,9 @@ interface Patch {
 type PatchStatement = Binding | PatchOperation;
 ```
 
-Query has exactly one primary operation. Plural operations enumerate or search,
-singular operations resolve exact current names, and typed stable references
+Query has exactly one normalized operation. A bare exact-target Query uses the
+shared `target` operation. Plural operations enumerate or search, singular
+operations resolve exact current names, and kind-qualified stable references
 resolve exact IDs. Relationship reads such as `tree`, `context`, `exec flow`,
 `data flow`, and `references to` are direct operations rather than `find`
 variants.
@@ -143,12 +148,12 @@ interface ReferencesOperation {
 interface StableMemberRef {
   kind: "member";
   object: StableRef;
-  path: string[];
+  path: (string | number)[];
 }
 ```
 
 `target` reuses the relationship-operation name already used by Context and
-Flow. It accepts either one typed stable object or an existing Member Reference
+Flow. It accepts either one kind-qualified stable object or an existing Member Reference
 rooted in such an object; Query-local aliases are deliberately excluded.
 Omitted `scope` means the bound target, while `scope: "project"` normalizes the
 literal `in project` modifier. Pagination remains the shared top-level
@@ -171,16 +176,18 @@ interface StableRef { kind: string; id: string; }
 interface MemberRef {
   kind: "member";
   object: LocalRef | StableRef;
-  path: string[];
+  path: (string | number)[];
 }
 
 type Ref = LocalRef | StableRef | MemberRef;
 ```
 
-Existing native objects use a typed stable reference when UE supplies a stable
-ID. Objects without one retain their native Path or scoped exact name. New
+Existing native objects use a kind-qualified stable reference when UE supplies
+a stable ID. Objects without one retain their native Path or scoped exact name. New
 objects use aliases until the executor returns native identity. Constructor
 names describe SAL structure; `type` and other native fields remain UE text.
+The literal generic kind `object` is available only when the resolved domain
+declares that closed object shape; it is not an SDK reflection fallback.
 
 ## Results
 

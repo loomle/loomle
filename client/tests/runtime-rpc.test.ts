@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Duplex } from "node:stream";
 import test from "node:test";
+import { protocolVersion } from "../src/generated/protocol-version.js";
 import {
   DEFAULT_RUNTIME_REQUEST_TIMEOUT_MS,
   RuntimeRpcClient,
@@ -36,6 +37,139 @@ test("leaves transport timeout headroom beyond Bridge game-thread dispatch", () 
   assert.ok(DEFAULT_RUNTIME_REQUEST_TIMEOUT_MS > 120_000);
 });
 
+test("health validates live runtime identity, protocol, and lifecycle", async () => {
+  const socket = new MockRuntimeSocket((request) => ({
+    jsonrpc: "2.0",
+    id: request.id,
+    result: {
+      status: "ok",
+      service: "LoomleBridge",
+      protocolVersion,
+      runtimeId: "runtime-1",
+      projectId: "project-1",
+      projectRoot: "/Projects/One",
+      lifecycle: "ready",
+      listenerState: "listening",
+      gameThreadProgressSequence: 12,
+      gameThreadProgressAgeMs: 3,
+    },
+  }));
+  const client = new RuntimeRpcClient("mock", async () => socket);
+
+  assert.deepEqual(await client.health({
+    runtimeId: "runtime-1",
+    projectId: "project-1",
+    projectRoot: "/Projects/One",
+  }), {
+    protocolVersion,
+    runtimeId: "runtime-1",
+    projectId: "project-1",
+    projectRoot: "/Projects/One",
+    lifecycle: "ready",
+    listenerState: "listening",
+    gameThreadProgressSequence: 12,
+    gameThreadProgressAgeMs: 3,
+  });
+  assert.equal(socket.requests[0].method, "rpc.health");
+  assert.deepEqual(socket.requests[0].params, { protocolVersion });
+  client.close();
+});
+
+test("health rejects stale records whose endpoint serves another runtime", async () => {
+  const socket = new MockRuntimeSocket((request) => ({
+    jsonrpc: "2.0",
+    id: request.id,
+    result: {
+      protocolVersion,
+      runtimeId: "different-runtime",
+      projectId: "project-1",
+      projectRoot: "/Projects/One",
+      lifecycle: "ready",
+      listenerState: "listening",
+    },
+  }));
+  const client = new RuntimeRpcClient("mock", async () => socket);
+
+  await assert.rejects(
+    client.health({
+      runtimeId: "runtime-1",
+      projectId: "project-1",
+      projectRoot: "/Projects/One",
+    }),
+    (error: unknown) => error instanceof RuntimeRpcError
+      && error.code === "runtime.identity_mismatch",
+  );
+  client.close();
+});
+
+test("health rejects an endpoint whose project root contradicts its record", async () => {
+  const socket = new MockRuntimeSocket((request) => ({
+    jsonrpc: "2.0",
+    id: request.id,
+    result: {
+      protocolVersion,
+      runtimeId: "runtime-1",
+      projectId: "project-1",
+      projectRoot: "/Projects/Other",
+      lifecycle: "ready",
+      listenerState: "listening",
+      gameThreadProgressSequence: 1,
+      gameThreadProgressAgeMs: 1,
+    },
+  }));
+  const client = new RuntimeRpcClient("mock", async () => socket);
+
+  await assert.rejects(
+    client.health({
+      runtimeId: "runtime-1",
+      projectId: "project-1",
+      projectRoot: "/Projects/One",
+    }),
+    (error: unknown) => error instanceof RuntimeRpcError
+      && error.code === "runtime.identity_mismatch",
+  );
+  client.close();
+});
+
+test("health uses a short timeout independent from normal operations", async () => {
+  const socket = new MockRuntimeSocket(() => undefined);
+  const client = new RuntimeRpcClient("mock", async () => socket, 130_000, 5);
+  const keepAlive = setTimeout(() => {}, 100);
+  try {
+    await assert.rejects(
+      client.health({
+        runtimeId: "runtime-1",
+        projectId: "project-1",
+        projectRoot: "/Projects/One",
+      }),
+      (error: unknown) => error instanceof RuntimeRpcError
+        && error.code === "runtime.request_timeout"
+        && error.message.includes("5ms"),
+    );
+  } finally {
+    clearTimeout(keepAlive);
+    client.close();
+  }
+});
+
+test("capability discovery uses the same short control-plane timeout", async () => {
+  const socket = new MockRuntimeSocket(() => undefined);
+  const client = new RuntimeRpcClient("mock", async () => socket, 130_000, 5);
+  const keepAlive = setTimeout(() => {}, 100);
+  try {
+    await assert.rejects(
+      client.requireTools(["sal.query"]),
+      (error: unknown) => error instanceof RuntimeRpcError
+        && error.code === "runtime.request_timeout"
+        && error.message.includes("rpc.capabilities")
+        && error.message.includes("5ms"),
+    );
+  } finally {
+    clearTimeout(keepAlive);
+    client.close();
+  }
+});
+
 test("reports request timeouts and cancels the matching runtime invocation", async () => {
   const requestSocket = new MockRuntimeSocket(() => undefined);
   let connections = 0;
@@ -57,6 +191,8 @@ test("reports request timeouts and cancels the matching runtime invocation", asy
     const invokeParams = requestSocket.requests[0].params as Record<string, unknown>;
     const cancelParams = requestSocket.requests[1].params as Record<string, unknown>;
     assert.equal(requestSocket.requests[1].method, "rpc.cancel");
+    assert.equal(invokeParams.protocolVersion, protocolVersion);
+    assert.equal(cancelParams.protocolVersion, protocolVersion);
     assert.equal(cancelParams.cancellationToken, invokeParams.cancellationToken);
     assert.match(String(cancelParams.cancellationToken), /^[0-9a-f-]{36}$/);
     assert.equal(connections, 1);
@@ -89,6 +225,8 @@ test("propagates AbortSignal cancellation over the live Bridge connection", asyn
   const invokeParams = requestSocket.requests[0].params as Record<string, unknown>;
   const cancelParams = requestSocket.requests[1].params as Record<string, unknown>;
   assert.equal(requestSocket.requests[1].method, "rpc.cancel");
+  assert.equal(invokeParams.protocolVersion, protocolVersion);
+  assert.equal(cancelParams.protocolVersion, protocolVersion);
   assert.equal(cancelParams.cancellationToken, invokeParams.cancellationToken);
   assert.match(String(cancelParams.cancellationToken), /^[0-9a-f-]{36}$/);
   assert.equal(connections, 1);
@@ -133,6 +271,7 @@ test("invokes Bridge tools through rpc.invoke and unwraps payload", async () => 
     id: requestId,
     method: "rpc.invoke",
     params: {
+      protocolVersion,
       tool: "sal.query",
       args: { object: { kind: "query" } },
       cancellationToken: (socket.requests[0].params as Record<string, unknown>).cancellationToken,
@@ -258,7 +397,7 @@ test("checks and caches required Bridge capabilities per connection", async () =
       return {
         jsonrpc: "2.0",
         id: request.id,
-        result: { tools: ["sal.query", "sal.patch", "editor.context"] },
+        result: { protocolVersion, tools: ["sal.query", "sal.patch", "editor.context"] },
       };
     }
     return { jsonrpc: "2.0", id: request.id, result: { ok: true, payload: {} } };
@@ -286,7 +425,7 @@ test("retries capabilities after a transient request failure", async () => {
       return {
         jsonrpc: "2.0",
         id: request.id,
-        result: { tools: ["sal.query", "sal.patch", "editor.context"] },
+        result: { protocolVersion, tools: ["sal.query", "sal.patch", "editor.context"] },
       };
     }
     return undefined;
@@ -299,11 +438,36 @@ test("retries capabilities after a transient request failure", async () => {
   client.close();
 });
 
+test("retries capabilities after a protocol-version rejection", async () => {
+  let capabilityRequests = 0;
+  const socket = new MockRuntimeSocket((request) => {
+    capabilityRequests += 1;
+    return {
+      jsonrpc: "2.0",
+      id: request.id,
+      result: {
+        protocolVersion: capabilityRequests === 1 ? protocolVersion - 1 : protocolVersion,
+        tools: ["sal.query", "sal.patch", "editor.context"],
+      },
+    };
+  });
+  const client = new RuntimeRpcClient("mock", async () => socket);
+
+  await assert.rejects(
+    client.requireTools(["sal.query"]),
+    (error: unknown) => error instanceof RuntimeRpcError
+      && error.code === "runtime.incompatible",
+  );
+  await client.requireTools(["sal.query"]);
+  assert.equal(capabilityRequests, 2);
+  client.close();
+});
+
 test("rejects an incompatible Bridge before invoking a tool", async () => {
   const socket = new MockRuntimeSocket((request) => ({
     jsonrpc: "2.0",
     id: request.id,
-    result: { tools: ["sal.query", "sal.patch"] },
+    result: { protocolVersion, tools: ["sal.query", "sal.patch"] },
   }));
   const client = new RuntimeRpcClient("mock", async () => socket);
 
@@ -317,6 +481,29 @@ test("rejects an incompatible Bridge before invoking a tool", async () => {
       ),
   );
   client.close();
+});
+
+test("rejects missing or mismatched protocol versions before invoking tools", async () => {
+  for (const actual of [undefined, protocolVersion - 1, protocolVersion + 1, 1.5, "2", null]) {
+    const socket = new MockRuntimeSocket((request) => ({
+      jsonrpc: "2.0",
+      id: request.id,
+      result: {
+        protocolVersion: actual,
+        tools: ["sal.query", "sal.patch", "editor.context"],
+      },
+    }));
+    const client = new RuntimeRpcClient("mock", async () => socket);
+
+    await assert.rejects(
+      client.requireTools(["sal.query", "sal.patch", "editor.context"]),
+      (error: unknown) => error instanceof RuntimeRpcError
+        && error.code === "runtime.incompatible"
+        && error.message.includes(`requires ${protocolVersion}`),
+    );
+    assert.deepEqual(socket.requests.map((request) => request.method), ["rpc.capabilities"]);
+    client.close();
+  }
 });
 
 async function waitFor(predicate: () => boolean): Promise<void> {

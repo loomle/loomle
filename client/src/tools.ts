@@ -10,9 +10,10 @@ import {
   type TextResult,
 } from "@loomle/sal";
 import { catalog, guide } from "@loomle/interfaces";
+import type { ProjectController, ProjectReport } from "./runtime.js";
 import { RuntimeRpcError, type RpcInvoker } from "./runtime-rpc.js";
 
-export type PublicToolName = "sal_query" | "sal_patch" | "sal_schema" | "editor_context";
+export type PublicToolName = "project" | "sal_query" | "sal_patch" | "sal_schema" | "editor_context";
 
 export interface ToolDefinition {
   name: PublicToolName;
@@ -39,6 +40,28 @@ export interface McpToolResult {
 const interfaceNames = catalog.map(({ name }) => name);
 
 export const toolDefinitions: readonly ToolDefinition[] = [
+  {
+    name: "project",
+    description: "Inspect Loomle projects or bind this MCP session to one project. Call with no arguments to see the binding and candidates; pass projectId or projectRoot to bind. Binding is sticky, survives Editor restarts, and never falls through to another project while offline.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectId: {
+          type: "string",
+          minLength: 1,
+          description: "Stable project ID returned by project.",
+        },
+        projectRoot: {
+          type: "string",
+          minLength: 1,
+          description: "Directory containing exactly one .uproject file.",
+        },
+      },
+      maxProperties: 1,
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  },
   {
     name: "sal_query",
     description: "Read Unreal Engine objects with one self-contained SAL Query Text. Returns ordered SAL Object Text.",
@@ -78,7 +101,7 @@ export const toolDefinitions: readonly ToolDefinition[] = [
 export class SalToolService {
   private readonly sal: Sal;
 
-  constructor(private readonly rpc: RpcInvoker) {
+  constructor(private readonly rpc: RpcInvoker & Partial<ProjectController>) {
     this.sal = createSal({
       catalog,
       executor: {
@@ -97,6 +120,21 @@ export class SalToolService {
     try {
       const object = requireArguments(args);
       switch (name) {
+        case "project": {
+          requireOnly(object, ["projectId", "projectRoot"], name);
+          const projectId = optionalString(object.projectId, "projectId");
+          const projectRoot = optionalString(object.projectRoot, "projectRoot");
+          if (projectId && projectRoot) {
+            throw new ToolInputError("project accepts either projectId or projectRoot, not both.");
+          }
+          if (!this.rpc.project) {
+            throw new RuntimeRpcError(
+              "runtime.client_error",
+              "This Loomle Client does not provide project binding.",
+            );
+          }
+          return projectResult(await this.rpc.project({ projectId, projectRoot }));
+        }
         case "sal_query":
           return toMcpResult(await this.sal.query(requireText(object, name), { signal }));
         case "sal_patch":
@@ -117,9 +155,45 @@ export class SalToolService {
           return toolFailure("tool.unknown", `Unknown Loomle tool: ${name}.`);
       }
     } catch (error) {
-      return toolFailureFromError(error);
+      return name === "project" ? projectFailureFromError(error) : toolFailureFromError(error);
     }
   }
+
+  setMcpRoots(roots: readonly string[] | undefined, supported: boolean): void {
+    this.rpc.setMcpRoots?.(roots, supported);
+  }
+}
+
+function projectResult(report: ProjectReport): McpToolResult {
+  const lines = [
+    `bound: ${report.boundProjectId ?? "none"}`,
+    "projects:",
+    ...report.projects.map((project) => [
+      `- ${project.projectId}`,
+      `  name: ${project.name}`,
+      `  projectRoot: ${project.projectRoot}`,
+      `  status: ${project.status}`,
+      `  bound: ${project.bound}`,
+    ].join("\n")),
+  ];
+  if (report.projects.length === 0) {
+    lines.push("  none");
+  } else if (!report.boundProjectId) {
+    lines.push("next: call project with one projectId or projectRoot to bind this session");
+  }
+  return { content: [{ type: "text", text: lines.join("\n") }] };
+}
+
+function projectFailureFromError(error: unknown): McpToolResult {
+  const code = error instanceof RuntimeRpcError ? error.code : errorCode(error);
+  const message = error instanceof Error ? error.message : String(error);
+  const detail = error instanceof RuntimeRpcError && error.detail
+    ? `\ndetail: ${error.detail}`
+    : "";
+  return {
+    content: [{ type: "text", text: `ERROR ${code}: ${message}${detail}` }],
+    isError: true,
+  };
 }
 
 export function toMcpResult(result: TextResult): McpToolResult {
@@ -178,7 +252,7 @@ function requireOnly(object: Record<string, unknown>, keys: readonly string[], t
 
 function optionalString(value: unknown, name: string): string | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== "string" || value.length === 0) {
+  if (typeof value !== "string" || value.trim().length === 0) {
     throw new ToolInputError(`${name} must be a non-empty string.`);
   }
   return value;

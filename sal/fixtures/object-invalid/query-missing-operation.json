@@ -1,4 +1,0 @@
-{
-  "kind": "query",
-  "target": { "alias": "asset", "value": { "kind": "name", "name": "asset" } }
-}

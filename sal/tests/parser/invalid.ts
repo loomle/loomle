@@ -6,11 +6,6 @@ g = graph(asset: bp, name: "EventGraph")`;
 
 const cases: Array<{ name: string; text: string; code: string }> = [
   {
-    name: "query requires operation",
-    text: `${graph}\nquery g`,
-    code: "language.missing_query_operation",
-  },
-  {
     name: "patch requires statement",
     text: `${graph}\npatch g`,
     code: "language.missing_patch_statement",
@@ -49,6 +44,46 @@ const cases: Array<{ name: string; text: string; code: string }> = [
     name: "invalid insert shape",
     text: `${graph}\npatch g\ninsert pin@A -> delay.execute -> pin@B`,
     code: "language.invalid_operation",
+  },
+  {
+    name: "stable ids cannot absorb an array index",
+    text: `${graph}\nquery g\nstate@ROOT[0]`,
+    code: "language.invalid_operation",
+  },
+  {
+    name: "member indexes must be non-negative integers",
+    text: `${graph}\npatch g\nbind parameter@CONTAINER/POINTS[-1] -> node@TASK.Instance.Value`,
+    code: "language.invalid_reference",
+  },
+  {
+    name: "member indexes cannot be decimal numbers",
+    text: `${graph}\npatch g\nbind parameter@CONTAINER/POINTS[1.5] -> node@TASK.Instance.Value`,
+    code: "language.invalid_reference",
+  },
+  {
+    name: "member indexes cannot exceed int32",
+    text: `${graph}\npatch g\nbind parameter@CONTAINER/POINTS[2147483648] -> node@TASK.Instance.Value`,
+    code: "language.invalid_reference",
+  },
+  {
+    name: "member indexes cannot be empty",
+    text: `${graph}\npatch g\nbind parameter@CONTAINER/POINTS[] -> node@TASK.Instance.Value`,
+    code: "language.invalid_reference",
+  },
+  {
+    name: "member indexes cannot contain names",
+    text: `${graph}\npatch g\nbind parameter@CONTAINER/POINTS[first] -> node@TASK.Instance.Value`,
+    code: "language.invalid_reference",
+  },
+  {
+    name: "Palette destination cannot use an unknown local alias",
+    text: `${graph}\nquery g\npalette entries \"Follow\" to missing.Tasks`,
+    code: "language.unknown_local_reference",
+  },
+  {
+    name: "Palette from context is reserved for Graph Pins",
+    text: `${graph}\nquery g\npalette entries \"Follow\" from state@COMPANION.Tasks`,
+    code: "language.expected_stable_reference",
   },
   {
     name: "set requires member ref",

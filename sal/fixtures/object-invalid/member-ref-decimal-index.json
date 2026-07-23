@@ -1,0 +1,12 @@
+{
+  "statements": [
+    {
+      "from": {
+        "kind": "member",
+        "object": { "kind": "node", "id": "producer" },
+        "path": ["Instance", "Targets", 1.5]
+      },
+      "to": { "kind": "node", "id": "consumer" }
+    }
+  ]
+}

@@ -16,6 +16,7 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { checkProductVersion } from "../tools/product-version.mjs";
 
 const DEFAULT_REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const TARGETS = new Map([
@@ -45,6 +46,7 @@ export async function assembleFabPlugin({ repoRoot, outputDir, target }) {
   const resolvedRepoRoot = resolve(repoRoot);
   const resolvedOutputDir = resolve(outputDir);
   const targetSpec = resolveTarget(target);
+  await checkProductVersion(resolvedRepoRoot);
 
   const executableName = targetSpec.executableName;
   const clientSource = join(
@@ -178,13 +180,19 @@ async function validateClientBuild({ repoRoot, executablePath, receiptPath, targ
   const runtimeManifest = await readJson(
     join(repoRoot, "packaging", "client", "node-runtime.json"),
   );
-  if (receipt.schemaVersion !== 1) {
-    fail("canonical Client build receipt must use schemaVersion 1.");
+  if (receipt.schemaVersion !== 2) {
+    fail("canonical Client build receipt must use schemaVersion 2.");
   }
   if (receipt.productVersion !== product.version) {
     fail(
       `canonical Client build receipt productVersion ${JSON.stringify(receipt.productVersion)}`
       + ` does not match product version ${JSON.stringify(product.version)}.`,
+    );
+  }
+  if (receipt.protocolVersion !== product.loomle?.protocolVersion) {
+    fail(
+      `canonical Client build receipt protocolVersion ${JSON.stringify(receipt.protocolVersion)}`
+      + ` does not match protocol version ${JSON.stringify(product.loomle?.protocolVersion)}.`,
     );
   }
   if (receipt.target !== target) {

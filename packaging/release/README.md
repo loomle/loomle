@@ -9,9 +9,10 @@ npm run generate:version
 npm test
 ```
 
-`npm run generate:version` updates the generated Client version module and
-`LoomleBridge.uplugin` `VersionName`. It does not change the independent Fab
-build number in `LoomleBridge.uplugin` `Version`.
+`npm run generate:version` updates the generated Client product-version module,
+`LoomleBridge.uplugin` `VersionName`, and the generated Client and Bridge
+protocol-version constants. It does not change the independent Fab build
+number in `LoomleBridge.uplugin` `Version`.
 
 Prepare the pre-BuildPlugin staging tree with the same initial stages used by
 the manual Mac verification workflow:

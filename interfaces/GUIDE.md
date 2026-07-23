@@ -18,6 +18,11 @@ their own complete locator chains.
 
 ## Calls
 
+- `project({})` reports this MCP session's current project binding and known
+  project candidates.
+- `project({ projectId: "<id>" })` or
+  `project({ projectRoot: "/path/to/project" })` binds this session to one
+  project.
 - `sal_query({ text })` executes one self-contained Query Text.
 - `sal_patch({ text })` executes one self-contained ordered Patch Text.
 - `sal_schema({})` returns only the active interface-module index.
@@ -31,6 +36,21 @@ blocks below; the tool-call wrapper is not part of SAL syntax.
 Mutation execution state and diagnostics are appended as ordinary SAL comments,
 so the complete MCP text remains valid ordered Object Text rather than a second
 result language.
+
+## Project Binding
+
+One Loomle MCP session operates on one UE project. The binding is sticky: once
+selected, Loomle never falls through to another online project when the bound
+project is offline or its Editor restarts. Call `project({})` when no project is
+bound, when several projects are available, or after a `project.*` diagnostic;
+then copy one returned `projectId` into `project({ projectId: "<id>" })`.
+Automatic binding considers, in order, a deployment project root, MCP Roots,
+the Client working directory only when the host lacks Roots, then the sole
+known project. If no step identifies one project, the session stays unbound and
+the agent calls `project({})`; every UE-backed tool uses the resulting binding.
+Binding an offline project is valid and later UE-backed calls become available
+when its Editor is ready. `sal_schema` is local and remains available without a
+bound or online project.
 
 ## Blueprint Query
 
@@ -172,7 +192,7 @@ forms are equivalent.
 
 ```sal
 query <target>
-<primary operation>
+[<primary operation>]
 [where <condition>]
 [with <detail>, ...]
 [order by <field> [asc|desc], ...]
@@ -180,7 +200,10 @@ query <target>
 [page after "<cursor>"]
 ```
 
-Every Query has exactly one primary operation:
+The operation-less form is the shared exact-target read. Use it when the
+active interface card lists exact-target read; interfaces still being migrated
+may require one of their listed primary operations. Otherwise the Query has
+exactly one primary operation:
 
 ```sal
 summary
@@ -282,5 +305,5 @@ Diagnostics should close the same discovery loop:
 - unavailable capabilities give a reason and copyable next query when possible.
 
 The initial Loomle interface modules are `asset`, `blueprint`, `class`, `graph`,
-and `widget` when enabled by the Client. Module names organize documentation;
-they are not target-routing fields.
+`state_tree`, and `widget` when enabled by the Client. Module names organize
+documentation; they are not target-routing fields.

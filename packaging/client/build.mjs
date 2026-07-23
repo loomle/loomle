@@ -42,6 +42,10 @@ validateRuntime(manifest.nodeVersion, runtime);
 if (typeof product.version !== "string" || product.version.length === 0) {
   throw new Error("package.json must contain a product version.");
 }
+const protocolVersion = product.loomle?.protocolVersion;
+if (!Number.isInteger(protocolVersion) || protocolVersion < 1 || protocolVersion > 2_147_483_647) {
+  throw new Error("package.json must contain a positive int32 loomle.protocolVersion.");
+}
 
 console.log(`Building Loomle executable for ${target} with Node.js ${manifest.nodeVersion}.`);
 run("npm", ["run", "build"], { cwd: repoRoot });
@@ -107,8 +111,9 @@ run("codesign", ["--verify", "--strict", "--verbose=2", outputPath]);
 const outputStat = await stat(outputPath);
 const outputHash = await sha256(outputPath);
 await writeFile(receiptPath, `${JSON.stringify({
-  schemaVersion: 1,
+  schemaVersion: 2,
   productVersion: product.version,
+  protocolVersion,
   target,
   nodeVersion: manifest.nodeVersion,
   runtimeSha256: runtime.sha256,

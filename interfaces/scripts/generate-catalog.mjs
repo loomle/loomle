@@ -5,6 +5,7 @@ const modules = [
   ["blueprint", "Inspect and edit Blueprint-owned structure and finalize changes."],
   ["class", "Inspect UE Reflection and edit durable Blueprint Class Defaults."],
   ["graph", "Inspect and edit Graph Nodes, Pins, Edges, flow, and Node creation."],
+  ["state_tree", "Inspect and edit authored StateTree hierarchy, bindings, and compile state."],
   ["widget", "Inspect and edit WidgetBlueprint trees, Widgets, placement, and events."],
 ];
 

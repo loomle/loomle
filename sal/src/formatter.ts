@@ -41,7 +41,8 @@ function formatComment(text: string): string {
 }
 
 function formatQuery(query: Query): string {
-  const lines = [...formatTarget(query.target), `query ${query.target.alias}`, formatQueryOperation(query.operation)];
+  const lines = [...formatTarget(query.target), `query ${query.target.alias}`];
+  if (query.operation.kind !== "target") lines.push(formatQueryOperation(query.operation));
   if (query.where) lines.push(`where ${formatCondition(query.where)}`);
   if (query.with) lines.push(`with ${query.with.join(", ")}`);
   if (query.orderBy) lines.push(`order by ${query.orderBy.map((item) => `${item.key} ${item.direction}`).join(", ")}`);
@@ -64,12 +65,18 @@ function formatQueryOperation(operation: QueryOperation): string {
   }
   if (operation.kind === "palette_entries") {
     const text = operation.text ? ` ${JSON.stringify(operation.text)}` : "";
+    if ("to" in operation) return `palette entries${text} to ${formatRef(operation.to)}`;
     const context = operation.pinContext ? ` ${operation.pinContext.direction} ${formatRef(operation.pinContext.pin)}` : "";
     return `palette entries${text}${context}`;
   }
   if (isCollectionOperation(operation)) return `${operation.kind}${operation.text ? ` ${JSON.stringify(operation.text)}` : ""}`;
   if ("name" in operation) return `${operation.kind} ${formatExactName(operation.name)}`;
-  if ("id" in operation) return operation.kind === "palette" ? `palette @${operation.id}` : `${operation.kind}@${operation.id}`;
+  if ("id" in operation) {
+    if (operation.kind === "palette") {
+      return `palette @${operation.id}${"to" in operation ? ` to ${formatRef(operation.to)}` : ""}`;
+    }
+    return `${operation.kind}@${operation.id}`;
+  }
   throw new Error(`Unsupported Query operation ${operation.kind}.`);
 }
 
@@ -96,6 +103,8 @@ function formatPatchOperation(operation: PatchOperation): string {
     case "move": return formatMove(operation);
     case "connect": return `connect ${formatRef(operation.from)} -> ${formatRef(operation.to)}`;
     case "disconnect": return `disconnect ${formatRef(operation.from)} -> ${formatRef(operation.to)}`;
+    case "bind": return `bind ${formatRef(operation.from)} -> ${formatRef(operation.to)}`;
+    case "unbind": return `unbind ${formatRef(operation.from)} -> ${formatRef(operation.to)}`;
     case "break": return `break ${formatRef(operation.target)}`;
     case "insert": return `insert ${formatRef(operation.from)} -> ${formatRef(operation.input)}/${formatRef(operation.output)} -> ${formatRef(operation.to)}`;
     case "wrap": {
@@ -148,7 +157,7 @@ function formatExactName(name: string): string {
 }
 
 function isCollectionOperation(operation: QueryOperation): operation is CollectionOperation {
-  return ["assets", "variables", "dispatchers", "graphs", "components", "nodes", "properties", "functions", "defaults", "widgets"].includes(operation.kind);
+  return ["assets", "variables", "dispatchers", "graphs", "components", "nodes", "properties", "functions", "defaults", "widgets", "states", "parameters"].includes(operation.kind);
 }
 
 function isBinding(value: Patch["statements"][number]): value is Binding {

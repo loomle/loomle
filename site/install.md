@@ -110,17 +110,21 @@ separate project installation, session attachment, global command, update
 daemon, or project-local Client in 0.7. Fab updates the installed plugin and
 its bundled Client together.
 
-If multiple compatible Unreal projects are online, Loomle reports the
-ambiguity instead of silently choosing the wrong editor. Close unrelated
-editors or follow the returned guidance.
+One MCP session binds to one project. Loomle auto-binds only when the project is
+unambiguous; otherwise call `project({})` to inspect candidates, then bind one
+returned `projectId`. The binding is sticky across Editor restarts. If that
+project is offline, Loomle reports it and never silently switches to another
+online project.
 
 ## Verify Setup
 
 After restarting the MCP host:
 
 1. Keep the target Unreal project open.
-2. Call `editor_context`.
-3. Confirm the result identifies the current editor surface or active asset.
-4. Call `sal_schema` to see the active SAL module index.
+2. If Loomle asks for project selection, call `project({})` and bind the target
+   project.
+3. Call `editor_context`.
+4. Confirm the result identifies the current editor surface or active asset.
+5. Call `sal_schema` to see the active SAL module index.
 
 Continue with the [Quickstart](quickstart.html).

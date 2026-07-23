@@ -13,21 +13,40 @@ export type SalObject = Query | Patch | ObjectText;
 export type Expr = null | boolean | number | string | Name | Ref | Call | Expr[] | InlineObject;
 export type Ref = LocalRef | StableRef | MemberRef;
 export type QueryOperation =
+  | TargetOperation
   | SummaryOperation
   | CollectionOperation
   | NamedOperation
   | IdOperation
+  | PaletteIdOperation
   | TreeOperation
   | ContextOperation
   | FlowOperation
   | ReferencesOperation
-  | PaletteEntriesOperation;
+  | PaletteEntriesOperation
+  | StateTreePaletteEntriesOperation
+  | StateTreePaletteIdOperation;
 export type Condition =
   EqCondition | NeCondition | ContainsCondition | CompareCondition | NotCondition | AndCondition | OrCondition;
 export type PatchStatement = Binding | PatchOperation;
 export type BindingTarget = LocalRef | BindingMemberRef;
 export type PatchOperation =
-  Add | Remove | Set | Reset | Move | Connect | Disconnect | Break | Insert | Wrap | Replace | Invoke | Compile | Save;
+  | Add
+  | Remove
+  | Set
+  | Reset
+  | Move
+  | Connect
+  | Disconnect
+  | Bind
+  | Unbind
+  | Break
+  | Insert
+  | Wrap
+  | Replace
+  | Invoke
+  | Compile
+  | Save;
 /**
  * @minItems 2
  * @maxItems 2
@@ -99,10 +118,13 @@ export interface MemberRef {
   /**
    * @minItems 1
    */
-  path: [string, ...string[]];
+  path: [string | number, ...(string | number)[]];
 }
 export interface InlineObject {
   [k: string]: Expr;
+}
+export interface TargetOperation {
+  kind: "target";
 }
 export interface SummaryOperation {
   kind: "summary";
@@ -118,7 +140,9 @@ export interface CollectionOperation {
     | "properties"
     | "functions"
     | "defaults"
-    | "widgets";
+    | "widgets"
+    | "states"
+    | "parameters";
   text?: string;
 }
 export interface NamedOperation {
@@ -126,7 +150,23 @@ export interface NamedOperation {
   name: string;
 }
 export interface IdOperation {
-  kind: "blueprint" | "variable" | "dispatcher" | "graph" | "component" | "node" | "pin" | "widget" | "palette";
+  kind:
+    | "blueprint"
+    | "variable"
+    | "dispatcher"
+    | "graph"
+    | "component"
+    | "node"
+    | "pin"
+    | "widget"
+    | "state"
+    | "transition"
+    | "parameter"
+    | "object";
+  id: string;
+}
+export interface PaletteIdOperation {
+  kind: "palette";
   id: string;
 }
 export interface TreeOperation {
@@ -156,7 +196,7 @@ export interface StableMemberRef {
   /**
    * @minItems 1
    */
-  path: [string, ...string[]];
+  path: [string | number, ...(string | number)[]];
 }
 export interface PaletteEntriesOperation {
   kind: "palette_entries";
@@ -166,6 +206,16 @@ export interface PaletteEntriesOperation {
 export interface PalettePinContext {
   direction: "from" | "to";
   pin: StableRef;
+}
+export interface StateTreePaletteEntriesOperation {
+  kind: "palette_entries";
+  text?: string;
+  to: Ref;
+}
+export interface StateTreePaletteIdOperation {
+  kind: "palette";
+  id: string;
+  to: Ref;
 }
 export interface EqCondition {
   kind: "eq";
@@ -239,7 +289,7 @@ export interface BindingMemberRef {
   /**
    * @minItems 1
    */
-  path: [string, ...string[]];
+  path: [string | number, ...(string | number)[]];
 }
 export interface Add {
   kind: "add";
@@ -276,6 +326,16 @@ export interface Connect {
 }
 export interface Disconnect {
   kind: "disconnect";
+  from: Ref;
+  to: Ref;
+}
+export interface Bind {
+  kind: "bind";
+  from: Ref;
+  to: Ref;
+}
+export interface Unbind {
+  kind: "unbind";
   from: Ref;
   to: Ref;
 }

@@ -1,0 +1,12 @@
+{
+  "kind": "query",
+  "target": {
+    "alias": "omle",
+    "value": {
+      "kind": "call",
+      "callee": "asset",
+      "args": { "path": "/Game/AI/ST_Omle.ST_Omle" }
+    }
+  },
+  "operation": { "kind": "state", "id": "root[0]" }
+}

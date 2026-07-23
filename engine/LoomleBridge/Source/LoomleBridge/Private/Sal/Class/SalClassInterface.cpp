@@ -24,11 +24,9 @@
 #include "ScopedTransaction.h"
 #include "UObject/Class.h"
 #include "UObject/CoreNetTypes.h"
-#include "UObject/FieldPathProperty.h"
 #include "UObject/MetaData.h"
 #include "UObject/Package.h"
 #include "UObject/PropertyAccessUtil.h"
-#include "UObject/PropertyOptional.h"
 #include "UObject/Script.h"
 #include "UObject/UnrealType.h"
 
@@ -210,60 +208,7 @@ FString ClassFlagsText(const EClassFlags Flags)
 
 FString PropertyFlagsText(const EPropertyFlags Flags)
 {
-    static const FNamedFlag64 Known[] = {
-        {CPF_Edit, TEXT("CPF_Edit")},
-        {CPF_ConstParm, TEXT("CPF_ConstParm")},
-        {CPF_BlueprintVisible, TEXT("CPF_BlueprintVisible")},
-        {CPF_ExportObject, TEXT("CPF_ExportObject")},
-        {CPF_BlueprintReadOnly, TEXT("CPF_BlueprintReadOnly")},
-        {CPF_Net, TEXT("CPF_Net")},
-        {CPF_EditFixedSize, TEXT("CPF_EditFixedSize")},
-        {CPF_Parm, TEXT("CPF_Parm")},
-        {CPF_OutParm, TEXT("CPF_OutParm")},
-        {CPF_ZeroConstructor, TEXT("CPF_ZeroConstructor")},
-        {CPF_ReturnParm, TEXT("CPF_ReturnParm")},
-        {CPF_DisableEditOnTemplate, TEXT("CPF_DisableEditOnTemplate")},
-        {CPF_NonNullable, TEXT("CPF_NonNullable")},
-        {CPF_Transient, TEXT("CPF_Transient")},
-        {CPF_Config, TEXT("CPF_Config")},
-        {CPF_RequiredParm, TEXT("CPF_RequiredParm")},
-        {CPF_DisableEditOnInstance, TEXT("CPF_DisableEditOnInstance")},
-        {CPF_EditConst, TEXT("CPF_EditConst")},
-        {CPF_GlobalConfig, TEXT("CPF_GlobalConfig")},
-        {CPF_InstancedReference, TEXT("CPF_InstancedReference")},
-        {CPF_SaveGame, TEXT("CPF_SaveGame")},
-        {CPF_NoClear, TEXT("CPF_NoClear")},
-        {CPF_Virtual, TEXT("CPF_Virtual")},
-        {CPF_ReferenceParm, TEXT("CPF_ReferenceParm")},
-        {CPF_BlueprintAssignable, TEXT("CPF_BlueprintAssignable")},
-        {CPF_Deprecated, TEXT("CPF_Deprecated")},
-        {CPF_RepSkip, TEXT("CPF_RepSkip")},
-        {CPF_RepNotify, TEXT("CPF_RepNotify")},
-        {CPF_Interp, TEXT("CPF_Interp")},
-        {CPF_NonTransactional, TEXT("CPF_NonTransactional")},
-        {CPF_EditorOnly, TEXT("CPF_EditorOnly")},
-        {CPF_AutoWeak, TEXT("CPF_AutoWeak")},
-        {CPF_ContainsInstancedReference, TEXT("CPF_ContainsInstancedReference")},
-        {CPF_AssetRegistrySearchable, TEXT("CPF_AssetRegistrySearchable")},
-        {CPF_SimpleDisplay, TEXT("CPF_SimpleDisplay")},
-        {CPF_AdvancedDisplay, TEXT("CPF_AdvancedDisplay")},
-        {CPF_Protected, TEXT("CPF_Protected")},
-        {CPF_BlueprintCallable, TEXT("CPF_BlueprintCallable")},
-        {CPF_BlueprintAuthorityOnly, TEXT("CPF_BlueprintAuthorityOnly")},
-        {CPF_TextExportTransient, TEXT("CPF_TextExportTransient")},
-        {CPF_NonPIEDuplicateTransient, TEXT("CPF_NonPIEDuplicateTransient")},
-        {CPF_ExposeOnSpawn, TEXT("CPF_ExposeOnSpawn")},
-        {CPF_PersistentInstance, TEXT("CPF_PersistentInstance")},
-        {CPF_UObjectWrapper, TEXT("CPF_UObjectWrapper")},
-        {CPF_HasGetValueTypeHash, TEXT("CPF_HasGetValueTypeHash")},
-        {CPF_NativeAccessSpecifierPublic, TEXT("CPF_NativeAccessSpecifierPublic")},
-        {CPF_NativeAccessSpecifierProtected, TEXT("CPF_NativeAccessSpecifierProtected")},
-        {CPF_NativeAccessSpecifierPrivate, TEXT("CPF_NativeAccessSpecifierPrivate")},
-        {CPF_SkipSerialization, TEXT("CPF_SkipSerialization")},
-        {CPF_TObjectPtr, TEXT("CPF_TObjectPtr")},
-        {CPF_AllowSelfReference, TEXT("CPF_AllowSelfReference")},
-    };
-    return JoinFlags(static_cast<uint64>(Flags), Known);
+    return NativePropertyFlagsText(static_cast<uint64>(Flags));
 }
 
 FString FunctionFlagsText(const EFunctionFlags Flags)
@@ -305,84 +250,7 @@ FString FunctionFlagsText(const EFunctionFlags Flags)
 
 FString PropertyTypeText(const FProperty* Property)
 {
-    if (Property == nullptr)
-    {
-        return FString();
-    }
-    if (const FArrayProperty* Array = CastField<FArrayProperty>(Property))
-    {
-        return FString::Printf(TEXT("ArrayProperty(%s)"), *PropertyTypeText(Array->Inner));
-    }
-    if (const FSetProperty* Set = CastField<FSetProperty>(Property))
-    {
-        return FString::Printf(TEXT("SetProperty(%s)"), *PropertyTypeText(Set->ElementProp));
-    }
-    if (const FMapProperty* Map = CastField<FMapProperty>(Property))
-    {
-        return FString::Printf(TEXT("MapProperty(%s, %s)"), *PropertyTypeText(Map->KeyProp), *PropertyTypeText(Map->ValueProp));
-    }
-    if (const FOptionalProperty* Optional = CastField<FOptionalProperty>(Property))
-    {
-        return FString::Printf(TEXT("OptionalProperty(%s)"), *PropertyTypeText(Optional->GetValueProperty()));
-    }
-    if (const FEnumProperty* Enum = CastField<FEnumProperty>(Property))
-    {
-        return FString::Printf(
-            TEXT("EnumProperty(%s, %s)"),
-            Enum->GetEnum() != nullptr ? *Enum->GetEnum()->GetName() : TEXT("None"),
-            *PropertyTypeText(Enum->GetUnderlyingProperty()));
-    }
-    if (const FByteProperty* Byte = CastField<FByteProperty>(Property); Byte != nullptr && Byte->Enum != nullptr)
-    {
-        return FString::Printf(TEXT("ByteProperty(%s)"), *Byte->Enum->GetName());
-    }
-    if (const FFieldPathProperty* FieldPath = CastField<FFieldPathProperty>(Property))
-    {
-        return FString::Printf(
-            TEXT("FieldPathProperty(%s)"),
-            FieldPath->PropertyClass != nullptr ? *FieldPath->PropertyClass->GetName() : TEXT("None"));
-    }
-    if (const FSoftClassProperty* SoftClass = CastField<FSoftClassProperty>(Property))
-    {
-        return FString::Printf(TEXT("SoftClassProperty(%s)"), *GetPathNameSafe(SoftClass->MetaClass));
-    }
-    if (const FClassProperty* Class = CastField<FClassProperty>(Property))
-    {
-        return FString::Printf(TEXT("ClassProperty(%s)"), *GetPathNameSafe(Class->MetaClass));
-    }
-    if (const FSoftObjectProperty* SoftObject = CastField<FSoftObjectProperty>(Property))
-    {
-        return FString::Printf(TEXT("SoftObjectProperty(%s)"), *GetPathNameSafe(SoftObject->PropertyClass));
-    }
-    if (const FWeakObjectProperty* WeakObject = CastField<FWeakObjectProperty>(Property))
-    {
-        return FString::Printf(TEXT("WeakObjectProperty(%s)"), *GetPathNameSafe(WeakObject->PropertyClass));
-    }
-    if (const FLazyObjectProperty* LazyObject = CastField<FLazyObjectProperty>(Property))
-    {
-        return FString::Printf(TEXT("LazyObjectProperty(%s)"), *GetPathNameSafe(LazyObject->PropertyClass));
-    }
-    if (const FObjectPropertyBase* Object = CastField<FObjectPropertyBase>(Property))
-    {
-        return FString::Printf(TEXT("%s(%s)"), *Property->GetClass()->GetName(), *GetPathNameSafe(Object->PropertyClass));
-    }
-    if (const FStructProperty* Struct = CastField<FStructProperty>(Property))
-    {
-        return FString::Printf(TEXT("StructProperty(%s)"), *GetPathNameSafe(Struct->Struct));
-    }
-    if (const FInterfaceProperty* Interface = CastField<FInterfaceProperty>(Property))
-    {
-        return FString::Printf(TEXT("InterfaceProperty(%s)"), *GetPathNameSafe(Interface->InterfaceClass));
-    }
-    if (const FDelegateProperty* Delegate = CastField<FDelegateProperty>(Property))
-    {
-        return FString::Printf(TEXT("DelegateProperty(%s)"), *GetPathNameSafe(Delegate->SignatureFunction));
-    }
-    if (const FMulticastDelegateProperty* Delegate = CastField<FMulticastDelegateProperty>(Property))
-    {
-        return FString::Printf(TEXT("%s(%s)"), *Property->GetClass()->GetName(), *GetPathNameSafe(Delegate->SignatureFunction));
-    }
-    return Property->GetClass()->GetName();
+    return NativePropertyTypeText(Property);
 }
 
 const void* DirectPropertyElement(const FProperty* Property, const void* Value, const int32 Index)

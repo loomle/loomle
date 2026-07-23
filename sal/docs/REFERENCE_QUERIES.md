@@ -18,7 +18,7 @@ translated UE type system.
 
 ## Query Text
 
-The first confirmed subject forms are an existing typed stable reference and
+The first confirmed subject forms are an existing kind-qualified stable reference and
 an optional domain-owned member path:
 
 ```sal
@@ -39,8 +39,8 @@ The primary operation is:
 references to <exact-subject> [in project]
 ```
 
-`<exact-subject>` is initially `<typed-ref>` or
-`<typed-ref>.<native-member-path>`. It is resolved inside the complete bound
+`<exact-subject>` is initially `<stable-ref>` or
+`<stable-ref>.<native-member-path>`. It is resolved inside the complete bound
 target and therefore never becomes a global id lookup. A later domain may add
 another already-defined exact native selector, but that selector requires its
 own reviewed domain design. This document does not silently add direct Class,
@@ -64,7 +64,7 @@ interface ReferencesOperation {
 interface StableMemberRef {
   kind: "member";
   object: StableRef;
-  path: string[];
+  path: (string | number)[];
 }
 ```
 
@@ -73,7 +73,8 @@ The outer `Query.target` says where the Query is bound. The nested
 the existing relationship-operation convention instead of introducing a
 parallel `subject` term. `StableMemberRef` is only the normalized restriction
 of existing Member Reference text such as `node@id.FunctionReference`; it is
-not a new SAL object or text form.
+not a new SAL object or text form. Domains with indexed native member paths use
+`[N]`, normalized as a numeric segment.
 
 Omitting `scope` selects the bound local target. `scope: "project"` is the
 exact normalized form of `in project`. Shared `Query.page` remains outside the

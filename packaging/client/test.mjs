@@ -33,8 +33,9 @@ await access(executablePath, constants.X_OK);
 assert.ok((await stat(executablePath)).size > 0, "Executable is empty.");
 const executableHash = await sha256(executablePath);
 assert.deepEqual(JSON.parse(await readFile(receiptPath, "utf8")), {
-  schemaVersion: 1,
+  schemaVersion: 2,
   productVersion: product.version,
+  protocolVersion: product.loomle.protocolVersion,
   target,
   nodeVersion: runtimeManifest.nodeVersion,
   runtimeSha256: runtimeManifest.targets[target].sha256,
@@ -63,7 +64,6 @@ try {
     PATH: "/usr/bin:/bin",
     NODE_PATH: "",
     NODE_OPTIONS: "",
-    LOOMLE_RUNTIME_ID: "",
     LOOMLE_PROJECT_ROOT: "",
   };
 
@@ -104,6 +104,7 @@ try {
 
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name), [
+      "project",
       "sal_query",
       "sal_patch",
       "sal_schema",
@@ -123,6 +124,7 @@ try {
     assert.match(JSON.stringify(schema), /asset/);
     assert.match(JSON.stringify(schema), /blueprint/);
     assert.match(JSON.stringify(schema), /graph/);
+    assert.match(JSON.stringify(schema), /state_tree/);
 
     const query = await client.callTool({
       name: "sal_query",

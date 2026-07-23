@@ -139,7 +139,11 @@ no alternative Client layout or script fallback.
 
 The Client discovers live Bridge records through `~/.loomle/state/runtimes`.
 That directory is runtime state, not a global Loomle installation and not a
-project-local Client copy.
+project-local Client copy. Each record advertises the numeric Client–Bridge
+`protocolVersion`. A missing or different version is incompatible and is
+rejected before tool dispatch. A matching record is only an early discovery
+check; the live `rpc.capabilities` response must report the same version before
+the Client invokes any Bridge tool.
 
 Fab assembly takes an explicit native target and has no fallback input:
 
@@ -151,15 +155,16 @@ npm run assemble:fab -- \
   --target darwin-arm64
 ```
 
-The executable build writes an adjacent `build.json` receipt containing its
-product version, target, Node version and runtime archive SHA-256, executable
-name, and executable SHA-256. The assembler verifies that receipt and the
-Client bytes, but does not ship the receipt. It rejects a missing or
-receipt-mismatched canonical Client, product-version drift, another staged
-Client target, unexpected Client resources, and platform build outputs. The
-receipt does not fingerprint every
-source file, so both local QA and automation build and test the Client
-immediately before assembly. For the accepted `darwin-arm64` target it also
+The executable build writes an adjacent schema-version-2 `build.json` receipt
+containing its product and Client–Bridge protocol versions, target, Node
+version and runtime archive SHA-256, executable name, and executable SHA-256.
+The assembler verifies the repository's generated version artifacts, that
+receipt, and the Client bytes, but does not ship the receipt. It rejects a
+missing or receipt-mismatched canonical Client, product- or protocol-version
+drift, another staged Client target, unexpected Client resources, and platform
+build outputs. The receipt does not fingerprint every source file, so both
+local QA and automation build and test the Client immediately before assembly.
+For the accepted `darwin-arm64` target it also
 narrows the derived descriptor to Mac and `Mac:arm64`; the source descriptor
 remains development input for later targets. UE BuildPlugin must compile the
 same single architecture and preserve the exact Client bytes through
@@ -201,14 +206,21 @@ host configuration.
 
 ## Version Boundary
 
-The root `package.json` is the only manually maintained product-version source.
-`sal/`, `interfaces/`, and `client/` are private implementation workspaces and
-keep the non-product package version `0.0.0`.
+The root `package.json` is the only manually maintained repository version
+source. Its top-level `version` is the product version, while
+`loomle.protocolVersion` is the independent positive integer for the private
+Client–Bridge contract. `sal/`, `interfaces/`, and `client/` are private
+implementation workspaces and keep the non-product package version `0.0.0`.
+The incompatible 0.7 contract uses version `2`; version `1` belongs to the 0.6
+Client–Bridge contract and must never be treated as compatible by tool-name
+overlap.
 
-The product-version generator derives and checks two runtime values:
+The version generator derives and checks four runtime values:
 
 - the Client's generated MCP Server version module;
-- `LoomleBridge.uplugin` `VersionName`.
+- `LoomleBridge.uplugin` `VersionName`;
+- the Client's generated protocol-version module;
+- the Bridge's generated protocol-version header.
 
 The root entries in `package-lock.json` are npm-managed mirrors of the same
 source. A release or local build must fail when any derived value is stale.
@@ -217,7 +229,8 @@ another version source.
 
 The following values are deliberately independent:
 
-- RPC protocol and runtime schema versions change only with their contracts;
+- Client–Bridge protocol and runtime-record schema versions change only with
+  their contracts;
 - `LoomleBridge.uplugin` `FileVersion` follows the UE descriptor format;
 - `LoomleBridge.uplugin` integer `Version` is a monotonic Fab build number;
 - `LoomleBridge.uplugin` `EngineVersion` states the UE compatibility target.

@@ -16,6 +16,11 @@ remains:
 - [`../../interfaces/`](../../interfaces/) for the injected UE interface catalog;
 - [`domains/`](domains/) for UE semantics.
 
+Project selection and runtime availability are defined separately by
+[`../../docs/PROJECT_BINDING_AND_RUNTIME_LIVENESS.md`](../../docs/PROJECT_BINDING_AND_RUNTIME_LIVENESS.md).
+They belong to the MCP Client control plane and do not add fields or statements
+to SAL Text.
+
 ## Intent
 
 The Bridge is the UE-backed `SalExecutor`. It receives schema-valid normalized
@@ -40,6 +45,27 @@ The Bridge exposes two normalized-object SAL operations:
 sal.query
 sal.patch
 ```
+
+Before either operation is available, the Client calls `rpc.capabilities`.
+The response contains the exact numeric Client–Bridge `protocolVersion` plus
+the supported private tool names. The Client requires an exact version match;
+tool-name overlap alone never implies protocol compatibility. Runtime records
+advertise the same generated value for early discovery checks, while the live
+capability response remains the final check before invocation. The record's
+`schemaVersion` is separate and describes only the on-disk record shape.
+
+`package.json` `loomle.protocolVersion` is the single maintained source. The
+repository version generator emits the TypeScript constant and private C++
+header consumed by both peers. The retired string `rpcVersion` is not a second
+compatibility mechanism.
+
+Discovery calls `ping`, `rpc.health`, and `rpc.capabilities` remain open so an
+incompatible Client can identify the live Bridge and report the mismatch.
+Every `rpc.invoke` and `rpc.cancel` request carries the Client's generated
+`protocolVersion`. The Bridge compares it before dispatch or cancellation and
+rejects a missing, non-numeric, or different value as the non-retryable public
+error `runtime.incompatible`. Compatibility is therefore enforced in both
+directions rather than depending on every caller to perform the handshake.
 
 Both receive one envelope:
 

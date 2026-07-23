@@ -15,6 +15,14 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 
 import { assembleFabPlugin } from "./assemble.mjs";
+import {
+  renderBridgeProtocolVersionHeader,
+  renderClientProtocolVersionModule,
+  renderProductVersionModule,
+} from "../tools/product-version.mjs";
+
+const PRODUCT_VERSION = "0.7.0";
+const PROTOCOL_VERSION = 2;
 
 test("assembles the Bridge source and only the canonical TypeScript Client executable", async () => {
   const fixture = await createFixture("darwin-arm64");
@@ -186,6 +194,38 @@ test("rejects a canonical Client receipt from another product version", async ()
   }
 });
 
+test("rejects a canonical Client receipt from another protocol version", async () => {
+  const fixture = await createFixture("darwin-arm64", { receiptProtocolVersion: 1 });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /build receipt protocolVersion 1 does not match protocol version 2/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects stale generated protocol artifacts before assembly", async () => {
+  const fixture = await createFixture("darwin-arm64", { staleBridgeProtocolHeader: true });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /Generated\/LoomleProtocolVersion\.h/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("rejects a canonical Client receipt from another pinned Node version", async () => {
   const fixture = await createFixture("darwin-arm64", { receiptNodeVersion: "22.0.0" });
   try {
@@ -243,7 +283,7 @@ test("rejects a stale staged plugin version", async () => {
         outputDir: fixture.outputDir,
         target: "darwin-arm64",
       }),
-      /VersionName "0\.6\.0" does not match product version "0\.7\.0"/,
+      /LoomleBridge\.uplugin VersionName is "0\.6\.0"; expected "0\.7\.0"/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -360,7 +400,41 @@ async function createFixture(target, options = {}) {
   const pluginRoot = join(repoRoot, "engine", "LoomleBridge");
   const executableName = target.startsWith("win32-") ? "loomle.exe" : "loomle";
 
-  await write(join(repoRoot, "package.json"), JSON.stringify({ version: "0.7.0" }));
+  await write(join(repoRoot, "package.json"), JSON.stringify({
+    name: "loomle",
+    version: PRODUCT_VERSION,
+    loomle: { protocolVersion: PROTOCOL_VERSION },
+  }));
+  for (const workspace of ["client", "sal", "interfaces"]) {
+    await write(join(repoRoot, workspace, "package.json"), JSON.stringify({
+      name: `@loomle/${workspace}`,
+      version: "0.0.0",
+    }));
+  }
+  await write(join(repoRoot, "package-lock.json"), JSON.stringify({
+    name: "loomle",
+    version: PRODUCT_VERSION,
+    packages: {
+      "": { name: "loomle", version: PRODUCT_VERSION },
+      client: { name: "@loomle/client", version: "0.0.0" },
+      sal: { name: "@loomle/sal", version: "0.0.0" },
+      interfaces: { name: "@loomle/interfaces", version: "0.0.0" },
+    },
+  }));
+  await write(
+    join(repoRoot, "client", "src", "generated", "product-version.ts"),
+    renderProductVersionModule(PRODUCT_VERSION),
+  );
+  await write(
+    join(repoRoot, "client", "src", "generated", "protocol-version.ts"),
+    renderClientProtocolVersionModule(PROTOCOL_VERSION),
+  );
+  await write(
+    join(pluginRoot, "Source", "LoomleBridge", "Private", "Generated", "LoomleProtocolVersion.h"),
+    options.staleBridgeProtocolHeader
+      ? "stale\n"
+      : renderBridgeProtocolVersionHeader(PROTOCOL_VERSION),
+  );
   await write(
     join(repoRoot, "packaging", "client", "node-runtime.json"),
     JSON.stringify({
@@ -371,7 +445,7 @@ async function createFixture(target, options = {}) {
   await write(join(pluginRoot, "LoomleBridge.uplugin"), JSON.stringify({
     FileVersion: 3,
     Version: 107,
-    VersionName: options.pluginVersion ?? "0.7.0",
+    VersionName: options.pluginVersion ?? PRODUCT_VERSION,
     CanContainContent: false,
     SupportedTargetPlatforms: options.disallowPluginMac ? ["Win64"] : ["Mac", "Win64"],
     Modules: [{
@@ -406,8 +480,9 @@ async function createFixture(target, options = {}) {
     if (!target.startsWith("win32-")) await chmod(client, 0o755);
     if (options.includeReceipt !== false) {
       await write(join(dirname(client), "build.json"), `${JSON.stringify({
-        schemaVersion: 1,
-        productVersion: options.receiptProductVersion ?? "0.7.0",
+        schemaVersion: 2,
+        productVersion: options.receiptProductVersion ?? PRODUCT_VERSION,
+        protocolVersion: options.receiptProtocolVersion ?? PROTOCOL_VERSION,
         target,
         nodeVersion: options.receiptNodeVersion ?? "24.18.0",
         runtimeSha256: options.receiptRuntimeSha256 ?? "2".repeat(64),

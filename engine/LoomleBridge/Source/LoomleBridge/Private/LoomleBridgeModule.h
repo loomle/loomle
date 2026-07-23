@@ -9,10 +9,22 @@
 #include "Input/Reply.h"
 #include "Modules/ModuleManager.h"
 
+#include <atomic>
+
 class FLoomlePipeServer;
+enum class ELoomlePipeListenerState : uint8;
 class FJsonObject;
 class FJsonValue;
 class FSlateStyleSet;
+
+enum class ELoomleBridgeLifecycle : uint8
+{
+    Starting,
+    Ready,
+    Draining,
+    Offline,
+    Failed,
+};
 
 namespace Loomle::Runtime
 {
@@ -30,10 +42,16 @@ class FRequestCancellationRegistry;
 class FLoomleBridgeModule final : public IModuleInterface
 {
 public:
+    FLoomleBridgeModule();
+    virtual ~FLoomleBridgeModule() override;
     virtual void StartupModule() override;
     virtual void ShutdownModule() override;
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+    friend struct FLoomleBridgeRpcTestAccess;
+#endif
+
     FString HandleRequest(int32 ConnectionSerial, const FString& RequestLine);
     TSharedRef<Loomle::Runtime::FRequestCancellationState, ESPMode::ThreadSafe> RegisterRequestCancellation(
         int32 ConnectionSerial,
@@ -72,6 +90,18 @@ private:
 
     bool TickHealthSnapshot(float DeltaTime);
     void UpdateHealthSnapshot();
+    FString GetBridgeLifecycleName() const;
+    static ELoomleBridgeLifecycle ResolveBridgeLifecycle(
+        ELoomleBridgeLifecycle CurrentLifecycle,
+        ELoomlePipeListenerState ListenerState);
+    static FString NormalizeProjectRoot(FString RawProjectRoot);
+    static FString MakeProjectIdForNormalizedRoot(FString NormalizedProjectRoot, bool bFoldCase);
+    static bool RemoveLegacyProjectRegistration(
+        const FString& ProjectsDirectory,
+        const FString& CanonicalProjectRoot,
+        const FString& CanonicalProjectId,
+        bool bFoldCase);
+    void InitializeRuntimeIdentity();
     void RegisterStatusBarWidget();
     void UnregisterStatusBarWidget();
     void RegisterStatusBarMenus();
@@ -89,9 +119,13 @@ private:
     void RecordClientActivity(const FString& Method, const FString& ToolName);
     bool GetClientActivitySummary(FString& OutDetail) const;
 
-    void WriteProjectRegistration(const FString& ProjectRoot, const FString& ProjectId);
+    void WriteProjectRegistration(const FString& InProjectRoot, const FString& InProjectId);
     void WriteRuntimeRegistration();
     void RemoveRuntimeRegistration();
+    void BeginBridgeShutdown();
+    void HandleShutdownPostPackagesSaved();
+    void HandleEditorPreExit();
+    void HandleEnginePreExit();
     void HandlePreExit();
     void StopBridgeRuntime(bool bWaitForWorkers);
 
@@ -99,8 +133,16 @@ private:
     TSharedPtr<FLoomlePipeServer, ESPMode::ThreadSafe> PipeServer;
     TSharedPtr<FSlateStyleSet> LoomleSlateStyle;
     FDelegateHandle StatusBarStartupHandle;
+    FDelegateHandle ShutdownPostPackagesSavedHandle;
+    FDelegateHandle EditorPreExitHandle;
+    FDelegateHandle EnginePreExitHandle;
     FDelegateHandle PreExitHandle;
     FTSTicker::FDelegateHandle HealthSnapshotTickerHandle;
+    FString RuntimeId;
+    FString ProjectId;
+    FString ProjectRoot;
+    FString RuntimeEndpoint;
+    FString RuntimeStartedAt;
     FString RuntimeRegistrationPath;
 
     mutable FCriticalSection ClientActivityMutex;
@@ -112,6 +154,9 @@ private:
 
     TUniquePtr<Loomle::Runtime::FRequestCancellationRegistry> RequestCancellationRegistry;
     FThreadSafeCounter ActiveGameThreadDispatchCount;
+    std::atomic<uint8> BridgeLifecycleState { static_cast<uint8>(ELoomleBridgeLifecycle::Offline) };
+    std::atomic<uint64> GameThreadProgressSequence { 0 };
+    std::atomic<uint64> LastGameThreadProgressCycles { 0 };
     TAtomic<bool> bBridgeRunningSnapshot { false };
     TAtomic<bool> bIsPIESnapshot { false };
     TAtomic<bool> bIsShuttingDown { false };

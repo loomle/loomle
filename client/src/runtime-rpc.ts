@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createConnection } from "node:net";
 import type { Duplex } from "node:stream";
+import { protocolVersion } from "./generated/protocol-version.js";
 
 let runtimeClientSequence = 0;
 
@@ -14,6 +15,22 @@ export type EndpointConnector = (endpoint: string) => Promise<Duplex>;
 // structured timeout response. The transport timeout must leave enough room
 // for that response to be serialized and delivered.
 export const DEFAULT_RUNTIME_REQUEST_TIMEOUT_MS = 130_000;
+export const DEFAULT_RUNTIME_HEALTH_TIMEOUT_MS = 1_500;
+export const DEFAULT_RUNTIME_CONNECT_TIMEOUT_MS = 1_500;
+
+export interface RuntimeIdentity {
+  runtimeId: string;
+  projectId: string;
+  projectRoot: string;
+}
+
+export interface RuntimeHealth extends RuntimeIdentity {
+  protocolVersion: number;
+  lifecycle: "starting" | "ready" | "draining" | "offline" | "failed";
+  listenerState: "starting" | "listening" | "failed" | "stopping" | "stopped";
+  gameThreadProgressSequence: number;
+  gameThreadProgressAgeMs: number;
+}
 
 export class RuntimeRpcError extends Error {
   constructor(
@@ -63,7 +80,54 @@ export class RuntimeRpcClient implements RpcInvoker {
     readonly endpoint: string,
     private readonly connector: EndpointConnector = connectEndpoint,
     private readonly requestTimeoutMs = DEFAULT_RUNTIME_REQUEST_TIMEOUT_MS,
+    private readonly healthTimeoutMs = DEFAULT_RUNTIME_HEALTH_TIMEOUT_MS,
   ) {}
+
+  async health(expected: RuntimeIdentity): Promise<RuntimeHealth> {
+    const result = await this.request(
+      "rpc.health",
+      { protocolVersion },
+      undefined,
+      undefined,
+      this.healthTimeoutMs,
+    );
+    if (!isRecord(result)) {
+      throw new RuntimeRpcError(
+        "runtime.invalid_health",
+        "The Loomle runtime returned an invalid health document.",
+      );
+    }
+    requireCompatibleProtocolVersion(result.protocolVersion);
+    const runtimeId = requireHealthString(result, "runtimeId");
+    const projectId = requireHealthString(result, "projectId");
+    const projectRoot = requireHealthString(result, "projectRoot");
+    if (runtimeId !== expected.runtimeId
+      || projectId !== expected.projectId
+      || projectRoot !== expected.projectRoot) {
+      throw new RuntimeRpcError(
+        "runtime.identity_mismatch",
+        "The Loomle runtime endpoint does not match its discovery record.",
+        false,
+        `expected runtime ${expected.runtimeId} in project ${expected.projectId} at ${expected.projectRoot}; received runtime ${runtimeId} in project ${projectId} at ${projectRoot}`,
+      );
+    }
+    const lifecycle = requireEnum(result, "lifecycle", [
+      "starting", "ready", "draining", "offline", "failed",
+    ] as const);
+    const listenerState = requireEnum(result, "listenerState", [
+      "starting", "listening", "failed", "stopping", "stopped",
+    ] as const);
+    return {
+      runtimeId,
+      projectId,
+      projectRoot,
+      protocolVersion,
+      lifecycle,
+      listenerState,
+      gameThreadProgressSequence: requireHealthNumber(result, "gameThreadProgressSequence"),
+      gameThreadProgressAgeMs: requireHealthNumber(result, "gameThreadProgressAgeMs"),
+    };
+  }
 
   async invoke(
     tool: string,
@@ -73,7 +137,7 @@ export class RuntimeRpcClient implements RpcInvoker {
     const cancellationToken = randomUUID();
     const result = await this.request(
       "rpc.invoke",
-      { tool, args, cancellationToken },
+      { protocolVersion, tool, args, cancellationToken },
       signal,
       cancellationToken,
     );
@@ -113,6 +177,7 @@ export class RuntimeRpcClient implements RpcInvoker {
     params: Record<string, unknown>,
     signal?: AbortSignal,
     cancellationToken?: string,
+    timeoutMs = this.requestTimeoutMs,
   ): Promise<unknown> {
     throwIfAborted(signal);
     const socket = await this.ensureConnected();
@@ -127,10 +192,10 @@ export class RuntimeRpcClient implements RpcInvoker {
         if (cancellationToken) this.sendCancellation(cancellationToken);
         pending.reject(new RuntimeRpcError(
           "runtime.request_timeout",
-          `Loomle runtime did not answer ${method} within ${this.requestTimeoutMs}ms.`,
+          `Loomle runtime did not answer ${method} within ${timeoutMs}ms.`,
           true,
         ));
-      }, this.requestTimeoutMs);
+      }, timeoutMs);
       timer.unref?.();
       const abortListener = signal ? () => {
         const pending = this.takePending(id);
@@ -182,8 +247,21 @@ export class RuntimeRpcClient implements RpcInvoker {
   }
 
   private async loadCapabilities(): Promise<ReadonlySet<string>> {
-    const result = await this.request("rpc.capabilities", {});
-    if (!isRecord(result) || !Array.isArray(result.tools)
+    const result = await this.request(
+      "rpc.capabilities",
+      {},
+      undefined,
+      undefined,
+      this.healthTimeoutMs,
+    );
+    if (!isRecord(result)) {
+      throw new RuntimeRpcError(
+        "runtime.incompatible",
+        "The selected Loomle runtime returned an invalid capability document.",
+      );
+    }
+    requireCompatibleProtocolVersion(result.protocolVersion);
+    if (!Array.isArray(result.tools)
       || !result.tools.every((tool) => typeof tool === "string")) {
       throw new RuntimeRpcError(
         "runtime.incompatible",
@@ -341,7 +419,7 @@ export class RuntimeRpcClient implements RpcInvoker {
       jsonrpc: "2.0",
       id: cancelRequestId,
       method: "rpc.cancel",
-      params: { cancellationToken },
+      params: { protocolVersion, cancellationToken },
     })}\n`;
 
     socket.write(line, (error?: Error | null) => {
@@ -352,16 +430,76 @@ export class RuntimeRpcClient implements RpcInvoker {
   }
 }
 
+function requireCompatibleProtocolVersion(actual: unknown): void {
+  if (actual === protocolVersion) return;
+  const label = actual === undefined ? "missing" : (JSON.stringify(actual) ?? String(actual));
+  throw new RuntimeRpcError(
+    "runtime.incompatible",
+    `The selected Loomle runtime uses Client–Bridge protocol ${label}; this Client requires ${protocolVersion}. Use the Client bundled with the same LoomleBridge version as the selected Editor.`,
+  );
+}
+
 export async function connectEndpoint(endpoint: string): Promise<Duplex> {
   return new Promise((resolve, reject) => {
     const socket = createConnection({ path: endpoint });
-    const onError = (error: Error) => reject(error);
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      callback();
+    };
+    const onError = (error: Error) => finish(() => reject(error));
+    const timer = setTimeout(() => {
+      finish(() => {
+        socket.destroy();
+        reject(new RuntimeRpcError(
+          "runtime.connect_failed",
+          `Timed out connecting to the Loomle runtime at ${endpoint}.`,
+          true,
+        ));
+      });
+    }, DEFAULT_RUNTIME_CONNECT_TIMEOUT_MS);
+    timer.unref?.();
     socket.once("error", onError);
     socket.once("connect", () => {
-      socket.off("error", onError);
-      resolve(socket);
+      finish(() => {
+        socket.off("error", onError);
+        resolve(socket);
+      });
     });
   });
+}
+
+function requireHealthString(object: Record<string, unknown>, key: string): string {
+  const value = object[key];
+  if (typeof value === "string" && value.length > 0) return value;
+  throw new RuntimeRpcError(
+    "runtime.invalid_health",
+    `The Loomle runtime health document is missing ${key}.`,
+  );
+}
+
+function requireHealthNumber(object: Record<string, unknown>, key: string): number {
+  const value = object[key];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  throw new RuntimeRpcError(
+    "runtime.invalid_health",
+    `The Loomle runtime health document is missing ${key}.`,
+  );
+}
+
+function requireEnum<const T extends readonly string[]>(
+  object: Record<string, unknown>,
+  key: string,
+  values: T,
+): T[number] {
+  const value = object[key];
+  if (typeof value === "string" && values.includes(value)) return value as T[number];
+  throw new RuntimeRpcError(
+    "runtime.invalid_health",
+    `The Loomle runtime health document has an invalid ${key}.`,
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

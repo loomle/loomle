@@ -66,7 +66,7 @@ export function createMemoryExecutor(options: CreateMemoryExecutorOptions): Memo
 
 function executeQuery(object: ObjectText, query: Query): ObjectResult {
   const operation = query.operation;
-  if (operation.kind === "summary" || operation.kind === "tree" || operation.kind === "context" || operation.kind === "exec_flow" || operation.kind === "data_flow") {
+  if (operation.kind === "target" || operation.kind === "summary" || operation.kind === "tree" || operation.kind === "context" || operation.kind === "exec_flow" || operation.kind === "data_flow") {
     return { object: structuredClone(object), diagnostics: [] };
   }
 
@@ -178,13 +178,15 @@ function applyOperation(
     case "set": return setField(object, operation.target, operation.value, touched);
     case "reset": return resetField(object, operation.target, touched);
     case "move": return moveObject(object, operation, touched);
-    case "connect": {
+    case "connect":
+    case "bind": {
       const edge = { from: structuredClone(operation.from), to: structuredClone(operation.to) };
       if (!object.statements.some((statement) => isEdge(statement) && sameEdge(statement, edge))) object.statements.push(edge);
       touched.push(edge);
       return undefined;
     }
-    case "disconnect": {
+    case "disconnect":
+    case "unbind": {
       const index = object.statements.findIndex((statement) => isEdge(statement) && sameEdge(statement, operation));
       if (index < 0) return error("resolution.edge_not_found", "The exact Edge was not found.");
       const [removed] = object.statements.splice(index, 1);
@@ -259,7 +261,7 @@ function setField(object: ObjectText, target: MemberRef, value: Expr, touched: S
   if (index < 0) {
     if (isLocalRef(target.object)) {
       const binding: Binding = {
-        target: { kind: "member", object: structuredClone(target.object), path: [...target.path] as [string, ...string[]] },
+        target: { kind: "member", object: structuredClone(target.object), path: [...target.path] as [string | number, ...(string | number)[]] },
         value: structuredClone(value),
       };
       object.statements.push(binding);
@@ -347,7 +349,7 @@ function error(code: string, message: string): ObjectResult["diagnostics"][numbe
 }
 
 function isCollectionKind(kind: string): boolean {
-  return ["assets", "variables", "dispatchers", "graphs", "components", "nodes", "properties", "functions", "defaults", "widgets"].includes(kind);
+  return ["assets", "variables", "dispatchers", "graphs", "components", "nodes", "properties", "functions", "defaults", "widgets", "states", "parameters"].includes(kind);
 }
 
 function singular(kind: string): string {
@@ -377,7 +379,7 @@ function isPaletteBinding(binding: Binding): boolean {
 function bindingName(binding: Binding): string {
   const nativeName = call(binding)?.args.name;
   if (typeof nativeName === "string") return nativeName;
-  return binding.target.kind === "local" ? binding.target.name : binding.target.path[binding.target.path.length - 1];
+  return binding.target.kind === "local" ? binding.target.name : String(binding.target.path[binding.target.path.length - 1]);
 }
 
 function matchesText(binding: Binding, text: string | undefined): boolean {
@@ -493,22 +495,52 @@ function isMemberRef(ref: Ref): ref is MemberRef {
   return "object" in ref;
 }
 
-function writePath(object: Record<string, Expr>, path: string[], value: Expr): void {
-  let current: Record<string, Expr> = object;
-  for (const key of path.slice(0, -1)) {
-    const next = current[key];
-    if (typeof next !== "object" || next === null || Array.isArray(next) || "kind" in next) current[key] = {};
-    current = current[key] as Record<string, Expr>;
+function writePath(object: Record<string, Expr>, path: Array<string | number>, value: Expr): void {
+  let current: Record<string, Expr> | Expr[] = object;
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const key = path[index];
+    const nextKey = path[index + 1];
+    let next = readContainerValue(current, key);
+    if (!isMutableContainer(next)) {
+      next = typeof nextKey === "number" ? [] : {};
+      writeContainerValue(current, key, next);
+    }
+    current = next;
   }
-  current[path[path.length - 1]] = value;
+  writeContainerValue(current, path[path.length - 1], value);
 }
 
-function deletePath(object: Record<string, Expr>, path: string[]): void {
-  let current: Record<string, Expr> = object;
+function deletePath(object: Record<string, Expr>, path: Array<string | number>): void {
+  let current: Record<string, Expr> | Expr[] = object;
   for (const key of path.slice(0, -1)) {
-    const next = current[key];
-    if (typeof next !== "object" || next === null || Array.isArray(next) || "kind" in next) return;
-    current = next as Record<string, Expr>;
+    const next = readContainerValue(current, key);
+    if (!isMutableContainer(next)) return;
+    current = next;
   }
-  delete current[path[path.length - 1]];
+  const last = path[path.length - 1];
+  if (Array.isArray(current) && typeof last === "number") {
+    delete current[last];
+  } else if (!Array.isArray(current) && typeof last === "string") {
+    delete current[last];
+  }
+}
+
+function readContainerValue(container: Record<string, Expr> | Expr[], key: string | number): Expr | undefined {
+  return Array.isArray(container)
+    ? typeof key === "number" ? container[key] : undefined
+    : typeof key === "string" ? container[key] : undefined;
+}
+
+function writeContainerValue(container: Record<string, Expr> | Expr[], key: string | number, value: Expr): void {
+  if (Array.isArray(container) && typeof key === "number") {
+    container[key] = value;
+  } else if (!Array.isArray(container) && typeof key === "string") {
+    container[key] = value;
+  }
+}
+
+function isMutableContainer(value: Expr | undefined): value is Record<string, Expr> | Expr[] {
+  return typeof value === "object"
+    && value !== null
+    && (Array.isArray(value) || !("kind" in value));
 }

@@ -19,6 +19,7 @@
     "blueprint.md",
     "class.md",
     "graph.md",
+    "state_tree.md",
     "widget.md"
   ],
   "scripts": {

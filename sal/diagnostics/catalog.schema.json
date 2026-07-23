@@ -22,7 +22,7 @@
           "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
         },
         "layer": {
-          "enum": ["language", "capability", "resolution", "validation", "runtime", "tool"]
+          "enum": ["language", "capability", "resolution", "validation", "project", "runtime", "tool"]
         },
         "defaultSeverity": {
           "enum": ["error", "warning", "info"]

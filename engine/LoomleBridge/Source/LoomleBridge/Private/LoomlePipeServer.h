@@ -7,7 +7,18 @@
 #include "HAL/Runnable.h"
 #include "HAL/ThreadSafeCounter.h"
 
+#include <atomic>
+
 class FRunnableThread;
+
+enum class ELoomlePipeListenerState : uint8
+{
+    Starting,
+    Listening,
+    Failed,
+    Stopping,
+    Stopped,
+};
 
 class FLoomlePipeServer : public FRunnable, public TSharedFromThis<FLoomlePipeServer, ESPMode::ThreadSafe>
 {
@@ -21,6 +32,8 @@ public:
     bool Start();
     void StopServer();
     int32 GetActiveConnectionCount() const;
+    ELoomlePipeListenerState GetListenerState() const;
+    FString GetListenerStateName() const;
 
     virtual uint32 Run() override;
     virtual void Stop() override;
@@ -40,6 +53,7 @@ private:
     void HandleWindowsClient(void* NativeHandle, int32 ConnectionSerial);
     void HandleUnixClient(int32 LocalClientFd, int32 ConnectionSerial);
     FString GetSocketPath() const;
+    void SetListenerState(ELoomlePipeListenerState NewState);
 
 private:
     struct FConnectionState
@@ -62,6 +76,7 @@ private:
     FThreadSafeCounter InFlightRequestCount;
     FThreadSafeCounter NextConnectionSerial;
     FThreadSafeCounter ActiveWorkerCount;
+    std::atomic<uint8> ListenerState { static_cast<uint8>(ELoomlePipeListenerState::Stopped) };
     static constexpr int32 MaxInFlightRequests = 128;
 
 #if PLATFORM_WINDOWS

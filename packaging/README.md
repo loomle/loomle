@@ -8,8 +8,8 @@ Current responsibilities:
   standalone program at `.tmp/client/<platform-arch>/loomle(.exe)`;
 - `fab/`: combine the UE Bridge source with exactly one matching standalone
   Client under `Resources/Loomle/<platform-arch>/`;
-- `tools/`: derive and verify the product version from the root
-  `package.json`;
+- `tools/`: derive and verify the product and Client–Bridge protocol versions
+  from the root `package.json`;
 - `release/`: document release promotion and the currently accepted targets.
 
 The canonical local path is:

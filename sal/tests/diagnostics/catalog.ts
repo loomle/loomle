@@ -10,7 +10,7 @@ interface DiagnosticCatalog {
 
 interface DiagnosticDefinition {
   code: string;
-  layer: "language" | "capability" | "resolution" | "validation" | "runtime" | "tool";
+  layer: "language" | "capability" | "resolution" | "validation" | "project" | "runtime" | "tool";
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -70,7 +70,7 @@ async function collectUsedDiagnosticCodes(roots: string[], files: string[]): Pro
 function collectCodesFromSource(source: string, codes: Set<string>): void {
   collectPattern(
     source,
-    /["']((?:language|capability|resolution|validation|runtime|tool)\.[a-z][a-z0-9_]*)["']/g,
+    /["']((?:language|capability|resolution|validation|project|runtime|tool)\.[a-z][a-z0-9_]*)["']/g,
     codes,
   );
 }

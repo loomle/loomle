@@ -11,6 +11,7 @@
 #include "Engine/BlueprintGeneratedClass.h"
 #include "Misc/PackageName.h"
 #include "SalDiagnostics.h"
+#include "StateTree.h"
 #include "UObject/SoftObjectPath.h"
 #include "UObject/UObjectGlobals.h"
 #include "WidgetBlueprint.h"
@@ -194,6 +195,20 @@ bool FSalTargetResolver::ResolveValue(
         OutTarget.Object = Asset;
         OutTarget.Package = Asset->GetOutermost();
         OutTarget.Interfaces = {FName(TEXT("asset"))};
+        if (Asset->IsA<UStateTree>())
+        {
+            FString ExpectedType;
+            if (Args->HasField(TEXT("type"))
+                && (!ReadStringArg(Args, TEXT("type"), ExpectedType)
+                    || ExpectedType != Asset->GetClass()->GetPathName()))
+            {
+                OutError = InvalidTarget(FString::Printf(
+                    TEXT("StateTree target type must exactly match the resolved native Class %s."),
+                    *Asset->GetClass()->GetPathName()));
+                return false;
+            }
+            OutTarget.Interfaces.Add(FName(TEXT("state_tree")));
+        }
         return true;
     }
 

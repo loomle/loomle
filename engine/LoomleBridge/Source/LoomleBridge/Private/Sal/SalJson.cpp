@@ -45,7 +45,13 @@ bool IsLocalIdentifier(const FString& Text)
 
 bool IsStableId(const FString& Text)
 {
-    if (Text.IsEmpty() || Text.Contains(TEXT("."))) return false;
+    if (Text.IsEmpty()
+        || Text.Contains(TEXT("."))
+        || Text.Contains(TEXT("["))
+        || Text.Contains(TEXT("]")))
+    {
+        return false;
+    }
     for (const TCHAR Character : Text)
     {
         if (FChar::IsWhitespace(Character)) return false;
@@ -127,6 +133,37 @@ bool ReadRequiredString(const TSharedPtr<FJsonObject>& Object, const TCHAR* Fiel
 bool ValidateExpr(const TSharedPtr<FJsonValue>& Value, FString& OutMessage);
 bool ValidateRef(const TSharedPtr<FJsonObject>& Object, bool bBindingTarget, FString& OutMessage);
 
+bool ValidateMemberPath(const TSharedPtr<FJsonObject>& Object, const TCHAR* Field, FString& OutMessage)
+{
+    const TArray<TSharedPtr<FJsonValue>>* Path = nullptr;
+    if (!Object->TryGetArrayField(Field, Path) || Path == nullptr || Path->IsEmpty())
+    {
+        OutMessage = FString::Printf(TEXT("%s must be a non-empty member path."), Field);
+        return false;
+    }
+    for (const TSharedPtr<FJsonValue>& SegmentValue : *Path)
+    {
+        FString Segment;
+        double Index = 0.0;
+        const bool bStringSegment = SegmentValue.IsValid()
+            && SegmentValue->TryGetString(Segment)
+            && IsSalJsonIdentifier(Segment);
+        const bool bIndexSegment = SegmentValue.IsValid()
+            && SegmentValue->TryGetNumber(Index)
+            && Index >= 0.0
+            && Index <= static_cast<double>(MAX_int32)
+            && FMath::FloorToDouble(Index) == Index;
+        if (!bStringSegment && !bIndexSegment)
+        {
+            OutMessage = FString::Printf(
+                TEXT("%s contains an invalid member path segment; expected an identifier or non-negative 32-bit integer index."),
+                Field);
+            return false;
+        }
+    }
+    return true;
+}
+
 bool ValidateStringPath(const TSharedPtr<FJsonObject>& Object, const TCHAR* Field, FString& OutMessage)
 {
     const TArray<TSharedPtr<FJsonValue>>* Path = nullptr;
@@ -191,7 +228,7 @@ bool ValidateRef(const TSharedPtr<FJsonObject>& Object, const bool bBindingTarge
             || !ReadRequiredString(Object, TEXT("id"), Id)
             || !IsStableId(Id))
         {
-            OutMessage = TEXT("Stable reference requires a kind and formatter-safe id without whitespace or dots.");
+            OutMessage = TEXT("Stable reference requires a kind and formatter-safe id without whitespace, dots, or brackets.");
             return false;
         }
         return true;
@@ -215,7 +252,7 @@ bool ValidateRef(const TSharedPtr<FJsonObject>& Object, const bool bBindingTarge
             || !Object->TryGetObjectField(TEXT("object"), Owner)
             || Owner == nullptr
             || !(*Owner).IsValid()
-            || !ValidateStringPath(Object, TEXT("path"), OutMessage))
+            || !ValidateMemberPath(Object, TEXT("path"), OutMessage))
         {
             if (OutMessage.IsEmpty())
             {
@@ -347,18 +384,25 @@ bool ValidateBinding(const TSharedPtr<FJsonObject>& Object, FString& OutAlias, F
     }
     const TArray<TSharedPtr<FJsonValue>>* Path = nullptr;
     (*Target)->TryGetArrayField(TEXT("path"), Path);
-    TArray<FString> Segments;
+    FString MemberKey = OwnerName;
     if (Path != nullptr)
     {
         for (const TSharedPtr<FJsonValue>& SegmentValue : *Path)
         {
             FString Segment;
-            SegmentValue->TryGetString(Segment);
-            Segments.Add(Segment);
+            double Index = 0.0;
+            if (SegmentValue->TryGetString(Segment))
+            {
+                MemberKey += TEXT(".") + Segment;
+            }
+            else if (SegmentValue->TryGetNumber(Index))
+            {
+                MemberKey += FString::Printf(TEXT("[%.0f]"), Index);
+            }
         }
     }
     OutAlias = OwnerName;
-    OutTargetKey = OwnerName + TEXT(".") + FString::Join(Segments, TEXT("."));
+    OutTargetKey = MoveTemp(MemberKey);
     return true;
 }
 
@@ -498,13 +542,19 @@ bool ValidateOperation(const TSharedPtr<FJsonObject>& Operation, FString& OutMes
     }
     const TSet<FString> Collections = {
         TEXT("assets"), TEXT("variables"), TEXT("dispatchers"), TEXT("graphs"), TEXT("components"),
-        TEXT("nodes"), TEXT("properties"), TEXT("functions"), TEXT("defaults"), TEXT("widgets")};
+        TEXT("nodes"), TEXT("properties"), TEXT("functions"), TEXT("defaults"), TEXT("widgets"),
+        TEXT("states"), TEXT("parameters")};
     const TSet<FString> Named = {
         TEXT("variable"), TEXT("dispatcher"), TEXT("graph"), TEXT("component"), TEXT("property"),
         TEXT("function"), TEXT("default"), TEXT("widget")};
     const TSet<FString> IdKinds = {
         TEXT("blueprint"), TEXT("variable"), TEXT("dispatcher"), TEXT("graph"), TEXT("component"),
-        TEXT("node"), TEXT("pin"), TEXT("widget"), TEXT("palette")};
+        TEXT("node"), TEXT("pin"), TEXT("widget"), TEXT("palette"), TEXT("state"),
+        TEXT("transition"), TEXT("parameter"), TEXT("object")};
+    if (Kind == TEXT("target"))
+    {
+        return HasOnly(Operation, {TEXT("kind")});
+    }
     if (Kind == TEXT("summary"))
     {
         return HasOnly(Operation, {TEXT("kind")});
@@ -524,12 +574,35 @@ bool ValidateOperation(const TSharedPtr<FJsonObject>& Operation, FString& OutMes
         FString Name;
         return HasOnly(Operation, {TEXT("kind"), TEXT("name")}) && ReadRequiredString(Operation, TEXT("name"), Name);
     }
+    if (Kind == TEXT("palette") && Operation->HasField(TEXT("id")))
+    {
+        FString Id;
+        if (!HasOnly(Operation, {TEXT("kind"), TEXT("id"), TEXT("to")})
+            || !ReadRequiredString(Operation, TEXT("id"), Id)
+            || !IsInlineToken(Id))
+        {
+            OutMessage = TEXT("Exact Palette operation has invalid fields or id.");
+            return false;
+        }
+        if (Operation->HasField(TEXT("to")))
+        {
+            const TSharedPtr<FJsonObject>* Destination = nullptr;
+            if (!Operation->TryGetObjectField(TEXT("to"), Destination)
+                || Destination == nullptr
+                || !ValidateRef(*Destination, false, OutMessage))
+            {
+                if (OutMessage.IsEmpty()) OutMessage = TEXT("Palette destination must be a valid reference.");
+                return false;
+            }
+        }
+        return true;
+    }
     if (IdKinds.Contains(Kind) && Operation->HasField(TEXT("id")))
     {
         FString Id;
         return HasOnly(Operation, {TEXT("kind"), TEXT("id")})
             && ReadRequiredString(Operation, TEXT("id"), Id)
-            && IsInlineToken(Id);
+            && IsStableId(Id);
     }
     if (Named.Contains(Kind) || IdKinds.Contains(Kind))
     {
@@ -591,13 +664,19 @@ bool ValidateOperation(const TSharedPtr<FJsonObject>& Operation, FString& OutMes
     else if (Kind == TEXT("palette_entries"))
     {
         FString Text;
-        if (!HasOnly(Operation, {TEXT("kind"), TEXT("text"), TEXT("pinContext")})
+        if (!HasOnly(Operation, {TEXT("kind"), TEXT("text"), TEXT("pinContext"), TEXT("to")})
             || (Operation->HasField(TEXT("text")) && !ReadRequiredString(Operation, TEXT("text"), Text)))
         {
             OutMessage = TEXT("Palette entries operation has invalid fields.");
             return false;
         }
         const TSharedPtr<FJsonObject>* PinContext = nullptr;
+        const TSharedPtr<FJsonObject>* Destination = nullptr;
+        if (Operation->HasField(TEXT("pinContext")) && Operation->HasField(TEXT("to")))
+        {
+            OutMessage = TEXT("Palette entries accepts either Pin context or destination, not both.");
+            return false;
+        }
         if (Operation->HasField(TEXT("pinContext")))
         {
             FString Direction;
@@ -612,6 +691,14 @@ bool ValidateOperation(const TSharedPtr<FJsonObject>& Operation, FString& OutMes
                 OutMessage = TEXT("Palette pin context is invalid.");
                 return false;
             }
+        }
+        if (Operation->HasField(TEXT("to"))
+            && (!Operation->TryGetObjectField(TEXT("to"), Destination)
+                || Destination == nullptr
+                || !ValidateRef(*Destination, false, OutMessage)))
+        {
+            if (OutMessage.IsEmpty()) OutMessage = TEXT("Palette destination must be a valid reference.");
+            return false;
         }
         return true;
     }
@@ -832,6 +919,11 @@ bool ValidatePatchOperation(const TSharedPtr<FJsonObject>& Object, FString& OutM
             && ValidateExpr(Object->TryGetField(TEXT("value")), OutMessage);
     }
     if (Kind == TEXT("connect") || Kind == TEXT("disconnect"))
+    {
+        return HasOnly(Object, {TEXT("kind"), TEXT("from"), TEXT("to")})
+            && RefField(TEXT("from")) && RefField(TEXT("to"));
+    }
+    if (Kind == TEXT("bind") || Kind == TEXT("unbind"))
     {
         return HasOnly(Object, {TEXT("kind"), TEXT("from"), TEXT("to")})
             && RefField(TEXT("from")) && RefField(TEXT("to"));
@@ -1105,7 +1197,10 @@ bool PatchOperationUsesDeclaredAliases(const TSharedPtr<FJsonObject>& Operation,
     {
         return SafeRef(TEXT("target")) && ExprUsesDeclaredAliases(Operation->TryGetField(TEXT("value")), Aliases);
     }
-    if (Kind == TEXT("connect") || Kind == TEXT("disconnect")) return SafeRef(TEXT("from")) && SafeRef(TEXT("to"));
+    if (Kind == TEXT("connect") || Kind == TEXT("disconnect") || Kind == TEXT("bind") || Kind == TEXT("unbind"))
+    {
+        return SafeRef(TEXT("from")) && SafeRef(TEXT("to"));
+    }
     if (Kind == TEXT("insert"))
     {
         return SafeRef(TEXT("from")) && SafeRef(TEXT("input")) && SafeRef(TEXT("output")) && SafeRef(TEXT("to"));
@@ -1373,6 +1468,21 @@ bool FSalJson::DecodeQuery(
     {
         OutError = Invalid(TEXT("Query target contains an unresolved local reference."), {TEXT("object"), TEXT("target")});
         return false;
+    }
+    FString OperationKind;
+    OutQuery.Operation->TryGetStringField(TEXT("kind"), OperationKind);
+    if (OperationKind == TEXT("palette_entries") || OperationKind == TEXT("palette"))
+    {
+        const TSharedPtr<FJsonObject>* Destination = nullptr;
+        if (OutQuery.Operation->TryGetObjectField(TEXT("to"), Destination)
+            && Destination != nullptr
+            && !RefUsesDeclaredAlias(*Destination, {OutQuery.Alias}))
+        {
+            OutError = Invalid(
+                TEXT("Palette destination references an undeclared local alias."),
+                {TEXT("object"), TEXT("operation"), TEXT("to")});
+            return false;
+        }
     }
     const TSharedPtr<FJsonObject>* Where = nullptr;
     if (Object->HasField(TEXT("where")))

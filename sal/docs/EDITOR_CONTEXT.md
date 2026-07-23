@@ -210,6 +210,12 @@ hard-coded window switch. A Provider must:
 3. project supported objects into ordinary SAL Object Text or return a
    faithful unsupported description.
 
+“Supported” means that the Provider matched the selection to one canonical
+kind in an existing domain contract. It may return literal `object(...)` only
+when that domain declares the selected native shape, owner scope, identity,
+and resolver. Reflection or native selection identity alone never creates a
+new generic object interface.
+
 Initial priority is:
 
 1. Modal Dialog
@@ -702,11 +708,13 @@ object has no SAL interface, Context:
 2. preserves native identity and type in an adjacent block comment;
 3. states `interface: unavailable`.
 
-It does not omit the selection, map it to a neighboring domain, or introduce a
-universal `object(...)` constructor. UE selections may be UObjects,
+It does not omit the selection, map it to a neighboring domain, or
+automatically wrap it in `object(...)`. A Provider may return `object(...)`
+only when the resolved domain already declares that exact native shape, owner
+scope, identity, and interface. UE selections may otherwise be UObjects,
 Properties, Graph Pins, Folders, typed elements, relationships, or private
-editor models; one invented constructor would promise semantics they do not
-share.
+editor models; the existence of the generic object shape does not promise
+semantics they do not share.
 
 ## Diagnostics
 

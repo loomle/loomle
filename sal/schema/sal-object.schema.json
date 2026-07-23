@@ -32,7 +32,7 @@
       "required": ["kind", "id"],
       "properties": {
         "kind": { "type": "string", "pattern": "^(?!(?:true|false|null)$)[A-Za-z_][A-Za-z0-9_]*$" },
-        "id": { "type": "string", "minLength": 1, "pattern": "^[^\\s.]+$" }
+        "id": { "type": "string", "minLength": 1, "pattern": "^[^\\s.\\[\\]]+$" }
       }
     },
     "MemberRef": {
@@ -50,7 +50,12 @@
         "path": {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
+          "items": {
+            "oneOf": [
+              { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+              { "type": "integer", "minimum": 0, "maximum": 2147483647 }
+            ]
+          }
         }
       }
     },
@@ -64,7 +69,12 @@
         "path": {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
+          "items": {
+            "oneOf": [
+              { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+              { "type": "integer", "minimum": 0, "maximum": 2147483647 }
+            ]
+          }
         }
       }
     },
@@ -130,7 +140,12 @@
         "path": {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
+          "items": {
+            "oneOf": [
+              { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+              { "type": "integer", "minimum": 0, "maximum": 2147483647 }
+            ]
+          }
         }
       }
     },
@@ -331,6 +346,12 @@
       "required": ["kind"],
       "properties": { "kind": { "const": "summary" } }
     },
+    "TargetOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": { "kind": { "const": "target" } }
+    },
     "CollectionOperation": {
       "type": "object",
       "additionalProperties": false,
@@ -347,7 +368,9 @@
             "properties",
             "functions",
             "defaults",
-            "widgets"
+            "widgets",
+            "states",
+            "parameters"
           ]
         },
         "text": { "type": "string", "minLength": 1 }
@@ -388,9 +411,21 @@
             "node",
             "pin",
             "widget",
-            "palette"
+            "state",
+            "transition",
+            "parameter",
+            "object"
           ]
         },
+        "id": { "type": "string", "minLength": 1, "pattern": "^[^\\s.\\[\\]]+$" }
+      }
+    },
+    "PaletteIdOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "palette" },
         "id": { "type": "string", "minLength": 1, "pattern": "^\\S+$" }
       }
     },
@@ -459,17 +494,41 @@
         "pinContext": { "$ref": "#/$defs/PalettePinContext" }
       }
     },
+    "StateTreePaletteEntriesOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "to"],
+      "properties": {
+        "kind": { "const": "palette_entries" },
+        "text": { "type": "string", "minLength": 1 },
+        "to": { "$ref": "#/$defs/Ref" }
+      }
+    },
+    "StateTreePaletteIdOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "to"],
+      "properties": {
+        "kind": { "const": "palette" },
+        "id": { "type": "string", "minLength": 1, "pattern": "^\\S+$" },
+        "to": { "$ref": "#/$defs/Ref" }
+      }
+    },
     "QueryOperation": {
       "oneOf": [
+        { "$ref": "#/$defs/TargetOperation" },
         { "$ref": "#/$defs/SummaryOperation" },
         { "$ref": "#/$defs/CollectionOperation" },
         { "$ref": "#/$defs/NamedOperation" },
         { "$ref": "#/$defs/IdOperation" },
+        { "$ref": "#/$defs/PaletteIdOperation" },
         { "$ref": "#/$defs/TreeOperation" },
         { "$ref": "#/$defs/ContextOperation" },
         { "$ref": "#/$defs/FlowOperation" },
         { "$ref": "#/$defs/ReferencesOperation" },
-        { "$ref": "#/$defs/PaletteEntriesOperation" }
+        { "$ref": "#/$defs/PaletteEntriesOperation" },
+        { "$ref": "#/$defs/StateTreePaletteEntriesOperation" },
+        { "$ref": "#/$defs/StateTreePaletteIdOperation" }
       ]
     },
     "Query": {
@@ -582,6 +641,26 @@
         "to": { "$ref": "#/$defs/Ref" }
       }
     },
+    "Bind": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "from", "to"],
+      "properties": {
+        "kind": { "const": "bind" },
+        "from": { "$ref": "#/$defs/Ref" },
+        "to": { "$ref": "#/$defs/Ref" }
+      }
+    },
+    "Unbind": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "from", "to"],
+      "properties": {
+        "kind": { "const": "unbind" },
+        "from": { "$ref": "#/$defs/Ref" },
+        "to": { "$ref": "#/$defs/Ref" }
+      }
+    },
     "Break": {
       "type": "object",
       "additionalProperties": false,
@@ -676,6 +755,8 @@
         { "$ref": "#/$defs/Move" },
         { "$ref": "#/$defs/Connect" },
         { "$ref": "#/$defs/Disconnect" },
+        { "$ref": "#/$defs/Bind" },
+        { "$ref": "#/$defs/Unbind" },
         { "$ref": "#/$defs/Break" },
         { "$ref": "#/$defs/Insert" },
         { "$ref": "#/$defs/Wrap" },

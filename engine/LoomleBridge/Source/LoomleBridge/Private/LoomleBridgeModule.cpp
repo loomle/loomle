@@ -6,10 +6,12 @@
 #include "Dom/JsonObject.h"
 #include "Editor.h"
 #include "EditorContext/EditorContextService.h"
+#include "Generated/LoomleProtocolVersion.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformProcess.h"
+#include "HAL/PlatformTime.h"
 #include "Interfaces/IPluginManager.h"
 #include "LoomlePipeServer.h"
 #include "LoomleRequestCancellation.h"
@@ -18,6 +20,7 @@
 #include "Misc/CoreDelegates.h"
 #include "Misc/DateTime.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Guid.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopeLock.h"
 #include "Sal/Reference/SalReferenceInterface.h"
@@ -39,10 +42,12 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogLoomleBridge, Log, All);
 
+FLoomleBridgeModule::FLoomleBridgeModule() = default;
+FLoomleBridgeModule::~FLoomleBridgeModule() = default;
+
 namespace
 {
 constexpr const TCHAR* PipeNamePrefix = TEXT("loomle");
-constexpr int32 ProtocolVersion = 1;
 const FName SlateStyleSetName(TEXT("LoomleBridgeStyle"));
 const FName StatusBarIconBrushName(TEXT("LoomleBridge.StatusBarIcon"));
 
@@ -325,22 +330,10 @@ uint64 StableFnv1a64(const FString& Input)
     return Hash;
 }
 
-#if PLATFORM_WINDOWS
-FString GetRpcPipeName()
+FString GetRpcPipeName(const FString& RuntimeId)
 {
-    FString ProjectRoot = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
-    FPaths::NormalizeFilename(ProjectRoot);
-    while (ProjectRoot.EndsWith(TEXT("/")))
-    {
-        ProjectRoot.LeftChopInline(1, EAllowShrinking::No);
-    }
-    ProjectRoot = ProjectRoot.IsEmpty() ? TEXT("/") : ProjectRoot.ToLower();
-    return FString::Printf(
-        TEXT("%s-%016llx"),
-        PipeNamePrefix,
-        static_cast<unsigned long long>(StableFnv1a64(ProjectRoot)));
+    return FString::Printf(TEXT("%s-%s"), PipeNamePrefix, *RuntimeId);
 }
-#endif
 }
 
 bool FLoomleBridgeModule::TickHealthSnapshot(float DeltaTime)
@@ -352,8 +345,185 @@ bool FLoomleBridgeModule::TickHealthSnapshot(float DeltaTime)
 
 void FLoomleBridgeModule::UpdateHealthSnapshot()
 {
-    bBridgeRunningSnapshot.Store(PipeServer.IsValid());
+    check(IsInGameThread());
+    GameThreadProgressSequence.fetch_add(1);
+    LastGameThreadProgressCycles.store(FPlatformTime::Cycles64());
+
+    ELoomleBridgeLifecycle Lifecycle = static_cast<ELoomleBridgeLifecycle>(BridgeLifecycleState.load());
+    const ELoomlePipeListenerState ListenerState = PipeServer.IsValid()
+        ? PipeServer->GetListenerState()
+        : ELoomlePipeListenerState::Stopped;
+    const ELoomleBridgeLifecycle ResolvedLifecycle = ResolveBridgeLifecycle(
+        Lifecycle,
+        ListenerState);
+    if (ResolvedLifecycle != Lifecycle)
+    {
+        const ELoomleBridgeLifecycle PreviousLifecycle = Lifecycle;
+        Lifecycle = ResolvedLifecycle;
+        BridgeLifecycleState.store(static_cast<uint8>(Lifecycle));
+        if (Lifecycle == ELoomleBridgeLifecycle::Ready)
+        {
+            // LoomleBridge loads in PostEngineInit, after
+            // OnFEngineLoopInitComplete has been broadcast. Reaching this
+            // Game Thread ticker is the remaining readiness boundary.
+            UE_LOG(LogLoomleBridge, Display, TEXT("Loomle runtime %s is ready on %s"), *RuntimeId, *RuntimeEndpoint);
+        }
+        else if (PreviousLifecycle == ELoomleBridgeLifecycle::Ready
+            && Lifecycle == ELoomleBridgeLifecycle::Failed)
+        {
+            RemoveRuntimeRegistration();
+            UE_LOG(LogLoomleBridge, Error, TEXT("Loomle runtime %s stopped listening and was unpublished"), *RuntimeId);
+        }
+    }
+
+    if (Lifecycle == ELoomleBridgeLifecycle::Ready && RuntimeRegistrationPath.IsEmpty())
+    {
+        WriteRuntimeRegistration();
+    }
+    bBridgeRunningSnapshot.Store(
+        Lifecycle == ELoomleBridgeLifecycle::Ready
+        && ListenerState == ELoomlePipeListenerState::Listening);
     bIsPIESnapshot.Store(GEditor != nullptr && GEditor->IsPlayingSessionInEditor());
+}
+
+FString FLoomleBridgeModule::GetBridgeLifecycleName() const
+{
+    switch (static_cast<ELoomleBridgeLifecycle>(BridgeLifecycleState.load()))
+    {
+    case ELoomleBridgeLifecycle::Starting:
+        return TEXT("starting");
+    case ELoomleBridgeLifecycle::Ready:
+        return TEXT("ready");
+    case ELoomleBridgeLifecycle::Draining:
+        return TEXT("draining");
+    case ELoomleBridgeLifecycle::Failed:
+        return TEXT("failed");
+    case ELoomleBridgeLifecycle::Offline:
+    default:
+        return TEXT("offline");
+    }
+}
+
+ELoomleBridgeLifecycle FLoomleBridgeModule::ResolveBridgeLifecycle(
+    const ELoomleBridgeLifecycle CurrentLifecycle,
+    const ELoomlePipeListenerState ListenerState)
+{
+    if (CurrentLifecycle == ELoomleBridgeLifecycle::Starting)
+    {
+        if (ListenerState == ELoomlePipeListenerState::Listening)
+        {
+            return ELoomleBridgeLifecycle::Ready;
+        }
+        if (ListenerState == ELoomlePipeListenerState::Failed
+            || ListenerState == ELoomlePipeListenerState::Stopped)
+        {
+            return ELoomleBridgeLifecycle::Failed;
+        }
+    }
+    else if (CurrentLifecycle == ELoomleBridgeLifecycle::Ready
+        && ListenerState != ELoomlePipeListenerState::Listening)
+    {
+        return ELoomleBridgeLifecycle::Failed;
+    }
+    return CurrentLifecycle;
+}
+
+FString FLoomleBridgeModule::MakeProjectIdForNormalizedRoot(
+    FString NormalizedProjectRoot,
+    const bool bFoldCase)
+{
+    if (bFoldCase)
+    {
+        NormalizedProjectRoot.ToLowerInline();
+    }
+    return FString::Printf(
+        TEXT("%016llx"),
+        static_cast<unsigned long long>(StableFnv1a64(NormalizedProjectRoot)));
+}
+
+FString FLoomleBridgeModule::NormalizeProjectRoot(FString RawProjectRoot)
+{
+    RawProjectRoot = FPaths::ConvertRelativePathToFull(RawProjectRoot);
+    FPaths::NormalizeFilename(RawProjectRoot);
+    while (RawProjectRoot.EndsWith(TEXT("/")))
+    {
+        RawProjectRoot.LeftChopInline(1, EAllowShrinking::No);
+    }
+    return RawProjectRoot.IsEmpty() ? TEXT("/") : RawProjectRoot;
+}
+
+bool FLoomleBridgeModule::RemoveLegacyProjectRegistration(
+    const FString& ProjectsDirectory,
+    const FString& CanonicalProjectRoot,
+    const FString& CanonicalProjectId,
+    const bool bFoldCase)
+{
+    // Before 0.7, every platform folded path case before hashing. On POSIX,
+    // remove only that known legacy record and only when its embedded root is
+    // exactly this project. A record for a genuinely distinct /game project
+    // must survive while /Game is being registered.
+    const FString LegacyProjectId = MakeProjectIdForNormalizedRoot(CanonicalProjectRoot, true);
+    if (LegacyProjectId == CanonicalProjectId)
+    {
+        return false;
+    }
+
+    const FString LegacyPath = FPaths::Combine(ProjectsDirectory, LegacyProjectId + TEXT(".json"));
+    FString RawRecord;
+    if (!FFileHelper::LoadFileToString(RawRecord, *LegacyPath))
+    {
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> Record;
+    const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RawRecord);
+    FString StoredProjectId;
+    FString StoredProjectRoot;
+    if (!FJsonSerializer::Deserialize(Reader, Record)
+        || !Record.IsValid()
+        || !Record->TryGetStringField(TEXT("projectId"), StoredProjectId)
+        || !Record->TryGetStringField(TEXT("projectRoot"), StoredProjectRoot)
+        || StoredProjectId != LegacyProjectId
+        || FPaths::IsRelative(StoredProjectRoot))
+    {
+        return false;
+    }
+
+    const ESearchCase::Type SearchCase = bFoldCase
+        ? ESearchCase::IgnoreCase
+        : ESearchCase::CaseSensitive;
+    if (!NormalizeProjectRoot(StoredProjectRoot).Equals(CanonicalProjectRoot, SearchCase))
+    {
+        return false;
+    }
+    return IFileManager::Get().Delete(*LegacyPath, false, true);
+}
+
+void FLoomleBridgeModule::InitializeRuntimeIdentity()
+{
+    ProjectRoot = NormalizeProjectRoot(FPaths::ProjectDir());
+    ProjectId = MakeProjectIdForNormalizedRoot(
+        ProjectRoot,
+#if PLATFORM_WINDOWS
+        true
+#else
+        false
+#endif
+    );
+    RuntimeId = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
+    RuntimeStartedAt = FDateTime::UtcNow().ToIso8601();
+#if PLATFORM_WINDOWS
+    RuntimeEndpoint = FString::Printf(TEXT("\\\\.\\pipe\\%s"), *GetRpcPipeName(RuntimeId));
+#else
+    const FString EndpointDirectory = FPaths::Combine(
+        GetLoomleHomeDirectory(),
+        TEXT(".loomle"),
+        TEXT("state"),
+        TEXT("endpoints"));
+    IFileManager::Get().MakeDirectory(*EndpointDirectory, true);
+    RuntimeEndpoint = FPaths::ConvertRelativePathToFull(
+        FPaths::Combine(EndpointDirectory, RuntimeId + TEXT(".sock")));
+#endif
 }
 
 void FLoomleBridgeModule::RegisterStatusBarWidget()
@@ -488,7 +658,7 @@ TSharedRef<SWidget> FLoomleBridgeModule::CreateSetupStatusPanel()
     FString Activity = TEXT("none since editor start");
     GetClientActivitySummary(Activity);
     const FString PluginBaseDir = GetPluginBaseDir();
-    const FString ProjectRoot = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
+    const FString CurrentProjectRoot = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
     const FString AdvancedText = FString::Printf(
         TEXT("Bridge: %s\nProject: %s\nEndpoint: %s\nConnections: %d\nLast activity: %s\n\nPlugin: %s\nVersion: %s\nScope: %s\nManaged by: %s\n\nClient payload: %s\nClient target: %s\nClient path: %s"),
         *GetToolbarStatusKey().ToLower(),
@@ -498,8 +668,8 @@ TSharedRef<SWidget> FLoomleBridgeModule::CreateSetupStatusPanel()
         *Activity,
         *PluginBaseDir,
         *GetPluginVersion(),
-        *GetPluginInstallScope(ProjectRoot, PluginBaseDir),
-        *GetPluginManagedBy(ProjectRoot, PluginBaseDir),
+        *GetPluginInstallScope(CurrentProjectRoot, PluginBaseDir),
+        *GetPluginManagedBy(CurrentProjectRoot, PluginBaseDir),
         bBundledClientAvailable ? TEXT("available") : TEXT("missing"),
         *LoomleSetup::GetCurrentClientTarget(),
         *GetBundledClientPath());
@@ -600,11 +770,7 @@ FString FLoomleBridgeModule::GetToolbarStatusKey() const
 
 FString FLoomleBridgeModule::GetRuntimeEndpointDisplayString() const
 {
-#if PLATFORM_WINDOWS
-    return FString::Printf(TEXT("\\\\.\\pipe\\%s"), *GetRpcPipeName());
-#else
-    return FPaths::Combine(FPaths::ProjectIntermediateDir(), TEXT("loomle.sock"));
-#endif
+    return RuntimeEndpoint;
 }
 
 FText FLoomleBridgeModule::GetSetupPanelNextActionText() const
@@ -689,12 +855,12 @@ FReply FLoomleBridgeModule::CopySetupPrompt()
     return FReply::Handled();
 }
 
-void FLoomleBridgeModule::WriteProjectRegistration(const FString& ProjectRoot, const FString& ProjectId)
+void FLoomleBridgeModule::WriteProjectRegistration(const FString& InProjectRoot, const FString& InProjectId)
 {
     const FString Directory = FPaths::Combine(GetLoomleHomeDirectory(), TEXT(".loomle"), TEXT("state"), TEXT("projects"));
     IFileManager::Get().MakeDirectory(*Directory, true);
-    const FString Path = FPaths::Combine(Directory, ProjectId + TEXT(".json"));
-    const FString TempPath = Path + TEXT(".tmp");
+    const FString Path = FPaths::Combine(Directory, InProjectId + TEXT(".json"));
+    const FString TempPath = Path + TEXT(".tmp.") + RuntimeId;
 
     FString RegisteredAt = FDateTime::UtcNow().ToIso8601();
     FString Existing;
@@ -711,13 +877,13 @@ void FLoomleBridgeModule::WriteProjectRegistration(const FString& ProjectRoot, c
     const FString PluginBaseDir = GetPluginBaseDir();
     TSharedPtr<FJsonObject> Record = MakeShared<FJsonObject>();
     Record->SetNumberField(TEXT("schemaVersion"), 1);
-    Record->SetStringField(TEXT("projectId"), ProjectId);
+    Record->SetStringField(TEXT("projectId"), InProjectId);
     Record->SetStringField(TEXT("name"), FApp::GetProjectName());
-    Record->SetStringField(TEXT("projectRoot"), ProjectRoot);
+    Record->SetStringField(TEXT("projectRoot"), InProjectRoot);
     Record->SetStringField(TEXT("uproject"), FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath()));
     Record->SetStringField(TEXT("pluginPath"), PluginBaseDir);
-    Record->SetStringField(TEXT("pluginInstallScope"), GetPluginInstallScope(ProjectRoot, PluginBaseDir));
-    Record->SetStringField(TEXT("pluginManagedBy"), GetPluginManagedBy(ProjectRoot, PluginBaseDir));
+    Record->SetStringField(TEXT("pluginInstallScope"), GetPluginInstallScope(InProjectRoot, PluginBaseDir));
+    Record->SetStringField(TEXT("pluginManagedBy"), GetPluginManagedBy(InProjectRoot, PluginBaseDir));
     Record->SetStringField(TEXT("pluginVersion"), GetPluginVersion());
     Record->SetStringField(TEXT("platform"), GetPlatformName());
     Record->SetStringField(TEXT("registeredAt"), RegisteredAt);
@@ -732,60 +898,71 @@ void FLoomleBridgeModule::WriteProjectRegistration(const FString& ProjectRoot, c
     {
         UE_LOG(LogLoomleBridge, Warning, TEXT("Failed to publish Loomle project registration %s"), *Path);
         IFileManager::Get().Delete(*TempPath, false, true);
+        return;
+    }
+
+    if (RemoveLegacyProjectRegistration(
+        Directory,
+        InProjectRoot,
+        InProjectId,
+#if PLATFORM_WINDOWS
+        true
+#else
+        false
+#endif
+    ))
+    {
+        UE_LOG(LogLoomleBridge, Display, TEXT("Removed the legacy Loomle project registration for %s"), *InProjectRoot);
     }
 }
 
 void FLoomleBridgeModule::WriteRuntimeRegistration()
 {
-    FString ProjectRoot = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
-    FPaths::NormalizeFilename(ProjectRoot);
-    while (ProjectRoot.EndsWith(TEXT("/")))
+    if (RuntimeId.IsEmpty()
+        || ProjectId.IsEmpty()
+        || RuntimeEndpoint.IsEmpty()
+        || static_cast<ELoomleBridgeLifecycle>(BridgeLifecycleState.load()) != ELoomleBridgeLifecycle::Ready
+        || !PipeServer.IsValid()
+        || PipeServer->GetListenerState() != ELoomlePipeListenerState::Listening)
     {
-        ProjectRoot.LeftChopInline(1, EAllowShrinking::No);
+        return;
     }
-    ProjectRoot = ProjectRoot.IsEmpty() ? TEXT("/") : ProjectRoot;
-    const FString ProjectId = FString::Printf(
-        TEXT("%016llx"),
-        static_cast<unsigned long long>(StableFnv1a64(ProjectRoot.ToLower())));
+
     const FString Directory = FPaths::Combine(GetLoomleHomeDirectory(), TEXT(".loomle"), TEXT("state"), TEXT("runtimes"));
     IFileManager::Get().MakeDirectory(*Directory, true);
-    RuntimeRegistrationPath = FPaths::Combine(Directory, ProjectId + TEXT(".json"));
-    const FString TempPath = RuntimeRegistrationPath + TEXT(".tmp");
-
-    FString Endpoint = GetRuntimeEndpointDisplayString();
-#if !PLATFORM_WINDOWS
-    Endpoint = FPaths::ConvertRelativePathToFull(Endpoint);
-#endif
+    const FString RegistrationPath = FPaths::Combine(Directory, RuntimeId + TEXT(".json"));
+    const FString TempPath = RegistrationPath + TEXT(".tmp");
     const FString PluginBaseDir = GetPluginBaseDir();
     const FString Now = FDateTime::UtcNow().ToIso8601();
     TSharedPtr<FJsonObject> Record = MakeShared<FJsonObject>();
-    Record->SetNumberField(TEXT("schemaVersion"), 1);
-    Record->SetStringField(TEXT("runtimeId"), ProjectId);
+    Record->SetNumberField(TEXT("schemaVersion"), 2);
+    Record->SetStringField(TEXT("runtimeId"), RuntimeId);
     Record->SetStringField(TEXT("projectId"), ProjectId);
     Record->SetStringField(TEXT("name"), FApp::GetProjectName());
     Record->SetStringField(TEXT("projectRoot"), ProjectRoot);
     Record->SetStringField(TEXT("uproject"), FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath()));
-    Record->SetStringField(TEXT("endpoint"), Endpoint);
+    Record->SetStringField(TEXT("endpoint"), RuntimeEndpoint);
     Record->SetStringField(TEXT("platform"), GetPlatformName());
     Record->SetNumberField(TEXT("pid"), static_cast<double>(FPlatformProcess::GetCurrentProcessId()));
     Record->SetStringField(TEXT("pluginPath"), PluginBaseDir);
     Record->SetStringField(TEXT("pluginInstallScope"), GetPluginInstallScope(ProjectRoot, PluginBaseDir));
     Record->SetStringField(TEXT("pluginManagedBy"), GetPluginManagedBy(ProjectRoot, PluginBaseDir));
     Record->SetStringField(TEXT("pluginVersion"), GetPluginVersion());
-    Record->SetNumberField(TEXT("protocolVersion"), ProtocolVersion);
-    Record->SetStringField(TEXT("startedAt"), Now);
+    Record->SetNumberField(TEXT("protocolVersion"), Loomle::Protocol::Version);
+    Record->SetStringField(TEXT("startedAt"), RuntimeStartedAt);
     Record->SetStringField(TEXT("lastSeenAt"), Now);
 
     FString Output;
     const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Output);
     FJsonSerializer::Serialize(Record.ToSharedRef(), Writer);
     if (!FFileHelper::SaveStringToFile(Output + TEXT("\n"), *TempPath)
-        || !IFileManager::Get().Move(*RuntimeRegistrationPath, *TempPath, true, true))
+        || !IFileManager::Get().Move(*RegistrationPath, *TempPath, true, true))
     {
-        UE_LOG(LogLoomleBridge, Warning, TEXT("Failed to publish Loomle runtime registration %s"), *RuntimeRegistrationPath);
+        UE_LOG(LogLoomleBridge, Warning, TEXT("Failed to publish Loomle runtime registration %s"), *RegistrationPath);
         IFileManager::Get().Delete(*TempPath, false, true);
         return;
     }
+    RuntimeRegistrationPath = RegistrationPath;
     WriteProjectRegistration(ProjectRoot, ProjectId);
 }
 
@@ -824,31 +1001,75 @@ void FLoomleBridgeModule::StopBridgeRuntime(bool bWaitForWorkers)
     }
     bBridgeRunningSnapshot.Store(false);
     bIsPIESnapshot.Store(false);
+    if (bWaitForWorkers)
+    {
+        BridgeLifecycleState.store(static_cast<uint8>(ELoomleBridgeLifecycle::Offline));
+    }
 }
 
-void FLoomleBridgeModule::HandlePreExit()
+void FLoomleBridgeModule::BeginBridgeShutdown()
 {
-    bIsShuttingDown.Store(true);
+    if (bIsShuttingDown.Exchange(true))
+    {
+        return;
+    }
+
+    BridgeLifecycleState.store(static_cast<uint8>(ELoomleBridgeLifecycle::Draining));
+    bBridgeRunningSnapshot.Store(false);
     Loomle::Sal::FSalReferenceInterface::Shutdown();
     Loomle::EditorContext::FEditorContextService::Get().Shutdown();
     StopBridgeRuntime(false);
 }
 
+void FLoomleBridgeModule::HandleShutdownPostPackagesSaved()
+{
+    BeginBridgeShutdown();
+}
+
+void FLoomleBridgeModule::HandleEditorPreExit()
+{
+    BeginBridgeShutdown();
+}
+
+void FLoomleBridgeModule::HandleEnginePreExit()
+{
+    BeginBridgeShutdown();
+}
+
+void FLoomleBridgeModule::HandlePreExit()
+{
+    BeginBridgeShutdown();
+}
+
 void FLoomleBridgeModule::StartupModule()
 {
     bIsShuttingDown.Store(false);
+    BridgeLifecycleState.store(static_cast<uint8>(ELoomleBridgeLifecycle::Starting));
+    GameThreadProgressSequence.store(0);
+    LastGameThreadProgressCycles.store(0);
+    RuntimeRegistrationPath.Reset();
+    InitializeRuntimeIdentity();
     RegisterLoomleSlateStyle();
     RequestCancellationRegistry = MakeUnique<Loomle::Runtime::FRequestCancellationRegistry>();
+    ShutdownPostPackagesSavedHandle = FEditorDelegates::OnShutdownPostPackagesSaved.AddRaw(
+        this,
+        &FLoomleBridgeModule::HandleShutdownPostPackagesSaved);
+    EditorPreExitHandle = FEditorDelegates::OnEditorPreExit.AddRaw(
+        this,
+        &FLoomleBridgeModule::HandleEditorPreExit);
+    EnginePreExitHandle = FCoreDelegates::OnEnginePreExit.AddRaw(
+        this,
+        &FLoomleBridgeModule::HandleEnginePreExit);
     PreExitHandle = FCoreDelegates::OnPreExit.AddRaw(this, &FLoomleBridgeModule::HandlePreExit);
 
 #if PLATFORM_WINDOWS
-    const FString PipeName = GetRpcPipeName();
+    const FString PipeName = GetRpcPipeName(RuntimeId);
 #endif
     PipeServer = MakeShared<FLoomlePipeServer, ESPMode::ThreadSafe>(
 #if PLATFORM_WINDOWS
         PipeName,
 #else
-        PipeNamePrefix,
+        RuntimeEndpoint,
 #endif
         [this](int32 ConnectionSerial, const FString& RequestLine)
         {
@@ -862,7 +1083,14 @@ void FLoomleBridgeModule::StartupModule()
     if (!PipeServer->Start())
     {
         UE_LOG(LogLoomleBridge, Error, TEXT("Failed to start Loomle pipe server."));
+        BridgeLifecycleState.store(static_cast<uint8>(ELoomleBridgeLifecycle::Failed));
         PipeServer.Reset();
+        FEditorDelegates::OnShutdownPostPackagesSaved.Remove(ShutdownPostPackagesSavedHandle);
+        ShutdownPostPackagesSavedHandle.Reset();
+        FEditorDelegates::OnEditorPreExit.Remove(EditorPreExitHandle);
+        EditorPreExitHandle.Reset();
+        FCoreDelegates::OnEnginePreExit.Remove(EnginePreExitHandle);
+        EnginePreExitHandle.Reset();
         FCoreDelegates::OnPreExit.Remove(PreExitHandle);
         PreExitHandle.Reset();
         RequestCancellationRegistry.Reset();
@@ -879,26 +1107,38 @@ void FLoomleBridgeModule::StartupModule()
     StatusBarStartupHandle = UToolMenus::RegisterStartupCallback(
         FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FLoomleBridgeModule::RegisterStatusBarMenus));
     RegisterStatusBarWidget();
-    WriteRuntimeRegistration();
 
 #if PLATFORM_WINDOWS
-    UE_LOG(LogLoomleBridge, Display, TEXT("Loomle bridge started on named pipe \\\\.\\pipe\\%s"), *PipeName);
+    UE_LOG(LogLoomleBridge, Display, TEXT("Loomle bridge starting on named pipe \\\\.\\pipe\\%s"), *PipeName);
 #else
-    UE_LOG(LogLoomleBridge, Display, TEXT("Loomle bridge started on unix socket %s"), *GetRuntimeEndpointDisplayString());
+    UE_LOG(LogLoomleBridge, Display, TEXT("Loomle bridge starting on unix socket %s"), *GetRuntimeEndpointDisplayString());
 #endif
 }
 
 void FLoomleBridgeModule::ShutdownModule()
 {
-    bIsShuttingDown.Store(true);
-    Loomle::Sal::FSalReferenceInterface::Shutdown();
+    BeginBridgeShutdown();
+    if (ShutdownPostPackagesSavedHandle.IsValid())
+    {
+        FEditorDelegates::OnShutdownPostPackagesSaved.Remove(ShutdownPostPackagesSavedHandle);
+        ShutdownPostPackagesSavedHandle.Reset();
+    }
+    if (EditorPreExitHandle.IsValid())
+    {
+        FEditorDelegates::OnEditorPreExit.Remove(EditorPreExitHandle);
+        EditorPreExitHandle.Reset();
+    }
+    if (EnginePreExitHandle.IsValid())
+    {
+        FCoreDelegates::OnEnginePreExit.Remove(EnginePreExitHandle);
+        EnginePreExitHandle.Reset();
+    }
     if (PreExitHandle.IsValid())
     {
         FCoreDelegates::OnPreExit.Remove(PreExitHandle);
         PreExitHandle.Reset();
     }
     StopBridgeRuntime(true);
-    Loomle::EditorContext::FEditorContextService::Get().Shutdown();
     if (StatusBarStartupHandle.IsValid())
     {
         UToolMenus::UnRegisterStartupCallback(StatusBarStartupHandle);

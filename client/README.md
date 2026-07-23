@@ -15,22 +15,24 @@ duplicate either contract.
 
 ## Public Tools
 
-The Client exposes only four MCP tools:
+The Client exposes five MCP tools:
 
+- `project`: inspect project availability and bind this MCP session to one
+  project;
 - `sal_query`: parse, validate, execute, and format SAL Query Text;
 - `sal_patch`: parse, validate, execute, and format SAL Patch Text;
 - `sal_schema`: expose the resident SAL guide, then return the active interface
   index or one static interface when called;
 - `editor_context`: discover the user's current UE interaction target.
 
-These four tools are the complete public Client surface. Additional UE behavior
+These five tools are the complete public Client surface. Additional UE behavior
 belongs in SAL and its interface cards rather than parallel compatibility
 tools.
 
 The `sal_schema` tool description carries the resident guide from
 `@loomle/interfaces` exactly once. MCP server instructions remain empty because
-clients may expand them into every tool definition. The other three tool
-descriptions stay short and specific to routing. Calling `sal_schema` still
+clients may expand them into every tool definition. The other four tool
+descriptions stay short and specific to their boundary. Calling `sal_schema` still
 returns only the active interface index or the requested static interface; it
 does not repeat the resident guide.
 
@@ -39,21 +41,24 @@ Text. Mutation execution fields and diagnostics follow that Object Text inside
 ordinary SAL comments, so the complete MCP text remains directly readable and
 copyable without a parallel JSON payload.
 
-## Runtime Selection
+## Project Binding And Runtime Liveness
 
-The Client reads live Bridge records from `~/.loomle/state/runtimes` and never
-guesses between multiple matching Editors. Selection order is:
+One MCP process is one session and binds to one stable Unreal project. Call
+`project({})` to inspect the current binding and candidates, or call
+`project({ projectId })` / `project({ projectRoot })` to bind or switch. A valid
+offline project can remain bound while its Editor is closed. UE-backed tools
+then fail quickly with project/runtime diagnostics and never fall through to a
+different online project.
 
-1. `LOOMLE_RUNTIME_ID`;
-2. `LOOMLE_PROJECT_ROOT`;
-3. the runtime whose project contains the Client working directory;
-4. the only online runtime.
+MCP Roots provide automatic binding only when they identify one project
+unambiguously. Binding remains session-local and sticky until another explicit
+`project` call. The Client resolves the bound project to its current unique
+Editor runtime and verifies `rpc.health` before invocation. Runtime records are
+only discovery candidates; PID or Socket existence is never online proof.
 
-If more than one runtime still matches, configure one of the environment
-variables for that MCP server. A new connection checks that the Bridge supports
-`sal.query`, `sal.patch`, and `editor.context` before invoking a tool. Lost
-requests are not replayed automatically because a Patch may already have
-reached UE.
+The complete state, identity, timeout, shutdown, and multi-project contract is
+defined in
+[`../docs/PROJECT_BINDING_AND_RUNTIME_LIVENESS.md`](../docs/PROJECT_BINDING_AND_RUNTIME_LIVENESS.md).
 
 ## Build And Test
 

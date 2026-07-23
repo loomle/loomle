@@ -8,15 +8,15 @@
 
 namespace
 {
-const FString Target = LoomleSetup::GetCurrentClientTarget();
-const FString ClientFileName = Target.StartsWith(TEXT("win32-")) ? TEXT("loomle.exe") : TEXT("loomle");
+const FString CurrentClientTarget = LoomleSetup::GetCurrentClientTarget();
+const FString ClientFileName = CurrentClientTarget.StartsWith(TEXT("win32-")) ? TEXT("loomle.exe") : TEXT("loomle");
 const FString BundledPath = FPaths::Combine(
     TEXT("/Engine/Plugins/Marketplace/LoomleBridge/Resources/Loomle"),
-    Target,
+    CurrentClientTarget,
     ClientFileName);
 const FString OtherBundledPath = FPaths::Combine(
     TEXT("/OtherEngine/Plugins/Marketplace/LoomleBridge/Resources/Loomle"),
-    Target,
+    CurrentClientTarget,
     ClientFileName);
 const FString LoomleHome = TEXT("/Users/test");
 
@@ -42,7 +42,7 @@ bool FLoomleSetupTargetTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Windows x64 target"), LoomleSetup::MakeClientTarget(TEXT("win32"), TEXT("x64")), TEXT("win32-x64"));
     TestEqual(TEXT("Linux x64 target"), LoomleSetup::MakeClientTarget(TEXT("linux"), TEXT("x64")), TEXT("linux-x64"));
     TestTrue(TEXT("UE platform spelling is not a Client target"), LoomleSetup::MakeClientTarget(TEXT("windows"), TEXT("x64")).IsEmpty());
-    TestFalse(TEXT("Current supported build has a target"), Target.IsEmpty());
+    TestFalse(TEXT("Current supported build has a target"), CurrentClientTarget.IsEmpty());
 
     TestEqual(
         TEXT("Default Codex config uses the user home"),
@@ -337,7 +337,7 @@ bool FLoomleSetupCodexConfigTest::RunTest(const FString& Parameters)
 
     const FString RenamedPluginPath = FPaths::Combine(
         TEXT("/Engine/Plugins/Marketplace/RenamedPlugin/Resources/Loomle"),
-        Target,
+        CurrentClientTarget,
         ClientFileName);
     const FString RenamedCurrent = FString::Printf(
         TEXT("[mcp_servers.loomle]\ncommand = \"%s\"\nargs = [\"mcp\"]\n"),
@@ -365,7 +365,7 @@ bool FLoomleSetupCodexConfigTest::RunTest(const FString& Parameters)
 
     const FString RelativeBundled = FString::Printf(
         TEXT("[mcp_servers.loomle]\ncommand = \"Plugins/LoomleBridge/Resources/Loomle/%s/%s\"\nargs = [\"mcp\"]\n"),
-        *Target,
+        *CurrentClientTarget,
         *ClientFileName);
     const LoomleSetup::FConfigAssessment KeptRelativeBundled = LoomleSetup::AssessCodexConfig(
         RelativeBundled,

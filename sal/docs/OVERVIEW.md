@@ -61,6 +61,13 @@ guessing them. A constructor name never replaces a UE Class, type value, editor
 label, or object role. Creation-only `palette` is omitted from materialized
 object state.
 
+A domain may declare literal `object(...)` / `object@id` for a closed set of
+supported low-frequency objects that have native identity but do not justify
+another structural word. It is a domain-declared long-tail fallback, not an
+automatic wrapper for arbitrary UE values or editor selections. One object has
+one canonical constructor and reference kind; `object@id` never aliases
+`node@id`, `state@id`, or another concise kind.
+
 ## Text Kinds
 
 SAL has three agent-facing text kinds.
@@ -111,22 +118,26 @@ page limit 50
 Local reads share one small mental model:
 
 ```sal
+# Exact target itself; `with schema` may follow.
+query <target>
+
 query <target>
 summary
 
 query <target>
-<objects> ["text"]
+<collection> ["text"]
 
 query <target>
-<object> <name>
+<kind> <name>
 
 query <target>
-<object>@<id>
+<kind>@<id>
 ```
 
-Plural object operations enumerate or search, singular object operations
-resolve a current local name inside the bound target, and a typed stable
-reference is itself the exact-id operation. Each domain defines which forms its
+The bare form reads one exact bound target and is distinct from its orientation
+`summary`. Plural collection operations enumerate or search, singular object
+operations resolve a current local name inside the bound target, and a kind-qualified
+stable reference is itself the exact-id operation. Each domain defines which forms its
 UE objects actually support, plus its result shape, `where` fields, `with`
 expansions, ordering, and pagination behavior.
 
@@ -214,6 +225,9 @@ patch text, normalized JSON, diagnostics, and examples.
 - Widget: authored Widget objects, tree views, Panel Slot and Named Slot
   relationships, native properties, queries, Palette-backed creation, and
   widget tree patches.
+- StateTree: authored State hierarchy, Nodes, Transitions, Parameters, Context
+  Data, Property Bindings, destination-bound Palette, compile diagnostics, and
+  explicit separation from runtime Trace state.
 
 Additional domains should follow the same shape instead of adding new global
 language categories.
@@ -236,6 +250,8 @@ language categories.
 - [`domains/class.md`](domains/class.md): Class domain design, including
   Reflection and Class Defaults.
 - [`domains/widget.md`](domains/widget.md): widget domain design.
+- [`domains/state_tree.md`](domains/state_tree.md): StateTree authored-asset
+  domain design and the boundary of its active read-only first slice.
 
 Some bridge implementation documents still describe earlier spike plans. Treat
 them as factual UE implementation context, not as the language source of truth.

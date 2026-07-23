@@ -29,8 +29,10 @@ the editor and UE APIs as the source of truth.
 
 ## Current 0.7 Interface
 
-The standalone Client exposes four MCP tools:
+The standalone Client exposes five MCP tools:
 
+- `project`: inspect project availability and bind this MCP session to one
+  Unreal project.
 - `sal_query`: execute one self-contained SAL Query Text.
 - `sal_patch`: execute one ordered SAL Patch Text.
 - `sal_schema`: discover the resident SAL guide and the active interface cards.
@@ -115,8 +117,11 @@ Agent / MCP host
 
 The Client discovers live Bridge instances through
 `~/.loomle/state/runtimes`. This directory is runtime discovery state, not a
-global installation. When more than one compatible editor is online, Loomle
-does not guess silently.
+global installation. Each MCP session keeps one sticky project binding and
+validates that project's current Editor with a short live health probe. If the
+bound project is offline, Loomle reports that state and never falls through to
+another online project. Use `project({})` to inspect candidates and bind or
+switch explicitly when needed.
 
 ## Development
 

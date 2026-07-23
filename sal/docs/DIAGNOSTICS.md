@@ -165,15 +165,35 @@ Example:
 }
 ```
 
-### `runtime.*`
+### `project.*`
 
-Runtime diagnostics report discovery, compatibility, connection, transport,
-cancellation, timeout, shutdown, and internal execution failures between the
-MCP client and the active Loomle Bridge.
+Project diagnostics report session-level selection and binding state before a
+specific Editor runtime can execute UE work. They direct the agent back to the
+single public `project` tool; they are not SAL target-resolution failures.
 
 Examples:
 
-- `runtime.not_found`
+- `project.selection_required`: call `project({})`, then bind one returned
+  candidate with `project({ projectId: "<id>" })`.
+- `project.not_found`: the requested `projectId` or `projectRoot` is unknown or
+  invalid; the previous binding is unchanged.
+- `project.offline`: the bound project has no live Editor; Loomle does not fall
+  through to another project.
+- `project.multiple_editors`: several live or unresolved Editors may serve the
+  bound project and Loomle will not guess between them.
+
+### `runtime.*`
+
+Runtime diagnostics report compatibility, readiness, Game Thread admission,
+connection, transport, cancellation, timeout, shutdown, and internal execution
+failures for the bound project's current Editor runtime.
+
+Examples:
+
+- `runtime.starting`
+- `runtime.editor_unresponsive`
+- `runtime.identity_mismatch`
+- `runtime.invalid_health`
 - `runtime.incompatible`
 - `runtime.request_cancelled`
 - `runtime.editor_shutting_down`
@@ -218,7 +238,7 @@ Each catalog entry records the stable code contract:
 ```ts
 interface DiagnosticDefinition {
   code: string;
-  layer: "language" | "capability" | "resolution" | "validation" | "runtime" | "tool";
+  layer: "language" | "capability" | "resolution" | "validation" | "project" | "runtime" | "tool";
   defaultSeverity: "error" | "warning" | "info";
   title: string;
   requiredFields?: DiagnosticField[];

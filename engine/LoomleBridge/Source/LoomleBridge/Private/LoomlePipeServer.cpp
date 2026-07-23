@@ -99,7 +99,12 @@ bool FLoomlePipeServer::Start()
     }
 
     bStopRequested = false;
+    SetListenerState(ELoomlePipeListenerState::Starting);
     Thread = FRunnableThread::Create(this, TEXT("LoomlePipeServerThread"), 0, TPri_Normal);
+    if (Thread == nullptr)
+    {
+        SetListenerState(ELoomlePipeListenerState::Failed);
+    }
     return Thread != nullptr;
 }
 
@@ -118,6 +123,7 @@ void FLoomlePipeServer::StopServer()
     {
         FPlatformProcess::Sleep(0.01f);
     }
+    SetListenerState(ELoomlePipeListenerState::Stopped);
 }
 
 bool FLoomlePipeServer::TryBeginInFlight()
@@ -141,6 +147,34 @@ int32 FLoomlePipeServer::GetActiveConnectionCount() const
 {
     FScopeLock ScopeLock(&ConnectionsMutex);
     return ActiveConnections.Num();
+}
+
+ELoomlePipeListenerState FLoomlePipeServer::GetListenerState() const
+{
+    return static_cast<ELoomlePipeListenerState>(ListenerState.load());
+}
+
+FString FLoomlePipeServer::GetListenerStateName() const
+{
+    switch (GetListenerState())
+    {
+    case ELoomlePipeListenerState::Starting:
+        return TEXT("starting");
+    case ELoomlePipeListenerState::Listening:
+        return TEXT("listening");
+    case ELoomlePipeListenerState::Failed:
+        return TEXT("failed");
+    case ELoomlePipeListenerState::Stopping:
+        return TEXT("stopping");
+    case ELoomlePipeListenerState::Stopped:
+    default:
+        return TEXT("stopped");
+    }
+}
+
+void FLoomlePipeServer::SetListenerState(const ELoomlePipeListenerState NewState)
+{
+    ListenerState.store(static_cast<uint8>(NewState));
 }
 
 void FLoomlePipeServer::RegisterConnection(int32 ConnectionSerial, void* NativeHandle)
@@ -254,6 +288,12 @@ void FLoomlePipeServer::DispatchRequest(FString RequestLine, int32 ConnectionSer
 
 void FLoomlePipeServer::Stop()
 {
+    const ELoomlePipeListenerState CurrentState = GetListenerState();
+    if (CurrentState != ELoomlePipeListenerState::Stopped
+        && CurrentState != ELoomlePipeListenerState::Failed)
+    {
+        SetListenerState(ELoomlePipeListenerState::Stopping);
+    }
     bStopRequested = true;
 
 #if PLATFORM_WINDOWS
@@ -303,8 +343,10 @@ uint32 FLoomlePipeServer::Run()
         if (LocalPipe == INVALID_HANDLE_VALUE)
         {
             UE_LOG(LogLoomlePipe, Error, TEXT("Failed to create named pipe %s, error=%lu"), *FullPipePath, GetLastError());
-            FPlatformProcess::Sleep(1.0f);
-            continue;
+            SetListenerState(bStopRequested
+                ? ELoomlePipeListenerState::Stopped
+                : ELoomlePipeListenerState::Failed);
+            return 0;
         }
 
         bool bStopBeforeConnect = false;
@@ -321,6 +363,8 @@ uint32 FLoomlePipeServer::Run()
             CloseHandle(LocalPipe);
             break;
         }
+
+        SetListenerState(ELoomlePipeListenerState::Listening);
 
         const BOOL bConnected = ConnectNamedPipe(LocalPipe, nullptr) || (GetLastError() == ERROR_PIPE_CONNECTED);
         {
@@ -349,11 +393,18 @@ uint32 FLoomlePipeServer::Run()
     const FString SocketPath = GetSocketPath();
     const FTCHARToUTF8 PathUtf8(*SocketPath);
 
+    if (PathUtf8.Length() >= static_cast<int32>(sizeof(((sockaddr_un*)nullptr)->sun_path)))
+    {
+        UE_LOG(LogLoomlePipe, Error, TEXT("Unix socket path is too long: %s"), *SocketPath);
+        SetListenerState(ELoomlePipeListenerState::Failed);
+        return 0;
+    }
+
     const int32 LocalServerFd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (LocalServerFd < 0)
     {
         UE_LOG(LogLoomlePipe, Error, TEXT("Failed to create unix socket at %s"), *SocketPath);
-        FPlatformProcess::Sleep(1.0f);
+        SetListenerState(ELoomlePipeListenerState::Failed);
         return 0;
     }
 
@@ -369,6 +420,7 @@ uint32 FLoomlePipeServer::Run()
         {
             ServerFd = -1;
         }
+        SetListenerState(ELoomlePipeListenerState::Stopped);
         return 0;
     }
     unlink(PathUtf8.Get());
@@ -389,7 +441,8 @@ uint32 FLoomlePipeServer::Run()
                 ServerFd = -1;
             }
         }
-        FPlatformProcess::Sleep(1.0f);
+        unlink(PathUtf8.Get());
+        SetListenerState(ELoomlePipeListenerState::Failed);
         return 0;
     }
 
@@ -404,9 +457,11 @@ uint32 FLoomlePipeServer::Run()
                 ServerFd = -1;
             }
         }
-        FPlatformProcess::Sleep(1.0f);
+        unlink(PathUtf8.Get());
+        SetListenerState(ELoomlePipeListenerState::Failed);
         return 0;
     }
+    SetListenerState(ELoomlePipeListenerState::Listening);
     UE_LOG(LogLoomlePipe, Display, TEXT("Loomle bridge listening on unix socket %s (backlog=%d)"), *SocketPath, UnixSocketListenBacklog);
 
     while (!bStopRequested)
@@ -444,6 +499,10 @@ uint32 FLoomlePipeServer::Run()
     }
     unlink(PathUtf8.Get());
 #endif
+
+    SetListenerState(bStopRequested
+        ? ELoomlePipeListenerState::Stopped
+        : ELoomlePipeListenerState::Failed);
 
     return 0;
 }
@@ -673,6 +732,6 @@ FString FLoomlePipeServer::GetSocketPath() const
 #if PLATFORM_WINDOWS
     return FString();
 #else
-    return FPaths::Combine(FPaths::ProjectIntermediateDir(), TEXT("loomle.sock"));
+    return PipeName;
 #endif
 }
