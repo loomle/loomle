@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { resolve } from "node:path";
 import test from "node:test";
 import { parseSalObject } from "@loomle/sal";
 import {
@@ -171,7 +172,7 @@ test("packaged smoke covers the complete small public MCP path", async () => {
   assert.equal(
     harness.calls.filter(
       (call) => call.name === "project"
-        && call.args.projectRoot === projectRoot,
+        && call.args.projectRoot === resolve(projectRoot),
     ).length,
     2,
     "each MCP session binds through the public project tool",
