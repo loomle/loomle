@@ -49,8 +49,8 @@ jobs:
           $nodeDirectory = Join-Path $runtimeRoot $runtime.archiveRoot
           $node = Join-Path $nodeDirectory $runtime.nodePath
           $npm = Join-Path $nodeDirectory "npm.cmd"
-          if (-not (Test-Path -LiteralPath $node -PathType Leaf)
-              -or -not (Test-Path -LiteralPath $npm -PathType Leaf)) {
+          if ((-not (Test-Path -LiteralPath $node -PathType Leaf)) -or
+              (-not (Test-Path -LiteralPath $npm -PathType Leaf))) {
             throw "Pinned Node archive is missing node.exe or npm.cmd."
           }
           $version = (& $node --version).Trim()
@@ -223,8 +223,8 @@ jobs:
           foreach ($required in @("LICENSE", "THIRD_PARTY_NOTICES.txt")) {
             $packagedPath = Join-Path $plugin $required
             $sourcePath = Join-Path (Join-Path $env:STAGING "LoomleBridge") $required
-            if (-not (Test-Path -LiteralPath $packagedPath -PathType Leaf)
-                -or (Get-Item -LiteralPath $packagedPath).Length -eq 0) {
+            if ((-not (Test-Path -LiteralPath $packagedPath -PathType Leaf)) -or
+                ((Get-Item -LiteralPath $packagedPath).Length -eq 0)) {
               throw "BuildPlugin output is missing $required."
             }
             Assert-SameHash $sourcePath $packagedPath $required
@@ -291,11 +291,11 @@ jobs:
             }
           }
           foreach ($entry in $entries) {
-            if ($entry -match '^LoomleBridge/Resources/MCP(/|$)'
-                -or $entry -eq 'LoomleBridge/Resources/Loomle/win32-x64/build.json'
-                -or $entry -match '^LoomleBridge/Source/LoomleBridge/Private/Tests(/|$)'
-                -or $entry -match '^LoomleBridge/(Intermediate|Saved)(/|$)'
-                -or $entry -match '^LoomleBridge/Content/.+') {
+            if (($entry -match '^LoomleBridge/Resources/MCP(/|$)') -or
+                ($entry -eq 'LoomleBridge/Resources/Loomle/win32-x64/build.json') -or
+                ($entry -match '^LoomleBridge/Source/LoomleBridge/Private/Tests(/|$)') -or
+                ($entry -match '^LoomleBridge/(Intermediate|Saved)(/|$)') -or
+                ($entry -match '^LoomleBridge/Content/.+')) {
               throw "Fab archive contains a forbidden entry: $entry"
             }
           }
