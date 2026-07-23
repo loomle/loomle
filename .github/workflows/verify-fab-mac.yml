@@ -222,7 +222,7 @@ jobs:
                 || !same(descriptor.SupportedTargetPlatforms, ["Mac"])
                 || !same(moduleNames, ["LoomleBridge"])
                 || !same(module?.PlatformAllowList, ["Mac"])
-                || !same(module?.PlatformArchitectureAllowList, ["Mac:arm64"])) {
+                || module?.PlatformArchitectureAllowList !== undefined) {
               throw new Error("BuildPlugin output has an invalid target descriptor contract.");
             }
           ' "$descriptor"
@@ -307,8 +307,9 @@ jobs:
           node -e '
             const descriptor = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
             const moduleNames = descriptor.Modules?.map((entry) => entry.Name);
-            if (JSON.stringify(moduleNames) !== JSON.stringify(["LoomleBridge"])) {
-              throw new Error("Fab archive descriptor must contain only the LoomleBridge module.");
+            if (JSON.stringify(moduleNames) !== JSON.stringify(["LoomleBridge"])
+                || descriptor.Modules?.[0]?.PlatformArchitectureAllowList !== undefined) {
+              throw new Error("Fab archive descriptor has an invalid module contract.");
             }
           ' "$extracted_plugin/LoomleBridge.uplugin"
           archive_sha="$archive.sha256"

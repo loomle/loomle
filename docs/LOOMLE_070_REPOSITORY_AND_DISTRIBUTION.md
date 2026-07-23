@@ -168,11 +168,14 @@ missing or receipt-mismatched canonical Client, product- or protocol-version
 drift, another staged Client target, unexpected Client resources, and platform
 build outputs. The receipt does not fingerprint every source file, so both
 local QA and automation build and test the Client immediately before assembly.
-For the accepted `darwin-arm64` target it also
-narrows the derived descriptor to Mac and `Mac:arm64`; the source descriptor
-remains development input for later targets. UE BuildPlugin must compile the
-same single architecture and preserve the exact Client bytes through
-`Config/FilterPlugin.ini`. The final QA or release archive is always the
+For the accepted `darwin-arm64` target it narrows the derived descriptor to
+Mac but deliberately omits a module architecture allow-list. UE represents a
+universal Mac Editor as architecture `MULTI`, even when its active process
+slice is arm64, so `Mac:arm64` would prevent the module from loading. The source
+descriptor remains development input for later targets. UE BuildPlugin must
+compile the same single architecture, native audits must prove both bundled
+binaries are arm64-only, and `Config/FilterPlugin.ini` must preserve the exact
+Client bytes. The final QA or release archive is always the
 BuildPlugin output, never the pre-build staging tree. It must contain the
 matching Bridge binary, `Installed=true` descriptor, retained filter contract,
 and the same one-target Client payload. Before BuildPlugin runs UHT, Fab

@@ -41,10 +41,15 @@ production dependencies.
 
 Only `darwin-arm64` is currently accepted. Assembly narrows
 the derived plugin descriptor to `SupportedTargetPlatforms = ["Mac"]`, the
-`LoomleBridge` module to `PlatformAllowList = ["Mac"]`, and
-`PlatformArchitectureAllowList = ["Mac:arm64"]`. The source descriptor remains
-multi-platform development input; accepting another release target requires a
-new explicit target specification and its native verification path.
+`LoomleBridge` module to `PlatformAllowList = ["Mac"]`, and removes any module
+`PlatformArchitectureAllowList`. UE builds a universal Mac Editor with the
+runtime architecture token `MULTI`; an `arm64` module allow-list would silently
+skip Loomle even while that Editor is running its arm64 slice. Architecture is
+therefore an artifact property enforced by native Client tests, BuildPlugin's
+architecture argument, and `lipo` audits of the Client and Bridge. The source
+descriptor remains multi-platform development input; accepting another release
+target requires a new explicit target specification and its native verification
+path.
 
 Build and test the canonical Client before assembling the Fab plugin:
 

@@ -89,10 +89,7 @@ test("assembles the Bridge source and only the canonical TypeScript Client execu
     ));
     assert.deepEqual(descriptor.SupportedTargetPlatforms, ["Mac"]);
     assert.deepEqual(descriptor.Modules[0].PlatformAllowList, ["Mac"]);
-    assert.deepEqual(
-      descriptor.Modules[0].PlatformArchitectureAllowList,
-      ["Mac:arm64"],
-    );
+    assert.equal(descriptor.Modules[0].PlatformArchitectureAllowList, undefined);
     const sourceDescriptor = JSON.parse(await readFile(
       join(fixture.repoRoot, "engine", "LoomleBridge", "LoomleBridge.uplugin"),
       "utf8",
@@ -180,6 +177,26 @@ test("rejects a source plugin that does not support the target platform", async 
       }),
       /source LoomleBridge plugin does not support Mac/,
     );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("removes an architecture filter that would skip the module in a universal Mac Editor", async () => {
+  const fixture = await createFixture("darwin-arm64", {
+    sourceArchitectureAllowList: ["Mac:arm64"],
+  });
+  try {
+    await assembleFabPlugin({
+      repoRoot: fixture.repoRoot,
+      outputDir: fixture.outputDir,
+      target: "darwin-arm64",
+    });
+    const descriptor = JSON.parse(await readFile(
+      join(fixture.outputDir, "LoomleBridge", "LoomleBridge.uplugin"),
+      "utf8",
+    ));
+    assert.equal(descriptor.Modules[0].PlatformArchitectureAllowList, undefined);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -575,6 +592,9 @@ async function createFixture(target, options = {}) {
         Type: "Editor",
         LoadingPhase: "PostEngineInit",
         PlatformAllowList: options.disallowMac ? ["Win64"] : ["Mac", "Win64"],
+        ...(options.sourceArchitectureAllowList
+          ? { PlatformArchitectureAllowList: options.sourceArchitectureAllowList }
+          : {}),
       },
       ...(options.extraTestModule
         ? [{

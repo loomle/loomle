@@ -24,7 +24,6 @@ const TARGETS = new Map([
   ["darwin-arm64", {
     executableName: "loomle",
     unrealPlatform: "Mac",
-    unrealArchitecture: "arm64",
   }],
 ]);
 const IGNORED_SOURCE_NAMES = new Set([
@@ -301,9 +300,7 @@ async function specializeDescriptor({ descriptorPath, targetSpec }) {
 
   descriptor.SupportedTargetPlatforms = [targetSpec.unrealPlatform];
   module.PlatformAllowList = [targetSpec.unrealPlatform];
-  module.PlatformArchitectureAllowList = [
-    `${targetSpec.unrealPlatform}:${targetSpec.unrealArchitecture}`,
-  ];
+  delete module.PlatformArchitectureAllowList;
   await writeFile(descriptorPath, `${JSON.stringify(descriptor, null, 2)}\n`);
 }
 
@@ -417,11 +414,12 @@ async function validateDescriptor(repoRoot, descriptorPath, targetSpec) {
     [targetSpec.unrealPlatform],
     "staged LoomleBridge module PlatformAllowList",
   );
-  assertExactArray(
-    module.PlatformArchitectureAllowList,
-    [`${targetSpec.unrealPlatform}:${targetSpec.unrealArchitecture}`],
-    "staged LoomleBridge module PlatformArchitectureAllowList",
-  );
+  if (module.PlatformArchitectureAllowList !== undefined) {
+    fail(
+      "staged LoomleBridge module must omit PlatformArchitectureAllowList"
+      + " so universal Mac Editors can load the active architecture slice.",
+    );
+  }
 }
 
 function requireOnlyBridgeModule(descriptor, label) {

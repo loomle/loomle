@@ -319,6 +319,12 @@ notes, then publishes that exact ZIP without rebuilding or recompressing it.
 The tag is derived from the checked-out product version rather than accepted as
 free-form input.
 
+On Mac, architecture is verified from the built Client and Bridge binaries,
+not expressed as a module `PlatformArchitectureAllowList`. A universal UE
+Editor reports its compiled architecture as `MULTI`; restricting the module to
+`Mac:arm64` would silently prevent it from loading in that Editor even when the
+running process slice is arm64.
+
 ## Deliberate Initial Limits
 
 The first framework does not introduce Gauntlet, BuildGraph, screenshot
