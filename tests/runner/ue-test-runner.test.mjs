@@ -344,7 +344,7 @@ test("packaged candidate requires VersionName and its target-bundled Client", as
     await rm(clientPath);
     await assert.rejects(
       validatePackagedPluginDirectoryCandidate(pluginDir, "darwin-arm64"),
-      /Resources\/Loomle\/darwin-arm64\/loomle/,
+      /Resources[\\/]Loomle[\\/]darwin-arm64[\\/]loomle/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -602,7 +602,9 @@ test("watches only the temporary project and isolated runtime home for crashes",
   ]);
 });
 
-test("uses a short macOS runtime HOME without losing durable artifacts", async () => {
+test("uses a short macOS runtime HOME without losing durable artifacts", {
+  skip: process.platform === "win32",
+}, async () => {
   const root = await mkdtemp(join(tmpdir(), "loomle-runtime-home-"));
   const runtimeStateDirectory = join(
     root,
@@ -720,21 +722,21 @@ test("builds packaged Editor args and one shared isolated runtime environment", 
   });
   assert.equal(environment.HOME, "/tmp/loomle-runtime");
   assert.equal(environment.USERPROFILE, "/tmp/loomle-runtime");
-  assert.equal(environment.TMPDIR, "/tmp/loomle-runtime/tmp");
-  assert.equal(environment.TMP, "/tmp/loomle-runtime/tmp");
-  assert.equal(environment.TEMP, "/tmp/loomle-runtime/tmp");
-  assert.equal(environment.CODEX_HOME, "/tmp/loomle-runtime/codex");
+  assert.equal(environment.TMPDIR, join("/tmp/loomle-runtime", "tmp"));
+  assert.equal(environment.TMP, join("/tmp/loomle-runtime", "tmp"));
+  assert.equal(environment.TEMP, join("/tmp/loomle-runtime", "tmp"));
+  assert.equal(environment.CODEX_HOME, join("/tmp/loomle-runtime", "codex"));
   assert.equal(
     environment.XDG_CONFIG_HOME,
-    "/tmp/loomle-runtime/xdg/config",
+    join("/tmp/loomle-runtime", "xdg", "config"),
   );
   assert.equal(
     environment.APPDATA,
-    "/tmp/loomle-runtime/AppData/Roaming",
+    join("/tmp/loomle-runtime", "AppData", "Roaming"),
   );
   assert.equal(
     environment.LOCALAPPDATA,
-    "/tmp/loomle-runtime/AppData/Local",
+    join("/tmp/loomle-runtime", "AppData", "Local"),
   );
   assert.equal(environment.LOOMLE_PROJECT_ROOT, "/tmp/loomle-project");
   assert.equal(environment.PATH, "/bin");
