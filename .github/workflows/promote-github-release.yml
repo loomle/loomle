@@ -1,0 +1,175 @@
+name: Promote Verified Loomle GitHub Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Verify Loomle Fab Plugin (Mac) workflow run ID
+        required: true
+        type: string
+      channel:
+        description: Release channel
+        required: true
+        default: prerelease
+        type: choice
+        options:
+          - prerelease
+          - final
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: promote-loomle-github-release
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate Verification Run
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || {
+            echo "run_id must be a numeric GitHub Actions run ID." >&2
+            exit 1
+          }
+          run_json="$RUNNER_TEMP/verification-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > "$run_json"
+          head_sha="$(node -e '
+            const run = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+            const expected = {
+              path: ".github/workflows/verify-fab-mac.yml",
+              status: "completed",
+              conclusion: "success",
+              event: "workflow_dispatch",
+              head_branch: "main",
+            };
+            for (const [field, value] of Object.entries(expected)) {
+              if (run[field] !== value) {
+                throw new Error(`verification run ${field} is ${JSON.stringify(run[field])}; expected ${JSON.stringify(value)}`);
+              }
+            }
+            if (run.head_repository?.full_name !== process.env.GITHUB_REPOSITORY) {
+              throw new Error("verification run belongs to another repository");
+            }
+            if (!/^[0-9a-f]{40}$/.test(run.head_sha ?? "")) {
+              throw new Error("verification run has no valid head SHA");
+            }
+            process.stdout.write(run.head_sha);
+          ' "$run_json")"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Exact Verified Commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.source.outputs.head_sha }}
+
+      - name: Set Up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Download Exact Verified Artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/qa" "$RUNNER_TEMP/results"
+          gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name loomle-fab-plugin-darwin-arm64 \
+            --dir "$RUNNER_TEMP/qa"
+          gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name loomle-native-test-results-darwin-arm64 \
+            --dir "$RUNNER_TEMP/results"
+
+      - name: Verify Promotion Contract
+        id: release
+        shell: bash
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          HEAD_SHA: ${{ steps.source.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/qa/loomle-fab-plugin-darwin-arm64.zip"
+          archive_sha_file="$archive.sha256"
+          automation_result="$RUNNER_TEMP/results/loomle-automation-results-darwin-arm64/result.json"
+          e2e_result="$RUNNER_TEMP/results/loomle-packaged-e2e-results-darwin-arm64/result.json"
+          [[ -f "$archive" && -f "$archive_sha_file" ]] || {
+            echo "QA artifact is missing the verified ZIP or SHA-256 sidecar." >&2
+            exit 1
+          }
+          [[ -f "$automation_result" && -f "$e2e_result" ]] || {
+            echo "Native result artifact is incomplete." >&2
+            exit 1
+          }
+          (
+            cd "$(dirname "$archive")"
+            sha256sum -c "$(basename "$archive_sha_file")"
+          )
+
+          validation="$RUNNER_TEMP/promotion-validation.json"
+          node packaging/release/validate-promotion.mjs \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --archive "$archive" \
+            --sha-file "$archive_sha_file" \
+            --automation-result "$automation_result" \
+            --e2e-result "$e2e_result" \
+            --head-sha "$HEAD_SHA" \
+            --channel "$CHANNEL" > "$validation"
+          tag="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).tag' "$validation")"
+          version="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).version' "$validation")"
+          notes="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).notesPath' "$validation")"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "archive_sha_file=$archive_sha_file" >> "$GITHUB_OUTPUT"
+          echo "notes=$notes" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Require New Tag And Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag already exists: $TAG" >&2
+            exit 1
+          fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists: $TAG" >&2
+            exit 1
+          fi
+
+      - name: Publish Exact Verified Prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHIVE: ${{ steps.release.outputs.archive }}
+          ARCHIVE_SHA_FILE: ${{ steps.release.outputs.archive_sha_file }}
+          HEAD_SHA: ${{ steps.source.outputs.head_sha }}
+          NOTES: ${{ steps.release.outputs.notes }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            "$ARCHIVE" \
+            "$ARCHIVE_SHA_FILE" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$HEAD_SHA" \
+            --title "Loomle $VERSION" \
+            --notes-file "$NOTES" \
+            --prerelease

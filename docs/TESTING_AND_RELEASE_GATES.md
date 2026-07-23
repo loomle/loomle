@@ -279,8 +279,11 @@ test-only module cannot cross the release boundary.
 
 The release workflow repeats the boundary audit on both UE BuildPlugin output
 and the extracted final ZIP. Neither may contain the test subtree,
-`Intermediate/`, `Saved/`, or `Content/`, and both descriptors must still name
-only the `LoomleBridge` module.
+`Intermediate/`, `Saved/`, or files below `Content/`, and both descriptors must
+still name only the `LoomleBridge` module. The plugin keeps an empty `Content/`
+directory as part of its distributable structure while
+`CanContainContent=false`; BuildPlugin is allowed to drop the empty directory,
+so release staging restores it before the final audit and archive.
 
 The two candidates come from the same commit but serve different purposes:
 
@@ -296,14 +299,25 @@ A candidate can be promoted only when the same commit passes:
 2. the complete UE Automation category on every supported UE/platform build;
 3. packaged end-to-end smoke against the exact candidate archive;
 4. lifecycle verification with no new crash report;
-5. archive structure, signature, version, and hash audits.
+5. archive structure, version, license, and hash audits;
+6. the signature and notarization policy required by its release channel.
 
 The release workflow consumes the already-tested archive and matching result
 files. It must never rebuild, resign, or recompress after these gates.
 
-The current workflow implements this sequence for macOS Apple Silicon. Other
-platforms join the same gates only after their release build and runner support
-exist.
+The current workflow implements this sequence for macOS Apple Silicon.
+`0.7.0-rc.*` GitHub prereleases may explicitly publish the unsigned candidate
+used by QA, with the Gatekeeper limitation stated in their release notes.
+Stable release promotion remains blocked until Developer ID signing and Apple
+notarization are performed before packaged end-to-end, so the tested bytes are
+also the published bytes. Other platforms join the same gates only after their
+release build and runner support exist.
+
+Manual promotion takes a successful `verify-fab-mac.yml` run ID. It verifies
+the run identity, commit, results, candidate hash, product version, and release
+notes, then publishes that exact ZIP without rebuilding or recompressing it.
+The tag is derived from the checked-out product version rather than accepted as
+free-form input.
 
 ## Deliberate Initial Limits
 

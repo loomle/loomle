@@ -126,6 +126,9 @@ Bridge and the matching standalone Client:
 
 ```text
 LoomleBridge/
+  Content/
+  LICENSE
+  THIRD_PARTY_NOTICES.txt
   Source/
   Resources/
     Loomle/
@@ -155,9 +158,10 @@ npm run assemble:fab -- \
   --target darwin-arm64
 ```
 
-The executable build writes an adjacent schema-version-2 `build.json` receipt
+The executable build writes an adjacent schema-version-3 `build.json` receipt
 containing its product and Client–Bridge protocol versions, target, Node
-version and runtime archive SHA-256, executable name, and executable SHA-256.
+version and runtime archive SHA-256, executable name and SHA-256, and the
+SHA-256 of the copied Node runtime license.
 The assembler verifies the repository's generated version artifacts, that
 receipt, and the Client bytes, but does not ship the receipt. It rejects a
 missing or receipt-mismatched canonical Client, product- or protocol-version
@@ -176,7 +180,11 @@ assembly removes the development-only
 `Source/LoomleBridge/Private/Tests` subtree and requires the descriptor to
 contain exactly one module named `LoomleBridge`. The BuildPlugin output and
 final ZIP repeat that audit and must not contain test source, `Intermediate/`,
-`Saved/`, or `Content/`.
+`Saved/`, or files below `Content/`. The distributable intentionally includes
+an empty `Content/` directory, even though `CanContainContent=false`, together
+with Loomle's `LICENSE` and a generated `THIRD_PARTY_NOTICES.txt`. The notices
+are generated from the pinned Node runtime and the production packages in the
+root lockfile; missing license text fails assembly.
 
 ## Host Setup
 
@@ -250,9 +258,9 @@ npm run generate:version
 npm test
 ```
 
-The `--no-git-tag-version` flag remains required until the final manual 0.7
-promotion workflow is designed and enabled. Creating a version must never
-implicitly start a release.
+The `--no-git-tag-version` flag remains required. Version preparation must
+never implicitly start a release; promotion is a separate manual workflow that
+derives its tag from the already-tested commit.
 
 ## 0.6 History And Upgrade
 
@@ -269,10 +277,12 @@ perform this project-file migration, and the shadowed 0.7 plugin cannot detect
 it from inside that project.
 
 The active Mac/Fab workflow is manual QA only. It has read-only repository
-permission, uploads an Actions artifact, and never creates a tag, GitHub
-Release, latest alias, or public Fab submission. Windows and formal release
-promotion remain unavailable until their native Client, signing, packaging,
-and verification paths satisfy the same contract.
+permission, uploads the audited ZIP and durable result files, and never creates
+a tag, GitHub Release, latest alias, or public Fab submission. A separate
+manual promotion workflow can consume one successful run and publish its exact
+ZIP as a GitHub prerelease. It cannot build, sign, or recompress the candidate.
+Windows remains unavailable until its native Client, packaging, and
+verification paths satisfy the same contract.
 
 ## Verification Boundary
 
@@ -284,6 +294,8 @@ release candidate is then built, audited, archived, and exercised through the
 small packaged Client-to-UE workflow against that exact ZIP. See
 `TESTING_AND_RELEASE_GATES.md` for the runner and promotion contract.
 
-Tag-driven release workflows are not part of the 0.7 design. Formal release
-promotion remains a final explicit manual step after every advertised artifact
-has passed signing and verification.
+Tag-driven builds are not part of the 0.7 design. Promotion is a final explicit
+manual step after every advertised artifact has passed the gates for its
+channel. Unsigned `0.7.0-rc.*` prereleases are allowed only with an explicit
+Gatekeeper warning. Stable promotion remains disabled until Developer ID
+signing and notarization occur before packaged end-to-end verification.

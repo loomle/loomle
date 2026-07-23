@@ -33,9 +33,19 @@ builds the Client, assembles the source plugin, compiles an arm64-only plugin
 with UE BuildPlugin, and uploads that verified BuildPlugin output as the QA
 artifact. It does not create a tag, GitHub Release, or public Fab submission.
 
-No 0.7 release promotion workflow exists yet. Do not create or push a `v*` tag
-until signing, notarization, every advertised platform, and the final manual
-promotion design are complete.
+`.github/workflows/promote-github-release.yml` is a separate manual step. It
+takes a successful Mac verification run ID, checks out that run's exact commit,
+verifies its result files and archive hash, derives `v<product-version>`, and
+publishes the already-tested ZIP without rebuilding or recompressing it.
+
+Unsigned `0.7.0-rc.*` candidates may be published only as GitHub prereleases
+whose checked-in notes explain the macOS Gatekeeper limitation. Stable
+promotion deliberately fails until Developer ID signing and notarization are
+performed before packaged end-to-end verification. Fab submission remains a
+separate human action.
+
+Release notes are checked in under `packaging/release/notes/` and named by the
+exact product version.
 
 ## Release Branches
 

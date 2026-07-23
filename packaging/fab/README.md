@@ -10,7 +10,7 @@ is the canonical executable produced and tested by `packaging/client`:
 .tmp/client/<platform-arch>/build.json
 ```
 
-The adjacent schema-version-2 build receipt binds that executable to the
+The adjacent schema-version-3 build receipt binds that executable to the
 current product version, Client–Bridge protocol version, native target, pinned
 Node runtime archive, and SHA-256. It is verified during assembly but is not
 copied into the plugin. Local QA must still build and test the Client
@@ -32,9 +32,12 @@ module is rejected.
 
 The Client is copied to
 `LoomleBridge/Resources/Loomle/<platform-arch>/loomle(.exe)`. No alternative
-Client implementation or resource tree is consumed. The package has no
-`Content/` directory because `LoomleBridge` is an editor-only code plugin with
-`CanContainContent=false`.
+Client implementation or resource tree is consumed. The package includes an
+empty `Content/` directory as part of its Fab-facing structure while keeping
+`CanContainContent=false`; no Unreal asset is invented merely to retain it.
+It also includes Loomle's `LICENSE` and a generated
+`THIRD_PARTY_NOTICES.txt` covering the pinned Node runtime and bundled
+production dependencies.
 
 Only `darwin-arm64` is currently accepted. Assembly narrows
 the derived plugin descriptor to `SupportedTargetPlatforms = ["Mac"]`, the
@@ -64,6 +67,9 @@ The assembler staging tree contains:
 ```text
 LoomleBridge/LoomleBridge.uplugin
 LoomleBridge/README.md
+LoomleBridge/LICENSE
+LoomleBridge/THIRD_PARTY_NOTICES.txt
+LoomleBridge/Content/
 LoomleBridge/Config/FilterPlugin.ini
 LoomleBridge/Source/LoomleBridge/LoomleBridge.Build.cs
 LoomleBridge/Resources/Loomle/<platform-arch>/loomle(.exe)
@@ -75,7 +81,6 @@ Before UE compilation it must not include:
 LoomleBridge/Binaries/
 LoomleBridge/Intermediate/
 LoomleBridge/Saved/
-LoomleBridge/Content/
 LoomleBridge/Source/LoomleBridge/Private/Tests/
 ```
 
@@ -85,7 +90,10 @@ all generated product/protocol artifacts, then checks the staged descriptor and
 Client receipt against the root product and protocol versions. The receipt
 SHA-256 is checked against both source and staged Client bytes, target fields
 are checked against the accepted target, and `FilterPlugin.ini` must explicitly
-keep itself and `Resources/Loomle`.
+keep itself, `Resources/Loomle`, `LICENSE`, and
+`THIRD_PARTY_NOTICES.txt`. Assembly also validates the copied Node license and
+generates deterministic third-party notices from the production dependency
+set in `package-lock.json`.
 
 UE BuildPlugin consumes that staging tree and produces the distributable
 plugin. The final tree must add the matching
@@ -93,8 +101,10 @@ plugin. The final tree must add the matching
 `Installed=true`, retain `Config/FilterPlugin.ini`, and preserve the exact
 Client bytes and executable permission. Both the BuildPlugin output and the
 final ZIP are audited again for the one-module descriptor and the absence of
-test source, `Intermediate/`, `Saved/`, and `Content/`. For `darwin-arm64`,
-both the Bridge and Client are arm64-only.
+test source, `Intermediate/`, `Saved/`, and files below the empty `Content/`
+directory. Because archive tools cannot infer an empty directory that
+BuildPlugin omitted, release staging restores it before the final audit and
+ZIP creation. For `darwin-arm64`, both the Bridge and Client are arm64-only.
 
 Run the assembler tests locally:
 

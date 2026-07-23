@@ -143,6 +143,7 @@ jobs:
             -TargetPlatforms=Mac \
             -Architecture_Mac=arm64 \
             -Rocket
+          mkdir -p "$package/LoomleBridge/Content"
           echo "package=$package" >> "$GITHUB_OUTPUT"
 
       - name: Audit Packaged Client
@@ -170,10 +171,28 @@ jobs:
           for forbidden_path in \
             Source/LoomleBridge/Private/Tests \
             Intermediate \
-            Saved \
-            Content; do
+            Saved; do
             [[ ! -e "$packaged_plugin/$forbidden_path" ]] || {
               echo "BuildPlugin output contains forbidden release path: $forbidden_path" >&2
+              exit 1
+            }
+          done
+          [[ -d "$packaged_plugin/Content" ]] || {
+            echo "BuildPlugin output is missing the required empty Content directory." >&2
+            exit 1
+          }
+          [[ -z "$(find "$packaged_plugin/Content" -mindepth 1 -print -quit)" ]] || {
+            echo "BuildPlugin output Content directory must be empty." >&2
+            exit 1
+          }
+          for required_file in LICENSE THIRD_PARTY_NOTICES.txt; do
+            [[ -s "$packaged_plugin/$required_file" ]] || {
+              echo "BuildPlugin output is missing $required_file." >&2
+              exit 1
+            }
+            [[ "$(shasum -a 256 "$STAGING/LoomleBridge/$required_file" | awk '{print $1}')" == \
+               "$(shasum -a 256 "$packaged_plugin/$required_file" | awk '{print $1}')" ]] || {
+              echo "BuildPlugin changed $required_file." >&2
               exit 1
             }
           done
@@ -233,6 +252,9 @@ jobs:
           archive_entries="$RUNNER_TEMP/loomle-fab-archive-entries-darwin-arm64.txt"
           /usr/bin/unzip -Z1 "$archive" > "$archive_entries"
           grep -Fxq 'LoomleBridge/Resources/Loomle/darwin-arm64/loomle' "$archive_entries"
+          grep -Fxq 'LoomleBridge/Content/' "$archive_entries"
+          grep -Fxq 'LoomleBridge/LICENSE' "$archive_entries"
+          grep -Fxq 'LoomleBridge/THIRD_PARTY_NOTICES.txt' "$archive_entries"
           if grep -Eq '^LoomleBridge/Resources/MCP(/|$)' "$archive_entries"; then
             echo "Fab archive contains retired Resources/MCP." >&2
             exit 1
@@ -244,13 +266,16 @@ jobs:
           for forbidden_path in \
             Source/LoomleBridge/Private/Tests \
             Intermediate \
-            Saved \
-            Content; do
+            Saved; do
             if grep -Eq "^LoomleBridge/$forbidden_path(/|$)" "$archive_entries"; then
               echo "Fab archive contains forbidden release path: $forbidden_path" >&2
               exit 1
             fi
           done
+          if grep -E '^LoomleBridge/Content/.+' "$archive_entries"; then
+            echo "Fab archive Content directory must be empty." >&2
+            exit 1
+          fi
 
           audit="$RUNNER_TEMP/loomle-fab-archive-audit-darwin-arm64"
           rm -rf "$audit"
@@ -261,6 +286,8 @@ jobs:
           for relative_path in \
             LoomleBridge.uplugin \
             Config/FilterPlugin.ini \
+            LICENSE \
+            THIRD_PARTY_NOTICES.txt \
             Resources/Loomle/darwin-arm64/loomle \
             Binaries/Mac/UnrealEditor-LoomleBridge.dylib; do
             [[ "$(shasum -a 256 "$packaged_plugin/$relative_path" | awk '{print $1}')" == \
@@ -284,7 +311,11 @@ jobs:
               throw new Error("Fab archive descriptor must contain only the LoomleBridge module.");
             }
           ' "$extracted_plugin/LoomleBridge.uplugin"
+          archive_sha="$archive.sha256"
+          archive_hash="$(shasum -a 256 "$archive" | awk '{print $1}')"
+          printf '%s  %s\n' "$archive_hash" "$(basename "$archive")" > "$archive_sha"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "archive_sha=$archive_sha" >> "$GITHUB_OUTPUT"
 
       - name: Require Idle Unreal Editor Before Packaged End-To-End
         shell: bash
@@ -336,5 +367,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: loomle-fab-plugin-darwin-arm64
-          path: ${{ steps.archive.outputs.archive }}
+          path: |
+            ${{ steps.archive.outputs.archive }}
+            ${{ steps.archive.outputs.archive_sha }}
           if-no-files-found: error

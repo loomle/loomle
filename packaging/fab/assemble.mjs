@@ -17,6 +17,7 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkProductVersion } from "../tools/product-version.mjs";
+import { renderThirdPartyNotices } from "../release/third-party-notices.mjs";
 
 const DEFAULT_REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const TARGETS = new Map([
@@ -59,23 +60,42 @@ export async function assembleFabPlugin({ repoRoot, outputDir, target }) {
     executableName,
   );
   const clientReceipt = join(dirname(clientSource), "build.json");
+  const nodeLicense = join(dirname(clientSource), "node-license.txt");
   const enginePlugin = join(resolvedRepoRoot, "engine", "LoomleBridge");
   const fabReadme = join(resolvedRepoRoot, "packaging", "fab", "FAB_PLUGIN_README.md");
+  const loomleLicense = join(resolvedRepoRoot, "LICENSE");
   const pluginRoot = join(resolvedOutputDir, "LoomleBridge");
   const stagedClient = join(pluginRoot, "Resources", "Loomle", target, executableName);
 
-  const assemblyInputs = [clientSource, clientReceipt, enginePlugin, fabReadme];
+  const assemblyInputs = [
+    clientSource,
+    clientReceipt,
+    nodeLicense,
+    enginePlugin,
+    fabReadme,
+    loomleLicense,
+  ];
   await assertNoOutputOverlap(resolvedOutputDir, assemblyInputs);
   const clientBuild = await validateClientBuild({
     repoRoot: resolvedRepoRoot,
     executablePath: clientSource,
     receiptPath: clientReceipt,
+    nodeLicensePath: nodeLicense,
     target,
   });
   await assertNoOutputOverlap(resolvedOutputDir, assemblyInputs);
   await resetDirectory(resolvedOutputDir);
   await copyPluginSource(enginePlugin, pluginRoot);
   await copyRequiredFile(fabReadme, join(pluginRoot, "README.md"));
+  await copyRequiredFile(loomleLicense, join(pluginRoot, "LICENSE"));
+  await writeFile(
+    join(pluginRoot, "THIRD_PARTY_NOTICES.txt"),
+    await renderThirdPartyNotices({
+      repoRoot: resolvedRepoRoot,
+      nodeLicensePath: nodeLicense,
+      nodeVersion: clientBuild.nodeVersion,
+    }),
+  );
   await specializeDescriptor({
     descriptorPath: join(pluginRoot, "LoomleBridge.uplugin"),
     targetSpec,
@@ -89,6 +109,7 @@ export async function assembleFabPlugin({ repoRoot, outputDir, target }) {
   if (!target.startsWith("win32-")) await chmod(stagedClient, 0o755);
 
   await rm(join(pluginRoot, "Content"), { recursive: true, force: true });
+  await mkdir(join(pluginRoot, "Content"), { recursive: true });
   await validateFabPlugin({
     repoRoot: resolvedRepoRoot,
     pluginRoot,
@@ -179,7 +200,13 @@ async function validateClientExecutable(path, target) {
   }
 }
 
-async function validateClientBuild({ repoRoot, executablePath, receiptPath, target }) {
+async function validateClientBuild({
+  repoRoot,
+  executablePath,
+  receiptPath,
+  nodeLicensePath,
+  target,
+}) {
   await validateClientExecutable(executablePath, target);
   if (!(await isFile(receiptPath))) {
     fail(`canonical Client build receipt not found: ${receiptPath}`);
@@ -189,8 +216,8 @@ async function validateClientBuild({ repoRoot, executablePath, receiptPath, targ
   const runtimeManifest = await readJson(
     join(repoRoot, "packaging", "client", "node-runtime.json"),
   );
-  if (receipt.schemaVersion !== 2) {
-    fail("canonical Client build receipt must use schemaVersion 2.");
+  if (receipt.schemaVersion !== 3) {
+    fail("canonical Client build receipt must use schemaVersion 3.");
   }
   if (receipt.productVersion !== product.version) {
     fail(
@@ -232,11 +259,25 @@ async function validateClientBuild({ repoRoot, executablePath, receiptPath, targ
   if (typeof receipt.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(receipt.sha256)) {
     fail("canonical Client build receipt must contain a lowercase SHA-256 digest.");
   }
+  if (typeof receipt.nodeLicenseSha256 !== "string"
+      || !/^[0-9a-f]{64}$/.test(receipt.nodeLicenseSha256)) {
+    fail("canonical Client build receipt must contain a Node license SHA-256 digest.");
+  }
+  if (!(await isFile(nodeLicensePath))) {
+    fail(`canonical Client Node license not found: ${nodeLicensePath}`);
+  }
   const actualSha256 = await sha256(executablePath);
   if (receipt.sha256 !== actualSha256) {
     fail(
       `canonical Client executable SHA-256 ${actualSha256}`
       + ` does not match build receipt ${receipt.sha256}.`,
+    );
+  }
+  const actualNodeLicenseSha256 = await sha256(nodeLicensePath);
+  if (receipt.nodeLicenseSha256 !== actualNodeLicenseSha256) {
+    fail(
+      `canonical Client Node license SHA-256 ${actualNodeLicenseSha256}`
+      + ` does not match build receipt ${receipt.nodeLicenseSha256}.`,
     );
   }
   return receipt;
@@ -276,6 +317,7 @@ async function validateFabPlugin({
 }) {
   const requiredDirectories = [
     join(pluginRoot, "Config"),
+    join(pluginRoot, "Content"),
     join(pluginRoot, "Source"),
     join(pluginRoot, "Resources", "Loomle", target),
   ];
@@ -283,7 +325,9 @@ async function validateFabPlugin({
   const filterPath = join(pluginRoot, "Config", "FilterPlugin.ini");
   const requiredFiles = [
     descriptorPath,
+    join(pluginRoot, "LICENSE"),
     join(pluginRoot, "README.md"),
+    join(pluginRoot, "THIRD_PARTY_NOTICES.txt"),
     join(pluginRoot, "Source", "LoomleBridge", "LoomleBridge.Build.cs"),
     filterPath,
     stagedClient,
@@ -298,8 +342,8 @@ async function validateFabPlugin({
   if (missing.length > 0) {
     fail(`Fab plugin staging is missing required files:\n${missing.join("\n")}`);
   }
-  if (await pathExists(join(pluginRoot, "Content"))) {
-    fail("Fab plugin must not include a Content directory when CanContainContent=false.");
+  if (!(await isDirectoryEmpty(join(pluginRoot, "Content")))) {
+    fail("Fab plugin Content directory must be empty when CanContainContent=false.");
   }
   if (await pathExists(join(pluginRoot, "Resources", "MCP"))) {
     fail("Fab plugin must not include the retired Resources/MCP directory.");
@@ -410,6 +454,8 @@ async function validateFilterPlugin(filterPath) {
     "/Resources/Loomle/...",
     "/Resources/LoomleToolbarIcon.png",
     "/README.md",
+    "/LICENSE",
+    "/THIRD_PARTY_NOTICES.txt",
   ];
   const missing = required.filter((entry) => !entries.has(entry));
   if (missing.length > 0) {
@@ -462,6 +508,10 @@ async function pathExists(path) {
     if (error?.code === "ENOENT") return false;
     throw error;
   }
+}
+
+async function isDirectoryEmpty(path) {
+  return (await readdir(path)).length === 0;
 }
 
 async function* walk(root) {

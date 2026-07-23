@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   stat,
   symlink,
@@ -70,7 +71,14 @@ test("assembles the Bridge source and only the canonical TypeScript Client execu
       await exists(join(pluginRoot, "Resources", "Loomle", "darwin-arm64", "build.json")),
       false,
     );
-    assert.equal(await exists(join(pluginRoot, "Content")), false);
+    assert.equal(await exists(join(pluginRoot, "Content")), true);
+    assert.deepEqual(await readdir(join(pluginRoot, "Content")), []);
+    assert.equal(await readFile(join(pluginRoot, "LICENSE"), "utf8"), "loomle license\n");
+    const notices = await readFile(join(pluginRoot, "THIRD_PARTY_NOTICES.txt"), "utf8");
+    assert.match(notices, /Node\.js 24\.18\.0/);
+    assert.match(notices, /node license text/);
+    assert.match(notices, /example-package 1\.2\.3/);
+    assert.match(notices, /example dependency license/);
     assert.equal(await exists(join(pluginRoot, "Binaries")), false);
     assert.equal(await exists(join(pluginRoot, "Intermediate")), false);
     assert.equal(await exists(join(pluginRoot, "Saved")), false);
@@ -209,6 +217,22 @@ test("rejects a canonical Client without its build receipt", async () => {
   }
 });
 
+test("rejects the obsolete Client receipt schema", async () => {
+  const fixture = await createFixture("darwin-arm64", { receiptSchemaVersion: 2 });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /build receipt must use schemaVersion 3/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("rejects a canonical Client receipt from another product version", async () => {
   const fixture = await createFixture("darwin-arm64", { receiptProductVersion: "0.6.0" });
   try {
@@ -299,6 +323,56 @@ test("rejects a canonical Client whose bytes do not match its build receipt", as
         target: "darwin-arm64",
       }),
       /executable SHA-256 [0-9a-f]{64} does not match build receipt 0{64}/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a missing canonical Node runtime license", async () => {
+  const fixture = await createFixture("darwin-arm64", { includeNodeLicense: false });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /canonical Client Node license not found/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a canonical Node runtime license whose bytes do not match its receipt", async () => {
+  const fixture = await createFixture("darwin-arm64", {
+    receiptNodeLicenseSha256: "0".repeat(64),
+  });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /Node license SHA-256 [0-9a-f]{64} does not match build receipt 0{64}/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a production dependency without distributable license text", async () => {
+  const fixture = await createFixture("darwin-arm64", { missingDependencyLicense: true });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /example-package@1\.2\.3 has no distributable license file/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -450,8 +524,24 @@ async function createFixture(target, options = {}) {
       client: { name: "@loomle/client", version: "0.0.0" },
       sal: { name: "@loomle/sal", version: "0.0.0" },
       interfaces: { name: "@loomle/interfaces", version: "0.0.0" },
+      "node_modules/example-package": { version: "1.2.3" },
     },
   }));
+  await write(join(repoRoot, "LICENSE"), "loomle license\n");
+  await write(
+    join(repoRoot, "node_modules", "example-package", "package.json"),
+    JSON.stringify({
+      name: "example-package",
+      version: "1.2.3",
+      license: "MIT",
+    }),
+  );
+  if (!options.missingDependencyLicense) {
+    await write(
+      join(repoRoot, "node_modules", "example-package", "LICENSE"),
+      "example dependency license\n",
+    );
+  }
   await write(
     join(repoRoot, "client", "src", "generated", "product-version.ts"),
     renderProductVersionModule(PRODUCT_VERSION),
@@ -536,8 +626,8 @@ async function createFixture(target, options = {}) {
   await write(
     join(pluginRoot, "Config", "FilterPlugin.ini"),
     options.legacyFilter
-      ? "[FilterPlugin]\n/Config/FilterPlugin.ini\n/Resources/MCP/...\n/Resources/LoomleToolbarIcon.png\n/README.md\n"
-      : "[FilterPlugin]\n/Config/FilterPlugin.ini\n/Resources/Loomle/...\n/Resources/LoomleToolbarIcon.png\n/README.md\n",
+      ? "[FilterPlugin]\n/Config/FilterPlugin.ini\n/Resources/MCP/...\n/Resources/LoomleToolbarIcon.png\n/README.md\n/LICENSE\n/THIRD_PARTY_NOTICES.txt\n"
+      : "[FilterPlugin]\n/Config/FilterPlugin.ini\n/Resources/Loomle/...\n/Resources/LoomleToolbarIcon.png\n/README.md\n/LICENSE\n/THIRD_PARTY_NOTICES.txt\n",
   );
   await write(join(pluginRoot, "Resources", "LoomleToolbarIcon.png"), "icon");
   await write(join(pluginRoot, "Resources", "MCP", "legacy.py"), "retired");
@@ -553,11 +643,15 @@ async function createFixture(target, options = {}) {
 
   if (options.includeClient !== false) {
     const client = join(repoRoot, ".tmp", "client", target, executableName);
+    const nodeLicense = join(dirname(client), "node-license.txt");
     await write(client, "canonical-client");
+    if (options.includeNodeLicense !== false) {
+      await write(nodeLicense, "node license text\n");
+    }
     if (!target.startsWith("win32-")) await chmod(client, 0o755);
     if (options.includeReceipt !== false) {
       await write(join(dirname(client), "build.json"), `${JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: options.receiptSchemaVersion ?? 3,
         productVersion: options.receiptProductVersion ?? PRODUCT_VERSION,
         protocolVersion: options.receiptProtocolVersion ?? PROTOCOL_VERSION,
         target,
@@ -566,6 +660,8 @@ async function createFixture(target, options = {}) {
         executable: executableName,
         sha256: options.receiptSha256
           ?? createHash("sha256").update("canonical-client").digest("hex"),
+        nodeLicenseSha256: options.receiptNodeLicenseSha256
+          ?? createHash("sha256").update("node license text\n").digest("hex"),
       }, null, 2)}\n`);
     }
   }

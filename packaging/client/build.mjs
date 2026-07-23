@@ -70,6 +70,7 @@ const buildDirectory = resolve(repoRoot, `.tmp/client-build/${target}`);
 const outputDirectory = resolve(repoRoot, `.tmp/client/${target}`);
 const outputPath = join(outputDirectory, "loomle");
 const receiptPath = join(outputDirectory, "build.json");
+const nodeLicensePath = join(outputDirectory, "node-license.txt");
 const temporaryOutputPath = join(buildDirectory, "loomle");
 const blobPath = join(buildDirectory, "loomle.blob");
 const configPath = join(buildDirectory, "sea-config.json");
@@ -107,11 +108,16 @@ run("codesign", ["--verify", "--strict", "--verbose=2", temporaryOutputPath]);
 await assertFileExcludes(temporaryOutputPath, repoRoot);
 await rename(temporaryOutputPath, outputPath);
 run("codesign", ["--verify", "--strict", "--verbose=2", outputPath]);
+await copyFile(
+  join(runtimeDirectory, runtime.archiveRoot, "LICENSE"),
+  nodeLicensePath,
+);
 
 const outputStat = await stat(outputPath);
 const outputHash = await sha256(outputPath);
+const nodeLicenseHash = await sha256(nodeLicensePath);
 await writeFile(receiptPath, `${JSON.stringify({
-  schemaVersion: 2,
+  schemaVersion: 3,
   productVersion: product.version,
   protocolVersion,
   target,
@@ -119,10 +125,12 @@ await writeFile(receiptPath, `${JSON.stringify({
   runtimeSha256: runtime.sha256,
   executable: "loomle",
   sha256: outputHash,
+  nodeLicenseSha256: nodeLicenseHash,
 }, null, 2)}\n`);
 console.log(`Built ${outputPath}`);
 console.log(`Size: ${outputStat.size} bytes`);
 console.log(`SHA-256: ${outputHash}`);
+console.log(`Node license SHA-256: ${nodeLicenseHash}`);
 console.log(`Receipt: ${receiptPath}`);
 
 function parseTarget(args) {

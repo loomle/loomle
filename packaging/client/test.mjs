@@ -22,6 +22,7 @@ const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 const target = parseTarget(process.argv.slice(2));
 const executablePath = resolve(repoRoot, `.tmp/client/${target}/loomle`);
 const receiptPath = resolve(repoRoot, `.tmp/client/${target}/build.json`);
+const nodeLicensePath = resolve(repoRoot, `.tmp/client/${target}/node-license.txt`);
 const product = JSON.parse(await readFile(resolve(repoRoot, "package.json"), "utf8"));
 const runtimeManifest = JSON.parse(await readFile(
   resolve(repoRoot, "packaging/client/node-runtime.json"),
@@ -32,8 +33,10 @@ assert.equal(target, `${process.platform}-${process.arch}`, "Executable smoke te
 await access(executablePath, constants.X_OK);
 assert.ok((await stat(executablePath)).size > 0, "Executable is empty.");
 const executableHash = await sha256(executablePath);
+assert.ok((await stat(nodeLicensePath)).size > 0, "Node runtime license is empty.");
+const nodeLicenseHash = await sha256(nodeLicensePath);
 assert.deepEqual(JSON.parse(await readFile(receiptPath, "utf8")), {
-  schemaVersion: 2,
+  schemaVersion: 3,
   productVersion: product.version,
   protocolVersion: product.loomle.protocolVersion,
   target,
@@ -41,6 +44,7 @@ assert.deepEqual(JSON.parse(await readFile(receiptPath, "utf8")), {
   runtimeSha256: runtimeManifest.targets[target].sha256,
   executable: "loomle",
   sha256: executableHash,
+  nodeLicenseSha256: nodeLicenseHash,
 });
 assert.equal(
   await fileContains(executablePath, repoRoot),
