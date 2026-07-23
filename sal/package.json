@@ -19,7 +19,7 @@
   "scripts": {
     "generate:types": "json2ts -i schema/sal-object.schema.json -o src/generated/sal-object-schema.ts --cwd . --unreachableDefinitions --unknownAny false",
     "generate:schema-data": "node scripts/generate-schema-data.mjs",
-    "generate": "npm run generate:types && npm run generate:schema-data",
+    "generate": "npm run generate:types && npm run generate:schema-data && node scripts/normalize-generated.mjs",
     "check:generated": "git ls-files --error-unmatch src/generated/sal-object-schema.ts src/generated/sal-object-schema-data.ts && npm run generate && git diff --exit-code -- src/generated/sal-object-schema.ts src/generated/sal-object-schema-data.ts",
     "build": "tsc -p tsconfig.json",
     "test:schema": "npm run build && node dist/tests/schema/embedded-schema.js && node dist/tests/schema/validate-fixtures.js",

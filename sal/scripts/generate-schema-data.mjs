@@ -4,7 +4,7 @@ const packageRoot = new URL("../", import.meta.url);
 const schemaUrl = new URL("schema/sal-object.schema.json", packageRoot);
 const outputUrl = new URL("src/generated/sal-object-schema-data.ts", packageRoot);
 
-const schemaText = await readFile(schemaUrl, "utf8");
+const schemaText = (await readFile(schemaUrl, "utf8")).replace(/\r\n?/g, "\n");
 JSON.parse(schemaText);
 
 const source = [
