@@ -31,7 +31,10 @@ await mkdir(new URL("src/generated/", packageRoot), { recursive: true });
 await writeFile(output, source, "utf8");
 
 async function readDocument(path, heading) {
-  const text = await readFile(new URL(path, packageRoot), "utf8");
+  const text = (await readFile(new URL(path, packageRoot), "utf8")).replace(
+    /\r\n?/g,
+    "\n",
+  );
   if (!text.startsWith(`# ${heading}\n`)) {
     throw new Error(`${path} must begin with \"# ${heading}\".`);
   }
