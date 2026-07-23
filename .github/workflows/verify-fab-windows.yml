@@ -25,6 +25,20 @@ jobs:
         run: |
           git config --local core.autocrlf false
           git reset --hard HEAD
+          $generatedFiles = @(
+            "client\src\generated\product-version.ts",
+            "client\src\generated\protocol-version.ts",
+            "engine\LoomleBridge\Source\LoomleBridge\Private\Generated\LoomleProtocolVersion.h"
+          )
+          $utf8NoBom = [Text.UTF8Encoding]::new($false)
+          foreach ($relativePath in $generatedFiles) {
+            $path = Join-Path $env:GITHUB_WORKSPACE $relativePath
+            $text = [IO.File]::ReadAllText($path).Replace("`r`n", "`n").Replace("`r", "`n")
+            [IO.File]::WriteAllText($path, $text, $utf8NoBom)
+            if ([IO.File]::ReadAllText($path).Contains("`r")) {
+              throw "Could not normalize generated file to LF: $relativePath"
+            }
+          }
           git ls-files --eol `
             client/src/generated/product-version.ts `
             client/src/generated/protocol-version.ts `
