@@ -21,6 +21,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Normalize Persistent Checkout
+        run: |
+          git checkout-index --all --force
+
       - name: Require Windows X64 Runner
         run: |
           if ($env:RUNNER_OS -ne "Windows" -or $env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
