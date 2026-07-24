@@ -81,6 +81,10 @@ the complete Graph that currently carries UE health state. The index includes
 `node@id` for exact follow-up without expanding the whole Graph.
 `node@id` returns the complete Node and its Pins; `pin@id` returns its compact
 owner and the complete Pin without traversing links.
+`pin@id` is resolved only inside the bound Graph and must match exactly one Pin.
+If several Nodes in that Graph contain the same PinId, Loomle reports
+`resolution.pin_ambiguous` rather than choosing the first match. Reuse of the
+same PinId in another Graph does not affect this request.
 
 Context and flow results remain ordinary ordered Object Text: compact Nodes and
 only the complete target, Edge-endpoint, boundary, or dependency-leaf Pins

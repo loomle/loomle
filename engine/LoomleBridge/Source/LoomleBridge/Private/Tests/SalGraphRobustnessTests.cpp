@@ -1049,6 +1049,165 @@ FSalPatch RobustGraphTerminalPatch()
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphPinIdentityScopeTest,
+    "Loomle.Sal.Robustness.Graph.PinIdentityScope",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphPinIdentityScopeTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(
+            *this,
+            TEXT("Graph Pin identity scope coverage")))
+    {
+        return false;
+    }
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(
+            TEXT("Pin identity scope isolates transaction history"),
+            Transactions.Initialize()))
+    {
+        return false;
+    }
+    FRobustGraphFixture Fixture;
+    if (!TestTrue(TEXT("Pin identity scope fixture is valid"), Fixture.IsValid()))
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    UEdGraph* OtherGraph = FBlueprintEditorUtils::CreateNewGraph(
+        Fixture.Blueprint,
+        TEXT("PinIdentityOtherGraph"),
+        UEdGraph::StaticClass(),
+        UEdGraphSchema_K2::StaticClass());
+    if (OtherGraph != nullptr)
+    {
+        FBlueprintEditorUtils::AddFunctionGraph(
+            Fixture.Blueprint,
+            OtherGraph,
+            true,
+            static_cast<UClass*>(nullptr));
+    }
+    UK2Node_IfThenElse* OtherBranch =
+        RobustGraphAddBranch(OtherGraph, FIntPoint(0, 0));
+    UEdGraphPin* OtherExec =
+        OtherBranch != nullptr ? OtherBranch->GetExecPin() : nullptr;
+    if (!TestNotNull(TEXT("Other Graph duplicate Pin fixture exists"), OtherExec))
+    {
+        Transactions.Restore();
+        return false;
+    }
+    OtherExec->PinId = Fixture.BranchAExec->PinId;
+
+    FSalQuery ExactPin = RobustGraphQuery(TEXT("pin"));
+    ExactPin.Operation->SetStringField(
+        TEXT("id"),
+        RobustGraphGuidText(Fixture.BranchAExec->PinId));
+    const FSalResolvedTarget Target =
+        RobustGraphTarget(Fixture.Blueprint, Fixture.Graph);
+    const TSharedPtr<FJsonObject> CrossGraphRead =
+        FSalGraphInterface::Query(ExactPin, Target);
+    TestFalse(
+        TEXT("Same PinId in another Graph does not affect exact read"),
+        RobustGraphHasError(CrossGraphRead));
+
+    TStrongObjectPtr<UBlueprint> SandboxOwner;
+    FSalResolvedTarget SandboxTarget;
+    FString SandboxError;
+    TestTrue(
+        *FString::Printf(
+            TEXT("Sandbox accepts PinId reuse across Graphs [%s]"),
+            *SandboxError),
+        FSalGraphInterface::BuildSandboxTargetForTesting(
+            Target,
+            SandboxOwner,
+            SandboxTarget,
+            SandboxError));
+
+    Fixture.BranchBExec->PinId = Fixture.BranchAExec->PinId;
+    const TSharedPtr<FJsonObject> SameGraphRead =
+        FSalGraphInterface::Query(ExactPin, Target);
+    TestTrue(
+        TEXT("Same PinId on another Node in the bound Graph is ambiguous"),
+        RobustGraphHasDiagnosticCode(
+            SameGraphRead,
+            TEXT("resolution.pin_ambiguous")));
+
+    FSalQuery Context = RobustGraphTraversal(
+        TEXT("context"),
+        FString(),
+        RobustGraphTyped(
+            TEXT("pin"),
+            Fixture.BranchAExec->PinId),
+        1);
+    const TSharedPtr<FJsonObject> AmbiguousTraversal =
+        FSalGraphInterface::Query(Context, Target);
+    TestTrue(
+        TEXT("Traversal reports ambiguous PinId"),
+        RobustGraphHasDiagnosticCode(
+            AmbiguousTraversal,
+            TEXT("resolution.pin_ambiguous")));
+
+    FSalPatch AmbiguousPinPatch;
+    AmbiguousPinPatch.Alias = TEXT("graph");
+    AmbiguousPinPatch.bDryRun = true;
+    AmbiguousPinPatch.Statements = {
+        RobustGraphUnary(
+            TEXT("break"),
+            RobustGraphTyped(
+                TEXT("pin"),
+                Fixture.BranchAExec->PinId))};
+    const TSharedPtr<FJsonObject> AmbiguousMutation =
+        FSalGraphInterface::Patch(AmbiguousPinPatch, Target);
+    TestTrue(
+        TEXT("Pin mutation reports ambiguous PinId"),
+        RobustGraphHasDiagnosticCode(
+            AmbiguousMutation,
+            TEXT("resolution.pin_ambiguous")));
+
+    FSalPatch AmbiguousPinFieldPatch;
+    AmbiguousPinFieldPatch.Alias = TEXT("graph");
+    AmbiguousPinFieldPatch.bDryRun = true;
+    AmbiguousPinFieldPatch.Statements = {
+        RobustGraphSet(
+            RobustGraphMember(
+                RobustGraphTyped(
+                    TEXT("pin"),
+                    Fixture.BranchAExec->PinId),
+                TEXT("DefaultValue")),
+            MakeShared<FJsonValueString>(TEXT("unused")))};
+    const TSharedPtr<FJsonObject> AmbiguousFieldMutation =
+        FSalGraphInterface::Patch(AmbiguousPinFieldPatch, Target);
+    TestTrue(
+        TEXT("Pin field mutation reports ambiguous PinId"),
+        RobustGraphHasDiagnosticCode(
+            AmbiguousFieldMutation,
+            TEXT("resolution.pin_ambiguous")));
+
+    FSalPatch UnrelatedNodePatch;
+    UnrelatedNodePatch.Alias = TEXT("graph");
+    UnrelatedNodePatch.bDryRun = true;
+    UnrelatedNodePatch.Statements = {
+        RobustGraphMove(
+            RobustGraphTyped(
+                TEXT("node"),
+                Fixture.BranchC->NodeGuid),
+            FIntPoint(16, 0))};
+    const TSharedPtr<FJsonObject> UnrelatedMutation =
+        FSalGraphInterface::Patch(UnrelatedNodePatch, Target);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Unrelated Node mutation survives duplicate PinIds [%s]"),
+            *RobustGraphDiagnosticsText(UnrelatedMutation)),
+        RobustGraphResultBool(UnrelatedMutation, TEXT("valid")));
+
+    Transactions.Restore();
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FSalRobustGraphTraversalPaletteTest,
     "Loomle.Sal.Robustness.Graph.TraversalPalette",
     EAutomationTestFlags::EditorContext

@@ -23,7 +23,7 @@ The repository now provides:
 - one macOS Apple Silicon runner with `automation` and `packaged_e2e` profiles,
   isolated project copies, bounded process ownership, crash/log inspection, and
   durable results;
-- 127 in-module UE Automation tests covering the shared Bridge/RPC contracts
+- 128 in-module UE Automation tests covering the shared Bridge/RPC contracts
   and representative success, failure, lifecycle, and persistence paths across
   the active SAL interfaces;
 - an authored Blueprint fixture plus a real packaged Client-to-UE smoke
@@ -207,11 +207,14 @@ a Blueprint and assign the same logical Pin a new `PinId`. Before the exact
 audit, the sandbox must match such Pins one-to-one by native persistent identity
 or an unambiguous structural locator and restore only the copied `PinId`.
 Missing or ambiguous matches fail closed; `PersistentGuid` remains UE-owned and
-is never rewritten. The copied Blueprint is held by a strong object reference
-through the entire preflight and sheds its copied standalone flag only after
-native duplication has completed, so neither compile-time GC nor a long Editor
-session can invalidate or leak the sandbox. Compiler-error status alone is
-allowed: agents must remain able to repair a broken Blueprint.
+is never rewritten. PinId uniqueness is checked within one owning Node,
+matching UE's Pin lookup scope; reuse on another Node or Graph must not block
+unrelated Blueprint, Graph, or Widget preflight. The copied Blueprint is held
+by a strong object reference through the entire preflight and sheds its copied
+standalone flag only after native duplication has completed, so neither
+compile-time GC nor a long Editor session can invalidate or leak the sandbox.
+Compiler-error status alone is allowed: agents must remain able to repair a
+broken Blueprint.
 
 Graph and Widget may add only their domain-owned isolation after that common
 step. Graph detaches internal Timeline curves while preserving shared-curve

@@ -74,7 +74,7 @@ namespace
 FString NodeId(const UEdGraphNode* Node);
 FString PinId(const UEdGraphPin* Pin);
 UEdGraphNode* FindNode(const UEdGraph* Graph, const FString& Id);
-UEdGraphPin* FindPin(const UEdGraph* Graph, const FString& Id);
+UEdGraphPin* FindPin(const UEdGraph* Graph, const FString& Id, bool* OutAmbiguous = nullptr);
 FString SanitizeIdentifier(const FString& Source, const FString& Fallback);
 TSharedPtr<FJsonObject> GraphErrorResult(
     const FString& Code,
@@ -94,6 +94,7 @@ struct FGraphObjectRef
     UEdGraphNode* Node = nullptr;
     UEdGraphPin* Pin = nullptr;
     UEdGraph* Graph = nullptr;
+    bool bPinAmbiguous = false;
 
     bool IsValid() const { return Node != nullptr || Pin != nullptr || Graph != nullptr; }
 };
@@ -334,19 +335,25 @@ UEdGraphPin* FindPinByMember(const UEdGraphNode* Node, const FString& Member)
     {
         return nullptr;
     }
+    UEdGraphPin* NativeMatch = nullptr;
     UEdGraphPin* SanitizedMatch = nullptr;
     for (UEdGraphPin* Pin : Node->Pins)
     {
         if (Pin == nullptr) continue;
         const FString Native = Pin->PinName.ToString();
-        if (Native == Member) return Pin;
+        if (Native == Member)
+        {
+            if (NativeMatch != nullptr) return nullptr;
+            NativeMatch = Pin;
+            continue;
+        }
         if (SanitizeIdentifier(Native, TEXT("pin")) == Member)
         {
             if (SanitizedMatch != nullptr) return nullptr;
             SanitizedMatch = Pin;
         }
     }
-    return SanitizedMatch;
+    return NativeMatch != nullptr ? NativeMatch : SanitizedMatch;
 }
 
 FGraphObjectRef ResolveSimpleRef(FPatchState& State, const TSharedPtr<FJsonObject>& Ref)
@@ -366,7 +373,7 @@ FGraphObjectRef ResolveSimpleRef(FPatchState& State, const TSharedPtr<FJsonObjec
     {
         FString Id;
         Ref->TryGetStringField(TEXT("id"), Id);
-        Result.Pin = FindPin(State.Target.Graph, Id);
+        Result.Pin = FindPin(State.Target.Graph, Id, &Result.bPinAmbiguous);
         Result.Node = Result.Pin != nullptr ? Result.Pin->GetOwningNode() : nullptr;
         return Result;
     }
@@ -397,6 +404,11 @@ FGraphObjectRef ResolveSimpleRef(FPatchState& State, const TSharedPtr<FJsonObjec
         TArray<FString> Path;
         if (!Ref->TryGetObjectField(TEXT("object"), Owner) || Owner == nullptr || !ReadPath(Ref, Path)) return Result;
         FGraphObjectRef OwnerRef = ResolveSimpleRef(State, *Owner);
+        if (OwnerRef.bPinAmbiguous)
+        {
+            Result.bPinAmbiguous = true;
+            return Result;
+        }
         if (OwnerRef.Node != nullptr && Path.Num() == 1)
         {
             Result.Pin = FindPinByMember(OwnerRef.Node, Path[0]);
@@ -424,8 +436,14 @@ bool ResolveRequiredRef(
     }
     AddPatchError(
         State,
-        Kind == TEXT("pin") ? TEXT("resolution.pin_not_found") : TEXT("resolution.object_not_found"),
-        TEXT("Patch reference could not be resolved in the bound Graph or prior Patch statements."),
+        Out.bPinAmbiguous
+            ? TEXT("resolution.pin_ambiguous")
+            : Kind == TEXT("pin")
+                ? TEXT("resolution.pin_not_found")
+                : TEXT("resolution.object_not_found"),
+        Out.bPinAmbiguous
+            ? TEXT("PinId matches multiple Pins in the bound Graph.")
+            : TEXT("Patch reference could not be resolved in the bound Graph or prior Patch statements."),
         Operation,
         Id);
     return false;
@@ -820,7 +838,15 @@ bool ResolveFieldTarget(
     OutObject = ResolveSimpleRef(State, *Owner);
     if (!OutObject.IsValid())
     {
-        AddPatchError(State, TEXT("resolution.object_not_found"), TEXT("Field owner could not be resolved."), Operation);
+        AddPatchError(
+            State,
+            OutObject.bPinAmbiguous
+                ? TEXT("resolution.pin_ambiguous")
+                : TEXT("resolution.object_not_found"),
+            OutObject.bPinAmbiguous
+                ? TEXT("PinId matches multiple Pins in the bound Graph.")
+                : TEXT("Field owner could not be resolved."),
+            Operation);
         return false;
     }
     if (OutObject.Pin != nullptr)
@@ -2993,7 +3019,12 @@ TSharedPtr<FJsonObject> BuildGraphPlan(
             for (UEdGraphPin* LivePin : LiveNode->Pins)
             {
                 if (LivePin == nullptr) continue;
-                UEdGraphPin* SandboxPin = FindPin(Preflight.Target.Graph, PinId(LivePin));
+                UEdGraphNode* SandboxOwner = FindNode(
+                    Preflight.Target.Graph,
+                    NodeId(LiveNode));
+                UEdGraphPin* SandboxPin = SandboxOwner != nullptr
+                    ? SandboxOwner->FindPinById(LivePin->PinId)
+                    : nullptr;
                 if (SandboxPin != nullptr && Preflight.TouchedPins.Contains(SandboxPin))
                 {
                     Effects.Add(MakeShared<FJsonValueString>(TEXT("touched pin@") + PinId(LivePin)));
@@ -3250,12 +3281,17 @@ UEdGraphNode* FindNode(const UEdGraph* Graph, const FString& Id)
     return nullptr;
 }
 
-UEdGraphPin* FindPin(const UEdGraph* Graph, const FString& Id)
+UEdGraphPin* FindPin(const UEdGraph* Graph, const FString& Id, bool* OutAmbiguous)
 {
+    if (OutAmbiguous != nullptr)
+    {
+        *OutAmbiguous = false;
+    }
     if (Graph == nullptr)
     {
         return nullptr;
     }
+    UEdGraphPin* Match = nullptr;
     for (UEdGraphNode* Node : Graph->Nodes)
     {
         if (Node == nullptr)
@@ -3266,11 +3302,19 @@ UEdGraphPin* FindPin(const UEdGraph* Graph, const FString& Id)
         {
             if (Pin != nullptr && PinId(Pin).Equals(Id, ESearchCase::IgnoreCase))
             {
-                return Pin;
+                if (Match != nullptr)
+                {
+                    if (OutAmbiguous != nullptr)
+                    {
+                        *OutAmbiguous = true;
+                    }
+                    return nullptr;
+                }
+                Match = Pin;
             }
         }
     }
-    return nullptr;
+    return Match;
 }
 
 FString SanitizeIdentifier(const FString& Source, const FString& Fallback)
@@ -4304,11 +4348,18 @@ bool BuildPaletteContextFromQuery(
         FString Id;
         (*PinContext)->TryGetStringField(TEXT("direction"), Direction);
         if (!(*PinContext)->TryGetObjectField(TEXT("pin"), PinRef) || PinRef == nullptr || !(*PinRef)->TryGetStringField(TEXT("id"), Id)) return false;
-        UEdGraphPin* Pin = FindPin(Target.Graph, Id);
+        bool bAmbiguous = false;
+        UEdGraphPin* Pin = FindPin(Target.Graph, Id, &bAmbiguous);
         const EEdGraphPinDirection ExpectedDirection = Direction == TEXT("from") ? EGPD_Output : EGPD_Input;
         if (Pin == nullptr || Pin->Direction != ExpectedDirection)
         {
-            OutError = GraphErrorResult(TEXT("resolution.pin_not_found"), TEXT("Palette Pin context is missing or has the wrong direction."), TEXT("palette entries"), Id);
+            OutError = GraphErrorResult(
+                bAmbiguous ? TEXT("resolution.pin_ambiguous") : TEXT("resolution.pin_not_found"),
+                bAmbiguous
+                    ? TEXT("Palette Pin context matches multiple Pins in the bound Graph.")
+                    : TEXT("Palette Pin context is missing or has the wrong direction."),
+                TEXT("palette entries"),
+                Id);
             return false;
         }
         Out.Pins.Add(Pin);
@@ -5056,8 +5107,18 @@ TSharedPtr<FJsonObject> QueryExact(const FSalQuery& Query, const FSalResolvedTar
         AddExactNode(Out, Node, HasDetail(Query, TEXT("layout")), HasDetail(Query, TEXT("schema")));
         return Out.Builder.BuildResult();
     }
-    UEdGraphPin* Pin = FindPin(Target.Graph, Id);
-    if (Pin == nullptr) return GraphErrorResult(TEXT("resolution.pin_not_found"), TEXT("Pin was not found in the bound Graph."), TEXT("pin"), Id);
+    bool bAmbiguous = false;
+    UEdGraphPin* Pin = FindPin(Target.Graph, Id, &bAmbiguous);
+    if (Pin == nullptr)
+    {
+        return GraphErrorResult(
+            bAmbiguous ? TEXT("resolution.pin_ambiguous") : TEXT("resolution.pin_not_found"),
+            bAmbiguous
+                ? TEXT("PinId matches multiple Pins in the bound Graph.")
+                : TEXT("Pin was not found in the bound Graph."),
+            TEXT("pin"),
+            Id);
+    }
     UEdGraphNode* Owner = Pin->GetOwningNode();
     const FString Alias = Out.AddNode(Owner, false, HasDetail(Query, TEXT("layout")));
     TSet<FString> UsedMembers;
@@ -5077,6 +5138,7 @@ struct FTraversal
     TSet<UEdGraphNode*> Nodes;
     TSet<UEdGraphPin*> Pins;
     TArray<TPair<UEdGraphPin*, UEdGraphPin*>> Edges;
+    bool bPinAmbiguous = false;
 };
 
 void AddUniqueEdge(FTraversal& Traversal, UEdGraphPin* A, UEdGraphPin* B)
@@ -5096,11 +5158,18 @@ void AddUniqueEdge(FTraversal& Traversal, UEdGraphPin* A, UEdGraphPin* B)
     Traversal.Pins.Add(B);
 }
 
-bool ReadSubject(const TSharedPtr<FJsonObject>& Operation, UEdGraph* Graph, UEdGraphNode*& OutNode, UEdGraphPin*& OutPin, FString& OutId)
+bool ReadSubject(
+    const TSharedPtr<FJsonObject>& Operation,
+    UEdGraph* Graph,
+    UEdGraphNode*& OutNode,
+    UEdGraphPin*& OutPin,
+    FString& OutId,
+    bool& OutPinAmbiguous)
 {
     OutNode = nullptr;
     OutPin = nullptr;
     OutId.Reset();
+    OutPinAmbiguous = false;
     const TSharedPtr<FJsonObject>* Subject = nullptr;
     if (!Operation->TryGetObjectField(TEXT("target"), Subject) || Subject == nullptr)
     {
@@ -5112,7 +5181,7 @@ bool ReadSubject(const TSharedPtr<FJsonObject>& Operation, UEdGraph* Graph, UEdG
     if (Kind == TEXT("node")) OutNode = FindNode(Graph, OutId);
     else if (Kind == TEXT("pin"))
     {
-        OutPin = FindPin(Graph, OutId);
+        OutPin = FindPin(Graph, OutId, &OutPinAmbiguous);
         OutNode = OutPin != nullptr ? OutPin->GetOwningNode() : nullptr;
     }
     return OutNode != nullptr;
@@ -5124,9 +5193,13 @@ FTraversal Traverse(const FSalQuery& Query, const FSalResolvedTarget& Target, co
     UEdGraphNode* SeedNode = nullptr;
     UEdGraphPin* SeedPin = nullptr;
     FString Id;
-    if (!ReadSubject(Query.Operation, Target.Graph, SeedNode, SeedPin, Id))
+    bool bPinAmbiguous = false;
+    if (!ReadSubject(Query.Operation, Target.Graph, SeedNode, SeedPin, Id, bPinAmbiguous))
     {
-        OutError = FString::Printf(TEXT("Traversal target was not found: %s"), *Id);
+        Result.bPinAmbiguous = bPinAmbiguous;
+        OutError = bPinAmbiguous
+            ? FString::Printf(TEXT("PinId matches multiple Pins in the bound Graph: %s"), *Id)
+            : FString::Printf(TEXT("Traversal target was not found: %s"), *Id);
         return Result;
     }
     FString Direction;
@@ -5200,7 +5273,12 @@ TSharedPtr<FJsonObject> EncodeTraversal(const FSalQuery& Query, const FSalResolv
     const FTraversal Traversal = Traverse(Query, Target, Kind, Error);
     if (!Error.IsEmpty())
     {
-        return GraphErrorResult(TEXT("resolution.invalid_traversal_target"), Error, Kind);
+        return GraphErrorResult(
+            Traversal.bPinAmbiguous
+                ? TEXT("resolution.pin_ambiguous")
+                : TEXT("resolution.invalid_traversal_target"),
+            Error,
+            Kind);
     }
     FEncodedGraph Out(Target);
     TMap<UEdGraphNode*, TSet<FString>> UsedMembers;

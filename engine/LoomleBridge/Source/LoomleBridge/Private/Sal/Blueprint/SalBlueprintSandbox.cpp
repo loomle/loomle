@@ -605,7 +605,6 @@ bool RestoreNodePinIdentities(
     const FString& GraphKey,
     const UEdGraphNode* SourceNode,
     UEdGraphNode* CopyNode,
-    TSet<FGuid>& SourcePinIds,
     FString& OutMessage)
 {
     if (SourceNode == nullptr || CopyNode == nullptr)
@@ -730,6 +729,7 @@ bool RestoreNodePinIdentities(
         return false;
     }
 
+    TSet<FGuid> SourcePinIds;
     for (int32 SourceIndex = 0;
          SourceIndex < SourceNode->Pins.Num();
          ++SourceIndex)
@@ -803,7 +803,6 @@ bool RestoreSandboxPinIdentities(
         CopyGraphsByPath.Add(GraphKey, CopyGraph);
     }
 
-    TSet<FGuid> SourcePinIds;
     for (const UEdGraph* SourceGraph : SourceGraphs)
     {
         if (SourceGraph == nullptr)
@@ -851,7 +850,6 @@ bool RestoreSandboxPinIdentities(
                     GraphKey,
                     SourceNode,
                     CopyNodePtr != nullptr ? *CopyNodePtr : nullptr,
-                    SourcePinIds,
                     OutMessage))
             {
                 return false;
