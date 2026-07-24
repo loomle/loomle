@@ -7,11 +7,11 @@ description: Install Loomle 0.7 for Unreal Engine 5.7 on macOS or Windows and co
 
 # Install
 
-Loomle 0.7.0-rc.1 is available as a GitHub prerelease for Unreal Engine 5.7.
+Loomle 0.7.0-rc.2 is available as a GitHub prerelease for Unreal Engine 5.7.
 Each platform package contains both the Unreal Bridge and the matching
 self-contained Loomle Client.
 
-[View the 0.7.0-rc.1 release](https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.1){: .btn .btn-primary .fs-5 .mr-2 }
+[View the 0.7.0-rc.2 release](https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.2){: .btn .btn-primary .fs-5 .mr-2 }
 [Read the Quickstart](quickstart.html){: .btn .fs-5 }
 
 {: .warning }
@@ -46,11 +46,11 @@ Before installing or updating Loomle:
 
 ## 2. Download the Matching Package
 
-[Download for macOS Apple Silicon](https://github.com/loomle/loomle/releases/download/v0.7.0-rc.1/loomle-fab-plugin-darwin-arm64.zip){: .btn .btn-primary .mr-2 }
-[Download for Windows x64](https://github.com/loomle/loomle/releases/download/v0.7.0-rc.1/loomle-fab-plugin-win32-x64.zip){: .btn .btn-primary }
+[Download for macOS Apple Silicon](https://github.com/loomle/loomle/releases/download/v0.7.0-rc.2/loomle-fab-plugin-darwin-arm64.zip){: .btn .btn-primary .mr-2 }
+[Download for Windows x64](https://github.com/loomle/loomle/releases/download/v0.7.0-rc.2/loomle-fab-plugin-win32-x64.zip){: .btn .btn-primary }
 
 SHA-256 sidecars are available beside both ZIPs on the
-[release page](https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.1).
+[release page](https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.2).
 
 ### macOS security
 

@@ -18,8 +18,8 @@ Canonical user documentation:
 
 Availability and installation:
 
-- Loomle 0.7.0-rc.1 is available from GitHub Releases:
-  https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.1
+- Loomle 0.7.0-rc.2 is available from GitHub Releases:
+  https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.2
 - Supported targets are Unreal Engine 5.7 on Apple Silicon macOS
   (`darwin-arm64`) and x64 Windows (`win32-x64`).
 - Each platform archive contains the complete engine plugin, including the

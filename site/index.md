@@ -12,7 +12,7 @@ permalink: /
 Unreal Engine objects, made readable and editable for agents.
 {: .fs-6 .fw-300 }
 
-[Download 0.7.0-rc.1](https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.1){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[Download 0.7.0-rc.2](https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.2){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [Install](install.html){: .btn .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [Quickstart](quickstart.html){: .btn .fs-5 .mb-4 .mb-md-0 }
 
@@ -27,7 +27,7 @@ types, field names, Palette capabilities, compiler diagnostics, and editor
 semantics remain UE-native.
 
 {: .note }
-> Loomle 0.7.0-rc.1 is available for Unreal Engine 5.7 on Apple Silicon macOS
+> Loomle 0.7.0-rc.2 is available for Unreal Engine 5.7 on Apple Silicon macOS
 > and x64 Windows through GitHub Releases. The public Fab listing still
 > contains Loomle 0.6.
 
