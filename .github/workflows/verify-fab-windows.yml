@@ -13,8 +13,6 @@ concurrency:
 jobs:
   verify-fab-windows:
     runs-on: [self-hosted, Windows, X64, loomle-win, ue57]
-    env:
-      LOOMLE_CLIENT_RUNTIME_CACHE: ${{ runner.tool_cache }}\loomle-client-runtime
     defaults:
       run:
         shell: pwsh
@@ -54,6 +52,8 @@ jobs:
 
       - name: Set Up Pinned Node.js
         timeout-minutes: 10
+        env:
+          LOOMLE_CLIENT_RUNTIME_CACHE: ${{ runner.tool_cache }}/loomle-client-runtime
         run: |
           $manifest = Get-Content `
             -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "packaging\client\node-runtime.json") `
@@ -104,6 +104,8 @@ jobs:
         run: npm test
 
       - name: Build And Test Standalone Client
+        env:
+          LOOMLE_CLIENT_RUNTIME_CACHE: ${{ runner.tool_cache }}/loomle-client-runtime
         run: |
           npm run build:executable -- --target win32-x64
           npm run test:executable -- --target win32-x64
