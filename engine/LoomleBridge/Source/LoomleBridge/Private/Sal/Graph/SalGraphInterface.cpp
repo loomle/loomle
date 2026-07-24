@@ -9,6 +9,7 @@
 #include "BlueprintBoundEventNodeSpawner.h"
 #include "BlueprintNodeSignature.h"
 #include "BlueprintNodeSpawner.h"
+#include "BlueprintVariableNodeSpawner.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Widget.h"
 #include "Curves/CurveFloat.h"
@@ -49,6 +50,8 @@
 #include "K2Node_Switch.h"
 #include "K2Node_Timeline.h"
 #include "K2Node_Tunnel.h"
+#include "K2Node_VariableGet.h"
+#include "K2Node_VariableSet.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Logging/TokenizedMessage.h"
 #include "LoomleMutationTransaction.h"
@@ -82,7 +85,10 @@ TSharedPtr<FJsonObject> GraphErrorResult(
     const FString& Operation,
     const FString& Ref = FString(),
     const FString& Suggestion = FString());
-TSharedPtr<FEdGraphSchemaAction> ResolvePaletteAction(const FSalResolvedTarget& Target, const FString& Id);
+TSharedPtr<FEdGraphSchemaAction> ResolvePaletteAction(
+    const FSalResolvedTarget& Target,
+    const FString& Id,
+    bool* OutAmbiguous = nullptr);
 UEdGraphNode* TemplateForAction(const TSharedPtr<FEdGraphSchemaAction>& Action, UEdGraph* Graph);
 bool ImportPinType(const FString& Text, FEdGraphPinType& OutType);
 bool IsExecPin(const UEdGraphPin* Pin);
@@ -500,11 +506,25 @@ bool RegisterDefinition(FPatchState& State, const TSharedPtr<FJsonObject>& Bindi
     }
     FString Palette;
     (*Args)->TryGetStringField(TEXT("palette"), Palette);
-    TSharedPtr<FEdGraphSchemaAction> Action = ResolvePaletteAction(State.Target, Palette);
+    bool bPaletteAmbiguous = false;
+    TSharedPtr<FEdGraphSchemaAction> Action =
+        ResolvePaletteAction(
+            State.Target,
+            Palette,
+            &bPaletteAmbiguous);
     UEdGraphNode* Template = TemplateForAction(Action, State.Target.Graph);
     if (!Action.IsValid() || Template == nullptr)
     {
-        AddPatchError(State, TEXT("resolution.palette_not_found"), TEXT("Palette entry is not available or not spawnable in the current Graph context."), TEXT("binding"), Palette);
+        AddPatchError(
+            State,
+            bPaletteAmbiguous
+                ? TEXT("resolution.palette_ambiguous")
+                : TEXT("resolution.palette_not_found"),
+            bPaletteAmbiguous
+                ? TEXT("Palette identity matches multiple active Node creation actions in the current Graph context.")
+                : TEXT("Palette entry is not available or not spawnable in the current Graph context."),
+            TEXT("binding"),
+            Palette);
         return false;
     }
     FNodeDefinition Definition;
@@ -4459,6 +4479,72 @@ void BuildActionMenu(
     }
 }
 
+FString VariablePaletteActionToken(
+    const UBlueprintVariableNodeSpawner* Spawner)
+{
+    if (Spawner == nullptr || Spawner->NodeClass == nullptr)
+    {
+        return FString();
+    }
+
+    FBlueprintNodeSignature Signature(Spawner->NodeClass);
+    static const FName KindKey(TEXT("LoomleVariableKind"));
+    static const FName BlueprintKey(TEXT("LoomleBlueprintGuid"));
+    static const FName VariableKey(TEXT("LoomleVariableGuid"));
+    static const FName NameKey(TEXT("LoomleVariableName"));
+    static const FName FieldKey(TEXT("LoomleVariableField"));
+
+    const FProperty* Property = Spawner->GetVarProperty();
+    if (Property == nullptr)
+    {
+        return FString();
+    }
+
+    if (const UBlueprintGeneratedClass* OwnerClass =
+            Cast<UBlueprintGeneratedClass>(
+                Property->GetOwnerClass()))
+    {
+        const UBlueprint* OwnerBlueprint =
+            Cast<UBlueprint>(OwnerClass->ClassGeneratedBy);
+        if (OwnerBlueprint != nullptr
+            && OwnerBlueprint->GetBlueprintGuid().IsValid())
+        {
+            FGuid VariableGuid =
+                OwnerBlueprint->FindBlueprintPropertyGuidFromName(
+                    Property->GetFName());
+            if (!VariableGuid.IsValid())
+            {
+                VariableGuid =
+                    OwnerClass->FindBlueprintPropertyGuidFromName(
+                        Property->GetFName());
+            }
+            Signature.AddNamedValue(KindKey, TEXT("member"));
+            Signature.AddNamedValue(
+                BlueprintKey,
+                GuidText(OwnerBlueprint->GetBlueprintGuid()));
+            if (VariableGuid.IsValid())
+            {
+                Signature.AddNamedValue(
+                    VariableKey,
+                    GuidText(VariableGuid));
+            }
+            else
+            {
+                Signature.AddNamedValue(
+                    NameKey,
+                    Property->GetName());
+            }
+            return GuidText(Signature.AsGuid());
+        }
+    }
+
+    Signature.AddNamedValue(KindKey, TEXT("native"));
+    Signature.AddNamedValue(
+        FieldKey,
+        Property->GetPathName());
+    return GuidText(Signature.AsGuid());
+}
+
 FString PaletteActionToken(const TSharedPtr<FEdGraphSchemaAction>& Action)
 {
     if (!Action.IsValid() || Action->GetTypeId() != FBlueprintActionMenuItem::StaticGetTypeId())
@@ -4470,6 +4556,13 @@ FString PaletteActionToken(const TSharedPtr<FEdGraphSchemaAction>& Action)
     if (Spawner == nullptr)
     {
         return FString();
+    }
+    if (const UBlueprintVariableNodeSpawner* VariableSpawner =
+            Cast<UBlueprintVariableNodeSpawner>(Spawner);
+        VariableSpawner != nullptr
+        && !VariableSpawner->IsLocalVariable())
+    {
+        return VariablePaletteActionToken(VariableSpawner);
     }
     const FBlueprintNodeSignature Signature = Spawner->GetSpawnerSignature();
     if (Signature.IsValid()) return GuidText(Signature.AsGuid());
@@ -4484,6 +4577,63 @@ FString PaletteActionToken(const TSharedPtr<FEdGraphSchemaAction>& Action)
         if (const FMulticastDelegateProperty* Delegate = EventSpawner->GetEventDelegate()) Material += TEXT("|") + Delegate->GetPathName();
     }
     return FString::Printf(TEXT("%08x%08x"), FCrc::StrCrc32(*Material), FCrc::StrCrc32(*Material, 0x9e3779b9));
+}
+
+TSharedPtr<FEdGraphSchemaAction> ResolveBlueprintVariableAction(
+    const FSalResolvedTarget& Target,
+    const FString& Token,
+    bool* OutAmbiguous)
+{
+    UBlueprint* Blueprint = Target.Blueprint;
+    UClass* VariableClass =
+        Blueprint != nullptr
+            ? Blueprint->SkeletonGeneratedClass.Get()
+            : nullptr;
+    if (VariableClass == nullptr)
+    {
+        return nullptr;
+    }
+
+    TSharedPtr<FEdGraphSchemaAction> Match;
+    for (const FBPVariableDescription& Variable :
+         Blueprint->NewVariables)
+    {
+        const FProperty* Property =
+            FindFProperty<FProperty>(
+                VariableClass,
+                Variable.VarName);
+        if (Property == nullptr)
+        {
+            continue;
+        }
+        for (UClass* NodeClass :
+             {UK2Node_VariableGet::StaticClass(),
+              UK2Node_VariableSet::StaticClass()})
+        {
+            UBlueprintVariableNodeSpawner* Spawner =
+                UBlueprintVariableNodeSpawner::
+                    CreateFromMemberOrParam(
+                        NodeClass,
+                        Property);
+            TSharedPtr<FEdGraphSchemaAction> Candidate =
+                MakeShared<FBlueprintActionMenuItem>(
+                    Spawner);
+            if (PaletteActionToken(Candidate) != Token)
+            {
+                continue;
+            }
+            if (Match.IsValid())
+            {
+                if (OutAmbiguous != nullptr)
+                {
+                    *OutAmbiguous = true;
+                }
+                return nullptr;
+            }
+            Match = Candidate;
+        }
+    }
+    return Match;
 }
 
 FString PaletteId(const TSharedPtr<FEdGraphSchemaAction>& Action, const FString& Descriptor)
@@ -4573,8 +4723,15 @@ int32 ActionTitleRank(
     return Rank;
 }
 
-TSharedPtr<FEdGraphSchemaAction> ResolvePaletteAction(const FSalResolvedTarget& Target, const FString& Id)
+TSharedPtr<FEdGraphSchemaAction> ResolvePaletteAction(
+    const FSalResolvedTarget& Target,
+    const FString& Id,
+    bool* OutAmbiguous)
 {
+    if (OutAmbiguous != nullptr)
+    {
+        *OutAmbiguous = false;
+    }
     FString Token;
     FString Descriptor;
     FPaletteContextData Context;
@@ -4582,15 +4739,29 @@ TSharedPtr<FEdGraphSchemaAction> ResolvePaletteAction(const FSalResolvedTarget& 
     if (!SplitPaletteId(Id, Token, Descriptor) || !BuildPaletteContextFromDescriptor(Target, Descriptor, Context, Message)) return nullptr;
     FBlueprintActionMenuBuilder Builder;
     BuildActionMenu(Target, Context.Pins, Context.SelectedObjects, Context.bContextSensitive, Builder);
+    TSharedPtr<FEdGraphSchemaAction> Match;
     for (int32 Index = 0; Index < Builder.GetNumActions(); ++Index)
     {
         TSharedPtr<FEdGraphSchemaAction> Action = Builder.GetSchemaAction(Index);
         if (PaletteActionToken(Action) == Token)
         {
-            return Action;
+            if (Match.IsValid())
+            {
+                if (OutAmbiguous != nullptr)
+                {
+                    *OutAmbiguous = true;
+                }
+                return nullptr;
+            }
+            Match = Action;
         }
     }
-    return nullptr;
+    return Match.IsValid()
+        ? Match
+        : ResolveBlueprintVariableAction(
+            Target,
+            Token,
+            OutAmbiguous);
 }
 
 UEdGraphNode* TemplateForAction(const TSharedPtr<FEdGraphSchemaAction>& Action, UEdGraph* Graph)
@@ -4601,8 +4772,23 @@ UEdGraphNode* TemplateForAction(const TSharedPtr<FEdGraphSchemaAction>& Action, 
     }
     const FBlueprintActionMenuItem* Item = static_cast<const FBlueprintActionMenuItem*>(Action.Get());
     const UBlueprintNodeSpawner* Spawner = Item->GetRawAction();
-    UEdGraphNode* Template =
-        Spawner != nullptr ? Spawner->GetTemplateNode(Graph) : nullptr;
+    UEdGraphNode* Template = nullptr;
+    if (Spawner != nullptr
+        && Graph != nullptr
+        && Graph->IsIn(GetTransientPackage())
+        && Cast<UBlueprintVariableNodeSpawner>(Spawner) != nullptr)
+    {
+        IBlueprintNodeBinder::FBindingSet Bindings;
+        Template =
+            Spawner->Invoke(
+                Graph,
+                Bindings,
+                FVector2D::ZeroVector);
+    }
+    else if (Spawner != nullptr)
+    {
+        Template = Spawner->GetTemplateNode(Graph);
+    }
     // GetTemplateNode(TargetGraph) may produce a graph-specific template that
     // has not been primed. UE's own Blueprint action filter allocates the
     // default Pins before inspecting such a template.
@@ -4764,6 +4950,15 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
     if (bExact && Matches.IsEmpty())
     {
         return GraphErrorResult(TEXT("resolution.palette_not_found"), TEXT("Palette entry was not found in the current Graph context."), TEXT("palette"), ExactId, TEXT("Run palette entries again in the same Graph context."));
+    }
+    if (bExact && Matches.Num() > 1)
+    {
+        return GraphErrorResult(
+            TEXT("resolution.palette_ambiguous"),
+            TEXT("Palette identity matches multiple active Node creation actions in the current Graph context."),
+            TEXT("palette"),
+            ExactId,
+            TEXT("Run palette entries again after the conflicting creation capabilities are refreshed."));
     }
 
     FSalObjectBuilder Out;

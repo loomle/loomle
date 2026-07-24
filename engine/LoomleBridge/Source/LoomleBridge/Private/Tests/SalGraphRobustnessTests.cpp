@@ -6,7 +6,12 @@
 #include "Sal/Graph/SalGraphInterface.h"
 #include "Tests/LoomleTestEditorState.h"
 
+#include "Animation/AnimBlueprint.h"
+#include "Animation/AnimBlueprintGeneratedClass.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/Skeleton.h"
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "BlueprintActionDatabase.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "EdGraph/EdGraph.h"
@@ -21,6 +26,8 @@
 #include "K2Node_CallFunction.h"
 #include "K2Node_CustomEvent.h"
 #include "K2Node_IfThenElse.h"
+#include "K2Node_VariableGet.h"
+#include "K2Node_VariableSet.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -998,6 +1005,141 @@ private:
     bool bCleaned = false;
 };
 
+class FVariablePaletteFixture
+{
+public:
+    explicit FVariablePaletteFixture(const bool bAnimBlueprint)
+        : bAnim(bAnimBlueprint)
+    {
+        const FString Token =
+            FGuid::NewGuid().ToString(EGuidFormats::Digits);
+        const FString AssetName = FString::Printf(
+            TEXT("%s_%s"),
+            bAnim ? TEXT("ABP_VariablePalette") : TEXT("BP_VariablePalette"),
+            *Token);
+        PackageName = FString::Printf(
+            TEXT("/Game/LoomleTests/%s"),
+            *AssetName);
+        Package = CreatePackage(*PackageName);
+        Blueprint = Package != nullptr
+            ? FKismetEditorUtilities::CreateBlueprint(
+                bAnim
+                    ? UAnimInstance::StaticClass()
+                    : AActor::StaticClass(),
+                Package,
+                FName(*AssetName),
+                BPTYPE_Normal,
+                bAnim
+                    ? UAnimBlueprint::StaticClass()
+                    : UBlueprint::StaticClass(),
+                bAnim
+                    ? UAnimBlueprintGeneratedClass::StaticClass()
+                    : UBlueprintGeneratedClass::StaticClass(),
+                NAME_None)
+            : nullptr;
+        if (Blueprint == nullptr)
+        {
+            return;
+        }
+        if (UAnimBlueprint* AnimBlueprint =
+                Cast<UAnimBlueprint>(Blueprint))
+        {
+            AnimBlueprint->TargetSkeleton =
+                NewObject<USkeleton>(
+                    Package,
+                    TEXT("LoomlePaletteSkeleton"),
+                    RF_Transactional);
+        }
+
+        Graph = FBlueprintEditorUtils::FindEventGraph(Blueprint);
+        FEdGraphPinType BoolType;
+        BoolType.PinCategory = UEdGraphSchema_K2::PC_Boolean;
+        bAlphaAdded = FBlueprintEditorUtils::AddMemberVariable(
+            Blueprint,
+            AlphaName,
+            BoolType);
+        bBetaAdded = FBlueprintEditorUtils::AddMemberVariable(
+            Blueprint,
+            BetaName,
+            BoolType);
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(
+            Blueprint);
+        FBlueprintActionDatabase::Get().RefreshAssetActions(Blueprint);
+        Package->SetDirtyFlag(false);
+    }
+
+    ~FVariablePaletteFixture()
+    {
+        FString Ignored;
+        Cleanup(Ignored);
+    }
+
+    FVariablePaletteFixture(const FVariablePaletteFixture&) = delete;
+    FVariablePaletteFixture& operator=(
+        const FVariablePaletteFixture&) = delete;
+
+    bool IsValid() const
+    {
+        return Package != nullptr
+            && Blueprint != nullptr
+            && Graph != nullptr
+            && bAlphaAdded
+            && bBetaAdded
+            && VariableGuid(AlphaName).IsValid()
+            && VariableGuid(BetaName).IsValid();
+    }
+
+    FGuid VariableGuid(const FName Name) const
+    {
+        if (Blueprint == nullptr)
+        {
+            return FGuid();
+        }
+        const int32 Index =
+            FBlueprintEditorUtils::FindNewVariableIndex(
+                Blueprint,
+                Name);
+        return Blueprint->NewVariables.IsValidIndex(Index)
+            ? Blueprint->NewVariables[Index].VarGuid
+            : FGuid();
+    }
+
+    bool Cleanup(FString& OutError)
+    {
+        if (bCleaned)
+        {
+            OutError.Reset();
+            return true;
+        }
+        bCleaned = true;
+        if (Blueprint != nullptr)
+        {
+            FBlueprintActionDatabase::Get().ClearAssetActions(
+                Blueprint);
+        }
+        UPackage* PackageToUnload = Package;
+        Blueprint = nullptr;
+        Graph = nullptr;
+        Package = nullptr;
+        return RobustGraphUnloadPackage(
+            PackageToUnload,
+            OutError);
+    }
+
+    UPackage* Package = nullptr;
+    UBlueprint* Blueprint = nullptr;
+    UEdGraph* Graph = nullptr;
+    const FName AlphaName = TEXT("LoomlePaletteAlpha");
+    const FName BetaName = TEXT("LoomlePaletteBeta");
+
+private:
+    FString PackageName;
+    bool bAnim = false;
+    bool bAlphaAdded = false;
+    bool bBetaAdded = false;
+    bool bCleaned = false;
+};
+
 FString RobustGraphFindPaletteId(
     const TSharedPtr<FJsonObject>& Result,
     const FString& ExpectedType)
@@ -1016,6 +1158,23 @@ FString RobustGraphFindPaletteId(
         }
     }
     return FString();
+}
+
+FString RobustGraphFindVariablePaletteId(
+    const FSalResolvedTarget& Target,
+    const FString& Verb,
+    const FName VariableName,
+    const FString& ExpectedType)
+{
+    FSalQuery Palette =
+        RobustGraphQuery(TEXT("palette_entries"));
+    Palette.Operation->SetStringField(
+        TEXT("text"),
+        Verb + TEXT(" ") + VariableName.ToString());
+    Palette.PageLimit = 10;
+    return RobustGraphFindPaletteId(
+        FSalGraphInterface::Query(Palette, Target),
+        ExpectedType);
 }
 
 FString RobustGraphResolvedRef(
@@ -1393,6 +1552,281 @@ bool FSalRobustGraphTraversalPaletteTest::RunTest(
             FSalGraphInterface::Query(Palette, Target),
             TEXT("validation.invalid_cursor")));
     return true;
+}
+
+bool RobustGraphRunVariablePaletteIdentityCase(
+    FAutomationTestBase& Test,
+    const bool bAnimBlueprint)
+{
+    const FString Surface =
+        bAnimBlueprint ? TEXT("AnimBP") : TEXT("Blueprint");
+    FVariablePaletteFixture Fixture(bAnimBlueprint);
+    if (!Test.TestTrue(
+            *FString::Printf(
+                TEXT("%s variable Palette fixture is valid"),
+                *Surface),
+            Fixture.IsValid()))
+    {
+        return false;
+    }
+
+    const FSalResolvedTarget Target =
+        RobustGraphTarget(Fixture.Blueprint, Fixture.Graph);
+    const FString GetType =
+        TEXT("/Script/BlueprintGraph.K2Node_VariableGet");
+    const FString SetType =
+        TEXT("/Script/BlueprintGraph.K2Node_VariableSet");
+    const FString AlphaGet =
+        RobustGraphFindVariablePaletteId(
+            Target,
+            TEXT("Get"),
+            Fixture.AlphaName,
+            GetType);
+    const FString BetaGet =
+        RobustGraphFindVariablePaletteId(
+            Target,
+            TEXT("Get"),
+            Fixture.BetaName,
+            GetType);
+    const FString AlphaSet =
+        RobustGraphFindVariablePaletteId(
+            Target,
+            TEXT("Set"),
+            Fixture.AlphaName,
+            SetType);
+    const FString BetaSet =
+        RobustGraphFindVariablePaletteId(
+            Target,
+            TEXT("Set"),
+            Fixture.BetaName,
+            SetType);
+
+    const bool bDiscovered =
+        !AlphaGet.IsEmpty()
+        && !BetaGet.IsEmpty()
+        && !AlphaSet.IsEmpty()
+        && !BetaSet.IsEmpty();
+    Test.TestTrue(
+        *FString::Printf(
+            TEXT("%s discovers both variable Getter and Setter actions"),
+            *Surface),
+        bDiscovered);
+    Test.TestNotEqual(
+        *FString::Printf(
+            TEXT("%s Getter Palette identities distinguish variables"),
+            *Surface),
+        AlphaGet,
+        BetaGet);
+    Test.TestNotEqual(
+        *FString::Printf(
+            TEXT("%s Setter Palette identities distinguish variables"),
+            *Surface),
+        AlphaSet,
+        BetaSet);
+    if (!bDiscovered
+        || AlphaGet == BetaGet
+        || AlphaSet == BetaSet)
+    {
+        return false;
+    }
+
+    for (const FString& PaletteId :
+         {AlphaGet, BetaGet, AlphaSet, BetaSet})
+    {
+        FSalQuery Exact =
+            RobustGraphQuery(TEXT("palette"));
+        Exact.Operation->SetStringField(
+            TEXT("id"),
+            PaletteId);
+        Exact.With.Add(TEXT("schema"));
+        const TSharedPtr<FJsonObject> Result =
+            FSalGraphInterface::Query(Exact, Target);
+        Test.TestFalse(
+            *FString::Printf(
+                TEXT("%s exact variable Palette identity resolves [%s]"),
+                *Surface,
+                *RobustGraphDiagnosticsText(Result)),
+            RobustGraphHasError(Result));
+    }
+
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!Test.TestTrue(
+            *FString::Printf(
+                TEXT("%s variable Palette test isolates Undo history"),
+                *Surface),
+            Transactions.Initialize()))
+    {
+        return false;
+    }
+
+    FSalPatch Patch;
+    Patch.Alias = TEXT("graph");
+    Patch.bDryRun = true;
+    Patch.Statements = {
+        RobustGraphBinding(
+            TEXT("AlphaSet"),
+            AlphaSet,
+            SetType),
+        RobustGraphUnary(
+            TEXT("add"),
+            RobustGraphLocal(TEXT("AlphaSet"))),
+        RobustGraphBinding(
+            TEXT("BetaSet"),
+            BetaSet,
+            SetType),
+        RobustGraphUnary(
+            TEXT("add"),
+            RobustGraphLocal(TEXT("BetaSet")))};
+
+    const int32 OriginalNodeCount =
+        Fixture.Graph->Nodes.Num();
+    const TSharedPtr<FJsonObject> DryRun =
+        FSalGraphInterface::Patch(Patch, Target);
+    const bool bDryRunValid =
+        RobustGraphResultBool(DryRun, TEXT("valid"));
+    Test.TestTrue(
+        *FString::Printf(
+            TEXT("%s variable Setter dry run resolves through sandbox [%s]"),
+            *Surface,
+            *RobustGraphDiagnosticsText(DryRun)),
+        bDryRunValid);
+    Test.TestEqual(
+        *FString::Printf(
+            TEXT("%s variable Setter dry run leaves source unchanged"),
+            *Surface),
+        Fixture.Graph->Nodes.Num(),
+        OriginalNodeCount);
+    if (!bDryRunValid)
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    Patch.bDryRun = false;
+    const TSharedPtr<FJsonObject> Applied =
+        FSalGraphInterface::Patch(Patch, Target);
+    const bool bApplied =
+        RobustGraphResultBool(Applied, TEXT("valid"))
+        && RobustGraphResultBool(Applied, TEXT("applied"));
+    Test.TestTrue(
+        *FString::Printf(
+            TEXT("%s creates both exact variable Setter Nodes [%s]"),
+            *Surface,
+            *RobustGraphDiagnosticsText(Applied)),
+        bApplied);
+    if (!bApplied)
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    FGuid AlphaNodeGuid;
+    FGuid BetaNodeGuid;
+    const bool bResolved =
+        FGuid::Parse(
+            RobustGraphResolvedRef(Applied, TEXT("AlphaSet")),
+            AlphaNodeGuid)
+        && FGuid::Parse(
+            RobustGraphResolvedRef(Applied, TEXT("BetaSet")),
+            BetaNodeGuid);
+    Test.TestTrue(
+        *FString::Printf(
+            TEXT("%s resolves both Setter aliases"),
+            *Surface),
+        bResolved);
+    UK2Node_VariableSet* AlphaNode =
+        bResolved
+            ? Cast<UK2Node_VariableSet>(
+                FRobustGraphFixture::FindNodeByGuid(
+                    Fixture.Graph,
+                    AlphaNodeGuid))
+            : nullptr;
+    UK2Node_VariableSet* BetaNode =
+        bResolved
+            ? Cast<UK2Node_VariableSet>(
+                FRobustGraphFixture::FindNodeByGuid(
+                    Fixture.Graph,
+                    BetaNodeGuid))
+            : nullptr;
+    Test.TestNotNull(
+        *FString::Printf(
+            TEXT("%s Alpha Setter has the requested native type"),
+            *Surface),
+        AlphaNode);
+    Test.TestNotNull(
+        *FString::Printf(
+            TEXT("%s Beta Setter has the requested native type"),
+            *Surface),
+        BetaNode);
+    Test.TestTrue(
+        *FString::Printf(
+            TEXT("%s Alpha Setter preserves the requested member identity"),
+            *Surface),
+        AlphaNode != nullptr
+            && AlphaNode->VariableReference.GetMemberGuid()
+                == Fixture.VariableGuid(Fixture.AlphaName));
+    Test.TestTrue(
+        *FString::Printf(
+            TEXT("%s Beta Setter preserves the requested member identity"),
+            *Surface),
+        BetaNode != nullptr
+            && BetaNode->VariableReference.GetMemberGuid()
+                == Fixture.VariableGuid(Fixture.BetaName));
+
+    if (bResolved)
+    {
+        FSalPatch Remove;
+        Remove.Alias = TEXT("graph");
+        Remove.Statements = {
+            RobustGraphUnary(
+                TEXT("remove"),
+                RobustGraphTyped(
+                    TEXT("node"),
+                    AlphaNodeGuid)),
+            RobustGraphUnary(
+                TEXT("remove"),
+                RobustGraphTyped(
+                    TEXT("node"),
+                    BetaNodeGuid))};
+        const TSharedPtr<FJsonObject> Removed =
+            FSalGraphInterface::Patch(Remove, Target);
+        Test.TestTrue(
+            *FString::Printf(
+                TEXT("%s removes both temporary Setter Nodes"),
+                *Surface),
+            RobustGraphResultBool(Removed, TEXT("valid"))
+                && RobustGraphResultBool(
+                    Removed,
+                    TEXT("applied")));
+    }
+    Transactions.Restore();
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphVariablePaletteIdentityTest,
+    "Loomle.Sal.Robustness.Graph.VariablePaletteIdentity",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphVariablePaletteIdentityTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(
+            *this,
+            TEXT("Graph variable Palette identity coverage")))
+    {
+        return false;
+    }
+    const bool bBlueprint =
+        RobustGraphRunVariablePaletteIdentityCase(
+            *this,
+            false);
+    const bool bAnimBlueprint =
+        RobustGraphRunVariablePaletteIdentityCase(
+            *this,
+            true);
+    return bBlueprint && bAnimBlueprint;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(

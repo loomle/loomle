@@ -184,6 +184,16 @@ exact read, PinId reuse on another Node in the bound Graph reports
 unrelated Node dry run remains valid. The complete 128-test run passed without
 a failure, crash report, or runner-classified log hazard.
 
+## Variable Palette Identity Audit
+
+The July 24 macOS arm64 run raises the suite from 128 to 129 tests. The added
+Graph regression proves that member-variable Getter and Setter Palette
+identities distinguish two variables, exact reads replay all four identities,
+and both dry-run and live Patch create Set Nodes for the requested `VarGuid` in
+ordinary Blueprints and Animation Blueprints. The test removes the temporary
+Nodes before fixture cleanup. The complete 129-test run passed without a
+failure, crash report, or runner-classified log hazard.
+
 ## Release Gate
 
 An active public operation must have a matrix entry and a named native test.
@@ -203,7 +213,7 @@ The second remediation provides representative anchors for items 1–4 and the
 transport behavior in item 6. Item 5 remains partial until real Blueprint and
 Widget editor focus/selection paths are exercised. The stricter per-surface
 boundaries in the table above remain release risks even though the current
-128-test matrix is green.
+129-test matrix is green.
 
 Synthetic fixtures remain useful for deterministic edge cases. At least one
 authored, compiled asset fixture must protect each Blueprint-owned interface so

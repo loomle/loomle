@@ -1794,6 +1794,32 @@ Bridge session cache. Graph, Pin, Schema, or action-state changes may make it
 stale; the adapter then returns a precise diagnostic rather than performing a
 new fuzzy search.
 
+The identity must distinguish every active UE action in that exact context.
+UE's `FBlueprintNodeSignature` is not sufficient by itself: some native
+spawners intentionally use signatures that are unique only inside their
+`FBlueprintActionDatabase` owner. In particular, member-variable Getter and
+Setter spawners identify only the Node Class in their native spawner signature.
+Graph therefore extends variable-action identity with UE-owned semantic state:
+
+- the spawned Node Class;
+- a Blueprint-owned member's owning `BlueprintGuid` and property `VarGuid`;
+- for native/external fields without Blueprint variable identity, the exact
+  native owner and field path.
+
+These values are normalized so the same action has the same identity in the
+live Blueprint and its isolated dry-run Blueprint. During preflight the adapter
+cannot register the transient Blueprint in UE's asset-only action database.
+When the database therefore has no matching variable action, the adapter uses
+the same native `UBlueprintVariableNodeSpawner::CreateFromMemberOrParam` path
+as UE's action database against the sandbox Skeleton Generated Class, accepts
+it only when its semantic identity exactly matches the requested id, and
+invokes it only in the isolated Graph for preflight because UE's template cache
+intentionally excludes transient user Graphs.
+Localized menu text, friendly names, transient Class Paths, and action-list
+position are never identity. If zero actions match an id it is stale. If
+multiple active actions match an id, exact Palette read and Patch fail with
+`resolution.palette_ambiguous`; the adapter never selects the first match.
+
 Exact entry reads use that identity:
 
 
