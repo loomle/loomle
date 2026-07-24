@@ -38,7 +38,7 @@ test("real Client process survives restart, stale record, and in-flight disconne
   );
   const scenarioEvents = [];
   const result = await runPackagedRuntimeLifecycle({
-    projectRoot: resolve("test-project"),
+    projectRoot: resolve("tests", "fixtures", "ue", "LoomleTestHost"),
     fixture,
     stateRoot,
     clientExecutable: process.execPath,
