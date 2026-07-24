@@ -170,8 +170,9 @@ observation, and Client reconnection. A separate candidate-Client transport
 phase covers runtime identity replacement, stale-record rejection, and
 in-flight disconnect against a deterministic Bridge test double. It does not
 constitute a real Editor restart or shutdown test. Real Editor restart, forced
-Editor termination, a request interrupted by real UE shutdown, and execution
-of the named-pipe path on Windows remain pending.
+Editor termination, and a request interrupted by real UE shutdown remain
+pending. The packaged Win64 workflow now executes the real named-pipe path from
+the bundled Client through the Editor Bridge.
 
 ## Blueprint Preflight Regression
 
@@ -378,12 +379,15 @@ promotion and advertised platform support do not consume it until a later
 explicit release decision. The QA executable may remain unsigned; distributing
 it requires a separately confirmed Authenticode and SmartScreen policy.
 
-The 2026-07-23 local Windows acceptance audit used pinned Node 24.18.0 and the
-UE 5.7.4 Installed Build. The repository test command passed, UE BuildPlugin
-completed for Win64, and the complete Loomle Automation category passed 81 of
-81 tests with no log hazards or new crash reports. This validates the
-test-bearing Windows candidate; packaged end-to-end and release-archive gates
-remain separate requirements for promotion.
+The 2026-07-24 local Windows repair audit used pinned Node 24.18.0 and the UE
+5.7.4 Installed Build. The repository test command passed; both the
+test-bearing and stripped Win64 BuildPlugin candidates compiled; all 127 UE
+Automation tests passed; and the nine-step packaged end-to-end workflow passed
+against the final ZIP. The archive contained neither the native test subtree
+nor `Intermediate/`, and the run produced no runner-classified log hazard, new
+crash report, or orphaned Editor process. This validates the local source state
+and Windows QA gates; promotion still requires a committed same-SHA workflow
+run and the channel's signing policy.
 
 Manual promotion takes a successful `verify-fab-mac.yml` run ID. It verifies
 the run identity, commit, results, candidate hash, product version, and release

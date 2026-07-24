@@ -462,6 +462,24 @@ test("rejects a FilterPlugin contract that still names Resources\/MCP", async ()
   }
 });
 
+test("rejects a FilterPlugin contract that can retain BuildPlugin Intermediate output", async () => {
+  const fixture = await createFixture("darwin-arm64", {
+    missingIntermediateExclusion: true,
+  });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /FilterPlugin\.ini is missing required entries:.*-\/Intermediate\/\.\.\./s,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("rejects unexpected platform binaries outside the canonical Client path", async () => {
   const fixture = await createFixture("darwin-arm64", { unexpectedBinary: true });
   try {
@@ -685,7 +703,8 @@ async function createFixture(target, options = {}) {
     join(pluginRoot, "Config", "FilterPlugin.ini"),
     options.legacyFilter
       ? "[FilterPlugin]\n/Config/FilterPlugin.ini\n/Resources/MCP/...\n/Resources/LoomleToolbarIcon.png\n/README.md\n/LICENSE\n/THIRD_PARTY_NOTICES.txt\n"
-      : "[FilterPlugin]\n/Config/FilterPlugin.ini\n/Resources/Loomle/...\n/Resources/LoomleToolbarIcon.png\n/README.md\n/LICENSE\n/THIRD_PARTY_NOTICES.txt\n",
+      : "[FilterPlugin]\n/Config/FilterPlugin.ini\n/Resources/Loomle/...\n/Resources/LoomleToolbarIcon.png\n/README.md\n/LICENSE\n/THIRD_PARTY_NOTICES.txt\n"
+        + (options.missingIntermediateExclusion ? "" : "-/Intermediate/...\n"),
   );
   await write(join(pluginRoot, "Resources", "LoomleToolbarIcon.png"), "icon");
   await write(join(pluginRoot, "Resources", "MCP", "legacy.py"), "retired");

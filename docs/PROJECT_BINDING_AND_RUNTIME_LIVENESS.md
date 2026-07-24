@@ -188,6 +188,14 @@ UE 5.7 lifecycle mapping follows native engine boundaries:
   `FCoreDelegates::OnEnginePreExit` provides an idempotent shutdown fallback;
 - `OnPreExit` remains a final fallback, not the primary unpublish point.
 
+On Windows, every named-pipe instance uses overlapped I/O. The listener,
+connection reader, and serialized response writer each own their operation's
+`OVERLAPPED` state. This matches Win32's duplex concurrency model: a pending
+read must not serialize a response write behind the next client frame.
+Shutdown calls `CancelIoEx` before closing the instance, and connection serials
+remain the authority that prevents a completed request from writing to a
+replacement connection.
+
 Draining first removes the runtime record and stops admitting new work, then
 closes the listener and active transport sessions. Each runtime removes only
 its own record and endpoint.

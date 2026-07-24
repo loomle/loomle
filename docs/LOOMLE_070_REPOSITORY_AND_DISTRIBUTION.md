@@ -190,6 +190,13 @@ with Loomle's `LICENSE` and a generated `THIRD_PARTY_NOTICES.txt`. The notices
 are generated from the pinned Node runtime and the production packages in the
 root lockfile; missing license text fails assembly.
 
+UE 5.7 `BuildPlugin` treats compiled build products as implicit includes, which
+on Windows includes the module import library under `Intermediate/Build`.
+Loomle's filter contract therefore ends with an explicit
+`-/Intermediate/...` rule. Epic's `FileFilter` applies the last matching rule,
+so the release candidate excludes the entire development-only subtree while
+retaining the runtime binary under `Binaries/`.
+
 ## Host Setup
 
 The Bridge resolves exactly one Client path for its current compiled target:

@@ -28,7 +28,42 @@ DEFINE_LOG_CATEGORY_STATIC(LogLoomlePipe, Log, All);
 
 namespace
 {
-#if !PLATFORM_WINDOWS
+#if PLATFORM_WINDOWS
+bool CompleteOverlappedOperation(
+    HANDLE Handle,
+    OVERLAPPED& Operation,
+    const BOOL bCompletedImmediately,
+    const DWORD StartError,
+    DWORD& OutBytesTransferred,
+    DWORD& OutError)
+{
+    OutBytesTransferred = 0;
+    OutError = ERROR_SUCCESS;
+    if (!bCompletedImmediately)
+    {
+        if (StartError != ERROR_IO_PENDING)
+        {
+            OutError = StartError;
+            return false;
+        }
+        if (WaitForSingleObject(Operation.hEvent, INFINITE) != WAIT_OBJECT_0)
+        {
+            OutError = GetLastError();
+            return false;
+        }
+    }
+    if (!GetOverlappedResult(
+            Handle,
+            &Operation,
+            &OutBytesTransferred,
+            false))
+    {
+        OutError = GetLastError();
+        return false;
+    }
+    return true;
+}
+#else
 constexpr int32 UnixSocketListenBacklog = SOMAXCONN;
 #endif
 
@@ -363,7 +398,7 @@ uint32 FLoomlePipeServer::Run()
     {
         HANDLE LocalPipe = CreateNamedPipeW(
             *FullPipePath,
-            PIPE_ACCESS_DUPLEX,
+            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             PIPE_UNLIMITED_INSTANCES,
             64 * 1024,
@@ -397,7 +432,39 @@ uint32 FLoomlePipeServer::Run()
 
         SetListenerState(ELoomlePipeListenerState::Listening);
 
-        const BOOL bConnected = ConnectNamedPipe(LocalPipe, nullptr) || (GetLastError() == ERROR_PIPE_CONNECTED);
+        HANDLE ConnectEvent = CreateEventW(nullptr, false, false, nullptr);
+        bool bConnected = false;
+        DWORD ConnectError = ERROR_SUCCESS;
+        if (ConnectEvent != nullptr)
+        {
+            OVERLAPPED ConnectOperation = {};
+            ConnectOperation.hEvent = ConnectEvent;
+            const BOOL bConnectedImmediately =
+                ConnectNamedPipe(LocalPipe, &ConnectOperation);
+            ConnectError = bConnectedImmediately
+                ? ERROR_SUCCESS
+                : GetLastError();
+            if (ConnectError == ERROR_PIPE_CONNECTED)
+            {
+                bConnected = true;
+            }
+            else
+            {
+                DWORD BytesTransferred = 0;
+                bConnected = CompleteOverlappedOperation(
+                    LocalPipe,
+                    ConnectOperation,
+                    bConnectedImmediately,
+                    ConnectError,
+                    BytesTransferred,
+                    ConnectError);
+            }
+            CloseHandle(ConnectEvent);
+        }
+        else
+        {
+            ConnectError = GetLastError();
+        }
         {
             FScopeLock ScopeLock(&ConnectionsMutex);
             if (PendingPipeHandle == LocalPipe)
@@ -407,7 +474,10 @@ uint32 FLoomlePipeServer::Run()
         }
         if (!bConnected)
         {
-            UE_LOG(LogLoomlePipe, Warning, TEXT("ConnectNamedPipe failed, error=%lu"), GetLastError());
+            if (!bStopRequested && ConnectError != ERROR_OPERATION_ABORTED)
+            {
+                UE_LOG(LogLoomlePipe, Warning, TEXT("ConnectNamedPipe failed, error=%lu"), ConnectError);
+            }
             CloseHandle(LocalPipe);
             continue;
         }
@@ -570,6 +640,15 @@ bool FLoomlePipeServer::WriteMessageForConnection(const FString& Message, int32 
     {
         return false;
     }
+    HANDLE WriteEvent = CreateEventW(nullptr, false, false, nullptr);
+    if (WriteEvent == nullptr)
+    {
+        return false;
+    }
+    ON_SCOPE_EXIT
+    {
+        CloseHandle(WriteEvent);
+    };
     int32 Offset = 0;
     while (Offset < Utf8.Length())
     {
@@ -577,14 +656,26 @@ bool FLoomlePipeServer::WriteMessageForConnection(const FString& Message, int32 
         {
             return false;
         }
+        ResetEvent(WriteEvent);
+        OVERLAPPED WriteOperation = {};
+        WriteOperation.hEvent = WriteEvent;
         DWORD BytesWritten = 0;
         const BOOL bOk = WriteFile(
             LocalHandle,
             Utf8.Get() + Offset,
             static_cast<DWORD>(Utf8.Length() - Offset),
-            &BytesWritten,
-            nullptr);
-        if (!bOk || BytesWritten == 0)
+            nullptr,
+            &WriteOperation);
+        const DWORD StartError = bOk ? ERROR_SUCCESS : GetLastError();
+        DWORD WriteError = ERROR_SUCCESS;
+        if (!CompleteOverlappedOperation(
+                LocalHandle,
+                WriteOperation,
+                bOk,
+                StartError,
+                BytesWritten,
+                WriteError)
+            || BytesWritten == 0)
         {
             return false;
         }
@@ -630,15 +721,46 @@ void FLoomlePipeServer::HandleWindowsClient(void* NativeHandle, int32 Connection
     };
 
     HANDLE LocalPipe = static_cast<HANDLE>(NativeHandle);
+    HANDLE ReadEvent = CreateEventW(nullptr, false, false, nullptr);
+    if (ReadEvent == nullptr)
+    {
+        UnregisterConnection(ConnectionSerial);
+        if (ConnectionClosedHandler)
+        {
+            ConnectionClosedHandler(ConnectionSerial);
+        }
+        return;
+    }
+    ON_SCOPE_EXIT
+    {
+        CloseHandle(ReadEvent);
+    };
     TArray<uint8> PendingBytes;
     PendingBytes.Reserve(64 * 1024);
 
     while (!bStopRequested)
     {
         uint8 Buffer[4096];
+        ResetEvent(ReadEvent);
+        OVERLAPPED ReadOperation = {};
+        ReadOperation.hEvent = ReadEvent;
         DWORD BytesRead = 0;
-        const BOOL bReadOk = ReadFile(LocalPipe, Buffer, sizeof(Buffer), &BytesRead, nullptr);
-        if (!bReadOk || BytesRead == 0)
+        const BOOL bReadOk = ReadFile(
+            LocalPipe,
+            Buffer,
+            sizeof(Buffer),
+            nullptr,
+            &ReadOperation);
+        const DWORD StartError = bReadOk ? ERROR_SUCCESS : GetLastError();
+        DWORD ReadError = ERROR_SUCCESS;
+        if (!CompleteOverlappedOperation(
+                LocalPipe,
+                ReadOperation,
+                bReadOk,
+                StartError,
+                BytesRead,
+                ReadError)
+            || BytesRead == 0)
         {
             break;
         }

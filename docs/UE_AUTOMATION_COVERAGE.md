@@ -152,7 +152,28 @@ definitions strictly gives the following state:
 | Reference | Contract | Six local declaration kinds, Blueprint/Graph scope, pagination, zero-load project index | Widget, Macro, native member, and project parity |
 | StateTree | Contract with a Persistent anchor | Class-backed Node/Binding and compile/save/reload | Failure after live mutation begins |
 | Editor Context | Smoke | Modal, Content Browser, Level Editor, unknown fallback | Real Blueprint/Widget/Details focus and selection recovery |
-| Pipe | Real transport contract with Lifecycle anchors | Round trip, control, stale isolation, worker-aware stop | Busy saturation, partial frames, blocked I/O, multiple clients, Windows execution |
+| Pipe | Real transport contract with Lifecycle anchors | Windows overlapped round trip, control, stale isolation, worker-aware stop | Busy saturation, partial frames, and multiple simultaneous clients |
+
+## Windows Repair Audit
+
+The July 24 Windows run kept the 127-test matrix and exercised it against UE
+5.7.4. It closed three host-specific regressions without weakening the
+existing assertions:
+
+- Windows Pipe instances now use independent overlapped connect, read, and
+  serialized write operations, so a pending read cannot hold the preceding
+  response until another client frame arrives;
+- Graph Palette searches use UE's complete localized/source search text and
+  native Schema weight, with exact source or localized titles kept ahead of
+  related keyword matches for stable pagination; and
+- the `Branch` first-page, `Sequence` insertion, real Pipe round-trip, stale
+  response isolation, packaged Client-to-Editor named-pipe, and stripped
+  archive boundaries all passed in the same local audit.
+
+The repair also confirmed that UE's native action weight chooses a suggestion
+but does not itself define a paged result order. The exact-title tier is
+therefore part of Loomle's agent-facing pagination contract, while candidate
+eligibility and within-tier relevance remain UE-owned.
 
 ## Release Gate
 

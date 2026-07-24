@@ -4450,28 +4450,76 @@ bool SplitPaletteId(const FString& Id, FString& OutToken, FString& OutDescriptor
         && !OutToken.IsEmpty() && !OutDescriptor.IsEmpty();
 }
 
-bool ActionMatches(const TSharedPtr<FEdGraphSchemaAction>& Action, const FString& Text)
+void BuildActionFilterTerms(
+    const FString& Text,
+    TArray<FString>& OutTerms,
+    TArray<FString>& OutSanitizedTerms)
+{
+    OutTerms.Reset();
+    OutSanitizedTerms.Reset();
+    FString TrimmedText = Text;
+    TrimmedText.TrimStartAndEndInline();
+    TrimmedText.ParseIntoArray(OutTerms, TEXT(" "), true);
+    for (FString& Term : OutTerms)
+    {
+        Term.ToLowerInline();
+        FString Sanitized =
+            FName::NameToDisplayString(Term, false);
+        Sanitized.ReplaceInline(TEXT(" "), TEXT(""));
+        OutSanitizedTerms.Add(MoveTemp(Sanitized));
+    }
+}
+
+bool ActionMatches(
+    const TSharedPtr<FEdGraphSchemaAction>& Action,
+    const TArray<FString>& Terms,
+    const TArray<FString>& SanitizedTerms)
+{
+    if (!Action.IsValid())
+    {
+        return false;
+    }
+    const FString& SearchText = Action->GetFullSearchText();
+    for (int32 Index = 0; Index < Terms.Num(); ++Index)
+    {
+        if (!SearchText.Contains(Terms[Index], ESearchCase::CaseSensitive)
+            && !SearchText.Contains(
+                SanitizedTerms[Index],
+                ESearchCase::CaseSensitive))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+int32 ActionTitleRank(
+    const TSharedPtr<FEdGraphSchemaAction>& Action,
+    const FString& Text)
 {
     if (!Action.IsValid() || Text.IsEmpty())
     {
-        return Action.IsValid();
+        return 0;
     }
-    TArray<FString> Values;
-    Values.Add(Action->GetMenuDescription().ToString());
-    Values.Add(Action->GetCategory().ToString());
-    Values.Add(Action->GetTooltipDescription().ToString());
-    Values.Add(Action->GetKeywords().ToString());
-    Values.Append(Action->GetSearchTitleArray());
-    Values.Append(Action->GetSearchCategoryArray());
-    Values.Append(Action->GetSearchKeywordsArray());
-    for (const FString& Value : Values)
+    FString TrimmedText = Text;
+    TrimmedText.TrimStartAndEndInline();
+    const FText& MenuDescription = Action->GetMenuDescription();
+    const TArray<FString> Titles = {
+        MenuDescription.ToString(),
+        MenuDescription.BuildSourceString()};
+    int32 Rank = 2;
+    for (const FString& Title : Titles)
     {
-        if (Value.Contains(Text, ESearchCase::IgnoreCase))
+        if (Title.Equals(TrimmedText, ESearchCase::IgnoreCase))
         {
-            return true;
+            return 0;
+        }
+        if (Title.StartsWith(TrimmedText, ESearchCase::IgnoreCase))
+        {
+            Rank = 1;
         }
     }
-    return false;
+    return Rank;
 }
 
 TSharedPtr<FEdGraphSchemaAction> ResolvePaletteAction(const FSalResolvedTarget& Target, const FString& Id)
@@ -4567,11 +4615,17 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
 
     FBlueprintActionMenuBuilder Menu;
     BuildActionMenu(Target, Context.Pins, Context.SelectedObjects, Context.bContextSensitive, Menu);
+    TArray<FString> FilterTerms;
+    TArray<FString> SanitizedFilterTerms;
+    BuildActionFilterTerms(Text, FilterTerms, SanitizedFilterTerms);
+    const UEdGraphSchema* ActionSchema =
+        Target.Graph != nullptr ? Target.Graph->GetSchema() : nullptr;
     struct FMatch
     {
         TSharedPtr<FEdGraphSchemaAction> Action;
         int32 Index;
-        int32 Score;
+        int32 TitleRank;
+        float Weight;
         FString Name;
         FString Category;
         FString Id;
@@ -4582,7 +4636,12 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
     {
         TSharedPtr<FEdGraphSchemaAction> Action = Menu.GetSchemaAction(Index);
         const FString Id = PaletteId(Action, Context.Descriptor);
-        if (Id.IsEmpty() || (bExact && PaletteActionToken(Action) != ExactToken) || !ActionMatches(Action, Text))
+        if (Id.IsEmpty()
+            || (bExact && PaletteActionToken(Action) != ExactToken)
+            || !ActionMatches(
+                Action,
+                FilterTerms,
+                SanitizedFilterTerms))
         {
             continue;
         }
@@ -4602,12 +4661,36 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
             ExistingNavigation.AddUnique(Navigation);
             continue;
         }
-        const int32 Score = Text.IsEmpty() ? 0 : (Label.Equals(Text, ESearchCase::IgnoreCase) ? 0 : (Label.StartsWith(Text, ESearchCase::IgnoreCase) ? 1 : 2));
-        Matches.Add({Action, Index, Score, Label, Action->GetCategory().ToString(), Id});
+        const float Weight = FilterTerms.IsEmpty() || ActionSchema == nullptr
+            ? 0.0f
+            : ActionSchema->GetActionFilteredWeight(
+                *Action,
+                FilterTerms,
+                SanitizedFilterTerms,
+                Context.Pins);
+        Matches.Add({
+            Action,
+            Index,
+            ActionTitleRank(Action, Text),
+            Weight,
+            Label,
+            Action->GetCategory().ToString(),
+            Id});
     }
     if (Query.OrderBy.IsEmpty())
     {
-        Matches.StableSort([](const FMatch& A, const FMatch& B) { return A.Score == B.Score ? A.Index < B.Index : A.Score < B.Score; });
+        Matches.StableSort([](const FMatch& A, const FMatch& B)
+        {
+            if (A.TitleRank != B.TitleRank)
+            {
+                return A.TitleRank < B.TitleRank;
+            }
+            if (A.Weight != B.Weight)
+            {
+                return A.Weight > B.Weight;
+            }
+            return A.Index < B.Index;
+        });
     }
     else
     {

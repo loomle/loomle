@@ -462,6 +462,7 @@ async function validateFilterPlugin(filterPath) {
     "/README.md",
     "/LICENSE",
     "/THIRD_PARTY_NOTICES.txt",
+    "-/Intermediate/...",
   ];
   const missing = required.filter((entry) => !entries.has(entry));
   if (missing.length > 0) {

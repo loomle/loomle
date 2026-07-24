@@ -1759,6 +1759,20 @@ the existing `palette` creation field:
 PrintString = node(palette: "P_PrintString")
 ```
 
+Palette text search follows UE's Graph Action Menu semantics. The adapter
+trims and tokenizes the text, lowercases each term, derives UE's sanitized
+display-name form, and requires every term to match
+`FEdGraphSchemaAction::GetFullSearchText()`. Unless the caller supplies an
+explicit `order by`, matching actions are ranked by the target Graph Schema's
+`GetActionFilteredWeight(...)` with the same Pin context used to build the
+menu. An exact or prefix match against either the localized menu title or its
+source title is the primary tier, because UE uses its weight to choose a
+suggestion rather than to define a paged result order. Within that tier, higher
+native weight sorts first; equal weights retain UE's source menu order. Search
+therefore covers both localized and source action metadata and does not make an
+English query depend on the Editor display language or let a keyword-heavy
+related action displace the exact constructor from the first page.
+
 `P_PrintString` identifies the context-resolved creation entry, not a future
 Node. It must be self-contained or resolvable from current UE state without a
 Bridge session cache. Graph, Pin, Schema, or action-state changes may make it
