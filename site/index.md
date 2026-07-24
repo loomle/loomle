@@ -12,8 +12,9 @@ permalink: /
 Unreal Engine objects, made readable and editable for agents.
 {: .fs-6 .fw-300 }
 
-[Install Loomle 0.7](install.html){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[Run the Quickstart](quickstart.html){: .btn .fs-5 .mb-4 .mb-md-0 }
+[Download 0.7.0-rc.1](https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.1){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[Install](install.html){: .btn .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[Quickstart](quickstart.html){: .btn .fs-5 .mb-4 .mb-md-0 }
 
 Loomle connects Codex, Claude, and other MCP-compatible agents to a running
 Unreal Editor. It expresses Blueprint graphs, Widget trees, StateTrees, Class
@@ -26,9 +27,9 @@ types, field names, Palette capabilities, compiler diagnostics, and editor
 semantics remain UE-native.
 
 {: .note }
-> Loomle 0.7 is currently an accepted QA build and is not yet published on
-> Fab. The public Fab listing still contains Loomle 0.6. Follow
-> [Install](install.html) for the exact availability and compatibility status.
+> Loomle 0.7.0-rc.1 is available for Unreal Engine 5.7 on Apple Silicon macOS
+> and x64 Windows through GitHub Releases. The public Fab listing still
+> contains Loomle 0.6.
 
 ## The Working Model
 
@@ -84,14 +85,15 @@ straight to [Workflows](workflows/) for task-oriented examples.
 
 ## Installation Model
 
-Loomle 0.7 ships as one Fab plugin containing both the C++ Unreal Bridge and
-the matching self-contained Client:
+Loomle 0.7 ships as one platform-specific Unreal plugin package containing
+both the C++ Unreal Bridge and the matching self-contained Client:
 
 ```text
 LoomleBridge/Resources/Loomle/<platform-arch>/loomle(.exe)
 ```
 
 There is no separate Python server, Node.js runtime, global Loomle
-installation, website installer, or project-local Client. Fab owns plugin
-installation and updates; the MCP host launches the Client bundled inside that
-plugin.
+installation, website installer, or project-local Client. GitHub Releases is
+the current 0.7 release-candidate channel; the same plugin package is intended
+to move to Fab later. The MCP host launches the Client bundled inside the
+installed plugin.

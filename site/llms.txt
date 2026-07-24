@@ -18,17 +18,22 @@ Canonical user documentation:
 
 Availability and installation:
 
-- Loomle 0.7 will ship only through Fab, but its public package is not yet
-  available. The current Fab listing still distributes 0.6:
+- Loomle 0.7.0-rc.1 is available from GitHub Releases:
+  https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.1
+- Supported targets are Unreal Engine 5.7 on Apple Silicon macOS
+  (`darwin-arm64`) and x64 Windows (`win32-x64`).
+- Each platform archive contains the complete engine plugin, including the
+  matching self-contained Client.
+- The current Fab listing still distributes 0.6 and must not be used with the
+  0.7 documentation:
   https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428
-- The first accepted 0.7 QA target is UE 5.7 on Apple Silicon macOS.
 - The plugin contains the Bridge and self-contained Client at
   `Resources/Loomle/<platform-arch>/loomle(.exe)`.
 - No website installer, Python, uv, Node.js, global Loomle install, separate
   project Client, or session-attachment daemon is required.
 - When upgrading from 0.6, close Unreal Editor and remove or move the old
   `<Project>/Plugins/LoomleBridge` out of every affected project's `Plugins`
-  directory. A project plugin shadows the Fab engine plugin.
+  directory. A project plugin shadows the engine plugin.
 
 Five public MCP tools:
 

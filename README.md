@@ -61,11 +61,21 @@ interface card states the exact subjects that accept it.
 
 ## Install
 
-Loomle 0.7 will ship only through Fab. The current public
-[Fab listing](https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428)
-still distributes Loomle 0.6; the 0.7 package is not published yet.
+Loomle 0.7.0-rc.1 is available from
+[GitHub Releases](https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.1)
+for Unreal Engine 5.7:
 
-The Fab plugin contains both components:
+| Platform | Architecture | Package |
+| --- | --- | --- |
+| macOS | Apple Silicon | `loomle-fab-plugin-darwin-arm64.zip` |
+| Windows | x64 | `loomle-fab-plugin-win32-x64.zip` |
+
+The public
+[Fab listing](https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428)
+still distributes Loomle 0.6. Do not use that package with the 0.7
+documentation.
+
+Each platform archive contains both components:
 
 ```text
 LoomleBridge/
@@ -76,29 +86,36 @@ LoomleBridge/
         loomle(.exe)
 ```
 
-The executable under `Resources/Loomle` is the self-contained TypeScript/SAL
-Client. It requires no separate Python, `uv`, Node.js, global Loomle install,
-or project-local plugin copy.
+The executable under `Resources/Loomle` is the self-contained SAL Client. It
+requires no separate Python, `uv`, Node.js, global Loomle install, or
+project-local Client.
 
-The first accepted 0.7 QA target is Unreal Engine 5.7 on Apple Silicon macOS.
-Before upgrading a project that used Loomle 0.6, close Unreal Editor and remove
-or move its old `<Project>/Plugins/LoomleBridge` directory out of `Plugins`.
-A same-named project plugin takes precedence over the Fab-installed engine
-plugin and would keep loading 0.6. Back up local modifications first; Fab
-cannot remove project files for you.
+Before upgrading from 0.6, close Unreal Editor and remove or move the old
+`<Project>/Plugins/LoomleBridge` directory. A same-named project plugin takes
+precedence over the new engine plugin and would keep loading 0.6.
 
-After the matching 0.7 Fab build is published, enable `LoomleBridge`, restart
-Unreal Editor, and open the Loomle toolbar/status panel. The setup flow can
-detect supported MCP hosts and copy exact configuration guidance for the
-bundled Client; it never rewrites host configuration files automatically.
+Extract the matching archive, then copy the complete `LoomleBridge` directory
+to:
+
+```text
+<UE_5.7>/Engine/Plugins/Marketplace/LoomleBridge
+```
+
+Enable `LoomleBridge`, restart Unreal Editor, and configure an MCP server named
+`loomle` to launch the bundled Client with the argument `mcp`:
+
+```text
+macOS:   LoomleBridge/Resources/Loomle/darwin-arm64/loomle
+Windows: LoomleBridge/Resources/Loomle/win32-x64/loomle.exe
+```
 
 Full instructions: https://loomle.ai/install.html
 
 ## Quickstart
 
-1. Open an Unreal project with the Fab-installed `LoomleBridge` enabled.
-2. Open the Loomle status panel and copy the exact MCP host setup guidance.
-3. Restart Codex, Claude, or the relevant MCP host.
+1. Open an Unreal project with `LoomleBridge` enabled.
+2. Restart Codex, Claude, or the relevant MCP host after configuring Loomle.
+3. Call `project` to inspect or bind the intended project.
 4. Call `editor_context` to begin from the user's current editor state.
 5. Use `sal_schema` when the target module or exact operation is unfamiliar.
 6. Inspect with `sal_query`, dry-run changes with `sal_patch`, then apply and
@@ -147,8 +164,8 @@ npm run build:executable
 npm run test:executable
 ```
 
-Run the complete Loomle UE Automation category against a same-commit Apple
-Silicon development plugin compiled with the native tests:
+Run the complete Loomle UE Automation category against a same-commit
+development plugin compiled with the native tests:
 
 ```sh
 npm run test:ue-automation -- \
@@ -175,7 +192,7 @@ npm run test:packaged-e2e -- \
   --target darwin-arm64
 ```
 
-Fab assembly consumes only the canonical program at
+Release assembly consumes only the canonical program at
 `.tmp/client/<platform-arch>/loomle(.exe)` and combines it with the Bridge
 source plugin. See `packaging/client/` and `packaging/fab/` for the artifact
 contracts.

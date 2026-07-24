@@ -11,9 +11,6 @@ This guide completes one read-and-edit workflow. It assumes that the matching
 Loomle 0.7 plugin is installed, `LoomleBridge` is enabled, the MCP host launches
 the bundled Client, and the target Unreal project is open.
 
-Loomle 0.7 is not public yet; this workflow currently applies to the accepted
-QA build and will apply to the matching Fab package after publication.
-
 {: .note }
 > Paths and ids below are examples. Always copy Asset Paths, typed ids, Palette
 > entries, and invocation templates returned by the current project.

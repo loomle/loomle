@@ -2,92 +2,123 @@
 layout: default
 title: Install
 nav_order: 2
-description: Install Loomle 0.7 from Fab, configure an MCP host, and verify the connection.
+description: Install Loomle 0.7 for Unreal Engine 5.7 on macOS or Windows and connect an MCP host.
 ---
 
 # Install
 
-Loomle 0.7 uses Fab as its only installation channel. The plugin contains both
-the Unreal Bridge and the matching self-contained Loomle Client.
+Loomle 0.7.0-rc.1 is available as a GitHub prerelease for Unreal Engine 5.7.
+Each platform package contains both the Unreal Bridge and the matching
+self-contained Loomle Client.
+
+[View the 0.7.0-rc.1 release](https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.1){: .btn .btn-primary .fs-5 .mr-2 }
+[Read the Quickstart](quickstart.html){: .btn .fs-5 }
 
 {: .warning }
-> Loomle 0.7 is not public yet. The current
-> [Fab listing](https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428)
-> still distributes Loomle 0.6 and does not match this guide. Do not combine
-> the 0.6 package with the 0.7 documentation.
+> The public [Fab listing](https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428)
+> still distributes Loomle 0.6. Do not use that package with the 0.7
+> documentation. The same 0.7 package will move to Fab after its Fab release is
+> ready.
 
 ## Compatibility
 
-The first accepted Loomle 0.7 QA target is:
+| Unreal Engine | Operating system | Architecture | Package |
+| --- | --- | --- | --- |
+| 5.7 | macOS | Apple Silicon | `darwin-arm64` |
+| 5.7 | Windows | x64 | `win32-x64` |
 
-| Component | Accepted target |
-| --- | --- |
-| Unreal Engine | 5.7 |
-| Operating system | macOS |
-| Architecture | Apple Silicon |
-| Installation channel | Fab |
+Other engine versions, operating systems, and architectures are not part of
+this release candidate.
 
-Other engine versions and platforms are not implied until they pass the same
-native and packaged verification.
+## 1. Remove an Old Project Plugin
 
-The 0.7 plugin contains the Client at:
+Unreal gives a project plugin precedence over an engine plugin with the same
+name. An old Loomle 0.6 copy can therefore silently hide the newly installed
+0.7 plugin.
 
-```text
-<PluginPath>/Resources/Loomle/<platform-arch>/loomle(.exe)
-```
-
-The executable is self-contained. The machine does not need a separate
-Python, `uv`, Node.js, or global Loomle installation.
-
-## Upgrade From Loomle 0.6
-
-Loomle 0.6 could install `LoomleBridge` inside each Unreal project. A
-project-local plugin with the same name takes precedence over the
-Fab-installed engine plugin, so leaving an old copy in place can silently keep
-that project on 0.6.
-
-Before installing or testing 0.7:
+Before installing or updating Loomle:
 
 1. Close Unreal Editor for every affected project.
 2. Check `<Project>/Plugins/LoomleBridge`.
-3. If it is the old Loomle plugin, back up local modifications.
+3. Back up local modifications if that directory exists.
 4. Remove it or move it outside the project's `Plugins` directory.
-5. Repeat the check for every project that previously used Loomle 0.6.
+5. Repeat this check for every project that previously used Loomle 0.6.
 
-Fab cannot remove project files, and a shadowed 0.7 engine plugin cannot warn
-from a project that loaded the old copy.
+## 2. Download the Matching Package
 
-## Install the Plugin
+[Download for macOS Apple Silicon](https://github.com/loomle/loomle/releases/download/v0.7.0-rc.1/loomle-fab-plugin-darwin-arm64.zip){: .btn .btn-primary .mr-2 }
+[Download for Windows x64](https://github.com/loomle/loomle/releases/download/v0.7.0-rc.1/loomle-fab-plugin-win32-x64.zip){: .btn .btn-primary }
 
-After the matching Loomle 0.7 package is published:
+SHA-256 sidecars are available beside both ZIPs on the
+[release page](https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.1).
 
-1. Install Loomle for Unreal Engine 5.7 from Fab.
-2. Open the target Unreal project.
-3. Enable `LoomleBridge` if it is not already enabled.
-4. Restart Unreal Editor when prompted.
-5. Open the Loomle toolbar/status panel.
+### macOS security
 
-Fab and Epic Launcher own plugin installation and updates.
+This release candidate is not notarized. macOS may block the downloaded
+Client. Review the release source and package, then use **Privacy & Security**
+in System Settings if macOS asks you to approve it.
 
-## Configure the MCP Host
+### Windows security
 
-The Loomle status panel reports the exact bundled Client path for the current
-platform and gives copyable host configuration guidance. It detects supported
-Codex and Claude Desktop configurations and classifies exact, missing, 0.6,
-stale, custom, ambiguous, and unreadable entries.
+This release candidate is not Authenticode-signed. Before extracting, open the
+downloaded ZIP's **Properties** and use **Unblock** if Windows shows that
+option. Windows may also display a trust or SmartScreen warning.
 
-The panel never modifies host configuration files. Copy the guidance, update
-the host configuration yourself, then restart the MCP host.
+## 3. Install Into Unreal Engine
+
+Extract the ZIP. It contains one `LoomleBridge` directory. Copy that complete
+directory to:
+
+```text
+<UE_5.7>/Engine/Plugins/Marketplace/LoomleBridge
+```
+
+Common Epic Launcher engine roots are:
+
+```text
+macOS:   /Users/Shared/Epic Games/UE_5.7
+Windows: C:\Program Files\Epic Games\UE_5.7
+```
+
+Custom engine installs may use another root. The final descriptor must be:
+
+```text
+<UE_5.7>/Engine/Plugins/Marketplace/LoomleBridge/LoomleBridge.uplugin
+```
+
+Avoid an accidental nested path such as
+`LoomleBridge/LoomleBridge/LoomleBridge.uplugin`. When updating, close Unreal
+Editor and replace the entire old `LoomleBridge` directory instead of merging
+files from different versions.
+
+Open the project, enable `LoomleBridge` if Unreal asks, and restart Unreal
+Editor when prompted.
+
+## 4. Configure the MCP Host
+
+Configure one stdio MCP server named `loomle`. Its command is the absolute path
+to the Client bundled inside the installed plugin:
+
+| Platform | Client path below `LoomleBridge` |
+| --- | --- |
+| macOS | `Resources/Loomle/darwin-arm64/loomle` |
+| Windows | `Resources/Loomle/win32-x64/loomle.exe` |
+
+The Client is self-contained. Do not install Python, `uv`, Node.js, or a
+separate global Loomle package, and do not copy the Client out of the plugin.
 
 ### Codex
 
-Use the absolute path reported by the Loomle panel:
+Add the absolute Client path to the Codex MCP configuration:
 
 ```toml
 [mcp_servers.loomle]
-command = "/absolute/path/to/LoomleBridge/Resources/Loomle/<platform-arch>/loomle"
+command = "/absolute/path/to/LoomleBridge/Resources/Loomle/darwin-arm64/loomle"
 args = ["mcp"]
 ```
+
+On Windows, use the corresponding `win32-x64/loomle.exe` path. Forward slashes
+are accepted in the path and avoid TOML backslash escaping.
 
 ### Claude Desktop-style hosts
 
@@ -95,47 +126,40 @@ args = ["mcp"]
 {
   "mcpServers": {
     "loomle": {
-      "command": "/absolute/path/to/LoomleBridge/Resources/Loomle/<platform-arch>/loomle",
+      "command": "/absolute/path/to/LoomleBridge/Resources/Loomle/darwin-arm64/loomle",
       "args": ["mcp"]
     }
   }
 }
 ```
 
-Replace the example with the real absolute path. Do not copy the Client out of
-the plugin and do not use `<platform-arch>` literally.
+Use the Windows Client path on Windows. After changing MCP configuration,
+restart Codex, Claude, or the relevant MCP host.
 
-## Verify the Connection
+## 5. Verify the Connection
 
-After restarting the MCP host:
+Keep the target Unreal project open, then:
 
-1. Keep the target Unreal project open.
-2. Call `project({})`.
-3. If the session is not bound, copy the returned `projectId` into
+1. Call `project({})`.
+2. If no project is bound, use a returned `projectId` with
    `project({ projectId: "<id>" })`.
-4. Call `editor_context({})`.
-5. Confirm that the result identifies the current editor surface or active
-   asset.
-6. Call `sal_schema({})` and confirm that the active interface index is
-   available.
+3. Call `editor_context({})`.
+4. Call `sal_schema({})` and confirm that the interface index is available.
 
-`sal_schema` is local and works without an online Editor. The other UE-backed
-tools require the session's bound project to have one healthy Editor runtime.
+`sal_schema` is local and remains available when Unreal Editor is offline. The
+other UE-backed tools require the bound project to have one healthy Editor
+runtime.
 
 Continue with the [Quickstart](quickstart.html).
 
-## Project Discovery
+## Troubleshooting
 
-When Unreal Editor runs with `LoomleBridge`, the plugin publishes transient
-local discovery state under:
-
-```text
-~/.loomle/state/runtimes
-```
-
-This directory is not an installation. One MCP session binds to one project,
-and that binding remains sticky across Editor restarts. If the bound project
-goes offline, Loomle reports it instead of silently switching to another
-online project.
-
-See [Project Binding](calls/project.html) for the complete user-facing model.
+- **The MCP host does not show Loomle:** restart the host after changing its
+  configuration and verify the absolute Client path.
+- **The project is offline:** open that exact Unreal project with
+  `LoomleBridge` enabled.
+- **Loomle still behaves like 0.6:** search the project for an old
+  `Plugins/LoomleBridge` directory.
+- **The Client is blocked:** follow the platform security guidance above.
+- **Several projects are available:** call `project({})` and bind the intended
+  `projectId`; Loomle never guesses between projects.
