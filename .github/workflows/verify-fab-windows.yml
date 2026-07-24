@@ -13,6 +13,8 @@ concurrency:
 jobs:
   verify-fab-windows:
     runs-on: [self-hosted, Windows, X64, loomle-win, ue57]
+    env:
+      LOOMLE_CLIENT_RUNTIME_CACHE: ${{ runner.tool_cache }}\loomle-client-runtime
     defaults:
       run:
         shell: pwsh
@@ -58,15 +60,28 @@ jobs:
             -Raw | ConvertFrom-Json
           $runtime = $manifest.targets.'win32-x64'
           $archiveName = [IO.Path]::GetFileName(([Uri] $runtime.url).AbsolutePath)
-          $archive = Join-Path $env:RUNNER_TEMP $archiveName
+          $cache = $env:LOOMLE_CLIENT_RUNTIME_CACHE
+          New-Item -ItemType Directory -Path $cache -Force | Out-Null
+          $archive = Join-Path $cache $archiveName
+          $partialArchive = "$archive.partial"
           $runtimeRoot = Join-Path $env:RUNNER_TEMP "loomle-node-$($manifest.nodeVersion)-win32-x64"
 
-          Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
           Remove-Item -LiteralPath $runtimeRoot -Recurse -Force -ErrorAction SilentlyContinue
-          Invoke-WebRequest -Uri $runtime.url -OutFile $archive
-          $actualHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actualHash -ne $runtime.sha256) {
-            throw "Pinned Node archive checksum mismatch: $actualHash"
+          if (Test-Path -LiteralPath $archive -PathType Leaf) {
+            $actualHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -ne $runtime.sha256) {
+              Remove-Item -LiteralPath $archive -Force
+            }
+          }
+          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+            Remove-Item -LiteralPath $partialArchive -Force -ErrorAction SilentlyContinue
+            Invoke-WebRequest -Uri $runtime.url -OutFile $partialArchive
+            $actualHash = (Get-FileHash -LiteralPath $partialArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -ne $runtime.sha256) {
+              Remove-Item -LiteralPath $partialArchive -Force
+              throw "Pinned Node archive checksum mismatch: $actualHash"
+            }
+            Move-Item -LiteralPath $partialArchive -Destination $archive
           }
           Expand-Archive -LiteralPath $archive -DestinationPath $runtimeRoot
           $nodeDirectory = Join-Path $runtimeRoot $runtime.archiveRoot
@@ -81,10 +96,6 @@ jobs:
             throw "Pinned Node reports $version; expected v$($manifest.nodeVersion)."
           }
           $nodeDirectory >> $env:GITHUB_PATH
-
-          $clientCache = Join-Path $env:GITHUB_WORKSPACE ".tmp\client-cache"
-          New-Item -ItemType Directory -Path $clientCache -Force | Out-Null
-          Copy-Item -LiteralPath $archive -Destination (Join-Path $clientCache $archiveName)
 
       - name: Install Dependencies
         run: npm ci

@@ -35,6 +35,12 @@ receives an ad-hoc local signature. The Windows QA executable remains unsigned.
 Snapshot and code cache generation are disabled so the executable does not
 capture build-machine state.
 
+The archive defaults to the disposable `.tmp/client-cache` directory. A native
+self-hosted runner sets the absolute `LOOMLE_CLIENT_RUNTIME_CACHE` directory to
+its persistent tool cache, so the official archive is downloaded once and
+reused across clean checkouts. Every build hashes the cached archive against
+`node-runtime.json`; a missing, stale, or corrupt archive is downloaded again.
+
 The ad-hoc Mac signature and unsigned Windows program are only for native QA.
 Developer ID signing, notarization, and Windows Authenticode policy belong to
 the later release decision.

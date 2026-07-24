@@ -16,6 +16,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { resolveClientRuntimeCache } from "./runtime-cache.mjs";
 
 const require = createRequire(import.meta.url);
 const { inject } = require("postject");
@@ -59,7 +60,7 @@ if (process.platform === "win32") {
   run("npm", ["run", "build"], { cwd: repoRoot });
 }
 
-const cacheDirectory = resolve(repoRoot, ".tmp/client-cache");
+const cacheDirectory = resolveClientRuntimeCache(repoRoot);
 const archivePath = join(cacheDirectory, runtime.url.slice(runtime.url.lastIndexOf("/") + 1));
 await mkdir(cacheDirectory, { recursive: true });
 await ensureArchive(runtime.url, archivePath, runtime.sha256);

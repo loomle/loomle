@@ -72,6 +72,12 @@ command wrappers are launched through the Windows command shell because Node
 cannot execute a `.cmd` file directly; native executables remain direct child
 processes. Failure to resolve a required build command is an immediate build
 failure and must never be mistaken for an executable smoke-test failure.
+Self-hosted verification keeps the exact official Node archive in the runner
+tool cache through `LOOMLE_CLIENT_RUNTIME_CACHE`. Clean checkouts reuse it only
+after verifying the pinned SHA-256; cache corruption or a manifest version
+change forces a fresh download. The Mac runner does not restore a remote npm
+cache because `npm ci` is cheaper and more reliable than transferring that
+cache on the dedicated host.
 
 This repair changes no public MCP tool, input or output schema, edit operation,
 or diagnostic code. Acceptance requires the complete root `npm test` gate and
