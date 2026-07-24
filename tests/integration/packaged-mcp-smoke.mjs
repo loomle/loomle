@@ -6,6 +6,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { parseSalObject } from "@loomle/sal";
 
 export const PUBLIC_TOOL_NAMES = Object.freeze([
+  "status",
   "project",
   "sal_query",
   "sal_patch",
@@ -14,7 +15,7 @@ export const PUBLIC_TOOL_NAMES = Object.freeze([
 ]);
 
 export const PACKAGED_SMOKE_STEP_NAMES = Object.freeze([
-  "initialize_and_list_tools",
+  "initialize_list_tools_and_status",
   "bind_offline_project",
   "read_schema_offline",
   "start_editor_and_wait_ready",
@@ -190,6 +191,11 @@ export async function runPackagedMcpSmoke(options = {}) {
       assertSession(session);
       serverVersion = assertServer(session.serverVersion, config.expectedServerVersion);
       await assertTools(session);
+      const status = await textCall(session, "status", {}, "status");
+      assert(/^client:$/m.test(status), "status omitted Client identity");
+      assert(/^update:\n  status: (?:current|available|unknown)$/m.test(status),
+        "status omitted update state");
+      assert(/^session:$/m.test(status), "status omitted session state");
     });
 
     await step(PACKAGED_SMOKE_STEP_NAMES[1], async () => {

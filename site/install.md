@@ -140,11 +140,12 @@ restart Codex, Claude, or the relevant MCP host.
 
 Keep the target Unreal project open, then:
 
-1. Call `project({})`.
-2. If no project is bound, use a returned `projectId` with
+1. Call `status({})`.
+2. If the session is unbound, call `project({})`.
+3. Use a returned `projectId` with
    `project({ projectId: "<id>" })`.
-3. Call `editor_context({})`.
-4. Call `sal_schema({})` and confirm that the interface index is available.
+4. Call `editor_context({})`.
+5. Call `sal_schema({})` and confirm that the interface index is available.
 
 `sal_schema` is local and remains available when Unreal Editor is offline. The
 other UE-backed tools require the bound project to have one healthy Editor

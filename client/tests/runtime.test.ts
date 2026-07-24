@@ -154,6 +154,59 @@ test("project inspects online and offline projects and binds one sticky session"
   invoker.close();
 });
 
+test("session status reports only the bound project and its native Bridge facts", async () => {
+  const state = await fixture();
+  const record = {
+    ...runtime("Alpha"),
+    pluginPath: "/UE/Engine/Plugins/Marketplace/LoomleBridge",
+    pluginInstallScope: "engine",
+    pluginManagedBy: "fab",
+    pluginVersion: "0.7.0-rc.1",
+  };
+  await addProject(state, "Alpha");
+  await setRuntimes(state, [record]);
+  const client = new MockRuntimeClient(record.endpoint, record);
+  const invoker = manager(state.home, new Map([[record.endpoint, client]]));
+
+  await invoker.project({ projectId: idFor("Alpha") });
+  assert.deepEqual(await invoker.sessionStatus(), {
+    status: "ready",
+    project: {
+      projectId: idFor("Alpha"),
+      name: "Alpha",
+      projectRoot: "/Projects/Alpha",
+    },
+    bridge: {
+      version: "0.7.0-rc.1",
+      protocolVersion,
+      pluginPath: "/UE/Engine/Plugins/Marketplace/LoomleBridge",
+      installScope: "engine",
+      managedBy: "fab",
+    },
+  });
+  invoker.close();
+});
+
+test("session status distinguishes unbound and bound-offline sessions", async () => {
+  const state = await fixture();
+  await addProject(state, "Alpha");
+  await addProject(state, "Beta");
+  const invoker = manager(state.home, new Map());
+
+  assert.deepEqual(await invoker.sessionStatus(), { status: "unbound" });
+  await invoker.project({ projectId: idFor("Alpha") });
+  assert.deepEqual(await invoker.sessionStatus(), {
+    status: "offline",
+    project: {
+      projectId: idFor("Alpha"),
+      name: "Alpha",
+      projectRoot: "/Projects/Alpha",
+    },
+    reason: "project.offline",
+  });
+  invoker.close();
+});
+
 test("an invalid selector leaves the previous project binding unchanged", async () => {
   const state = await fixture();
   await addProject(state, "Alpha");

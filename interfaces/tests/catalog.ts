@@ -4,6 +4,7 @@ import { catalog, guide } from "../src/index.js";
 const expectedNames = ["asset", "blueprint", "class", "graph", "state_tree", "widget"];
 
 assert.match(guide, /^# SAL\n/);
+assert.match(guide, /status\(\{\}\)/);
 assert.match(guide, /project\(\{\}\)/);
 assert.match(guide, /project\(\{ projectId: "<id>" \}\)/);
 assert.match(guide, /## Project Binding/);

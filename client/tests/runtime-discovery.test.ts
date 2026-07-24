@@ -45,6 +45,10 @@ const alphaRuntime: RuntimeRecord = {
   projectRoot: alphaProject.projectRoot,
   endpoint: "/tmp/alpha.sock",
   protocolVersion: 2,
+  pluginPath: "/UE/Engine/Plugins/Marketplace/LoomleBridge",
+  pluginInstallScope: "engine",
+  pluginManagedBy: "fab",
+  pluginVersion: "0.7.0-rc.1",
 };
 
 test("loads project and runtime records independently and ignores malformed files", async () => {
@@ -54,6 +58,18 @@ test("loads project and runtime records independently and ignores malformed file
   );
   assert.deepEqual(await loadProjectRecords(home), [alphaProject]);
   assert.deepEqual(await loadRuntimeRecords(home), [alphaRuntime]);
+});
+
+test("preserves Bridge installation facts in persistent project records", async () => {
+  const project = {
+    ...alphaProject,
+    pluginPath: "/UE/Engine/Plugins/Marketplace/LoomleBridge",
+    pluginInstallScope: "engine",
+    pluginManagedBy: "fab",
+    pluginVersion: "0.7.0-rc.1",
+  };
+  const home = await fixture([project], []);
+  assert.deepEqual(await loadProjectRecords(home), [project]);
 });
 
 test("rejects records whose stored project identity does not match their root", async () => {

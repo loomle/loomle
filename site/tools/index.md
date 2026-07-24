@@ -11,7 +11,7 @@ permalink: /tools/
 
 Interfaces describe the UE objects and operations carried through `sal_query`
 and `sal_patch`. They are separate from the Client's
-[five public MCP calls](../calls/).
+[six public MCP calls](../calls/).
 
 Loomle 0.7 has six active interface modules:
 

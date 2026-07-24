@@ -80,6 +80,7 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
     assert.equal(client.getInstructions(), undefined);
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name), [
+      "status",
       "project",
       "sal_query",
       "sal_patch",

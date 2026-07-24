@@ -2,7 +2,7 @@
 layout: default
 title: Project Binding
 parent: MCP Calls
-nav_order: 1
+nav_order: 2
 description: Inspect projects and bind one Loomle MCP session to one stable Unreal project.
 ---
 

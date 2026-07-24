@@ -3,6 +3,7 @@ import { guide } from "@loomle/interfaces";
 import { parseSalObject } from "@loomle/sal";
 import test from "node:test";
 import { RuntimeRpcError, type RpcInvoker } from "../src/runtime-rpc.js";
+import type { StatusProvider } from "../src/status.js";
 import { SalToolService, toolDefinitions } from "../src/tools.js";
 
 class MockRpc implements RpcInvoker {
@@ -41,14 +42,83 @@ const emptyObjectResult = {
   diagnostics: [],
 };
 
-test("exposes only the five public Loomle tools", () => {
+test("exposes only the six public Loomle tools", () => {
   assert.deepEqual(toolDefinitions.map((tool) => tool.name), [
+    "status",
     "project",
     "sal_query",
     "sal_patch",
     "sal_schema",
     "editor_context",
   ]);
+});
+
+test("status reports identity, binding, Bridge health, and Windows update guidance", async () => {
+  const status: StatusProvider = {
+    async report() {
+      return {
+        client: {
+          version: "0.7.0-rc.1",
+          pid: 1234,
+          platform: "win32",
+          target: "win32-x64",
+          executable: "C:/Loomle/loomle.exe",
+        },
+        update: {
+          status: "available",
+          version: "0.7.0-rc.2",
+          releaseUrl: "https://example.test/release",
+          assetUrl: "https://example.test/asset.zip",
+          sha256: "abc123",
+        },
+        session: {
+          status: "ready",
+          project: {
+            projectId: "alpha",
+            name: "Alpha",
+            projectRoot: "C:/Projects/Alpha",
+          },
+          bridge: {
+            version: "0.7.0-rc.1",
+            protocolVersion: 2,
+            pluginPath: "C:/UE/Engine/Plugins/Marketplace/LoomleBridge",
+          },
+        },
+      };
+    },
+  };
+  const result = await new SalToolService(new MockRpc(emptyObjectResult), status)
+    .call("status", {});
+
+  assert.equal(result.isError, undefined);
+  assert.match(result.content[0].text, /^client:\n  version: 0\.7\.0-rc\.1$/m);
+  assert.match(result.content[0].text, /^session:\n  project: alpha$/m);
+  assert.match(result.content[0].text, /^bridge:\n  version: 0\.7\.0-rc\.1$/m);
+  assert.match(result.content[0].text, /normal PowerShell/);
+  assert.match(result.content[0].text, /Stop-Process -Id <pid>/);
+});
+
+test("status omits Client-stop guidance on macOS", async () => {
+  const status: StatusProvider = {
+    async report() {
+      return {
+        client: {
+          version: "0.7.0-rc.1",
+          pid: 1234,
+          platform: "darwin",
+          target: "darwin-arm64",
+          executable: "/Loomle/loomle",
+        },
+        update: { status: "available", version: "0.7.0-rc.2" },
+        session: { status: "unbound" },
+      };
+    },
+  };
+  const result = await new SalToolService(new MockRpc(emptyObjectResult), status)
+    .call("status", {});
+
+  assert.match(result.content[0].text, /ensure affected Unreal Editors are closed/);
+  assert.doesNotMatch(result.content[0].text, /Stop-Process/);
 });
 
 test("keeps the resident guide only on sal_schema", () => {

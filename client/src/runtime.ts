@@ -52,6 +52,27 @@ export interface ProjectController {
   setMcpRoots(roots: readonly string[] | undefined, supported: boolean): void;
 }
 
+export interface SessionStatusReport {
+  status: ProjectStatus | "unbound" | "unknown";
+  project?: {
+    projectId: string;
+    name: string;
+    projectRoot: string;
+  };
+  bridge?: {
+    version?: string;
+    protocolVersion?: number;
+    pluginPath?: string;
+    installScope?: string;
+    managedBy?: string;
+  };
+  reason?: string;
+}
+
+export interface SessionStatusController {
+  sessionStatus(): Promise<SessionStatusReport>;
+}
+
 interface RuntimeClient extends RpcInvoker {
   readonly endpoint: string;
   health(expected: RuntimeIdentity): Promise<RuntimeHealth>;
@@ -85,7 +106,7 @@ type ProjectRootDiscovery = (
   platform?: NodeJS.Platform,
 ) => Promise<ProjectRecord | undefined>;
 
-export class DiscoveredRuntimeInvoker implements RpcInvoker, ProjectController {
+export class DiscoveredRuntimeInvoker implements RpcInvoker, ProjectController, SessionStatusController {
   private binding?: ProjectRecord;
   private mcpRoots?: readonly string[];
   private mcpRootsSupported = false;
@@ -143,6 +164,29 @@ export class DiscoveredRuntimeInvoker implements RpcInvoker, ProjectController {
       await this.ensureAutoBinding();
     }
     return this.inspectProjects();
+  }
+
+  async sessionStatus(): Promise<SessionStatusReport> {
+    await this.ensureAutoBinding();
+    const binding = this.binding ? { ...this.binding } : undefined;
+    if (!binding) return { status: "unbound" };
+
+    const projects = await this.knownProjects();
+    const project = projects.find((candidate) => candidate.projectId === binding.projectId)
+      ?? { ...binding, runtimes: [] };
+    const probe = await this.probeProject(project, false);
+    const source = probe.selected?.record ?? project;
+    const bridge = bridgeStatus(source, probe.selected?.record.protocolVersion);
+    return {
+      status: probe.summary.status,
+      project: {
+        projectId: project.projectId,
+        name: project.name,
+        projectRoot: project.projectRoot,
+      },
+      ...(bridge ? { bridge } : {}),
+      ...(probe.failureCode ? { reason: probe.failureCode } : {}),
+    };
   }
 
   async invoke(
@@ -384,7 +428,25 @@ function projectIdentity(project: ProjectRecord): ProjectRecord {
     name: project.name,
     projectRoot: project.projectRoot,
     ...(project.uproject ? { uproject: project.uproject } : {}),
+    ...(project.pluginPath ? { pluginPath: project.pluginPath } : {}),
+    ...(project.pluginInstallScope ? { pluginInstallScope: project.pluginInstallScope } : {}),
+    ...(project.pluginManagedBy ? { pluginManagedBy: project.pluginManagedBy } : {}),
+    ...(project.pluginVersion ? { pluginVersion: project.pluginVersion } : {}),
   };
+}
+
+function bridgeStatus(
+  source: ProjectRecord | RuntimeRecord,
+  protocolVersion: number | undefined,
+): SessionStatusReport["bridge"] | undefined {
+  const bridge: NonNullable<SessionStatusReport["bridge"]> = {
+    ...(source.pluginVersion ? { version: source.pluginVersion } : {}),
+    ...(protocolVersion !== undefined ? { protocolVersion } : {}),
+    ...(source.pluginPath ? { pluginPath: source.pluginPath } : {}),
+    ...(source.pluginInstallScope ? { installScope: source.pluginInstallScope } : {}),
+    ...(source.pluginManagedBy ? { managedBy: source.pluginManagedBy } : {}),
+  };
+  return Object.keys(bridge).length > 0 ? bridge : undefined;
 }
 
 function projectProbe(

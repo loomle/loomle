@@ -33,24 +33,26 @@ semantics remain UE-native.
 
 ## The Working Model
 
-A reliable Loomle workflow has seven steps:
+A reliable Loomle workflow has eight steps:
 
-1. Bind the MCP session to one Unreal project.
-2. Start from `editor_context` or an exact Asset Path.
-3. Query a compact summary, collection, tree, context, or flow.
-4. Discover exact schema only when the operation requires it.
-5. Use a UE Palette result before creating an object.
-6. Dry-run the complete Patch, then apply the same authored change.
-7. Compile and save through the owning asset when its interface requires it.
+1. Check Client, update, session, and Bridge health with `status`.
+2. Bind the MCP session if it is not already bound.
+3. Start from `editor_context` or an exact Asset Path.
+4. Query a compact summary, collection, tree, context, or flow.
+5. Discover exact schema only when the operation requires it.
+6. Use a UE Palette result before creating an object.
+7. Dry-run the complete Patch, then apply the same authored change.
+8. Compile and save through the owning asset when its interface requires it.
 
 The [Quickstart](quickstart.html) walks through that complete path.
 
-## Five Calls, Six Interfaces
+## Six Calls, Six Interfaces
 
-The Client exposes five public MCP tools:
+The Client exposes six public MCP tools:
 
 | Call | Responsibility |
 | --- | --- |
+| `status` | Inspect Client/update status and bound session/Bridge health. |
 | `project` | Inspect projects and bind this MCP session to one project. |
 | `sal_query` | Execute one self-contained SAL Query Text. |
 | `sal_patch` | Dry-run or apply one ordered SAL Patch Text. |

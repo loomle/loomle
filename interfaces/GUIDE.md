@@ -18,6 +18,9 @@ their own complete locator chains.
 
 ## Calls
 
+- `status({})` reports the Client version, update availability, and bound
+  session and Bridge health. Call it once before the first Loomle operation in
+  a task.
 - `project({})` reports this MCP session's current project binding and known
   project candidates.
 - `project({ projectId: "<id>" })` or
@@ -39,7 +42,9 @@ result language.
 
 ## Project Binding
 
-One Loomle MCP session operates on one UE project. The binding is sticky: once
+One Loomle MCP session operates on one UE project. Start with `status({})`. If
+it reports an unbound session, call `project({})` to inspect candidates and
+bind one. The binding is sticky: once
 selected, Loomle never falls through to another online project when the bound
 project is offline or its Editor restarts. Call `project({})` when no project is
 bound, when several projects are available, or after a `project.*` diagnostic;

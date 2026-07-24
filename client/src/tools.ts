@@ -10,10 +10,25 @@ import {
   type TextResult,
 } from "@loomle/sal";
 import { catalog, guide } from "@loomle/interfaces";
-import type { ProjectController, ProjectReport } from "./runtime.js";
+import type {
+  ProjectController,
+  ProjectReport,
+  SessionStatusController,
+} from "./runtime.js";
 import { RuntimeRpcError, type RpcInvoker } from "./runtime-rpc.js";
+import {
+  ClientStatusService,
+  type ClientStatusReport,
+  type StatusProvider,
+} from "./status.js";
 
-export type PublicToolName = "project" | "sal_query" | "sal_patch" | "sal_schema" | "editor_context";
+export type PublicToolName =
+  | "status"
+  | "project"
+  | "sal_query"
+  | "sal_patch"
+  | "sal_schema"
+  | "editor_context";
 
 export interface ToolDefinition {
   name: PublicToolName;
@@ -40,6 +55,12 @@ export interface McpToolResult {
 const interfaceNames = catalog.map(({ name }) => name);
 
 export const toolDefinitions: readonly ToolDefinition[] = [
+  {
+    name: "status",
+    description: "Inspect Loomle Client and update status plus the bound session and Bridge health. Call once before the first Loomle operation in a task.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
   {
     name: "project",
     description: "Inspect Loomle projects or bind this MCP session to one project. Call with no arguments to see the binding and candidates; pass projectId or projectRoot to bind. Binding is sticky, survives Editor restarts, and never falls through to another project while offline.",
@@ -100,8 +121,13 @@ export const toolDefinitions: readonly ToolDefinition[] = [
 
 export class SalToolService {
   private readonly sal: Sal;
+  private readonly status: StatusProvider;
 
-  constructor(private readonly rpc: RpcInvoker & Partial<ProjectController>) {
+  constructor(
+    private readonly rpc: RpcInvoker & Partial<ProjectController & SessionStatusController>,
+    status?: StatusProvider,
+  ) {
+    this.status = status ?? new ClientStatusService(rpc);
     this.sal = createSal({
       catalog,
       executor: {
@@ -120,6 +146,9 @@ export class SalToolService {
     try {
       const object = requireArguments(args);
       switch (name) {
+        case "status":
+          requireOnly(object, [], name);
+          return statusResult(await this.status.report());
         case "project": {
           requireOnly(object, ["projectId", "projectRoot"], name);
           const projectId = optionalString(object.projectId, "projectId");
@@ -180,6 +209,59 @@ function projectResult(report: ProjectReport): McpToolResult {
     lines.push("  none");
   } else if (!report.boundProjectId) {
     lines.push("next: call project with one projectId or projectRoot to bind this session");
+  }
+  return { content: [{ type: "text", text: lines.join("\n") }] };
+}
+
+function statusResult(report: ClientStatusReport): McpToolResult {
+  const lines = [
+    "client:",
+    `  version: ${report.client.version}`,
+    `  pid: ${report.client.pid}`,
+    `  target: ${report.client.target ?? "unsupported"}`,
+    `  executable: ${JSON.stringify(report.client.executable)}`,
+    "update:",
+    `  status: ${report.update.status}`,
+  ];
+  if (report.update.version) lines.push(`  version: ${report.update.version}`);
+  if (report.update.releaseUrl) lines.push(`  release: ${JSON.stringify(report.update.releaseUrl)}`);
+  if (report.update.assetUrl) lines.push(`  asset: ${JSON.stringify(report.update.assetUrl)}`);
+  if (report.update.sha256) lines.push(`  sha256: ${report.update.sha256}`);
+  if (report.update.reason) lines.push(`  reason: ${report.update.reason}`);
+
+  lines.push("session:");
+  lines.push(`  project: ${report.session.project?.projectId ?? "none"}`);
+  if (report.session.project?.name) lines.push(`  name: ${JSON.stringify(report.session.project.name)}`);
+  if (report.session.project?.projectRoot) {
+    lines.push(`  projectRoot: ${JSON.stringify(report.session.project.projectRoot)}`);
+  }
+  lines.push(`  status: ${report.session.status}`);
+  if (report.session.reason) lines.push(`  reason: ${report.session.reason}`);
+
+  if (report.session.bridge) {
+    lines.push("bridge:");
+    if (report.session.bridge.version) {
+      lines.push(`  version: ${report.session.bridge.version}`);
+    }
+    if (report.session.bridge.protocolVersion !== undefined) {
+      lines.push(`  protocolVersion: ${report.session.bridge.protocolVersion}`);
+    }
+    if (report.session.bridge.pluginPath) {
+      lines.push(`  plugin: ${JSON.stringify(report.session.bridge.pluginPath)}`);
+    }
+    if (report.session.bridge.installScope) {
+      lines.push(`  installScope: ${report.session.bridge.installScope}`);
+    }
+    if (report.session.bridge.managedBy) {
+      lines.push(`  managedBy: ${report.session.bridge.managedBy}`);
+    }
+  }
+
+  if (report.update.status === "available") {
+    const shared = "Ask the user before updating. After approval, ensure affected Unreal Editors are closed, ";
+    lines.push(report.client.platform === "win32"
+      ? `next: ${shared}use a normal PowerShell to find Loomle Client processes with the executable path above and stop each with Stop-Process -Id <pid>, replace the complete plugin, then restart the MCP Server.`
+      : `next: ${shared}replace the complete plugin, then restart the MCP Server.`);
   }
   return { content: [{ type: "text", text: lines.join("\n") }] };
 }

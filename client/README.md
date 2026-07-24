@@ -15,8 +15,10 @@ duplicate either contract.
 
 ## Public Tools
 
-The Client exposes five MCP tools:
+The Client exposes six MCP tools:
 
+- `status`: inspect Client identity and update availability plus the bound
+  session and Bridge health;
 - `project`: inspect project availability and bind this MCP session to one
   project;
 - `sal_query`: parse, validate, execute, and format SAL Query Text;
@@ -25,13 +27,13 @@ The Client exposes five MCP tools:
   index or one static interface when called;
 - `editor_context`: discover the user's current UE interaction target.
 
-These five tools are the complete public Client surface. Additional UE behavior
+These six tools are the complete public Client surface. Additional UE behavior
 belongs in SAL and its interface cards rather than parallel compatibility
 tools.
 
 The `sal_schema` tool description carries the resident guide from
 `@loomle/interfaces` exactly once. MCP server instructions remain empty because
-clients may expand them into every tool definition. The other four tool
+clients may expand them into every tool definition. The other five tool
 descriptions stay short and specific to their boundary. Calling `sal_schema` still
 returns only the active interface index or the requested static interface; it
 does not repeat the resident guide.
@@ -44,6 +46,8 @@ copyable without a parallel JSON payload.
 ## Project Binding And Runtime Liveness
 
 One MCP process is one session and binds to one stable Unreal project. Call
+`status({})` once before the first Loomle operation. If it reports an unbound
+session, call
 `project({})` to inspect the current binding and candidates, or call
 `project({ projectId })` / `project({ projectRoot })` to bind or switch. A valid
 offline project can remain bound while its Editor is closed. UE-backed tools
@@ -59,6 +63,8 @@ only discovery candidates; PID or Socket existence is never online proof.
 The complete state, identity, timeout, shutdown, and multi-project contract is
 defined in
 [`../docs/PROJECT_BINDING_AND_RUNTIME_LIVENESS.md`](../docs/PROJECT_BINDING_AND_RUNTIME_LIVENESS.md).
+Client update discovery and platform-specific update guidance are defined in
+[`../docs/CLIENT_STATUS_AND_UPDATES.md`](../docs/CLIENT_STATUS_AND_UPDATES.md).
 
 ## Build And Test
 

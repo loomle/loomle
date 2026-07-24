@@ -29,8 +29,10 @@ the editor and UE APIs as the source of truth.
 
 ## Current 0.7 Interface
 
-The standalone Client exposes five MCP tools:
+The standalone Client exposes six MCP tools:
 
+- `status`: inspect the Client version, update availability, and bound session
+  and Bridge health.
 - `project`: inspect project availability and bind this MCP session to one
   Unreal project.
 - `sal_query`: execute one self-contained SAL Query Text.
@@ -115,10 +117,12 @@ Full instructions: https://loomle.ai/install.html
 
 1. Open an Unreal project with `LoomleBridge` enabled.
 2. Restart Codex, Claude, or the relevant MCP host after configuring Loomle.
-3. Call `project` to inspect or bind the intended project.
-4. Call `editor_context` to begin from the user's current editor state.
-5. Use `sal_schema` when the target module or exact operation is unfamiliar.
-6. Inspect with `sal_query`, dry-run changes with `sal_patch`, then apply and
+3. Call `status` once to inspect Client, update, session, and Bridge health.
+4. If the session is unbound, call `project` to inspect or bind the intended
+   project.
+5. Call `editor_context` to begin from the user's current editor state.
+6. Use `sal_schema` when the target module or exact operation is unfamiliar.
+7. Inspect with `sal_query`, dry-run changes with `sal_patch`, then apply and
    finalize through the owning asset.
 
 See https://loomle.ai/quickstart.html for a complete first query and patch.

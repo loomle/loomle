@@ -35,8 +35,9 @@ Availability and installation:
   `<Project>/Plugins/LoomleBridge` out of every affected project's `Plugins`
   directory. A project plugin shadows the engine plugin.
 
-Five public MCP tools:
+Six public MCP tools:
 
+- `status({})`: report Client/update status and bound session/Bridge health.
 - `project`: inspect projects and bind one MCP session to one project.
 - `sal_query({ text })`: execute one self-contained SAL Query Text.
 - `sal_patch({ text })`: dry-run or apply one ordered SAL Patch Text.
@@ -56,14 +57,15 @@ Six active SAL interfaces:
 
 Recommended workflow:
 
-1. Bind one project.
-2. Locate the exact target.
-3. Query a compact view.
-4. Discover static or dynamic schema only when needed.
-5. Use a UE Palette capability before creation.
-6. Dry-run the complete Patch.
-7. Apply the same authored Patch and read back.
-8. Compile and save through the owning asset.
+1. Call `status({})` once.
+2. Bind one project when the session is unbound.
+3. Locate the exact target.
+4. Query a compact view.
+5. Discover static or dynamic schema only when needed.
+6. Use a UE Palette capability before creation.
+7. Dry-run the complete Patch.
+8. Apply the same authored Patch and read back.
+9. Compile and save through the owning asset.
 
 Do not guess UE Classes, fields, Pins, object ids, destinations, Palette
 entries, or operation names. The Client's `sal_schema` interface cards and

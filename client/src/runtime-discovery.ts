@@ -11,6 +11,10 @@ export interface RuntimeRecord {
   endpoint: string;
   pid?: number;
   protocolVersion?: number;
+  pluginPath?: string;
+  pluginInstallScope?: string;
+  pluginManagedBy?: string;
+  pluginVersion?: string;
   startedAt?: string;
   lastSeenAt?: string;
 }
@@ -20,6 +24,10 @@ export interface ProjectRecord {
   name: string;
   projectRoot: string;
   uproject?: string;
+  pluginPath?: string;
+  pluginInstallScope?: string;
+  pluginManagedBy?: string;
+  pluginVersion?: string;
   lastSeenAt?: string;
 }
 
@@ -75,6 +83,10 @@ export async function discoverProjects(
       name: runtime.name ?? projectName(runtime.uproject, runtime.projectRoot),
       projectRoot: runtime.projectRoot,
       ...(runtime.uproject ? { uproject: runtime.uproject } : {}),
+      ...(runtime.pluginPath ? { pluginPath: runtime.pluginPath } : {}),
+      ...(runtime.pluginInstallScope ? { pluginInstallScope: runtime.pluginInstallScope } : {}),
+      ...(runtime.pluginManagedBy ? { pluginManagedBy: runtime.pluginManagedBy } : {}),
+      ...(runtime.pluginVersion ? { pluginVersion: runtime.pluginVersion } : {}),
       ...(runtime.lastSeenAt ? { lastSeenAt: runtime.lastSeenAt } : {}),
     });
   }
@@ -269,6 +281,13 @@ function parseRuntimeRecord(
     ...(numberField(value, "pid") !== undefined ? { pid: numberField(value, "pid") } : {}),
     ...(numberField(value, "protocolVersion") !== undefined
       ? { protocolVersion: numberField(value, "protocolVersion") } : {}),
+    ...(stringField(value, "pluginPath") ? { pluginPath: stringField(value, "pluginPath") } : {}),
+    ...(stringField(value, "pluginInstallScope")
+      ? { pluginInstallScope: stringField(value, "pluginInstallScope") } : {}),
+    ...(stringField(value, "pluginManagedBy")
+      ? { pluginManagedBy: stringField(value, "pluginManagedBy") } : {}),
+    ...(stringField(value, "pluginVersion")
+      ? { pluginVersion: stringField(value, "pluginVersion") } : {}),
     ...(stringField(value, "startedAt") ? { startedAt: stringField(value, "startedAt") } : {}),
     ...(stringField(value, "lastSeenAt") ? { lastSeenAt: stringField(value, "lastSeenAt") } : {}),
   };
@@ -290,6 +309,13 @@ function parseProjectRecord(
     name: stringField(value, "name") ?? projectName(stringField(value, "uproject"), projectRoot),
     projectRoot,
     ...(stringField(value, "uproject") ? { uproject: stringField(value, "uproject") } : {}),
+    ...(stringField(value, "pluginPath") ? { pluginPath: stringField(value, "pluginPath") } : {}),
+    ...(stringField(value, "pluginInstallScope")
+      ? { pluginInstallScope: stringField(value, "pluginInstallScope") } : {}),
+    ...(stringField(value, "pluginManagedBy")
+      ? { pluginManagedBy: stringField(value, "pluginManagedBy") } : {}),
+    ...(stringField(value, "pluginVersion")
+      ? { pluginVersion: stringField(value, "pluginVersion") } : {}),
     ...(stringField(value, "lastSeenAt") ? { lastSeenAt: stringField(value, "lastSeenAt") } : {}),
   };
 }

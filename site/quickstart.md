@@ -2,7 +2,7 @@
 layout: default
 title: Quickstart
 nav_order: 3
-description: Bind a project, inspect a Blueprint, dry-run a SAL patch, apply it, and finalize the asset.
+description: Check status, bind a project, inspect a Blueprint, dry-run a SAL patch, apply it, and finalize the asset.
 ---
 
 # Quickstart
@@ -15,9 +15,22 @@ the bundled Client, and the target Unreal project is open.
 > Paths and ids below are examples. Always copy Asset Paths, typed ids, Palette
 > entries, and invocation templates returned by the current project.
 
-## 1. Bind One Project
+## 1. Check Status
 
-Inspect the current session and known projects:
+Call once before the first Loomle operation:
+
+```text
+status({})
+```
+
+This identifies the running Client, checks for an update, and reports the
+current session and Bridge health. An unavailable update check does not block
+local Loomle work.
+
+## 2. Bind One Project
+
+If Status reports an unbound session, inspect the current session and known
+projects:
 
 ```text
 project({})
@@ -33,7 +46,7 @@ project({ projectId: "<returned-project-id>" })
 The binding is session-local and sticky. If the Editor restarts or the project
 goes offline, Loomle preserves the same project intent.
 
-## 2. Start From the Editor
+## 3. Start From the Editor
 
 Open or select the asset you want to discuss, then call:
 
@@ -45,7 +58,7 @@ The result is ordered SAL Object Text. It may identify an active asset, Graph,
 selected Node, Widget, Actor, or the focused editor surface. Use the returned
 locator instead of guessing from the visible UI.
 
-## 3. Discover the Interface
+## 4. Discover the Interface
 
 List the active interface modules:
 
@@ -63,7 +76,7 @@ The `sal_schema` tool description already carries the compact resident SAL
 guide. Static module cards are for exact domain boundaries; they are not a
 prerequisite before every request.
 
-## 4. Read a Blueprint Summary
+## 5. Read a Blueprint Summary
 
 Send one self-contained Query Text to `sal_query`:
 
@@ -93,7 +106,7 @@ graphs "Event"
 Every Query and Patch supplies its own complete target binding. A typed id is a
 stable selector inside that owner scope, not a global target.
 
-## 5. Follow the Graph Locally
+## 6. Follow the Graph Locally
 
 Bind the exact Graph returned by the Blueprint query:
 
@@ -112,7 +125,7 @@ Flow queries return compact Nodes and only the Pins needed to express the
 Edges. Query an exact Node reference when an operation needs every current Pin
 or dynamic schema.
 
-## 6. Discover Before Creating
+## 7. Discover Before Creating
 
 Never guess a Node constructor. Search the target Graph Palette:
 
@@ -143,7 +156,7 @@ with schema
 
 Then copy its returned constructor into a Patch.
 
-## 7. Dry Run
+## 8. Dry Run
 
 Send the complete Patch Text to `sal_patch` with dry-run state on the Patch
 header:
@@ -164,13 +177,13 @@ Dry run parses, resolves, validates, and plans through the real edit path
 without changing live authored state. Review the returned diagnostics,
 resolved references, operations, effects, and diff.
 
-## 8. Apply and Read Back
+## 9. Apply and Read Back
 
 If the dry run is valid, send the same authored Patch again with dry-run state
 removed from the header. Afterward, query the affected Graph or exact Node
 again rather than assuming that the intended result was applied.
 
-## 9. Finalize Through the Owner
+## 10. Finalize Through the Owner
 
 Graph edits do not compile or save their owning Blueprint automatically.
 Finalize in a separate terminal Patch:
@@ -192,7 +205,7 @@ relevant Object Text.
 You have now completed the standard Loomle loop:
 
 ```text
-bind → locate → inspect → discover → dry run → apply → read back → finalize
+status → bind → locate → inspect → discover → dry run → apply → read back → finalize
 ```
 
 Continue with [Core Concepts](concepts/) or browse the

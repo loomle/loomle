@@ -127,6 +127,7 @@ try {
 
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name), [
+      "status",
       "project",
       "sal_query",
       "sal_patch",

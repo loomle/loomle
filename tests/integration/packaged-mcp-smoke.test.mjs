@@ -427,6 +427,21 @@ class FakePackagedHarness {
         if (!PUBLIC_TOOL_NAMES.includes(name)) {
           throw new Error(`fake received private tool ${name}`);
         }
+        if (name === "status") {
+          return textResult([
+            "client:",
+            "  version: 0.7.0-test",
+            "  pid: 42",
+            "  target: darwin-arm64",
+            "  executable: \"/plugin/loomle\"",
+            "update:",
+            "  status: unknown",
+            "  reason: offline",
+            "session:",
+            "  project: none",
+            "  status: unbound",
+          ].join("\n"));
+        }
         if (name === "project") {
           if (args.projectRoot !== undefined) session.bound = true;
           return textResult(session.bound
