@@ -7,12 +7,22 @@ import { readFile, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+const RELEASE_TARGETS = [
+  {
+    target: "darwin-arm64",
+    platform: "Mac",
+    cliPrefix: "darwin-arm64",
+  },
+  {
+    target: "win32-x64",
+    platform: "Win64",
+    cliPrefix: "win32-x64",
+  },
+];
+
 export async function validatePromotion({
   repoRoot,
-  archivePath,
-  shaFilePath,
-  automationResultPath,
-  e2eResultPath,
+  candidates,
   headSha,
   channel,
 }) {
@@ -24,7 +34,7 @@ export async function validatePromotion({
   }
   if (channel === "final") {
     fail(
-      "stable promotion is disabled until Developer ID signing and notarization"
+      "stable promotion is disabled until platform signing and trust gates"
       + " are verified before packaged E2E.",
     );
   }
@@ -36,39 +46,103 @@ export async function validatePromotion({
     fail(`prerelease promotion requires an x.y.z-rc.N product version; found ${version}.`);
   }
 
-  await requireNonEmptyFile(archivePath, "verified archive");
-  const archiveSha256 = await sha256(archivePath);
-  const sidecar = parseSha256Sidecar(
-    await readFile(shaFilePath, "utf8"),
-    basename(archivePath),
-  );
-  if (sidecar !== archiveSha256) {
-    fail(`archive SHA-256 ${archiveSha256} does not match sidecar ${sidecar}.`);
+  if (!Array.isArray(candidates)) {
+    fail("release candidates must be an array.");
   }
-
-  const descriptor = JSON.parse(readZipEntry(archivePath, "LoomleBridge/LoomleBridge.uplugin"));
-  if (descriptor.VersionName !== version) {
+  const candidatesByTarget = new Map();
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate.target !== "string") {
+      fail("each release candidate must name a target.");
+    }
+    if (candidatesByTarget.has(candidate.target)) {
+      fail(`duplicate release candidate target: ${candidate.target}.`);
+    }
+    candidatesByTarget.set(candidate.target, candidate);
+  }
+  const expectedTargets = RELEASE_TARGETS.map(({ target }) => target);
+  const actualTargets = [...candidatesByTarget.keys()];
+  const missingTargets = expectedTargets.filter((target) => !candidatesByTarget.has(target));
+  const unexpectedTargets = actualTargets.filter((target) => !expectedTargets.includes(target));
+  if (missingTargets.length > 0 || unexpectedTargets.length > 0) {
     fail(
-      `archive VersionName ${JSON.stringify(descriptor.VersionName)}`
-      + ` does not match product version ${JSON.stringify(version)}.`,
+      "release candidates must contain exactly"
+      + ` ${expectedTargets.join(", ")};`
+      + ` missing: ${missingTargets.join(", ") || "none"};`
+      + ` unexpected: ${unexpectedTargets.join(", ") || "none"}.`,
     );
   }
 
-  const automation = await readJson(automationResultPath);
-  if (automation.status !== "passed" || automation.commit !== headSha) {
-    fail("UE Automation result does not match the verified commit.");
-  }
-  const e2e = await readJson(e2eResultPath);
-  if (e2e.status !== "passed"
-      || e2e.commit !== headSha
-      || e2e.archiveSha256 !== archiveSha256) {
-    fail("packaged E2E result does not match the verified commit and ZIP.");
+  const artifacts = [];
+  for (const releaseTarget of RELEASE_TARGETS) {
+    const candidate = candidatesByTarget.get(releaseTarget.target);
+    const {
+      archivePath,
+      shaFilePath,
+      automationResultPath,
+      e2eResultPath,
+    } = candidate;
+    const label = releaseTarget.target;
+
+    await requireNonEmptyFile(archivePath, `${label} verified archive`);
+    await requireNonEmptyFile(shaFilePath, `${label} SHA-256 sidecar`);
+    const archiveSha256 = await sha256(archivePath);
+    const sidecar = parseSha256Sidecar(
+      await readFile(shaFilePath, "utf8"),
+      basename(archivePath),
+    );
+    if (sidecar !== archiveSha256) {
+      fail(
+        `${label} archive SHA-256 ${archiveSha256}`
+        + ` does not match sidecar ${sidecar}.`,
+      );
+    }
+
+    const descriptor = JSON.parse(
+      readZipEntry(archivePath, "LoomleBridge/LoomleBridge.uplugin"),
+    );
+    const moduleNames = descriptor.Modules?.map((module) => module.Name);
+    const module = descriptor.Modules?.[0];
+    if (descriptor.VersionName !== version) {
+      fail(
+        `${label} archive VersionName ${JSON.stringify(descriptor.VersionName)}`
+        + ` does not match product version ${JSON.stringify(version)}.`,
+      );
+    }
+    if (descriptor.Installed !== true
+        || !same(descriptor.SupportedTargetPlatforms, [releaseTarget.platform])
+        || !same(moduleNames, ["LoomleBridge"])
+        || !same(module?.PlatformAllowList, [releaseTarget.platform])
+        || module?.PlatformArchitectureAllowList !== undefined) {
+      fail(`${label} archive descriptor does not match its native platform.`);
+    }
+
+    const automation = await readJson(automationResultPath);
+    if (automation.status !== "passed"
+        || automation.commit !== headSha
+        || automation.target !== releaseTarget.target) {
+      fail(`${label} UE Automation result does not match the verified commit and target.`);
+    }
+    const e2e = await readJson(e2eResultPath);
+    if (e2e.status !== "passed"
+        || e2e.commit !== headSha
+        || e2e.target !== releaseTarget.target
+        || e2e.archiveSha256 !== archiveSha256) {
+      fail(
+        `${label} packaged E2E result does not match`
+        + " the verified commit, target, and ZIP.",
+      );
+    }
+
+    artifacts.push({
+      archiveSha256,
+      target: releaseTarget.target,
+    });
   }
 
   const notesPath = join(repoRoot, "packaging", "release", "notes", `${version}.md`);
   await requireNonEmptyFile(notesPath, "release notes");
   return {
-    archiveSha256,
+    artifacts,
     notesPath,
     tag: `v${version}`,
     version,
@@ -81,6 +155,10 @@ function parseSha256Sidecar(text, expectedName) {
     fail(`SHA-256 sidecar must name exactly ${expectedName}.`);
   }
   return match[1];
+}
+
+function same(actual, expected) {
+  return JSON.stringify(actual) === JSON.stringify(expected);
 }
 
 function readZipEntry(archivePath, entry) {
@@ -142,20 +220,25 @@ function parseArguments(args) {
   }
   const required = [
     "repo-root",
-    "archive",
-    "sha-file",
-    "automation-result",
-    "e2e-result",
     "head-sha",
     "channel",
+    ...RELEASE_TARGETS.flatMap(({ cliPrefix }) => [
+      `${cliPrefix}-archive`,
+      `${cliPrefix}-sha-file`,
+      `${cliPrefix}-automation-result`,
+      `${cliPrefix}-e2e-result`,
+    ]),
   ];
   if (required.some((name) => !values[name])) usage();
   return {
     repoRoot: resolve(values["repo-root"]),
-    archivePath: resolve(values.archive),
-    shaFilePath: resolve(values["sha-file"]),
-    automationResultPath: resolve(values["automation-result"]),
-    e2eResultPath: resolve(values["e2e-result"]),
+    candidates: RELEASE_TARGETS.map(({ target, cliPrefix }) => ({
+      target,
+      archivePath: resolve(values[`${cliPrefix}-archive`]),
+      shaFilePath: resolve(values[`${cliPrefix}-sha-file`]),
+      automationResultPath: resolve(values[`${cliPrefix}-automation-result`]),
+      e2eResultPath: resolve(values[`${cliPrefix}-e2e-result`]),
+    })),
     headSha: values["head-sha"],
     channel: values.channel,
   };
@@ -164,8 +247,13 @@ function parseArguments(args) {
 function usage() {
   throw new Error(
     "Usage: node packaging/release/validate-promotion.mjs"
-    + " --repo-root <path> --archive <zip> --sha-file <path>"
-    + " --automation-result <json> --e2e-result <json>"
+    + " --repo-root <path>"
+    + " --darwin-arm64-archive <zip> --darwin-arm64-sha-file <path>"
+    + " --darwin-arm64-automation-result <json>"
+    + " --darwin-arm64-e2e-result <json>"
+    + " --win32-x64-archive <zip> --win32-x64-sha-file <path>"
+    + " --win32-x64-automation-result <json>"
+    + " --win32-x64-e2e-result <json>"
     + " --head-sha <sha> --channel <prerelease|final>",
   );
 }

@@ -290,11 +290,10 @@ it from inside that project.
 The Mac and Windows/Fab workflows are manual QA only. They have read-only
 repository permission, upload audited ZIPs and durable result files, and never
 create a tag, GitHub Release, latest alias, or public Fab submission. The
-separate manual promotion workflow currently consumes only one successful Mac
-run and may publish its exact ZIP as a GitHub prerelease. It cannot build,
-sign, or recompress the candidate. Windows QA is intentionally independent:
-passing it proves the native implementation path, but does not yet add Windows
-to release notes or promotion.
+separate manual promotion workflow requires one successful Mac run and one
+successful Windows run from the same exact commit. It verifies and may publish
+both exact ZIPs and their SHA-256 sidecars as one GitHub prerelease. It cannot
+build, sign, or recompress either candidate.
 
 ## Verification Boundary
 
@@ -309,5 +308,6 @@ small packaged Client-to-UE workflow against that exact ZIP. See
 Tag-driven builds are not part of the 0.7 design. Promotion is a final explicit
 manual step after every advertised artifact has passed the gates for its
 channel. Unsigned `0.7.0-rc.*` prereleases are allowed only with an explicit
-Gatekeeper warning. Stable promotion remains disabled until Developer ID
-signing and notarization occur before packaged end-to-end verification.
+macOS Gatekeeper and Windows trust-warning notice. Stable promotion remains
+disabled until the required platform signing and trust gates occur before
+packaged end-to-end verification.

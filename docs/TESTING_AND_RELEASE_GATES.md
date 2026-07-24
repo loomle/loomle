@@ -357,27 +357,26 @@ A candidate can be promoted only when the same commit passes:
 3. packaged end-to-end smoke against the exact candidate archive;
 4. lifecycle verification with no new crash report;
 5. archive structure, version, license, and hash audits;
-6. the signature and notarization policy required by its release channel.
+6. the platform signing and trust policy required by its release channel.
 
-The release workflow consumes the already-tested archive and matching result
-files. It must never rebuild, resign, or recompress after these gates.
+The release workflow consumes both already-tested native archives and their
+matching result files. It must never rebuild, resign, or recompress after these
+gates.
 
-The current workflow implements this sequence for macOS Apple Silicon.
-`0.7.0-rc.*` GitHub prereleases may explicitly publish the unsigned candidate
-used by QA, with the Gatekeeper limitation stated in their release notes.
-Stable release promotion remains blocked until Developer ID signing and Apple
-notarization are performed before packaged end-to-end, so the tested bytes are
-also the published bytes.
+The Mac Apple Silicon and Windows x64 workflows implement the same native
+sequence. `0.7.0-rc.*` GitHub prereleases may explicitly publish both unsigned
+candidates used by QA, with macOS Gatekeeper and Windows trust-warning
+limitations stated in their release notes. Stable release promotion remains
+blocked until the required platform signing and trust gates are performed
+before packaged end-to-end, so the tested bytes are also the published bytes.
 
-The independent Windows x64 workflow follows the same candidate construction:
+The Windows x64 workflow follows the same candidate construction:
 it builds a pinned native Node SEA Client, runs the complete UE Automation
 category against a same-commit test-bearing plugin, builds and audits a stripped
 Win64 plugin, and runs packaged end-to-end against the exact ZIP it uploads.
 PE audits require both `loomle.exe` and `UnrealEditor-LoomleBridge.dll` to use
-the AMD64 machine type. That ZIP is a QA artifact only: current release
-promotion and advertised platform support do not consume it until a later
-explicit release decision. The QA executable may remain unsigned; distributing
-it requires a separately confirmed Authenticode and SmartScreen policy.
+the AMD64 machine type. The prerelease executable may remain unsigned only when
+the checked-in release notes explain the resulting Windows trust warning.
 
 The 2026-07-24 local Windows repair audit used pinned Node 24.18.0 and the UE
 5.7.4 Installed Build. The repository test command passed; both the
@@ -389,11 +388,13 @@ crash report, or orphaned Editor process. This validates the local source state
 and Windows QA gates; promotion still requires a committed same-SHA workflow
 run and the channel's signing policy.
 
-Manual promotion takes a successful `verify-fab-mac.yml` run ID. It verifies
-the run identity, commit, results, candidate hash, product version, and release
-notes, then publishes that exact ZIP without rebuilding or recompressing it.
-The tag is derived from the checked-out product version rather than accepted as
-free-form input.
+Manual promotion takes successful `verify-fab-mac.yml` and
+`verify-fab-windows.yml` run IDs. It requires both runs to belong to the same
+commit, then checks out that exact commit and verifies both run identities,
+native targets, result files, candidate hashes, product versions, and release
+notes. It publishes both exact ZIPs and SHA-256 sidecars without rebuilding or
+recompressing them. The tag is derived from the checked-out product version
+rather than accepted as free-form input.
 
 On Mac, architecture is verified from the built Client and Bridge binaries,
 not expressed as a module `PlatformArchitectureAllowList`. A universal UE

@@ -3,8 +3,12 @@ name: Promote Verified Loomle GitHub Release
 on:
   workflow_dispatch:
     inputs:
-      run_id:
+      mac_run_id:
         description: Successful Verify Loomle Fab Plugin (Mac) workflow run ID
+        required: true
+        type: string
+      windows_run_id:
+        description: Successful Verify Loomle Fab Plugin (Windows) workflow run ID
         required: true
         type: string
       channel:
@@ -29,42 +33,64 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Validate Verification Run
+      - name: Validate Verification Runs
         id: source
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ inputs.run_id }}
+          MAC_RUN_ID: ${{ inputs.mac_run_id }}
+          WINDOWS_RUN_ID: ${{ inputs.windows_run_id }}
         run: |
           set -euo pipefail
-          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || {
-            echo "run_id must be a numeric GitHub Actions run ID." >&2
-            exit 1
-          }
-          run_json="$RUNNER_TEMP/verification-run.json"
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > "$run_json"
+          for run_id in "$MAC_RUN_ID" "$WINDOWS_RUN_ID"; do
+            [[ "$run_id" =~ ^[0-9]+$ ]] || {
+              echo "verification run IDs must be numeric GitHub Actions run IDs." >&2
+              exit 1
+            }
+          done
+          mac_run_json="$RUNNER_TEMP/mac-verification-run.json"
+          windows_run_json="$RUNNER_TEMP/windows-verification-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$MAC_RUN_ID" > "$mac_run_json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$WINDOWS_RUN_ID" > "$windows_run_json"
           head_sha="$(node -e '
-            const run = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
-            const expected = {
-              path: ".github/workflows/verify-fab-mac.yml",
-              status: "completed",
-              conclusion: "success",
-              event: "workflow_dispatch",
-              head_branch: "main",
-            };
-            for (const [field, value] of Object.entries(expected)) {
-              if (run[field] !== value) {
-                throw new Error(`verification run ${field} is ${JSON.stringify(run[field])}; expected ${JSON.stringify(value)}`);
+            const fs = require("node:fs");
+            const runs = [
+              {
+                label: "Mac",
+                path: ".github/workflows/verify-fab-mac.yml",
+                run: JSON.parse(fs.readFileSync(process.argv[1], "utf8")),
+              },
+              {
+                label: "Windows",
+                path: ".github/workflows/verify-fab-windows.yml",
+                run: JSON.parse(fs.readFileSync(process.argv[2], "utf8")),
+              },
+            ];
+            for (const { label, path, run } of runs) {
+              const expected = {
+                path,
+                status: "completed",
+                conclusion: "success",
+                event: "workflow_dispatch",
+                head_branch: "main",
+              };
+              for (const [field, value] of Object.entries(expected)) {
+                if (run[field] !== value) {
+                  throw new Error(`${label} verification run ${field} is ${JSON.stringify(run[field])}; expected ${JSON.stringify(value)}`);
+                }
+              }
+              if (run.head_repository?.full_name !== process.env.GITHUB_REPOSITORY) {
+                throw new Error(`${label} verification run belongs to another repository`);
+              }
+              if (!/^[0-9a-f]{40}$/.test(run.head_sha ?? "")) {
+                throw new Error(`${label} verification run has no valid head SHA`);
               }
             }
-            if (run.head_repository?.full_name !== process.env.GITHUB_REPOSITORY) {
-              throw new Error("verification run belongs to another repository");
+            if (runs[0].run.head_sha !== runs[1].run.head_sha) {
+              throw new Error("Mac and Windows verification runs do not test the same commit");
             }
-            if (!/^[0-9a-f]{40}$/.test(run.head_sha ?? "")) {
-              throw new Error("verification run has no valid head SHA");
-            }
-            process.stdout.write(run.head_sha);
-          ' "$run_json")"
+            process.stdout.write(runs[0].run.head_sha);
+          ' "$mac_run_json" "$windows_run_json")"
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
 
       - name: Checkout Exact Verified Commit
@@ -81,18 +107,31 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ inputs.run_id }}
+          MAC_RUN_ID: ${{ inputs.mac_run_id }}
+          WINDOWS_RUN_ID: ${{ inputs.windows_run_id }}
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/qa" "$RUNNER_TEMP/results"
-          gh run download "$RUN_ID" \
+          mkdir -p \
+            "$RUNNER_TEMP/qa/mac" \
+            "$RUNNER_TEMP/qa/windows" \
+            "$RUNNER_TEMP/results/mac" \
+            "$RUNNER_TEMP/results/windows"
+          gh run download "$MAC_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
             --name loomle-fab-plugin-darwin-arm64 \
-            --dir "$RUNNER_TEMP/qa"
-          gh run download "$RUN_ID" \
+            --dir "$RUNNER_TEMP/qa/mac"
+          gh run download "$MAC_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
             --name loomle-native-test-results-darwin-arm64 \
-            --dir "$RUNNER_TEMP/results"
+            --dir "$RUNNER_TEMP/results/mac"
+          gh run download "$WINDOWS_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name loomle-fab-plugin-win32-x64 \
+            --dir "$RUNNER_TEMP/qa/windows"
+          gh run download "$WINDOWS_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name loomle-native-test-results-win32-x64 \
+            --dir "$RUNNER_TEMP/results/windows"
 
       - name: Verify Promotion Contract
         id: release
@@ -102,37 +141,35 @@ jobs:
           HEAD_SHA: ${{ steps.source.outputs.head_sha }}
         run: |
           set -euo pipefail
-          archive="$RUNNER_TEMP/qa/loomle-fab-plugin-darwin-arm64.zip"
-          archive_sha_file="$archive.sha256"
-          automation_result="$RUNNER_TEMP/results/loomle-automation-results-darwin-arm64/result.json"
-          e2e_result="$RUNNER_TEMP/results/loomle-packaged-e2e-results-darwin-arm64/result.json"
-          [[ -f "$archive" && -f "$archive_sha_file" ]] || {
-            echo "QA artifact is missing the verified ZIP or SHA-256 sidecar." >&2
-            exit 1
-          }
-          [[ -f "$automation_result" && -f "$e2e_result" ]] || {
-            echo "Native result artifact is incomplete." >&2
-            exit 1
-          }
-          (
-            cd "$(dirname "$archive")"
-            sha256sum -c "$(basename "$archive_sha_file")"
-          )
+          mac_archive="$RUNNER_TEMP/qa/mac/loomle-fab-plugin-darwin-arm64.zip"
+          mac_archive_sha_file="$mac_archive.sha256"
+          mac_automation_result="$RUNNER_TEMP/results/mac/loomle-automation-results-darwin-arm64/result.json"
+          mac_e2e_result="$RUNNER_TEMP/results/mac/loomle-packaged-e2e-results-darwin-arm64/result.json"
+          windows_archive="$RUNNER_TEMP/qa/windows/loomle-fab-plugin-win32-x64.zip"
+          windows_archive_sha_file="$windows_archive.sha256"
+          windows_automation_result="$RUNNER_TEMP/results/windows/loomle-automation-results-win32-x64/result.json"
+          windows_e2e_result="$RUNNER_TEMP/results/windows/loomle-packaged-e2e-results-win32-x64/result.json"
 
           validation="$RUNNER_TEMP/promotion-validation.json"
           node packaging/release/validate-promotion.mjs \
             --repo-root "$GITHUB_WORKSPACE" \
-            --archive "$archive" \
-            --sha-file "$archive_sha_file" \
-            --automation-result "$automation_result" \
-            --e2e-result "$e2e_result" \
+            --darwin-arm64-archive "$mac_archive" \
+            --darwin-arm64-sha-file "$mac_archive_sha_file" \
+            --darwin-arm64-automation-result "$mac_automation_result" \
+            --darwin-arm64-e2e-result "$mac_e2e_result" \
+            --win32-x64-archive "$windows_archive" \
+            --win32-x64-sha-file "$windows_archive_sha_file" \
+            --win32-x64-automation-result "$windows_automation_result" \
+            --win32-x64-e2e-result "$windows_e2e_result" \
             --head-sha "$HEAD_SHA" \
             --channel "$CHANNEL" > "$validation"
           tag="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).tag' "$validation")"
           version="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).version' "$validation")"
           notes="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).notesPath' "$validation")"
-          echo "archive=$archive" >> "$GITHUB_OUTPUT"
-          echo "archive_sha_file=$archive_sha_file" >> "$GITHUB_OUTPUT"
+          echo "mac_archive=$mac_archive" >> "$GITHUB_OUTPUT"
+          echo "mac_archive_sha_file=$mac_archive_sha_file" >> "$GITHUB_OUTPUT"
+          echo "windows_archive=$windows_archive" >> "$GITHUB_OUTPUT"
+          echo "windows_archive_sha_file=$windows_archive_sha_file" >> "$GITHUB_OUTPUT"
           echo "notes=$notes" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -157,17 +194,21 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          ARCHIVE: ${{ steps.release.outputs.archive }}
-          ARCHIVE_SHA_FILE: ${{ steps.release.outputs.archive_sha_file }}
           HEAD_SHA: ${{ steps.source.outputs.head_sha }}
+          MAC_ARCHIVE: ${{ steps.release.outputs.mac_archive }}
+          MAC_ARCHIVE_SHA_FILE: ${{ steps.release.outputs.mac_archive_sha_file }}
           NOTES: ${{ steps.release.outputs.notes }}
           TAG: ${{ steps.release.outputs.tag }}
           VERSION: ${{ steps.release.outputs.version }}
+          WINDOWS_ARCHIVE: ${{ steps.release.outputs.windows_archive }}
+          WINDOWS_ARCHIVE_SHA_FILE: ${{ steps.release.outputs.windows_archive_sha_file }}
         run: |
           set -euo pipefail
           gh release create "$TAG" \
-            "$ARCHIVE" \
-            "$ARCHIVE_SHA_FILE" \
+            "$MAC_ARCHIVE" \
+            "$MAC_ARCHIVE_SHA_FILE" \
+            "$WINDOWS_ARCHIVE" \
+            "$WINDOWS_ARCHIVE_SHA_FILE" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$HEAD_SHA" \
             --title "Loomle $VERSION" \

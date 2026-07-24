@@ -15,7 +15,7 @@ protocol-version constants. It does not change the independent Fab build
 number in `LoomleBridge.uplugin` `Version`.
 
 Prepare the pre-BuildPlugin staging tree with the same initial stages used by
-the manual Mac verification workflow:
+the native verification workflows:
 
 ```sh
 npm ci
@@ -34,20 +34,22 @@ with UE BuildPlugin, and uploads that verified BuildPlugin output as the QA
 artifact. It does not create a tag, GitHub Release, or public Fab submission.
 
 `.github/workflows/promote-github-release.yml` is a separate manual step. It
-takes a successful Mac verification run ID, checks out that run's exact commit,
-verifies its result files and archive hash, derives `v<product-version>`, and
-publishes the already-tested ZIP without rebuilding or recompressing it.
+takes successful Mac and Windows verification run IDs, requires both runs to
+belong to the same exact commit, checks out that commit, and verifies both sets
+of result files, target descriptors, and archive hashes. It derives
+`v<product-version>` and publishes both already-tested ZIPs and their SHA-256
+sidecars without rebuilding or recompressing either candidate.
 
-`.github/workflows/verify-fab-windows.yml` independently proves the native
-Windows x64 Client, Bridge, Automation, package audit, and exact-ZIP end-to-end
-path. Its uploaded ZIP is QA-only. The current promotion workflow does not
-consume it, and a successful run does not change advertised release platforms.
+`.github/workflows/verify-fab-windows.yml` proves the native Windows x64 Client,
+Bridge, Automation, package audit, and exact-ZIP end-to-end path. Windows is an
+advertised prerelease target only when its successful run is paired with a
+successful Mac run from the same commit during promotion.
 
 Unsigned `0.7.0-rc.*` candidates may be published only as GitHub prereleases
-whose checked-in notes explain the macOS Gatekeeper limitation. Stable
-promotion deliberately fails until Developer ID signing and notarization are
-performed before packaged end-to-end verification. Fab submission remains a
-separate human action.
+whose checked-in notes explain the macOS Gatekeeper and Windows trust-warning
+limitations. Stable promotion deliberately fails until the required platform
+signing and trust gates are performed before packaged end-to-end verification.
+Fab submission remains a separate human action.
 
 Release notes are checked in under `packaging/release/notes/` and named by the
 exact product version.
