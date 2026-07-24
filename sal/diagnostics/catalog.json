@@ -87,6 +87,7 @@
     { "code": "resolution.palette_entry_not_found", "layer": "resolution", "defaultSeverity": "error", "title": "Palette entry not found" },
     { "code": "resolution.palette_not_found", "layer": "resolution", "defaultSeverity": "error", "title": "Palette not found" },
     { "code": "resolution.palette_not_spawnable", "layer": "resolution", "defaultSeverity": "error", "title": "Palette entry not spawnable" },
+    { "code": "resolution.pin_ambiguous", "layer": "resolution", "defaultSeverity": "error", "title": "Pin selector ambiguous" },
     { "code": "resolution.pin_not_connectable", "layer": "resolution", "defaultSeverity": "error", "title": "Pin not connectable" },
     { "code": "resolution.pin_not_found", "layer": "resolution", "defaultSeverity": "error", "title": "Pin not found" },
     { "code": "resolution.property_not_found", "layer": "resolution", "defaultSeverity": "error", "title": "Property not found" },
