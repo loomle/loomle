@@ -9,7 +9,7 @@ nav_order: 1
 
 First bind the exact Blueprint and Graph returned by discovery:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "blueprint-guid"
@@ -20,10 +20,23 @@ query eventGraph
 palette entries "Print String"
 ```
 
-Read the selected Palette Entry with `palette @id` and `with schema`. Copy the
-returned constructor into a dry run:
+Read the selected Palette Entry with exact schema:
 
-```sal
+```text
+door = blueprint(
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "blueprint-guid"
+)
+eventGraph = graph(asset: door, id: "graph-guid")
+
+query eventGraph
+palette @palette-entry-id
+with schema
+```
+
+Copy the returned constructor into a dry run:
+
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "blueprint-guid"
@@ -36,12 +49,14 @@ add print
 ```
 
 If the Node belongs on an existing execution edge, use the exact Pins returned
-by Graph queries and the Graph operation matching the intended topology. `add`
-may connect one side; two-sided replacement uses `insert`.
+by Graph queries and the Graph operation matching the intended topology. A
+normal addition may connect one side; two-sided replacement uses the Graph
+insert operation.
 
-Apply the authored Graph Patch without `dry run`, then finalize separately:
+Apply the authored Graph Patch with dry-run state removed, then finalize
+separately:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "blueprint-guid"

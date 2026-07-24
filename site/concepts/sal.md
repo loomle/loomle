@@ -21,21 +21,28 @@ translated into a generic replacement model.
 
 A Query binds a target and selects one primary read:
 
-```sal
+```text
 door = blueprint(asset: "/Game/BP_Door.BP_Door")
 
 query door
 summary
 ```
 
-Optional clauses such as `where`, `with`, `order by`, `page`, and `depth`
-depend on the selected interface and primary operation.
+Optional clauses depend on the selected interface and primary operation:
+
+```text
+where <condition>
+with <detail>
+order by <field>
+page limit <count>
+depth <count>
+```
 
 ### Patch Text
 
 A Patch binds its complete target and contains ordered bindings or operations:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/BP_Door.BP_Door",
   id: "blueprint-guid"
@@ -45,15 +52,28 @@ patch door dry run
 set door.BlueprintDescription = "Interactive door"
 ```
 
-Core operations include `add`, `remove`, `set`, `reset`, `move`, `invoke`, and
-`save`. Interfaces add operations such as Graph `connect`, StateTree `bind`,
-Widget `wrap`, and Blueprint `compile`.
+Core operations and interface-specific extensions include:
+
+```text
+add
+remove
+set
+reset
+move
+invoke
+save
+
+connect
+bind
+wrap
+compile
+```
 
 ### Object Text
 
 Queries and Patches return the same ordered Object Text:
 
-```sal
+```text
 eventGraph = graph(id: "graph-guid")
 
 beginPlay = node(
@@ -77,7 +97,7 @@ result declares the compact owner binding before using it.
 SAL comments carry counts, titles, health, schema, pagination guidance,
 mutation plans, compiler messages, and diagnostics:
 
-```sal
+```text
 # variables: 3
 
 ###
@@ -101,7 +121,7 @@ state from retargeting an edit.
 Do not guess constructors, classes, Pins, destinations, or operation
 parameters. Search a Palette in the real target context:
 
-```sal
+```text
 query eventGraph
 palette entries "Print String"
 ```

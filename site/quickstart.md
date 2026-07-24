@@ -67,7 +67,7 @@ prerequisite before every request.
 
 Send one self-contained Query Text to `sal_query`:
 
-```sal
+```text
 door = blueprint(asset: "/Game/Blueprints/BP_Door.BP_Door")
 
 query door
@@ -80,7 +80,7 @@ complete Blueprint.
 
 Use the returned id in later exact requests:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "returned-blueprint-guid"
@@ -97,7 +97,7 @@ stable selector inside that owner scope, not a global target.
 
 Bind the exact Graph returned by the Blueprint query:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "returned-blueprint-guid"
@@ -109,14 +109,14 @@ exec flow from node@returned-node-guid depth 2
 ```
 
 Flow queries return compact Nodes and only the Pins needed to express the
-Edges. Query an exact `node@id` when an operation needs every current Pin or
-dynamic schema.
+Edges. Query an exact Node reference when an operation needs every current Pin
+or dynamic schema.
 
 ## 6. Discover Before Creating
 
 Never guess a Node constructor. Search the target Graph Palette:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "returned-blueprint-guid"
@@ -127,14 +127,28 @@ query eventGraph
 palette entries "Print String"
 ```
 
-Inspect the selected entry with `palette @id` and `with schema`, then copy its
-returned constructor into a Patch.
+Inspect the selected entry with exact schema:
+
+```text
+door = blueprint(
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "returned-blueprint-guid"
+)
+eventGraph = graph(asset: door, id: "returned-graph-guid")
+
+query eventGraph
+palette @returned-palette-entry-id
+with schema
+```
+
+Then copy its returned constructor into a Patch.
 
 ## 7. Dry Run
 
-Send the complete Patch Text to `sal_patch` with `dry run` on the Patch header:
+Send the complete Patch Text to `sal_patch` with dry-run state on the Patch
+header:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "returned-blueprint-guid"
@@ -152,16 +166,16 @@ resolved references, operations, effects, and diff.
 
 ## 8. Apply and Read Back
 
-If the dry run is valid, send the same authored Patch without `dry run`.
-Afterward, query the affected Graph or exact Node again rather than assuming
-that the intended result was applied.
+If the dry run is valid, send the same authored Patch again with dry-run state
+removed from the header. Afterward, query the affected Graph or exact Node
+again rather than assuming that the intended result was applied.
 
 ## 9. Finalize Through the Owner
 
 Graph edits do not compile or save their owning Blueprint automatically.
 Finalize in a separate terminal Patch:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "returned-blueprint-guid"

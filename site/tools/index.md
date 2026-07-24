@@ -37,7 +37,7 @@ sal_schema({})
 sal_schema({ module: "graph" })
 ```
 
-Use exact `with schema` discovery for fields, constraints, and UE operations
+Use exact dynamic-schema discovery for fields, constraints, and UE operations
 that depend on one resolved object or Palette capability.
 
 ## Common Query Shape
@@ -74,12 +74,25 @@ patch <bound-target> [dry run]
 <ordered binding or operation>
 ```
 
-Core operations include `add`, `remove`, `set`, `reset`, `move`, `invoke`, and
-`save`. Modules add operations such as Graph `connect`, StateTree `bind`,
-Widget `wrap`, and Blueprint `compile`.
+Core operations and module-specific extensions include:
 
-Every object created directly through `add` starts from a Palette capability in
-the real target context.
+```text
+add
+remove
+set
+reset
+move
+invoke
+save
+
+connect
+bind
+wrap
+compile
+```
+
+Every object created directly through an add operation starts from a Palette
+capability in the real target context.
 
 ## Ownership and Handoffs
 

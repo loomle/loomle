@@ -11,7 +11,7 @@ nav_order: 1
 Use exact reads when a flow traversal intentionally omitted nonessential Pins
 or when an operation depends on the current Node state:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "blueprint-guid"
@@ -29,10 +29,10 @@ traversing links.
 
 Nodes may own complex internal UE state—dynamic Pins, switch cases, timeline
 tracks and keys, delegate state, and other schema-specific behavior. Loomle
-does not split those into artificial top-level objects. Exact `with schema`
+does not split those into artificial top-level objects. Exact dynamic schema
 returns the operations the resolved Node or Pin can execute now:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "blueprint-guid"

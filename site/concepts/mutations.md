@@ -15,7 +15,7 @@ explicit.
 
 A Patch is one ordered unit:
 
-```sal
+```text
 patch eventGraph dry run
 print = node(palette: "palette-entry-id")
 add print
@@ -27,9 +27,9 @@ validated, and planned before live mutation begins.
 
 ## Dry Run Uses the Real Edit Path
 
-`dry run` is part of the SAL Patch header:
+The SAL Patch header carries dry-run state:
 
-```sal
+```text
 patch eventGraph dry run
 ```
 
@@ -45,7 +45,8 @@ Review:
 - effects and diagnostics; and
 - the returned diff when that interface provides it.
 
-If valid, send the same authored Patch without `dry run`.
+If valid, send the same authored Patch again with dry-run state removed from
+the header.
 
 ## Apply Is Transactional In Memory
 
@@ -69,7 +70,7 @@ Do not treat a successful tool call as a substitute for inspecting the result.
 Graph and Widget edits do not automatically compile or save their owning
 Blueprint:
 
-```sal
+```text
 patch door
 compile
 save
@@ -77,7 +78,7 @@ save
 
 StateTree uses its own terminal Patch on the asset target:
 
-```sal
+```text
 patch omle
 compile
 save
@@ -89,9 +90,9 @@ allows it.
 
 ## Save Does Not Mean Compile
 
-`save` persists the exact owning Package. It does not imply validation or
-compile. Saving stale compiled state may be valid but must be an explicit
-choice.
+A save operation persists the exact owning Package. It does not imply
+validation or compile. Saving stale compiled state may be valid but must be an
+explicit choice.
 
 If save fails after a successful authored edit or compile, the in-memory object
 can remain dirty and unsaved. Inspect the returned diagnostics and retry only

@@ -48,9 +48,9 @@ one concrete asset.
 
 ## 3. Dynamic Exact Schema
 
-Use `with schema` on an exact subject:
+Append the dynamic-schema clause to an exact subject:
 
-```sal
+```text
 query eventGraph
 node@node-guid
 with schema
@@ -58,7 +58,7 @@ with schema
 
 Or inspect an exact Palette capability:
 
-```sal
+```text
 query eventGraph
 palette @palette-entry-id
 with schema
@@ -76,8 +76,8 @@ collections. First resolve an exact object or Palette entry.
 | Question | Discovery layer |
 | --- | --- |
 | How does SAL generally work? | Resident guide |
-| Which operations does Graph support? | Static `graph` card |
-| Can this exact Node add a dynamic Pin now? | Exact Node `with schema` |
+| Which operations does Graph support? | Static Graph card |
+| Can this exact Node add a dynamic Pin now? | Exact Node schema |
 | Which constructor creates this capability here? | Exact Palette entry |
 | Which field or destination is writable? | Exact object schema |
 
@@ -86,6 +86,6 @@ collections. First resolve an exact object or Palette entry.
 Useful failures should point to the next discovery action:
 
 - unknown syntax → load the relevant static interface card;
-- unknown field or operation → query the exact subject `with schema`;
+- unknown field or operation → repeat the exact-schema query shown above;
 - stale id → repeat the relevant summary, collection, or tree query;
 - unavailable capability → follow the returned reason and next-query guidance.

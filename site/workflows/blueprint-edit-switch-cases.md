@@ -12,7 +12,7 @@ second artificial Case object or ask the agent to manipulate raw Pins.
 
 Read the exact switch Node and its current capabilities:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "blueprint-guid"
@@ -25,10 +25,10 @@ with schema
 ```
 
 The schema returns only UE operations available for that resolved Node,
-including their exact parameters and a copyable `invoke` template. Use that
+including their exact parameters and a copyable invocation template. Use that
 template in a dry run:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "blueprint-guid"
@@ -42,5 +42,5 @@ invoke node@switch-node-guid AddExecutionPin() as addedPin
 Review the returned Pins and planned effects, then apply. Finish by compiling
 and saving the owning Blueprint in a separate terminal Patch. Never infer an
 operation from the display title of a similar switch Node. The example applies
-only when exact schema advertises `AddExecutionPin()`; otherwise copy the
+only when exact schema advertises the operation shown above; otherwise copy the
 operation template it actually returns.

@@ -16,7 +16,7 @@ trees use their own modules while retaining the exact Blueprint owner.
 
 The first discovery query may use only the Asset Path:
 
-```sal
+```text
 door = blueprint(asset: "/Game/Blueprints/BP_Door.BP_Door")
 
 query door
@@ -26,7 +26,7 @@ summary
 The result returns `BlueprintGuid`. Later exact queries and every Patch use the
 path and id together:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "blueprint-guid"
@@ -52,7 +52,7 @@ palette entries ["text"] | palette @id
 ```
 
 Collections are compact, cursor-paginated, and preserve UE authored order by
-default. Exact reads may add `with schema` for current writable fields,
+default. Exact reads may request dynamic schema for current writable fields,
 constraints, reset behavior, lifecycle, and UE operations.
 
 ## Patch Boundary
@@ -64,7 +64,7 @@ belong to their respective planners and use following requests.
 Creation constructors always come from the target's Palette. Existing objects
 use typed references:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "blueprint-guid"
@@ -83,7 +83,7 @@ and the installed Blueprint interface card for exact forms.
 
 Compilation and save are a separate terminal Patch:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "blueprint-guid"

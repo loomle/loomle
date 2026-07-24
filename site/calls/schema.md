@@ -47,7 +47,7 @@ does not repeat the guide in every response.
 ## Static Is Not Dynamic
 
 `sal_schema` does not inspect one concrete UE object. Query an exact subject
-with `with schema` when fields, constraints, or operations depend on the
+with dynamic schema when fields, constraints, or operations depend on the
 resolved object and current editor context.
 
 See [Schema Discovery](../concepts/schema.html) for the complete three-layer

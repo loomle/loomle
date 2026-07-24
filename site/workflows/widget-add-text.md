@@ -9,7 +9,7 @@ nav_order: 3
 
 Read the current authored tree and choose the exact parent:
 
-```sal
+```text
 menu = blueprint(
   asset: "/Game/UI/WBP_Menu.WBP_Menu",
   id: "blueprint-guid"
@@ -21,7 +21,7 @@ tree depth 20
 
 Find the UE Widget creation capability:
 
-```sal
+```text
 menu = blueprint(
   asset: "/Game/UI/WBP_Menu.WBP_Menu",
   id: "blueprint-guid"
@@ -31,10 +31,22 @@ query menu
 palette entries "TextBlock"
 ```
 
-Inspect the chosen `palette @id with schema`, then copy the returned Widget
-constructor into a dry run:
+Inspect the chosen Palette Entry with exact schema:
 
-```sal
+```text
+menu = blueprint(
+  asset: "/Game/UI/WBP_Menu.WBP_Menu",
+  id: "blueprint-guid"
+)
+
+query menu
+palette @palette-entry-id
+with schema
+```
+
+Then copy the returned Widget constructor into a dry run:
+
+```text
 menu = blueprint(
   asset: "/Game/UI/WBP_Menu.WBP_Menu",
   id: "blueprint-guid"

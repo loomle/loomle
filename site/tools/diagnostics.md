@@ -13,7 +13,7 @@ operations that produced it.
 
 SAL supports single-line and block comments:
 
-```sal
+```text
 # short guidance
 
 ###
@@ -23,13 +23,13 @@ multi-line compiler or validation detail
 
 Graph queries attach current Node and Pin health, including compiler messages,
 upgrade messages, visual warnings, orphaned Pins, and Pin deprecation state.
-Graph `summary` keeps representatives compact and returns a comment index of
-Nodes carrying health state so an agent can follow exact `node@id` references.
+Graph summary keeps representatives compact and returns a comment index of
+Nodes carrying health state so an agent can follow exact Node references.
 
-Blueprint `compile` returns native Status and ordered compiler diagnostics.
+Blueprint compilation returns native Status and ordered compiler diagnostics.
 Mutation responses include validation state, ordered planned operations and
 effects, apply state, and failures in the same Object Text envelope.
 
 Stored compiler annotations can be stale when the owning Blueprint is dirty or
-unknown. Loomle reports that condition; run a separate Blueprint terminal Patch
-with `compile` to obtain fresh complete diagnostics.
+unknown. Loomle reports that condition; run a separate Blueprint terminal
+compile Patch to obtain fresh complete diagnostics.

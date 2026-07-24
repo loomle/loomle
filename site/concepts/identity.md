@@ -15,7 +15,7 @@ This mirrors how Unreal owns editor objects.
 
 Assets without a native asset Guid use their exact Object Path:
 
-```sal
+```text
 omle = asset(
   path: "/Game/AI/ST_Omle.ST_Omle",
   type: "/Script/StateTreeModule.StateTree"
@@ -25,13 +25,13 @@ omle = asset(
 A Blueprint has both an Asset Path and a native Blueprint Guid. Its first
 discovery query may use the path alone:
 
-```sal
+```text
 door = blueprint(asset: "/Game/BP_Door.BP_Door")
 ```
 
 Later exact queries and every Patch use the returned id:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/BP_Door.BP_Door",
   id: "blueprint-guid"
@@ -46,7 +46,7 @@ the intended Blueprint.
 Contained UE objects are scoped by their owner. A Graph target therefore keeps
 its Blueprint owner:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/BP_Door.BP_Door",
   id: "blueprint-guid"
@@ -54,7 +54,7 @@ door = blueprint(
 eventGraph = graph(asset: door, id: "graph-guid")
 ```
 
-`graph@id` or `node@id` alone is not a complete global locator.
+Neither scoped selector in the example is a complete global locator.
 
 ## Typed Stable References
 
@@ -72,18 +72,28 @@ state@id
 transition@id
 ```
 
-Some interfaces define composite selectors, such as StateTree
-`parameter@container-id/property-id`. The active interface card is
-authoritative.
+Some interfaces define composite selectors:
 
-A bare `@id` is invalid. The type states what kind of object should be resolved
-and prevents unrelated ids from being treated as interchangeable.
+```text
+parameter@container-id/property-id
+```
+
+The active interface card is authoritative.
+
+A selector without a type is invalid:
+
+```text
+@id
+```
+
+The type states what kind of object should be resolved and prevents unrelated
+ids from being treated as interchangeable.
 
 ## Member Paths
 
 Member paths select native fields or nested value surfaces:
 
-```sal
+```text
 set widget@id.Slot.Padding = "<native FMargin text>"
 references to variable@id.SomeNativeMember in project
 ```
@@ -95,7 +105,7 @@ path from a display label.
 
 Aliases are readable handles inside one SAL Text:
 
-```sal
+```text
 print = node(palette: "palette-entry-id")
 add print
 ```

@@ -22,8 +22,15 @@ readable in one format.
 
 ## Identity Is Scoped
 
-An Asset Path locates an asset. Typed ids such as `graph@id`, `node@id`, and
-`widget@id` select stable contained objects inside a complete owner chain.
+An Asset Path locates an asset. Typed ids select stable contained objects
+inside a complete owner chain:
+
+```text
+graph@id
+node@id
+widget@id
+```
+
 Local aliases make one request readable but do not persist into another
 request.
 
@@ -32,9 +39,14 @@ request.
 ## Schema Is Discovered in Layers
 
 The resident guide gives the minimum language model. Static interface cards
-describe one UE domain. Exact `with schema` reads expose the fields,
-constraints, and operations available for one resolved object or Palette
-capability.
+describe one UE domain. Exact reads can append the dynamic-schema clause:
+
+```text
+with schema
+```
+
+This exposes the fields, constraints, and operations available for one
+resolved object or Palette capability.
 
 [Use schema discovery](schema.html)
 

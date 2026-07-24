@@ -8,13 +8,13 @@ nav_order: 5
 
 # Palette
 
-Every object created directly through `add` begins with a UE Palette result.
-Loomle does not define a fixed list of constructors or ask the agent to guess
-native classes.
+Every object created directly through an add operation begins with a UE Palette
+result. Loomle does not define a fixed list of constructors or ask the agent to
+guess native classes.
 
 Search a Blueprint or Graph target:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "blueprint-guid"
@@ -27,7 +27,7 @@ palette entries "Print String"
 
 Graph Palette search may include Pin context:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "blueprint-guid"
@@ -40,7 +40,7 @@ palette entries "Branch" from pin@source-pin-guid
 
 Inspect the selected capability:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "blueprint-guid"
@@ -54,7 +54,7 @@ with schema
 
 Then copy its returned binding into Patch Text:
 
-```sal
+```text
 door = blueprint(
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "blueprint-guid"
