@@ -2,102 +2,195 @@
 layout: home
 title: Loomle
 nav_order: 1
-description: Read and change Unreal Engine editor objects through a compact, UE-faithful language for agents.
+description: The operational interface between AI agents and Unreal Engine.
 permalink: /
 ---
 
-# Loomle
-{: .fs-9 }
+<div class="loomle-home">
+  <header class="loom-topbar">
+    <a class="loom-wordmark" href="/" aria-label="Loomle home">
+      <span class="loom-mark" aria-hidden="true">
+        <i></i><i></i><i></i><i></i>
+        <i></i><i></i><i></i><i></i>
+        <i></i><i></i><i></i><i></i>
+        <i></i><i></i><i></i><i></i>
+      </span>
+      <span>LOOMLE</span>
+    </a>
+    <nav class="loom-nav" aria-label="Home">
+      <a href="/quickstart.html">Docs</a>
+      <a href="/tools/">Interfaces</a>
+      <a href="/workflows/">Workflows</a>
+      <a href="https://github.com/loomle/loomle">GitHub ↗</a>
+    </nav>
+  </header>
 
-Unreal Engine objects, made readable and editable for agents.
-{: .fs-6 .fw-300 }
+  <div class="loom-main">
+    <section class="loom-hero">
+      <div class="loom-hero-copy">
+        <div class="loom-index">
+          <span class="loom-index-line"></span>
+          PROGRAMMABLE LOOM / UNREAL ENGINE
+        </div>
+        <h1>The operational interface between AI agents and Unreal Engine.</h1>
+        <p class="loom-lede">
+          Loomle turns live Unreal Editor state into inspectable, patchable
+          SAL—without replacing Unreal’s own object model.
+        </p>
+        <div class="loom-actions">
+          <a class="loom-button loom-button-primary" href="https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.3">
+            Download 0.7.0-rc.3
+          </a>
+          <a class="loom-button" href="/quickstart.html">Read the quickstart</a>
+        </div>
+        <div class="loom-release">
+          <span class="loom-status-dot"></span>
+          UE 5.7 · Apple Silicon macOS · x64 Windows
+        </div>
+      </div>
 
-[Download 0.7.0-rc.3](https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.3){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[Install](install.html){: .btn .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[Quickstart](quickstart.html){: .btn .fs-5 .mb-4 .mb-md-0 }
+      <div class="loom-machine" role="group" aria-label="Example SAL program">
+        <div class="loom-machine-head">
+          <span>PROGRAM / BP_DOOR</span>
+          <span>DRY RUN</span>
+        </div>
+        <div class="loom-punch-row" aria-hidden="true">
+          <i></i><i class="is-open"></i><i></i><i></i><i class="is-open"></i>
+          <i></i><i class="is-open"></i><i></i><i></i><i></i><i class="is-open"></i><i></i>
+        </div>
+        <pre><code>eventGraph = target {
+  domain: graph,
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "22222222-2222-2222-2222-222222222222"
+}
 
-Loomle connects Codex, Claude, and other MCP-compatible agents to a running
-Unreal Editor. It expresses Blueprint graphs, Widget trees, StateTrees, Class
-Defaults, Assets, and other structured editor state as SAL: compact,
-line-oriented text that both an agent and a person can inspect, copy, discuss,
-and patch.
+patch eventGraph dry run
+print = { palette: "returned-palette-entry-id" }
+add print</code></pre>
+        <div class="loom-machine-foot">
+          <span><b>01</b> PARSE</span>
+          <span><b>02</b> RESOLVE</span>
+          <span><b>03</b> VALIDATE</span>
+          <span class="is-ready"><b>04</b> PLAN / VALID</span>
+        </div>
+      </div>
+    </section>
 
-Loomle does not replace Unreal's object model. Asset Paths, Class Paths, native
-types, field names, Palette capabilities, compiler messages, and editor
-semantics remain UE-native.
+    <section class="loom-principle">
+      <div class="loom-section-label">01 / OPERATING PRINCIPLE</div>
+      <div class="loom-principle-grid">
+        <h2>Read the machine.<br>Author the change.<br>Verify the result.</h2>
+        <p>
+          A loom turns a stored pattern into repeatable physical work. Loomle
+          gives agents the same kind of disciplined operating layer for Unreal:
+          explicit targets, reviewable instructions, and results grounded in
+          the running Editor.
+        </p>
+      </div>
+    </section>
 
-{: .note }
-> Loomle 0.7.0-rc.3 is available for Unreal Engine 5.7 on Apple Silicon macOS
-> and x64 Windows through GitHub Releases. The public Fab listing still
-> contains Loomle 0.6.
+    <section class="loom-cycle" aria-label="Loomle working cycle">
+      <article>
+        <div class="loom-step-head"><span>01</span><span>SENSE</span></div>
+        <h3>Inspect before acting.</h3>
+        <p>
+          Begin with editor context or an exact Asset Path. Query only the
+          summary, collection, tree, context, or flow the task needs.
+        </p>
+        <div class="loom-thread" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      </article>
+      <article>
+        <div class="loom-step-head"><span>02</span><span>FORM</span></div>
+        <h3>Use the pattern Unreal provides.</h3>
+        <p>
+          Discover exact schema and Palette capabilities in the live target
+          context. Stable references keep every follow-up precise.
+        </p>
+        <div class="loom-thread" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      </article>
+      <article>
+        <div class="loom-step-head"><span>03</span><span>APPLY</span></div>
+        <h3>Dry-run the real edit path.</h3>
+        <p>
+          Parse, resolve, validate, and plan before mutation. Apply the same
+          authored change, then compile, save, and read back.
+        </p>
+        <div class="loom-thread" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      </article>
+    </section>
 
-## The Working Model
+    <section class="loom-interface">
+      <div class="loom-section-label">02 / CONTROL SURFACE</div>
+      <div class="loom-interface-intro">
+        <h2>Six calls.<br>Unreal-scale reach.</h2>
+        <p>
+          The public surface stays deliberately small. Rich UE behavior lives
+          in SAL and in interface cards that agents can discover as needed.
+        </p>
+      </div>
 
-A reliable Loomle workflow has eight steps:
+      <div class="loom-call-grid">
+        <a href="/calls/status.html"><span>01</span><strong>status</strong><small>Client, update, session, Bridge</small></a>
+        <a href="/calls/project.html"><span>02</span><strong>project</strong><small>Project discovery and binding</small></a>
+        <a href="/calls/sal.html"><span>03</span><strong>sal_query</strong><small>Compact, targeted inspection</small></a>
+        <a href="/calls/sal.html"><span>04</span><strong>sal_patch</strong><small>Planned and reviewable edits</small></a>
+        <a href="/calls/schema.html"><span>05</span><strong>sal_schema</strong><small>Resident guide and interface cards</small></a>
+        <a href="/calls/editor-context.html"><span>06</span><strong>editor_context</strong><small>The user’s active UE target</small></a>
+      </div>
+    </section>
 
-1. Check Client, update, session, and Bridge health with `status`.
-2. Bind the MCP session if it is not already bound.
-3. Start from `editor_context` or an exact Asset Path.
-4. Query a compact summary, collection, tree, context, or flow.
-5. Discover exact schema only when the operation requires it.
-6. Use a UE Palette result before creating an object.
-7. Dry-run the complete Patch, then apply the same authored change.
-8. Compile and save through the owning asset when its interface requires it.
+    <section class="loom-native">
+      <div class="loom-native-copy">
+        <div class="loom-section-label">03 / UE-FAITHFUL BY DESIGN</div>
+        <h2>No parallel model between the agent and the Editor.</h2>
+        <p>
+          Asset Paths, Class Paths, native types, field names, Palette
+          capabilities, validation, compiler messages, and editor semantics
+          remain Unreal-native.
+        </p>
+        <a class="loom-text-link" href="/concepts/">Explore the core concepts →</a>
+      </div>
 
-The [Quickstart](quickstart.html) walks through that complete path.
+      <div class="loom-specimen">
+        <div class="loom-specimen-head">
+          <span>OUTPUT SPECIMEN</span>
+          <span>SAL / RESULT TEXT</span>
+        </div>
+        <pre><code>result exact_target
+target door = target {
+  domain: blueprint,
+  asset: "/Game/Blueprints/BP_Door.BP_Door"
+}
+objects
 
-## Six Calls, Six Interfaces
+door = blueprint {
+  variables: 3,
+  graphs: 2,
+  components: 4
+}</code></pre>
+        <div class="loom-specimen-key">
+          <span>CANONICAL TARGET</span>
+          <span>ORDERED OBJECT TEXT</span>
+          <span>UE-NATIVE IDENTITY</span>
+        </div>
+      </div>
+    </section>
 
-The Client exposes six public MCP tools:
+    <section class="loom-start">
+      <div>
+        <div class="loom-section-label">04 / START THE MACHINE</div>
+        <h2>From first connection to a verified Unreal edit.</h2>
+      </div>
+      <div class="loom-start-actions">
+        <a class="loom-button loom-button-light" href="/install.html">Install Loomle</a>
+        <a class="loom-button loom-button-outline-light" href="/quickstart.html">Run the quickstart</a>
+      </div>
+    </section>
+  </div>
 
-| Call | Responsibility |
-| --- | --- |
-| `status` | Inspect Client/update status and bound session/Bridge health. |
-| `project` | Inspect projects and bind this MCP session to one project. |
-| `sal_query` | Execute one self-contained SAL Query Text. |
-| `sal_patch` | Dry-run or apply one ordered SAL Patch Text. |
-| `sal_schema` | Discover the resident SAL guide and active interface cards. |
-| `editor_context` | Read the user's current UE interaction target as SAL. |
-
-The six active SAL interface modules are Asset, Blueprint, Class, Graph,
-StateTree, and Widget. The small MCP surface is intentional: rich UE behavior
-is expressed in SAL and discovered through interface cards instead of being
-registered as hundreds of unrelated tools.
-
-[Understand the MCP calls](calls/){: .btn .fs-4 .mr-2 }
-[Browse the interfaces](tools/){: .btn .fs-4 }
-
-## Why SAL
-
-Unreal assets are rich editor objects rather than source files. Raw
-serialization is noisy, while generic wrappers tend to erase the details that
-make UE behavior reliable. SAL keeps the useful text workflow without creating
-a parallel Unreal model:
-
-- summaries and local traversal avoid downloading an entire asset;
-- flat Domain Targets make the active UE scope explicit;
-- Target-relative StableRefs support precise follow-up requests;
-- query and mutation results share canonical Result Text with an explicit
-  Target table and ordered Object Text;
-- Palette and dynamic schema discovery expose capabilities UE actually offers;
-- dry runs use the real parse, resolve, validate, and planning path; and
-- native health, validation, and compiler messages remain beside the
-  objects and operations that produced them.
-
-Read [Core Concepts](concepts/) for the language and identity model, or go
-straight to [Workflows](workflows/) for task-oriented examples.
-
-## Installation Model
-
-Loomle 0.7 ships as one platform-specific Unreal plugin package containing
-both the C++ Unreal Bridge and the matching self-contained Client:
-
-```text
-LoomleBridge/Resources/Loomle/<platform-arch>/loomle(.exe)
-```
-
-There is no separate Python server, Node.js runtime, global Loomle
-installation, website installer, or project-local Client. GitHub Releases is
-the current 0.7 release-candidate channel; the same plugin package is intended
-to move to Fab later. The MCP host launches the Client bundled inside the
-installed plugin.
+  <footer class="loom-footer">
+    <span>LOOMLE / PROGRAMMABLE LOOM</span>
+    <span>Agent-native Unreal Engine tooling</span>
+    <span>© 2026</span>
+  </footer>
+</div>

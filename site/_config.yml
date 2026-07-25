@@ -1,5 +1,5 @@
-title: LOOMLE
-description: Agent-native Unreal Engine tools for Asset, Blueprint, Class, Graph, StateTree, and Widget workflows through SAL.
+title: Loomle
+description: The operational interface between AI agents and Unreal Engine.
 url: "https://loomle.ai"
 baseurl: ""
 
@@ -14,6 +14,10 @@ aux_links:
     - https://github.com/loomle/loomle
   Releases:
     - https://github.com/loomle/loomle/releases
+
+footer_content: "LOOMLE / PROGRAMMABLE LOOM · Agent-native Unreal Engine tooling."
+back_to_top: true
+back_to_top_text: "Back to top"
 
 callouts:
   note:
