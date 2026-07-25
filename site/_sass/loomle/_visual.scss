@@ -694,7 +694,7 @@ body:has(.loomle-home) .main-content main {
   background: transparent;
   color: #d4d2ca;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: clamp(14px, 1.05vw, 16px);
+  font-size: clamp(12px, 0.9vw, 13px);
   line-height: 1.72;
 }
 
@@ -755,6 +755,7 @@ body:has(.loomle-home) .main-content main {
 }
 
 .loom-principle h2,
+.loom-sal h2,
 .loom-interface h2,
 .loom-oasium h2,
 .loom-start h2 {
@@ -762,10 +763,10 @@ body:has(.loomle-home) .main-content main {
   padding-top: 0;
   border-top: 0;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(2.45rem, 4.4vw, 5.1rem) !important;
+  font-size: clamp(30px, 2.65vw, 38px) !important;
   font-weight: 400;
   letter-spacing: -0.052em;
-  line-height: 0.98;
+  line-height: 1.1;
 }
 
 .loom-principle p,
@@ -810,10 +811,9 @@ body:has(.loomle-home) .main-content main {
   padding: 0;
   border: 0;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(3rem, 5.1vw, 5.8rem) !important;
   font-weight: 400;
   letter-spacing: -0.052em;
-  line-height: 1.12;
+  line-height: 1.1;
 }
 
 .loom-sal-intro p {
@@ -887,7 +887,7 @@ body:has(.loomle-home) .main-content main {
   background: transparent;
   color: #d4d2ca;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: clamp(14px, 1.05vw, 16px);
+  font-size: clamp(12px, 0.9vw, 13px);
   line-height: 1.72;
   white-space: pre;
 }
@@ -975,8 +975,7 @@ body:has(.loomle-home) .main-content main {
 
 .loom-interface h2 {
   color: #f3f0e9;
-  font-size: clamp(3rem, 5.1vw, 5.8rem) !important;
-  line-height: 1.12;
+  line-height: 1.1;
 }
 
 .loom-interface-intro p {
@@ -1049,8 +1048,7 @@ body:has(.loomle-home) .main-content main {
 
 .loom-oasium h2 {
   margin-top: 2.5rem;
-  font-size: clamp(3rem, 5.1vw, 5.8rem) !important;
-  line-height: 1.12;
+  line-height: 1.1;
 }
 
 .loom-oasium-visual {
