@@ -36,7 +36,7 @@ validated, and planned before live mutation begins.
 
 The SAL Patch header carries dry-run state:
 
-```text
+```sal
 patch eventGraph dry run
 ```
 

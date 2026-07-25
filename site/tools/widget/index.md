@@ -11,7 +11,7 @@ Widget operates on authored `UWidget` objects inside one
 `UWidgetBlueprint::WidgetTree`. Widget and Blueprint are independent Domains
 even when they open the same asset.
 
-```text
+```sal
 menu = target {
   domain: widget,
   asset: "/Game/UI/WBP_Menu.WBP_Menu",
@@ -28,7 +28,7 @@ The Widget `id` is a canonical lowercase, hyphenated, non-zero Guid.
 
 Widget adds these queries:
 
-```text
+```sal
 tree
 widgets
 widget <name>
@@ -46,7 +46,7 @@ or Palette entry.
 
 Create from the combined target Palette, then use structural Widget operations:
 
-```text
+```sal
 menu = target {
   domain: widget,
   asset: "/Game/UI/WBP_Menu.WBP_Menu",
@@ -61,7 +61,7 @@ set label.Text = "Start"
 
 Current Patch operations include:
 
-```text
+```sal
 add
 move
 remove
@@ -82,7 +82,7 @@ Navigation, legacy Binding, and MVVM are outside the current interface.
 
 Finalize through the related Blueprint Target returned by Widget results:
 
-```text
+```sal
 bp = target {
   domain: blueprint,
   asset: "/Game/UI/WBP_Menu.WBP_Menu",

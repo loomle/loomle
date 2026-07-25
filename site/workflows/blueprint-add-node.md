@@ -9,7 +9,7 @@ nav_order: 1
 
 First bind the exact Graph returned by discovery:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -23,7 +23,7 @@ palette entries "Print String"
 
 Read the selected Palette Entry with exact schema:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -38,7 +38,7 @@ with schema
 
 Copy the returned brace object fields into a dry run:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -60,7 +60,7 @@ Apply the authored Graph Patch with dry-run state removed. Its result supplies
 an independent related Blueprint Target and an explicit compile handoff. Copy
 that returned Target into a separate finalization request:
 
-```text
+```sal
 door = target {
   domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door",

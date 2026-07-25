@@ -12,7 +12,7 @@ second artificial Case object or ask the agent to manipulate raw Pins.
 
 Read the exact switch Node and its current capabilities:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -29,7 +29,7 @@ The schema returns only UE operations available for that resolved Node,
 including their exact parameters and a copyable invocation template. Use that
 template in a dry run:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",

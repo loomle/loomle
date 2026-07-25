@@ -41,7 +41,7 @@ request.
 The resident guide gives the minimum language model. Static interface cards
 describe one UE domain. Exact reads can append the dynamic-schema clause:
 
-```text
+```sal
 with schema
 ```
 

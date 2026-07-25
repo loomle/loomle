@@ -10,11 +10,36 @@ publishes documentation only: there are no website bootstrap scripts, global
 installers, or standalone Client copies. The Client ships inside each plugin
 archive under `Resources/Loomle/<platform-arch>/loomle(.exe)`.
 
-Build locally with Ruby 3.3:
+## Local Development
+
+The site uses Ruby 3.3, matching the Pages workflow. Do not use the system Ruby
+included with macOS. On macOS, install the required version once:
 
 ```sh
-bundle install
-bundle exec jekyll build --destination _site
+brew install ruby@3.3
+```
+
+From the repository root, install the site dependencies:
+
+```sh
+npm run site:setup
+```
+
+Start the local server with live reload:
+
+```sh
+npm run site:serve
+```
+
+The preview is available at <http://127.0.0.1:4000/>. The repository command
+selects Homebrew Ruby 3.3 automatically, so no global shell `PATH` change is
+required.
+
+Build or validate the production output with:
+
+```sh
+npm run site:build
+npm run site:check
 ```
 
 The Pages workflow builds this directory directly and deploys `_site` after

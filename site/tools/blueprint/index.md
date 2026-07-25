@@ -17,7 +17,7 @@ related Target plus an explicit handoff.
 
 The first discovery query may use only the Asset Path:
 
-```text
+```sal
 door = target {
   domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door"
@@ -30,7 +30,7 @@ summary
 The result returns `BlueprintGuid`. Later exact queries and every Patch use the
 path and id together:
 
-```text
+```sal
 door = target {
   domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -43,7 +43,7 @@ canonical lowercase, hyphenated, non-zero GUID.
 
 ## Query Directory
 
-```text
+```sal
 target
 summary
 variables ["text"]
@@ -74,7 +74,7 @@ Creation values always come from the Target's Palette. Existing objects use
 Target-relative stable references; optional tags such as `variable` or
 `component` do not participate in lookup:
 
-```text
+```sal
 door = target {
   domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -94,7 +94,7 @@ and the installed Blueprint interface card for exact forms.
 
 Compilation and save are a separate terminal Patch:
 
-```text
+```sal
 door = target {
   domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door",

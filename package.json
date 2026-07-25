@@ -12,6 +12,10 @@
     "client"
   ],
   "scripts": {
+    "site:setup": "site/bin/site setup",
+    "site:build": "site/bin/site build",
+    "site:serve": "site/bin/site serve",
+    "site:check": "site/bin/site check",
     "generate:version": "node packaging/tools/product-version.mjs generate",
     "check:version": "node packaging/tools/product-version.mjs check",
     "build": "npm run check:version && npm run build --workspace @loomle/client",

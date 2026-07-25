@@ -24,3 +24,6 @@ runtime/local-release-*/
 node_modules/
 dist/
 tests/results/
+site/.bundle/
+site/.jekyll-metadata
+site/_site/

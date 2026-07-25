@@ -11,7 +11,7 @@ nav_order: 1
 Use exact reads when a flow traversal intentionally omitted nonessential Pins
 or when an operation depends on the current Node state:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -33,7 +33,7 @@ tracks and keys, delegate state, and other schema-specific behavior. Loomle
 does not split those into artificial top-level objects. Exact dynamic schema
 returns the operations the resolved Node or Pin can execute now:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",

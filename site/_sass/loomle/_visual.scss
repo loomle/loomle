@@ -13,6 +13,69 @@ $loom-copper-dark: #8f3723;
 $loom-brass: #b18a52;
 $loom-green: #9fbc8f;
 
+// SAL syntax ---------------------------------------------------------------
+
+// The lexer emits standard Rouge token classes. Keeping the palette scoped to
+// SAL lets other languages retain the documentation theme's defaults.
+.language-sal .k,
+.language-sal .kd {
+  color: #e47755;
+  font-weight: 600;
+}
+
+.language-sal .kr,
+.language-sal .kt,
+.language-sal .nb,
+.language-sal .nc,
+.language-sal .nf {
+  color: #d5ab68;
+}
+
+.language-sal .kp,
+.language-sal .nl {
+  color: #c2b49e;
+}
+
+.language-sal .nn,
+.language-sal .na {
+  color: #8fb9c7;
+}
+
+.language-sal .nv,
+.language-sal .n {
+  color: #d7d5ce;
+}
+
+.language-sal .s,
+.language-sal .s2,
+.language-sal .se {
+  color: #a8c494;
+}
+
+.language-sal .kc,
+.language-sal .no,
+.language-sal .m,
+.language-sal .mi,
+.language-sal .mf {
+  color: #d8c17e;
+}
+
+.language-sal .o {
+  color: #ecc276;
+  font-weight: 600;
+}
+
+.language-sal .p {
+  color: #979b92;
+}
+
+.language-sal .c,
+.language-sal .c1,
+.language-sal .cm {
+  color: #747970;
+  font-style: italic;
+}
+
 // Global document surface ----------------------------------------------------
 
 html {
@@ -539,6 +602,13 @@ body:has(.loomle-home) .main-content main {
   border: 1px solid #42443e;
   background: #11120f;
   box-shadow: 13px 13px 0 #0c0d0b, 14px 14px 0 #30322d;
+}
+
+.loom-machine figure.highlight,
+.loom-sal-example figure.highlight,
+.loom-specimen figure.highlight {
+  margin: 0;
+  background: transparent;
 }
 
 .loom-machine-head,

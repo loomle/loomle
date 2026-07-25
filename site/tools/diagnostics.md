@@ -13,7 +13,7 @@ operations that produced it.
 
 SAL supports single-line and block comments:
 
-```text
+```sal
 # short guidance
 
 ###

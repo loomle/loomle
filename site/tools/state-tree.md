@@ -16,7 +16,7 @@ The StateTree interface reads and edits the authored contents of one UE
 
 Bind the exact Asset Path and native Class Path:
 
-```text
+```sal
 omle = target {
   domain: state_tree,
   asset: "/Game/AI/ST_Omle.ST_Omle",
@@ -32,7 +32,7 @@ expression or semantic tag. Contained identities are scoped inside this Target.
 
 After the Target binding, a StateTree Query selects one of:
 
-```text
+```sal
 query omle
 
 summary
@@ -76,7 +76,7 @@ independent top-level lifecycle objects.
 
 Palette search always names the exact destination:
 
-```text
+```sal
 omle = target {
   domain: state_tree,
   asset: "/Game/AI/ST_Omle.ST_Omle",
@@ -89,7 +89,7 @@ palette entries "Follow" to @companion-guid.Tasks
 
 Inspect the selected entry against the same destination:
 
-```text
+```sal
 omle = target {
   domain: state_tree,
   asset: "/Game/AI/ST_Omle.ST_Omle",
@@ -103,7 +103,7 @@ with schema
 
 The returned `objects` section contains ordinary ObjectExpr fragments such as:
 
-```text
+```sal
 { palette: "P_State", Name: Patrol }
 { palette: "P_OmleFollowTask" }
 ```
@@ -116,7 +116,7 @@ ids, destinations, fields, or member paths.
 
 Authored Patch supports:
 
-```text
+```sal
 add
 set
 reset
@@ -128,7 +128,7 @@ unbind
 
 For example:
 
-```text
+```sal
 omle = target {
   domain: state_tree,
   asset: "/Game/AI/ST_Omle.ST_Omle",
@@ -160,7 +160,7 @@ by one live UE transaction.
 
 Finalization is a separate terminal Patch:
 
-```text
+```sal
 omle = target {
   domain: state_tree,
   asset: "/Game/AI/ST_Omle.ST_Omle",

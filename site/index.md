@@ -54,7 +54,8 @@ permalink: /
           <i></i><i class="is-open"></i><i></i><i></i><i class="is-open"></i>
           <i></i><i class="is-open"></i><i></i><i></i><i></i><i class="is-open"></i><i></i>
         </div>
-        <pre><code>eventGraph = target {
+        {% highlight sal %}
+eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
   id: "22222222-2222-2222-2222-222222222222"
@@ -62,7 +63,8 @@ permalink: /
 
 patch eventGraph dry run
 print = { palette: "returned-palette-entry-id" }
-add print</code></pre>
+add print
+{% endhighlight %}
         <div class="loom-machine-foot">
           <span><b>01</b> PARSE</span>
           <span><b>02</b> RESOLVE</span>
@@ -96,14 +98,16 @@ add print</code></pre>
             <span>01 / OBJECT TEXT</span>
             <span>STRUCTURE + RELATIONSHIPS</span>
           </div>
-          <pre><code>beginPlay = node {
+          {% highlight sal %}
+beginPlay = node {
   id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
   type: "/Script/BlueprintGraph.K2Node_Event"
 }
 
 beginPlay.then -> validate.execute / then -> unlock.execute / then -> open.execute / then -> notify.execute
 
-# excerpt: Pin and intermediate Node bindings omitted</code></pre>
+# excerpt: Pin and intermediate Node bindings omitted
+{% endhighlight %}
         </article>
 
         <article class="loom-sal-example">
@@ -111,8 +115,10 @@ beginPlay.then -> validate.execute / then -> unlock.execute / then -> open.execu
             <span>02 / QUERY TEXT</span>
             <span>DISCOVER + INSPECT</span>
           </div>
-          <pre><code>query eventGraph
-exec flow from pin @node-guid/pin-guid depth 8</code></pre>
+          {% highlight sal %}
+query eventGraph
+exec flow from pin @node-guid/pin-guid depth 8
+{% endhighlight %}
         </article>
 
         <article class="loom-sal-example">
@@ -120,9 +126,11 @@ exec flow from pin @node-guid/pin-guid depth 8</code></pre>
             <span>03 / PATCH TEXT</span>
             <span>MODIFY + VERIFY</span>
           </div>
-          <pre><code>patch eventGraph dry run
+          {% highlight sal %}
+patch eventGraph dry run
 delay = { palette: "P_Delay" }
-insert @source-node-guid/source-pin-guid -> delay.execute / then -> @target-node-guid/target-pin-guid</code></pre>
+insert @source-node-guid/source-pin-guid -> delay.execute / then -> @target-node-guid/target-pin-guid
+{% endhighlight %}
         </article>
       </div>
     </section>
@@ -164,7 +172,8 @@ insert @source-node-guid/source-pin-guid -> delay.execute / then -> @target-node
           <span>OUTPUT SPECIMEN</span>
           <span>SAL / RESULT TEXT</span>
         </div>
-        <pre><code>result exact_target
+        {% highlight sal %}
+result exact_target
 target door = target {
   domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door"
@@ -175,7 +184,8 @@ door = blueprint {
   variables: 3,
   graphs: 2,
   components: 4
-}</code></pre>
+}
+{% endhighlight %}
         <div class="loom-specimen-key">
           <span>CANONICAL TARGET</span>
           <span>ORDERED OBJECT TEXT</span>

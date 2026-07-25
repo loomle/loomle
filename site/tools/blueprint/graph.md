@@ -11,7 +11,7 @@ has_children: true
 Graph reads and edits use one flat, exact Graph Target. The owning Blueprint is
 verified by fields on that Target rather than embedded as another Domain:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -27,7 +27,7 @@ GUIDs.
 
 Graph primary operations include:
 
-```text
+```sal
 summary
 nodes ["text"]
 target
@@ -44,14 +44,14 @@ palette @id
 Traversal defaults to depth 1 and stays inside the Target Graph. Add layout
 detail where stored position matters:
 
-```text
+```sal
 with layout
 ```
 
 Exact Node reads return all current Pins; traversal returns only the Pins
 necessary to express its Edges. The following modifier does not exist:
 
-```text
+```sal
 with pins
 ```
 
@@ -63,7 +63,7 @@ Graph, and Palette Entry reads may request dynamic schema.
 
 Palette creates the Node's native base Pins:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -82,7 +82,7 @@ creation or validation.
 
 Graph adds these operations to the Core Patch surface:
 
-```text
+```sal
 connect
 disconnect
 break
@@ -91,7 +91,7 @@ insert
 
 It also supports explicit Node movement and current UE operations:
 
-```text
+```sal
 connect @source-node-guid/source-pin-guid ->
   @target-node-guid/target-pin-guid
 break @node-guid/pin-guid
@@ -104,7 +104,7 @@ new Node; use the insert operation for two-sided replacement. Its middle
 separator names the new Node's input and output references with spaces around
 `/`:
 
-```text
+```sal
 insert @source-node-guid/source-pin-guid ->
   delay.input / delay.output ->
   @target-node-guid/target-pin-guid
@@ -116,7 +116,7 @@ Graph Patch does not compile or save its owning Blueprint. Finalize through a
 separate exact Blueprint Patch. A Graph result exposes that transition through
 an independent related Target and handoff:
 
-```text
+```sal
 result exact_target
 target eventGraph = target {
   domain: graph,

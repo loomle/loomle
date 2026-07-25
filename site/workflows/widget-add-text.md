@@ -9,7 +9,7 @@ nav_order: 3
 
 Read the current authored tree and choose the exact parent:
 
-```text
+```sal
 menu = target {
   domain: widget,
   asset: "/Game/UI/WBP_Menu.WBP_Menu",
@@ -22,7 +22,7 @@ tree depth 20
 
 Find the UE Widget creation capability:
 
-```text
+```sal
 menu = target {
   domain: widget,
   asset: "/Game/UI/WBP_Menu.WBP_Menu",
@@ -35,7 +35,7 @@ palette entries "TextBlock"
 
 Inspect the chosen Palette Entry with exact schema:
 
-```text
+```sal
 menu = target {
   domain: widget,
   asset: "/Game/UI/WBP_Menu.WBP_Menu",
@@ -49,7 +49,7 @@ with schema
 
 Then copy the returned Widget object fields into a dry run:
 
-```text
+```sal
 menu = target {
   domain: widget,
   asset: "/Game/UI/WBP_Menu.WBP_Menu",

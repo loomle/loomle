@@ -27,7 +27,17 @@ callouts:
     title: Warning
     color: yellow
 
+sass:
+  quiet_deps: true
+  silence_deprecations:
+    - import
+    - global-builtin
+    - color-functions
+
 exclude:
+  - .bundle
+  - .ruby-version
+  - bin
   - Gemfile
   - Gemfile.lock
   - README.md

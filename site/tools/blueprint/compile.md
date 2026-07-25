@@ -11,7 +11,7 @@ nav_order: 6
 Compilation targets one complete Blueprint, never one Graph. Finalization is a
 separate terminal Patch so authored edits and their validation remain distinct:
 
-```text
+```sal
 door = target {
   domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -25,7 +25,7 @@ save
 
 Valid terminal forms are:
 
-```text
+```sal
 patch door
 compile
 

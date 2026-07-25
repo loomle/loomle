@@ -42,7 +42,7 @@ that depend on one resolved object or Palette capability.
 
 ## Common Query Shape
 
-```text
+```sal
 <alias> = target { domain: <domain>, ... }
 
 query <bound-target>
@@ -60,7 +60,7 @@ schema.
 
 The shared factual-reference operation is:
 
-```text
+```sal
 references to <exact-subject>[.<native-member-path>] [in project]
 ```
 
@@ -71,7 +71,7 @@ table, then carries ordered Object Text under `objects` or ends with
 
 ## Common Patch Shape
 
-```text
+```sal
 <alias> = target { domain: <domain>, ... }
 
 patch <bound-target> [dry run]
@@ -81,7 +81,7 @@ patch <bound-target> [dry run]
 
 Core operations and module-specific extensions include:
 
-```text
+```sal
 add
 remove
 set

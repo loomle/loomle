@@ -83,7 +83,7 @@ prerequisite before every request.
 
 Send one self-contained Query Text to `sal_query`:
 
-```text
+```sal
 door = target {
   domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door"
@@ -99,7 +99,7 @@ complete Blueprint.
 
 Use the returned id in later exact requests:
 
-```text
+```sal
 door = target {
   domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -118,7 +118,7 @@ StableRefs.
 
 Bind the exact Graph returned by the Blueprint query:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -138,7 +138,7 @@ or dynamic schema.
 
 Never guess Node creation fields. Search the target Graph Palette:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -152,7 +152,7 @@ palette entries "Print String"
 
 Inspect the selected entry with exact schema:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -173,7 +173,7 @@ as `node` is erasable and does not select creation behavior.
 Send the complete Patch Text to `sal_patch` with dry-run state on the Patch
 header:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -203,7 +203,7 @@ The Graph result returns an independent related Blueprint Target and names it
 with an explicit compile handoff. Copy that returned Target into a separate
 terminal Patch:
 
-```text
+```sal
 door = target {
   domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door",

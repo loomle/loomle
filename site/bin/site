@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+site_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+command_name="${1:-}"
+
+use_ruby_33() {
+  local current_version=""
+  if command -v ruby >/dev/null 2>&1; then
+    current_version="$(ruby -e 'print RUBY_VERSION' 2>/dev/null || true)"
+  fi
+
+  if [[ "$current_version" == 3.3.* ]]; then
+    return
+  fi
+
+  if command -v brew >/dev/null 2>&1; then
+    local brew_ruby
+    brew_ruby="$(brew --prefix ruby@3.3 2>/dev/null || true)"
+    if [[ -x "$brew_ruby/bin/ruby" ]]; then
+      export PATH="$brew_ruby/bin:$PATH"
+      current_version="$(ruby -e 'print RUBY_VERSION')"
+    fi
+  fi
+
+  if [[ "$current_version" != 3.3.* ]]; then
+    cat >&2 <<'EOF'
+Loomle site development requires Ruby 3.3.
+
+On macOS:
+  brew install ruby@3.3
+
+Then rerun:
+  npm run site:setup
+EOF
+    exit 1
+  fi
+}
+
+require_bundle() {
+  if ! bundle check >/dev/null 2>&1; then
+    cat >&2 <<'EOF'
+Site dependencies are not installed.
+
+Run:
+  npm run site:setup
+EOF
+    exit 1
+  fi
+}
+
+use_ruby_33
+cd "$site_dir"
+
+case "$command_name" in
+  setup)
+    bundle config set --local path .bundle/gems
+    bundle install
+    ;;
+  build)
+    require_bundle
+    bundle exec jekyll build --destination _site
+    ;;
+  serve)
+    require_bundle
+    bundle exec jekyll serve \
+      --livereload \
+      --host 127.0.0.1 \
+      --port "${LOOMLE_SITE_PORT:-4000}"
+    ;;
+  check)
+    require_bundle
+    bundle exec jekyll build --destination _site
+    test -s _site/index.html
+    test -s _site/assets/css/loomle.css
+    test ! -e _site/bin/site
+    grep -q 'class="loom-sal"' _site/index.html
+    grep -q 'class="language-sal"' _site/index.html
+    grep -q '<span class="kd">patch</span>' _site/index.html
+    grep -q '<span class="nn">@source-node-guid</span>' _site/index.html
+    grep -q '<span class="nn">source-pin-guid</span>' _site/index.html
+    grep -q '<span class="na">then</span>' _site/index.html
+    grep -q '<span class="c1"># excerpt:' _site/index.html
+    grep -q '<span class="kd">query</span>' _site/concepts/sal.html
+    grep -q 'language-sal highlighter-rouge' _site/workflows/blueprint-add-node.html
+    echo "Site check passed."
+    ;;
+  *)
+    cat >&2 <<'EOF'
+Usage: site/bin/site <setup|build|serve|check>
+EOF
+    exit 2
+    ;;
+esac

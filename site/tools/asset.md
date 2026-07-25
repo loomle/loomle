@@ -10,7 +10,7 @@ nav_order: 1
 The Asset interface searches UE Asset Registry state without loading every
 asset and returns exact Object Paths for handoff into a more specific module.
 
-```text
+```sal
 assets = target { domain: asset }
 
 query assets
@@ -26,7 +26,7 @@ do not share a Registry-resolvable contained-object Guid, so an exact Asset
 Target uses Object Path plus verified native Class. It has no synthetic
 StableRef.
 
-```text
+```sal
 door = target {
   domain: asset,
   path: "/Game/Blueprints/BP_Door.BP_Door",
@@ -38,7 +38,7 @@ door = target {
 
 Add Registry Tags only when Registry metadata is required:
 
-```text
+```sal
 with registryTags
 ```
 
@@ -52,7 +52,7 @@ instead of being silently truncated.
 The `domains` list helps choose a Domain; it is not itself a handoff. Bind the
 discovered path in a new Domain discovery request:
 
-```text
+```sal
 door = target {
   domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door"

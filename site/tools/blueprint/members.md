@@ -12,7 +12,7 @@ Blueprint Variables, Dispatchers, Graphs, and SCS Components are contained UE
 objects, not one generic member abstraction. Query each native collection by
 its own name:
 
-```text
+```sal
 door = target {
   domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -23,7 +23,7 @@ query door
 variables "Health"
 ```
 
-```text
+```sal
 door = target {
   domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -38,7 +38,7 @@ with schema
 Exact-name reads discover current ids. Later requests use Target-relative
 stable references inside the complete Blueprint Target:
 
-```text
+```sal
 @identity
 ```
 
@@ -49,7 +49,7 @@ disambiguate a collision.
 Creation begins with the combined Blueprint Palette. Copy the ordinary brace
 object it returns:
 
-```text
+```sal
 door = target {
   domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -66,7 +66,7 @@ add door.Health
 
 Existing objects support schema-authorized operations:
 
-```text
+```sal
 set
 reset
 move

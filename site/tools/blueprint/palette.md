@@ -14,7 +14,7 @@ guess native classes.
 
 Search a Blueprint or Graph target:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -28,7 +28,7 @@ palette entries "Print String"
 
 Graph Palette search may include Pin context:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -42,7 +42,7 @@ palette entries "Branch" from @source-node-guid/source-pin-guid
 
 Inspect the selected capability:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
@@ -57,7 +57,7 @@ with schema
 
 Then copy its returned binding into Patch Text:
 
-```text
+```sal
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
