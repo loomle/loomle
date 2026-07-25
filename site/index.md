@@ -229,7 +229,7 @@ move print to (640, 320)
       <span aria-hidden="true">·</span>
       <a href="https://oasium.io/">OASIUM</a>
     </nav>
-    <span>LOOMLE AI / PROGRAMMABLE LOOM</span>
+    <span>LOOMLE AI / AGENTIC LOOM</span>
   </footer>
 </div>
 

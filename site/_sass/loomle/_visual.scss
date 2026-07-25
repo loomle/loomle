@@ -1,4 +1,4 @@
-// Loomle — Programmable Loom visual system
+// Loomle — Agentic Loom visual system
 // Static visual system layered on top of Just the Docs.
 
 $loom-ink: #171816;
@@ -12,6 +12,14 @@ $loom-copper: #bd4f32;
 $loom-copper-dark: #8f3723;
 $loom-brass: #b18a52;
 $loom-green: #9fbc8f;
+
+:root {
+  --loom-type-micro: 12px;
+  --loom-type-link: 13px;
+  --loom-type-control: 14px;
+  --loom-type-card: clamp(14px, 1vw, 15px);
+  --loom-type-body: 16px;
+}
 
 // SAL syntax ---------------------------------------------------------------
 
@@ -109,7 +117,7 @@ body {
 .site-title {
   position: relative;
   color: #f3f0e9;
-  font-size: 1.05rem !important;
+  font-size: 17px !important;
   font-weight: 700;
   letter-spacing: 0.16em;
 }
@@ -134,7 +142,7 @@ body {
   min-height: 2.25rem;
   color: #aaa99f;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 0.73rem;
+  font-size: var(--loom-type-control);
   letter-spacing: 0.025em;
 }
 
@@ -156,7 +164,7 @@ body {
   border-top-color: #343530;
   color: #777970;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.65rem !important;
+  font-size: var(--loom-type-micro) !important;
   letter-spacing: 0.04em;
 }
 
@@ -173,7 +181,7 @@ body {
   background: transparent;
   color: $loom-ink;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.75rem;
+  font-size: var(--loom-type-control);
 }
 
 .search-input::placeholder {
@@ -191,7 +199,7 @@ body {
 .aux-nav .site-button {
   color: $loom-ink;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.7rem;
+  font-size: var(--loom-type-link);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -209,23 +217,25 @@ body {
   line-height: 0.98;
 }
 
-.main-content h2 {
+body:not(:has(.loomle-home)) .main-content h2 {
   margin-top: 3.5rem;
   padding-top: 1rem;
   border-top: 1px solid $loom-line;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 1.85rem !important;
+  font-size: clamp(28px, 3vw, 32px) !important;
   font-weight: 400;
   letter-spacing: -0.025em;
 }
 
-.main-content h3 {
-  font-size: 1.02rem !important;
+body:not(:has(.loomle-home)) .main-content h3 {
+  font-size: 22px !important;
   letter-spacing: -0.01em;
+  line-height: 1.3;
 }
 
-.main-content p,
-.main-content li {
+body:not(:has(.loomle-home)) .main-content p,
+body:not(:has(.loomle-home)) .main-content li {
+  font-size: var(--loom-type-body);
   line-height: 1.72;
 }
 
@@ -260,7 +270,7 @@ body {
   color: #888a82;
   content: "TEXT / MACHINE INSTRUCTION";
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.62rem;
+  font-size: var(--loom-type-micro);
   letter-spacing: 0.08em;
   line-height: 30px;
 }
@@ -285,7 +295,7 @@ body {
   border: 0;
   background: transparent;
   color: inherit;
-  font-size: 0.78rem;
+  font-size: var(--loom-type-control);
   line-height: 1.7;
 }
 
@@ -297,14 +307,14 @@ body {
 .main-content table {
   border-collapse: collapse;
   background: rgba(249, 247, 241, 0.75);
-  font-size: 0.86rem;
+  font-size: var(--loom-type-control);
 }
 
 .main-content th {
   background: $loom-ink;
   color: #e9e5dc;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.65rem;
+  font-size: var(--loom-type-micro);
   font-weight: 500;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -350,7 +360,7 @@ body {
   box-shadow: none;
   color: $loom-ink;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.72rem !important;
+  font-size: var(--loom-type-control) !important;
   letter-spacing: 0.02em;
 }
 
@@ -455,7 +465,7 @@ body:has(.loomle-home) .main-content main {
   display: inline-flex;
   align-items: center;
   gap: 0.85rem;
-  font-size: 0.9rem;
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.17em;
 }
@@ -476,7 +486,7 @@ body:has(.loomle-home) .main-content main {
   gap: clamp(1rem, 2.8vw, 2.75rem);
   color: #aaa99f;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.68rem;
+  font-size: var(--loom-type-link);
   letter-spacing: 0.035em;
   text-transform: uppercase;
 }
@@ -505,11 +515,15 @@ body:has(.loomle-home) .main-content main {
   border-left: 1px solid #343630;
 }
 
+.loom-hero-copy {
+  min-width: 0;
+}
+
 .loom-index,
 .loom-section-label {
   color: #979990;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.64rem;
+  font-size: var(--loom-type-micro);
   letter-spacing: 0.1em;
 }
 
@@ -541,7 +555,7 @@ body:has(.loomle-home) .main-content main {
   max-width: 620px;
   margin: 0;
   color: #aaa99f;
-  font-size: clamp(1.05rem, 1.5vw, 1.28rem);
+  font-size: clamp(17px, 1.5vw, 20px);
   letter-spacing: -0.018em;
   line-height: 1.55 !important;
 }
@@ -555,7 +569,7 @@ body:has(.loomle-home) .main-content main {
 
 .loom-actions .loom-button {
   padding: 0 1.5rem;
-  font-size: 0.875rem;
+  font-size: var(--loom-type-control);
 }
 
 .loom-button {
@@ -567,7 +581,7 @@ body:has(.loomle-home) .main-content main {
   border: 1px solid #555750;
   color: #e5e1d8 !important;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.7rem;
+  font-size: var(--loom-type-control);
   letter-spacing: 0.025em;
 }
 
@@ -590,11 +604,12 @@ body:has(.loomle-home) .main-content main {
 .loom-release {
   display: flex;
   margin-top: 1.4rem;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.55rem;
   color: #7d7f77;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.62rem;
+  font-size: var(--loom-type-micro);
   letter-spacing: 0.035em;
 }
 
@@ -608,6 +623,7 @@ body:has(.loomle-home) .main-content main {
 
 .loom-machine,
 .loom-specimen {
+  min-width: 0;
   border: 1px solid #42443e;
   background: #11120f;
   box-shadow: 13px 13px 0 #0c0d0b, 14px 14px 0 #30322d;
@@ -630,7 +646,7 @@ body:has(.loomle-home) .main-content main {
   border-bottom: 1px solid #3a3c36;
   color: #85877f;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.59rem;
+  font-size: var(--loom-type-micro);
   letter-spacing: 0.075em;
 }
 
@@ -678,7 +694,7 @@ body:has(.loomle-home) .main-content main {
   background: transparent;
   color: #d4d2ca;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: clamp(0.67rem, 1vw, 0.79rem);
+  font-size: clamp(14px, 1.05vw, 16px);
   line-height: 1.72;
 }
 
@@ -697,7 +713,7 @@ body:has(.loomle-home) .main-content main {
   border-right: 1px solid #30322d;
   color: #777970;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.52rem;
+  font-size: var(--loom-type-micro);
   letter-spacing: 0.055em;
 }
 
@@ -746,7 +762,7 @@ body:has(.loomle-home) .main-content main {
   padding-top: 0;
   border-top: 0;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(2.45rem, 4.4vw, 5.1rem);
+  font-size: clamp(2.45rem, 4.4vw, 5.1rem) !important;
   font-weight: 400;
   letter-spacing: -0.052em;
   line-height: 0.98;
@@ -794,7 +810,7 @@ body:has(.loomle-home) .main-content main {
   padding: 0;
   border: 0;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(3rem, 5.1vw, 5.8rem);
+  font-size: clamp(3rem, 5.1vw, 5.8rem) !important;
   font-weight: 400;
   letter-spacing: -0.052em;
   line-height: 1.12;
@@ -803,7 +819,7 @@ body:has(.loomle-home) .main-content main {
 .loom-sal-intro p {
   margin: 0;
   color: #5f615b;
-  font-size: 0.97rem;
+  font-size: var(--loom-type-body);
   line-height: 1.78;
 }
 
@@ -838,7 +854,7 @@ body:has(.loomle-home) .main-content main {
   border-bottom: 1px solid #3a3c36;
   color: #8a8c84;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.58rem;
+  font-size: var(--loom-type-micro);
   letter-spacing: 0.075em;
 }
 
@@ -871,7 +887,7 @@ body:has(.loomle-home) .main-content main {
   background: transparent;
   color: #d4d2ca;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: clamp(0.68rem, 1vw, 0.79rem);
+  font-size: clamp(14px, 1.05vw, 16px);
   line-height: 1.72;
   white-space: pre;
 }
@@ -906,7 +922,7 @@ body:has(.loomle-home) .main-content main {
   border-bottom: 1px solid $loom-line;
   color: #6d6f68;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.61rem;
+  font-size: var(--loom-type-micro);
   letter-spacing: 0.08em;
 }
 
@@ -921,7 +937,7 @@ body:has(.loomle-home) .main-content main {
 .loom-cycle p {
   max-width: 360px;
   color: #686963;
-  font-size: 0.86rem;
+  font-size: var(--loom-type-card);
   line-height: 1.7;
 }
 
@@ -959,12 +975,13 @@ body:has(.loomle-home) .main-content main {
 
 .loom-interface h2 {
   color: #f3f0e9;
-  font-size: clamp(3rem, 5.1vw, 5.8rem);
+  font-size: clamp(3rem, 5.1vw, 5.8rem) !important;
   line-height: 1.12;
 }
 
 .loom-interface-intro p {
   color: #9a9b94;
+  font-size: var(--loom-type-body);
 }
 
 .loom-call-grid {
@@ -993,13 +1010,13 @@ body:has(.loomle-home) .main-content main {
 .loom-call-grid span {
   color: $loom-copper;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.58rem;
+  font-size: var(--loom-type-micro);
 }
 
 .loom-call-grid strong {
   color: #e2e1dc;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.88rem;
+  font-size: 15px;
   font-weight: 500;
 }
 
@@ -1007,7 +1024,7 @@ body:has(.loomle-home) .main-content main {
   grid-column: 2;
   align-self: end;
   color: #a7a8a2;
-  font-size: 0.82rem;
+  font-size: var(--loom-type-card);
   line-height: 1.55;
 }
 
@@ -1032,7 +1049,7 @@ body:has(.loomle-home) .main-content main {
 
 .loom-oasium h2 {
   margin-top: 2.5rem;
-  font-size: clamp(3rem, 5.1vw, 5.8rem);
+  font-size: clamp(3rem, 5.1vw, 5.8rem) !important;
   line-height: 1.12;
 }
 
@@ -1057,7 +1074,7 @@ body:has(.loomle-home) .main-content main {
   border-bottom: 1px solid $loom-ink;
   color: $loom-ink !important;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.68rem;
+  font-size: var(--loom-type-control);
   letter-spacing: 0.025em;
 }
 
@@ -1088,7 +1105,7 @@ body:has(.loomle-home) .main-content main {
   border-right: 1px solid #3a3c36;
   color: #74766f;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.5rem;
+  font-size: var(--loom-type-micro);
   letter-spacing: 0.045em;
 }
 
@@ -1157,7 +1174,7 @@ body:has(.loomle-home) .main-content main {
   border-left: 1px solid #343630;
   color: #6f716a;
   font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 0.58rem;
+  font-size: var(--loom-type-micro);
   letter-spacing: 0.055em;
 }
 
@@ -1282,7 +1299,7 @@ body:has(.loomle-home) .main-content main {
     box-shadow: 0 12px 24px rgba(0, 0, 0, 0.28);
     color: #c5c4bd;
     font-family: "SFMono-Regular", Consolas, monospace;
-    font-size: 0.66rem;
+    font-size: var(--loom-type-control);
     letter-spacing: 0.04em;
     text-transform: uppercase;
   }
@@ -1397,10 +1414,10 @@ body:has(.loomle-home) .main-content main {
     min-height: 148px;
     padding-top: 1.5rem;
     padding-bottom: 1.5rem;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
     column-gap: 1rem;
     row-gap: 1.4rem;
-    font-size: 0.52rem;
+    font-size: var(--loom-type-micro);
   }
 
   .loom-footer-products {
@@ -1408,7 +1425,7 @@ body:has(.loomle-home) .main-content main {
     grid-column: 1 / -1;
     grid-row: 1;
     justify-self: center;
-    font-size: 0.58rem;
+    font-size: var(--loom-type-micro);
   }
 
   .loom-footer > span:first-child {
