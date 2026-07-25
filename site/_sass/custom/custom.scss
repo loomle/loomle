@@ -327,10 +327,15 @@ body:has(.loomle-home) > .main .main-content > footer {
 }
 
 body:has(.loomle-home) > .main {
+  width: 100%;
+  max-width: none;
   margin-left: 0;
 }
 
 body:has(.loomle-home) > .main > .main-content-wrap {
+  width: 100%;
+  padding-right: 0;
+  padding-left: 0;
   background: $loom-ink;
 }
 
