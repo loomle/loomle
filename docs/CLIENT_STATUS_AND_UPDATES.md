@@ -22,14 +22,14 @@ The result is concise ordinary MCP text rather than SAL Object Text:
 
 ```text
 client:
-  version: 0.7.0-rc.1
+  version: 0.7.0-rc.2
   pid: 1234
   target: win32-x64
   executable: "C:/.../LoomleBridge/Resources/Loomle/win32-x64/loomle.exe"
 update:
   status: available
-  version: 0.7.0-rc.2
-  release: "https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.2"
+  version: 0.7.0-rc.3
+  release: "https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.3"
   asset: "https://github.com/loomle/loomle/releases/download/..."
   sha256: "..."
 session:
@@ -37,7 +37,7 @@ session:
   name: "Game"
   status: ready
 bridge:
-  version: 0.7.0-rc.1
+  version: 0.7.0-rc.2
   protocolVersion: 3
   plugin: "C:/.../Engine/Plugins/Marketplace/LoomleBridge"
 ```

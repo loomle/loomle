@@ -21,6 +21,8 @@ and repository history instead of being duplicated on `main`.
   artifact, Fab, and repository boundaries.
 - `MUTATION_DRY_RUN_CONTRACT.md`: shared mutation validation, planning,
   revision, diff, and dry-run rules.
+- `SAL_OBJECT_AND_REFERENCE_MODEL.md`: implemented SAL v3 object expressions,
+  semantic tags, Domain Targets, and stable-reference model.
 - `TESTING_AND_RELEASE_GATES.md`: native Bridge coverage, packaged end-to-end,
   lifecycle, fixture, runner, and release-gate contracts.
 - `UE_AUTOMATION_COVERAGE.md`: capability/state coverage levels, current gaps,

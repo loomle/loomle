@@ -95,7 +95,7 @@ for (const entry of catalog) {
 
 const formalDocumentationFiles = [
   ...markdownFiles(resolve(repositoryRoot, "sal/docs")),
-  resolve(repositoryRoot, "docs/planned/SAL_OBJECT_AND_REFERENCE_MODEL.md"),
+  resolve(repositoryRoot, "docs/SAL_OBJECT_AND_REFERENCE_MODEL.md"),
 ];
 for (const path of formalDocumentationFiles) {
   validateSalExamples(relative(repositoryRoot, path), readFileSync(path, "utf8"));
