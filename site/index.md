@@ -138,8 +138,9 @@ exec flow from pin @node-guid/pin-guid depth 8
           </div>
           {% highlight sal %}
 patch eventGraph dry run
-delay = { palette: "P_Delay" }
-insert @source-node-guid/source-pin-guid -> delay.execute / then -> @target-node-guid/target-pin-guid
+print = { palette: "returned-palette-entry-id" }
+add print @source-node-guid/source-pin-guid -> print.execute
+move print to (640, 320)
 {% endhighlight %}
         </article>
       </div>
