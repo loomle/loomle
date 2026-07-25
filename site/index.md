@@ -27,7 +27,7 @@ permalink: /
           <span class="loom-index-line"></span>
           ARTIST — AGENT — UNREAL
         </div>
-        <h1>Weave new worlds with AI agents.</h1>
+        <h1>Weave new worlds<br>with AI agents.</h1>
         <p class="loom-lede">
           Loomle MCP brings artists and AI agents together in Unreal Engine
           through SAL—a shared language artists can understand, agents can

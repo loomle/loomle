@@ -334,8 +334,7 @@ body:has(.loomle-home) > .main {
 
 body:has(.loomle-home) > .main > .main-content-wrap {
   width: 100%;
-  padding-right: 0;
-  padding-left: 0;
+  padding: 0;
   background: $loom-ink;
 }
 
@@ -465,7 +464,7 @@ body:has(.loomle-home) .main-content main {
   margin: 1.5rem 0 1.6rem !important;
   color: #f3f0e9;
   font-family: Georgia, "Times New Roman", serif !important;
-  font-size: clamp(3.15rem, 5.9vw, 6.4rem) !important;
+  font-size: clamp(3rem, 4.8vw, 5.6rem) !important;
   font-weight: 400 !important;
   letter-spacing: -0.058em !important;
   line-height: 0.92 !important;
