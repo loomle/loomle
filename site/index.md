@@ -25,12 +25,13 @@ permalink: /
       <div class="loom-hero-copy">
         <div class="loom-index">
           <span class="loom-index-line"></span>
-          PROGRAMMABLE LOOM / UNREAL ENGINE
+          ARTIST — AGENT — UNREAL
         </div>
-        <h1>The operational interface between AI agents and Unreal Engine.</h1>
+        <h1>Weave new worlds with AI agents.</h1>
         <p class="loom-lede">
-          Loomle turns live Unreal Editor state into inspectable, patchable
-          SAL—without replacing Unreal’s own object model.
+          Loomle MCP brings artists and AI agents together in Unreal Engine
+          through SAL—a shared language artists can understand, agents can
+          author, and Unreal can execute.
         </p>
         <div class="loom-actions">
           <a class="loom-button loom-button-primary" href="https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.3">
