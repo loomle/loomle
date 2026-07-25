@@ -7,10 +7,22 @@ const generatedFiles = [
 ];
 
 const before = await Promise.all(generatedFiles.map((file) => readFile(file, "utf8")));
-execFileSync("npm", ["run", "generate"], {
-  cwd: new URL("..", import.meta.url),
-  stdio: "inherit",
-});
+const cwd = new URL("..", import.meta.url);
+if (process.platform === "win32") {
+  const commandShell = process.env.ComSpec;
+  if (!commandShell) {
+    throw new Error("The generated SAL schema check requires the Windows command shell.");
+  }
+  execFileSync(commandShell, ["/d", "/s", "/c", "npm.cmd run generate"], {
+    cwd,
+    stdio: "inherit",
+  });
+} else {
+  execFileSync("npm", ["run", "generate"], {
+    cwd,
+    stdio: "inherit",
+  });
+}
 const after = await Promise.all(generatedFiles.map((file) => readFile(file, "utf8")));
 
 for (let index = 0; index < generatedFiles.length; index += 1) {
