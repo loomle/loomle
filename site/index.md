@@ -25,13 +25,13 @@ permalink: /
       <div class="loom-hero-copy">
         <div class="loom-index">
           <span class="loom-index-line"></span>
-          ARTIST — AGENT — UNREAL
+          ARTISTS — AGENTS — WORLDS
         </div>
-        <h1>Weave new worlds<br>with AI agents.</h1>
+        <h1>Weave new worlds with AI agents.</h1>
         <p class="loom-lede">
-          Loomle MCP brings artists and AI agents together in Unreal Engine
-          through SAL—a shared language artists can understand, agents can
-          author, and Unreal can execute.
+          Loomle AI builds SAL, Loomle MCP, and Oasium: the Structured Agent
+          Language, an Unreal Engine interface, and an immersive world for
+          human–AI creation.
         </p>
         <div class="loom-actions">
           <a class="loom-button loom-button-primary" href="https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.3">
