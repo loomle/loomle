@@ -194,6 +194,40 @@ ordinary Blueprints and Animation Blueprints. The test removes the temporary
 Nodes before fixture cleanup. The complete 129-test run passed without a
 failure, crash report, or runner-classified log hazard.
 
+## SAL v3 Object And Target Migration Audit
+
+The SAL v3 migration raises the source suite from 129 to 135 tests. The added
+public-path and result-context coverage proves:
+
+- all six Domains route through one flat `target { domain: ... }` model;
+- ordinary object fields cannot tunnel into the retired Call or `kind + id`
+  executor shapes;
+- tag erasure preserves Blueprint, Graph, Widget, and StateTree creation;
+- Graph Pins and function-local Variables resolve through owner-relative native
+  identity paths;
+- exact, Domain-root, and unresolved results enforce their closed Target
+  contexts; and
+- related Targets and handoffs remain explicit and independently exact;
+- structural `target_self` relationship subjects are accepted only by the
+  References operation, with callable Graph support and explicit capability
+  errors elsewhere; and
+- reserved or otherwise non-local UE names fall back to SAL strings, while
+  ordinary objects whose fields exactly resemble Name or reference shapes
+  remain ordinary ObjectExpr data.
+
+The final same-source macOS arm64 Development BuildPlugin candidate compiled
+successfully. Its isolated `UnrealEditor-Cmd` run discovered and passed all 135
+tests: 121 reported success and 14 success with ordinary warning entries. No
+test failed, timed out, remained unrun, or was missing; the runner found no log
+hazard or new crash report.
+
+The earlier 133-test diagnostic run had exposed one fixture-lifecycle defect:
+the PublicPath StateTree fixture installed a native Schema without first
+calling UE's `ValidateStateTree`, leaving `EditorSchema` initialization
+pending. The corrected fixture performs that native validation and reacquires
+`EditorData`, Schema, and root identity afterward. The complete 135-test result
+closes that repair and the SAL v3 native audit.
+
 ## Release Gate
 
 An active public operation must have a matrix entry and a named native test.
@@ -213,7 +247,7 @@ The second remediation provides representative anchors for items 1–4 and the
 transport behavior in item 6. Item 5 remains partial until real Blueprint and
 Widget editor focus/selection paths are exercised. The stricter per-surface
 boundaries in the table above remain release risks even though the current
-129-test matrix is green.
+135-test matrix is green.
 
 Synthetic fixtures remain useful for deterministic edge cases. At least one
 authored, compiled asset fixture must protect each Blueprint-owned interface so

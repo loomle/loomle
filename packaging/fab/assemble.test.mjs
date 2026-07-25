@@ -23,7 +23,7 @@ import {
 } from "../tools/product-version.mjs";
 
 const PRODUCT_VERSION = "0.7.0";
-const PROTOCOL_VERSION = 2;
+const PROTOCOL_VERSION = 3;
 
 test("assembles the Bridge source and only the canonical TypeScript Client executable", async () => {
   const fixture = await createFixture("darwin-arm64");
@@ -309,7 +309,7 @@ test("rejects a canonical Client receipt from another protocol version", async (
         outputDir: fixture.outputDir,
         target: "darwin-arm64",
       }),
-      /build receipt protocolVersion 1 does not match protocol version 2/,
+      /build receipt protocolVersion 1 does not match protocol version 3/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });

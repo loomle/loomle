@@ -2,47 +2,55 @@
 
 ## Scope
 
-The StateTree domain describes the authored state hierarchy stored by one UE
-`UStateTree` asset. It covers StateTree orientation, ordered State hierarchy,
-StateTree Editor Nodes, Transitions, Parameters, Context Data, Property
-Bindings, Schema-driven discovery, Palette-backed creation, authored edits,
-compilation, diagnostics, and Package save.
+StateTree Domain exposes authored `UStateTree::EditorData`:
 
-This document records the complete active authored-language contract. The UE
-5.7 Bridge implements exact target and object reads, `summary`, `tree`, the
-State, Node, and Parameter collections, local factual references, dynamic
-exact `with schema`, destination-bound Palette, authored Patch, Property
-Bindings, Property Function ownership, native compile, and Core save
-composition. The compact operational surface is the static
-[`state_tree` interface card](../../../interfaces/state_tree.md). Binding
-readback is deliberately local: exact contained-object reads emit only directly
-incident explicit Property Bindings and derived automatic Context
-relationships as ordinary arrows. References never load other assets and
-project-wide StateTree references remain unavailable until a zero-load index
-exists.
+- Schema and read-only Context Data descriptors;
+- ordered State hierarchy;
+- Evaluators, Tasks, Conditions, Considerations, and Property Functions;
+- Transitions and Required Events;
+- Parameters;
+- explicit Property Bindings and derived automatic Context relationships;
+- destination-bound Palette;
+- authored mutation, compile, and save.
 
-The first version is intentionally an authored-asset domain. It does not expose
-live execution instances, Rewind Debugger traces, runtime instance data,
-breakpoints, or execution control. It also does not create, rename, move,
-duplicate, or delete the StateTree asset itself; those are future Asset Tools
-capabilities.
+It does not expose live execution instances, Rewind Debugger traces,
+breakpoints, runtime instance data, or StateTree asset creation/deletion.
 
-## UE Source Boundary
+Plain Query traverses EditorData directly. It must not instantiate a
+`FStateTreeViewModel` or call mutating validation helpers merely to make source
+look valid.
 
-The canonical authored source is `UStateTree::EditorData`, whose concrete type
-is normally `UStateTreeEditorData`. Its important ownership shape is:
+## Target
+
+StateTree has no persisted asset-level Guid:
+
+```sal
+behavior = target {
+  domain: state_tree,
+  asset: "/Game/AI/ST_Behavior.ST_Behavior",
+  type: "/Script/StateTreeModule.StateTree"
+}
+```
+
+Discovery Query may omit `type`; canonical exact readback and every Patch
+include the verified native Class.
+
+The same native asset can have an independent Asset Target. Native Class does
+not compose Asset and StateTree capabilities.
+
+## UE Ownership
 
 ```text
-UStateTree asset
+UStateTree
 ├─ Schema
 │  └─ Context Data descriptors
 └─ EditorData
    ├─ Root Parameters
    ├─ Evaluators[]
    ├─ GlobalTasks[]
-   ├─ EditorBindings[] explicit relationships
+   ├─ EditorBindings[]
    └─ SubTrees[]
-      └─ UStateTreeState
+      └─ State
          ├─ Parameters
          ├─ EnterConditions[]
          ├─ Considerations[]
@@ -52,1468 +60,496 @@ UStateTree asset
          └─ Children[]
 ```
 
-Schema Context Data are read-only, Schema-declared descriptors visible through
-the target for runtime values that the execution owner supplies. Explicit
-Property Bindings are target-owned relationships stored in `EditorBindings`.
-For a Context-usage Property without an explicit Binding, UE may instead derive
-an automatic Context relationship through `FindContextData()`; that derived
-relationship is not stored in `EditorBindings`. A Property Function is stored
-by its owning function-result Binding as an `FStateTreeEditorNode`; SAL returns
-it as an ordinary `node(...)` with Binding-owned lifecycle.
+Compiled frames, compact states/nodes, runtime handles, copy batches, and
+instance layouts are derived compiler output and are not editable authored
+objects.
 
-`UStateTree` also stores compiled Frames, compact States, Nodes, Transitions,
-default instance data, linked external data, Property Binding batches, and
-runtime id-to-index maps. Those are derived compiler output, not a second
-authored object model. SAL may use compiled status and native id maps for
-diagnostics or later runtime navigation, but it must not return compiled
-layout as editable authored objects.
+## Identity Environment
 
-Plain reads traverse `EditorData` directly. They must not create a
-`FStateTreeViewModel` or call `UStateTreeEditingSubsystem::ValidateStateTree()`.
-Both paths may mutate the asset by repairing links, replacing editor data,
-updating linked parameters, removing invalid Bindings, or deleting content the
-current Schema no longer permits. A Query never performs those repairs.
+| Authored concept | Native identity path |
+| --- | --- |
+| State | `@UStateTreeState.ID` |
+| Editor Node, including Property Function | `@FStateTreeEditorNode.ID` |
+| Transition | `@FStateTreeTransition.ID` |
+| valid unique Context descriptor | `@FStateTreeExternalDataDesc.ID` |
+| Parameter | `@ContainerGuid/PropertyGuid` |
 
-## Target And Identity
+All one-segment categories share one combined identity audit. Equal Guid text
+across a State and Node is a conflict even if an optional tag would look
+different.
 
-A StateTree has no persisted asset-level Guid. Its exact native identity is its
-Asset Path, so the existing `asset(...)` binding is already the complete
-StateTree target:
+Parameter identity is owner-relative because Property Guids may be reused in
+different containers. Names, display paths, roles, semantic tags, and array
+positions are not identity.
+
+A malformed Context descriptor with invalid or duplicate ID remains readable
+as ordinary data with diagnostics but receives no StableRef.
+
+Asset duplication regenerates authored structural ids and remaps internal
+references. StableRefs from the source asset do not address the duplicate.
+
+## Object Model
+
+StateTree objects are ordinary brace expressions. Native owner relationship and
+fields carry meaning:
 
 ```sal
-omle = asset(
-  path: "/Game/Omle/ST_OmleLocalBehavior.ST_OmleLocalBehavior",
-  type: "/Script/StateTreeModule.StateTree"
-)
+root = {
+  id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  type: "/Script/StateTreeEditorModule.StateTreeState",
+  Name: Root,
+  Type: State,
+  SelectionBehavior: TrySelectChildrenInOrder,
+  bEnabled: true
+}
 
-query omle
-summary
+root.Companion = {
+  id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+  type: "/Script/StateTreeEditorModule.StateTreeState",
+  Name: Companion,
+  Type: Group
+}
+
+root.Companion.Tasks.follow = node {
+  id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+  type: "/Script/MyGame.FollowTask"
+}
 ```
 
-The adapter loads the exact Path, verifies the resolved native Class, and then
-composes StateTree capabilities onto that Asset target. SAL does not add a
-`state_tree(...)` wrapper, an asset Guid, or a public `domain` selector. Asset
-discovery may return `state_tree` in the Asset's `domains` capability hints,
-but the hint never overrides the loaded Class.
+`node` is an optional erasable presentation tag. The same data without it has
+identical behavior. StateTree does not create separate task, condition,
+evaluator, consideration, context-data, event, delegate, or binding object
+kinds.
 
-The following native identities are scoped to the resolved StateTree asset:
-
-| Authored concept | Native identity | Public handling |
-| --- | --- | --- |
-| StateTree asset | Asset Path | exact `asset(...)` target |
-| State | `UStateTreeState::ID` | `state@id` |
-| StateTree Editor Node | `FStateTreeEditorNode::ID` | `node@id` |
-| Transition | `FStateTreeTransition::ID` | `transition@id` |
-| Parameter | container Guid plus `FPropertyBagPropertyDesc::ID` | `parameter@container-id/property-id` |
-| Schema Context Data | valid, unique `FStateTreeExternalDataDesc::ID` | read-only `object@id` Binding source |
-| Property Function | `FStateTreeEditorNode::ID` | exact `node@id`; owning Binding defines lifecycle |
-| Explicit Property Binding | no id | target-owned mutable relationship |
-| Automatic Context relationship | no id and no authored record | derived read-only data flow |
-
-State, Node, and Transition names are not unique. Display paths such as
-`UStateTreeState::GetPath()` are navigation text rather than identity. Exact
-cross-request access therefore uses the Asset target plus the object's
-canonical stable reference. It never falls back to a display name after an id
-lookup fails. Parameter identity is deliberately composite because linked
-State Parameter bags may reuse a property Guid under different containers.
-The `/` in `parameter@container-id/property-id` is the canonical text encoding
-of those two native identity components; it is not a global synthetic id. The
-owner State id is navigation rather than a third identity component, so an
-otherwise canonical Parameter remains exact-readable when only its owner
-State id is malformed or colliding.
-
-A Schema Context descriptor becomes `object(...)` only when its ID is valid and
-unique within the resolved target. A malformed Schema may still return a
-descriptor with an invalid or duplicate ID because UE descriptor validity only
-requires a native `Struct`. SAL preserves that fact in comments and diagnostics
-but does not invent a stable reference for it.
-
-Asset duplication regenerates State, Node, Transition, Parameter-container,
-Property Function, and valid Color ids while remapping internal references.
-Those authored structural references are consequently invalid in the duplicate
-even when the visible hierarchy is identical. Schema Context IDs belong to the
-Schema declaration and may remain the same, but `object@id` is still scoped to
-the newly bound duplicate target rather than acting as a global address.
-
-## Public Object Model
-
-The primary StateTree object shapes are deliberately small:
-
-| Object shape | UE source | Meaning |
-| --- | --- | --- |
-| `state(...)` | `UStateTreeState` | one authored State and its hierarchy placement |
-| `node(...)` | `FStateTreeEditorNode` | one Evaluator, Task, Condition, Consideration, or Property Function |
-| `transition(...)` | `FStateTreeTransition` | one ordered Transition owned by a State |
-| `parameter(...)` | one Property Bag descriptor and value | one ordered root or State Parameter |
-| `object(...)` | `FStateTreeExternalDataDesc` | one read-only Schema Context Data descriptor; exact-readable only with a valid, unique id |
-
-`node(...)` is shared with the Graph domain only as a small SAL structural
-constructor. It does not claim that `FStateTreeEditorNode` is a
-`UEdGraphNode`, and it does not grant Pins, Edges, Graph Schema, `with pins`,
-or Graph Patch operations. The exact target, ownership path, native `type`, and
-`with schema` result determine the object's actual capabilities.
-
-StateTree does not add separate `task(...)`, `condition(...)`,
-`evaluator(...)`, or `consideration(...)` constructors. Those would translate
-one UE storage shape into a parallel SAL role type system. The native owner
-relationship already states the role:
+Owner paths express role:
 
 - `Evaluators`
 - `GlobalTasks`
 - `EnterConditions`
 - `Tasks` or `SingleTask`
 - `Considerations`
+- `Transitions`
 - Transition `Conditions`
 
-The actual selected Node type remains the complete native UScriptStruct or
-Blueprint Class Path in `type`. For Blueprint-authored StateTree Nodes, UE's
-wrapper struct and object instance are persistence details; `type` identifies
-the Blueprint Class the user actually selected.
+The native selected struct or Blueprint Class remains `type`.
 
-One `FStateTreeEditorNode` internally contains Node template data,
-Instance/InstanceObject data, optional ExecutionRuntimeData/Object data,
-ExpressionIndent, and ExpressionOperand. These remain parts of one public
-`node(...)` object. Deterministic internal ids such as
-`FStateTreeEditorNode::GetNodeID()` are Binding implementation details rather
-than additional public objects.
+### State And Transition Fields
 
-Property Functions use the same `node(...)` shape because UE stores them as
-StateTree Editor Nodes. They remain owned by their function-result Binding: they
-are exact-readable and schema-discoverable through `node@id`, but cannot be
-added, removed, or moved independently. Creating the first outer Binding
-creates the function Node; removing that Binding removes its complete function
-subtree.
+State fields preserve native names such as:
 
-Context Data use the literal generic `object(...)` shape because they are
-stable, exact-readable binding sources when their native ID is valid and unique,
-but do not justify a fifth StateTree-specific role word. Their exact reference
-is literally `object@id`. State, Node, Transition, and Parameter retain their
-concise canonical kinds and must never also resolve through `object@id`.
+- `Name`, `Description`, `Tag`, `ColorRef`;
+- `Type`, `SelectionBehavior`, `TasksCompletion`;
+- `LinkedSubtree`, `LinkedAsset`;
+- tick, event, prerequisite, weight, and enabled fields.
 
-StateTree adds no `task(...)`, `condition(...)`, `evaluator(...)`,
-`consideration(...)`, `property_function(...)`, `context_data(...)`,
-`event(...)`, `delegate(...)`, `dispatcher(...)`, `listener(...)`, or
-`binding(...)` constructor. Required Events, State Links, Delegate endpoints,
-Node template data, Node instance data, and compiled runtime data likewise do
-not become independent lifecycle objects merely because UE stores a struct for
-them.
+Lowercase `type` is the common native object type. Uppercase `Type` is UE's
+`UStateTreeState::Type`.
 
-## Canonical Object Text
+Transition fields preserve `Trigger`, `RequiredEvent`, `State`, `Priority`,
+delay fields, and `bTransitionEnabled`.
 
-StateTree Object Text is one ordered statement sequence. Member binding paths
-express ownership and the sequence of statements expresses authored order:
+A concrete State link keeps the native relationship as a StableRef field:
 
 ```sal
-omle = asset(
-  path: "/Game/Omle/ST_OmleLocalBehavior.ST_OmleLocalBehavior",
-  type: "/Script/StateTreeModule.StateTree"
-)
-
-# Schema Context Data
-actorContext = object(
-  id: "actor-context-guid",
-  type: "/Script/StateTreeModule.StateTreeExternalDataDesc",
-  Name: Actor,
-  Struct: "/Script/Engine.Actor",
-  Requirement: Required
-)
-
-omle.GlobalTasks.observe = node(
-  id: "global-task-guid",
-  type: "/Script/ProjectOdyssey.OmleObserveTask"
-)
-
-omle.RootParameters.moveSpeed = parameter(
-  id: "root-parameters-guid/move-speed-guid",
-  type: "<schema-returned native Property Bag type>"
-)
-
-root = state(
-  id: "root-guid",
-  type: "/Script/StateTreeEditorModule.StateTreeState",
-  Name: Root,
-  Type: State,
-  SelectionBehavior: TrySelectChildrenInOrder,
-  bEnabled: true
-)
-
-root.SafetyRecovery = state(
-  id: "safety-guid",
-  type: "/Script/StateTreeEditorModule.StateTreeState",
+{
   Name: SafetyRecovery,
-  Type: State
-)
-
-root.ExternalActionControl = state(
-  id: "external-guid",
-  type: "/Script/StateTreeEditorModule.StateTreeState",
-  Name: ExternalActionControl,
-  Type: State
-)
-
-root.ExternalActionControl.EnterConditions.externalControl = node(
-  id: "condition-guid",
-  type: "/Script/ProjectOdyssey.OmleExternalControlCondition"
-)
-
-root.Companion = state(
-  id: "companion-guid",
-  type: "/Script/StateTreeEditorModule.StateTreeState",
-  Name: Companion,
-  Type: Group
-)
-
-root.Companion.Tasks.follow = node(
-  id: "follow-task-guid",
-  type: "/Script/ProjectOdyssey.OmleFollowTask"
-)
-
-root.Companion.Transitions.onFailure = transition(
-  id: "transition-guid",
-  type: "/Script/StateTreeEditorModule.StateTreeTransition",
-  Trigger: OnStateFailed,
-  State: {
-    Name: SafetyRecovery,
-    ID: state@safety-guid,
-    LinkType: GotoState,
-    Fallback: None
-  },
-  Priority: High,
-  bTransitionEnabled: true
-)
-
-object@actor-context-guid -> node@follow-task-guid.Instance.Actor
-parameter@root-parameters-guid/move-speed-guid -> node@follow-task-guid.Instance.Speed
-```
-
-The example native Node Class Paths and compact Parameter type are
-illustrative; adapters return exact schema-owned native text and never
-synthesize it from display labels. Exact Parameter reads also return its
-meaningful native descriptor fields, value, metadata, and owner context.
-
-Top-level State order follows `UStateTreeEditorData::SubTrees`. Child State
-order follows `UStateTreeState::Children`. The adapter must also preserve the
-order of Evaluators, Global Tasks, Enter Conditions, Tasks, Considerations,
-Transitions, Transition Conditions, and Property Bag descriptors. These orders
-can change State selection, task execution, equal-priority Transition choice,
-Binding visibility, or expression evaluation.
-
-Condition and Consideration expressions remain UE's ordered flat Nodes plus
-native `ExpressionOperand` and `ExpressionIndent`. SAL must not translate them
-into an expression AST. Similarly, hierarchy comes from `SubTrees` and
-`Children`; `Parent` and UObject Outer are redundant implementation state and
-are not independently emitted.
-
-Document-local aliases are readability aids. The adapter sanitizes and
-uniquifies them without treating the alias as a State or Node name. Later
-requests bind the exact Asset again and use `state@id`, `node@id`,
-`transition@id`, `parameter@container-id/property-id`, or `object@id`.
-
-## Native Fields
-
-`id` and `type` retain their shared SAL structural meaning. All remaining
-authored fields keep native UE names and values. State examples include:
-
-- `Name`, `Description`, `Tag`, `ColorRef`
-- `Type`, `SelectionBehavior`, `TasksCompletion`
-- `LinkedSubtree`, `LinkedAsset`
-- `bHasCustomTickRate`, `CustomTickRate`
-- `Parameters`
-- required-enter-event and prerequisite fields
-- `Weight`, `bEnabled`
-
-Lowercase `type` is the shared native object/type text field. Uppercase `Type`
-is UE's own `UStateTreeState::Type` field; preserving both spellings avoids a
-SAL translation of the native State enum.
-
-Transition examples include:
-
-- `Trigger`, `RequiredEvent`, `State`, `Priority`
-- `bDelayTransition`, `DelayDuration`, `DelayRandomVariance`
-- `bTransitionEnabled`
-
-A Required Event remains an authored field of its owner. A State stores
-`bHasRequiredEventToEnter` and `RequiredEventToEnter`; a Transition stores
-`RequiredEvent`, which participates in execution only while `Trigger` is
-`OnEvent`. Both descriptors preserve the native `Tag`, `PayloadStruct`, and
-`bConsumeEventOnSelect` fields. The transient `FStateTreeEvent` that UE builds
-for Property Binding is not emitted as another object, and its deterministic
-owner-derived Struct ID is not public identity.
-
-Delegate Dispatcher and Listener members are authored endpoint surfaces, but
-their internal values are compiled-only data. The runtime Guid and integer
-Listener id are generated during compilation. Object Text preserves the
-authored relationship as an arrow between the native owner/member paths and
-excludes those compiled tokens.
-
-Node text preserves reflected authored values from the selected native Node,
-Instance, and Execution Runtime Data surfaces. Exact `with schema` identifies
-the native owning surface, Property type, read/write/reset availability,
-Property usage, Binding support, and any edit condition. SAL does not rename
-input fields, translate native enums, or maintain a StateTree-specific type
-system.
-
-Parameter text combines one ordered Property Bag descriptor with its current
-value and metadata. Its `id` is the same `container-id/property-id` pair used
-by its stable reference. `Value` is the explicit public field for the current
-authored value. Lowercase `type` uses the same UE-native Property Reflection
-codec as the Class domain; remaining descriptor fields retain their UE names,
-and `MetaData` remains an ordered array of native `Key` / `Value` entries.
-Owner, fixed-layout, inheritance, and override facts are adjacent comments
-rather than a second Parameter object model. Exact `with schema` supplies the
-native member paths and allowed edits without changing this read shape.
-
-Context Data `object(...)` text maps `id` to a valid, unique
-`FStateTreeExternalDataDesc::ID` and preserves the native `Name`, `Struct`, and
-`Requirement` fields. `Handle` is compiled/runtime indexing state and is not
-authored text, and the asset contains no runtime Context value. Context Data
-descriptors are read-only. A missing or invalid `Struct` remains visible with a
-diagnostic but cannot expose a member Binding surface. Direct Binding-arrow
-endpoints after `object@id` and exact schema discovery resolve against a valid
-descriptor `Struct`, not its metadata. Invalid or duplicate descriptor IDs
-remain visible as adjacent diagnostic comments rather than false `object@id`
-values.
-
-An Object Text arrow renders actual data-flow direction. It may represent an
-explicit authored Property Binding or UE's derived automatic Context
-resolution; an adjacent comment identifies the latter. The arrow remains a
-relationship statement, not a `binding(...)` object. Readback determines the
-effective Binding direction from the resolved native `TargetPath` root
-Property, matching UE's compiler rule: `Usage=Output` is an output Binding and
-every other usage is ordinary. Ordinary explicit Bindings render native
-`SourcePath -> TargetPath`, and UE's ordinary add path replaces the existing
-Binding for that exact `TargetPath`. Effective output Bindings render native
-`TargetPath -> SourcePath`; their native `TargetPath` is the logical producer,
-so multiple authored output records may preserve fan-out from that producer.
-
-The stored `bIsOutputBinding` bit is not authoritative because UE compilation
-may repair it from the target root Property usage. Query performs the same
-classification without modifying the Binding, compiling, dirtying, or saving
-the asset. If the stored bit disagrees with the effective classification, SAL
-still renders the effective data-flow direction and returns a diagnostic with
-the native Binding index and path evidence.
-
-`State` on a Transition preserves the native `FStateTreeStateLink` fields. For
-a concrete Goto State, its native `ID` value is rendered as a stable
-`state@id` relationship while `Name`, `LinkType`, and `Fallback` remain beside
-it. UE special targets such as Succeeded, Failed, Next State, and Next
-Selectable State retain their native `LinkType` semantics rather than
-receiving artificial State objects.
-
-Fields derived solely from compiled layout, transient breakpoints,
-`bExpanded`, cached State handles, Property copy batches, and runtime indices
-are excluded from authored Object Text. A malformed source asset is reported
-as found; Query does not discard invalid Children, Nodes, links, or Bindings in
-order to make the result look valid.
-
-## Summary
-
-StateTree orientation uses the shared `summary` operation:
-
-```sal
-query omle
-summary
-```
-
-Summary returns:
-
-1. the compact exact Asset binding;
-2. the native StateTree Schema Class Path;
-3. every Schema Context Data descriptor as a compact `object(...)` binding, in
-   Schema order; malformed or colliding descriptors omit a canonical id;
-4. every Evaluator and Global Task as compact `node(...)` bindings, in authored
-   order;
-5. every top-level State as a compact `state(...)` binding, in authored order;
-6. compact comments containing authored counts;
-7. compile orientation derived from the current editor-data hash,
-   `LastCompiledEditorDataHash`, and `IsReadyToRun()`;
-8. structural diagnostics that can be derived from current authored and
-   compiled status without mutating, validating, or compiling the asset.
-
-Useful counts include all States, Evaluators, Global Tasks, Tasks, Conditions,
-Considerations, Transitions, Parameters, Property Functions, Property
-Bindings, automatic Context relationships, and Context Data. They are comments
-rather than a new Summary object or synthetic StateTree fields. Global Nodes
-appear before the top-level States so the agent sees StateTree-wide execution
-context before the hierarchy.
-Summary does not expand the complete hierarchy, owned State Nodes,
-Transitions, Parameters, or Property Bindings.
-
-An out-of-date compiled hash is reported as stale. Summary never compiles,
-links, validates, repairs, or saves the StateTree to obtain a cleaner status.
-
-## Query
-
-The confirmed StateTree Query surface is:
-
-```sal
-# Exact target read; append `with schema` when needed.
-query omle
-
-query omle
-summary
-
-query omle
-tree [state@<id>] [depth <N>]
-
-query omle
-states ["text"]
-
-query omle
-nodes ["text"]
-
-query omle
-parameters ["text"]
-
-query omle
-state@<id>
-
-query omle
-node@<id>
-
-query omle
-transition@<id>
-
-query omle
-parameter@<container-id>/<property-id>
-
-query omle
-object@<context-id>
-
-query omle
-references to state@<id>[.<member>]
-
-query omle
-references to transition@<id>[.<member>]
-
-query omle
-references to node@<id>[.<member>]
-
-query omle
-references to parameter@<container-id>/<property-id>[.<member>]
-
-query omle
-references to object@<context-id>[.<member>]
-
-query omle
-palette entries ["text"] to <destination>
-
-query omle
-palette @<id> to <destination>
-```
-
-StateTree defines no `find`, `exec flow`, `data flow`, `with pins`, independent
-Transition collection search, or exact-name operation. State and Node display
-names may be duplicated, so plural text search is discovery and canonical
-stable references are exact access.
-
-The bare `query omle` form reads the exact target's own meaningful fields. It
-may use `with schema`; `summary` remains the separate orientation operation.
-
-### Tree
-
-`tree` is the primary structural read. Without a State selector it starts at
-all top-level States; with `state@id` it starts at that State. `depth` counts
-State hierarchy edges only. It does not count owned Nodes, Transitions, or
-Parameter entries as additional tree levels.
-
-The default depth is 20. A shallower explicit depth is useful for very broad
-StateTrees. If State depth is truncated, the boundary State remains present and
-an adjacent comment reports that deeper Children exist. The result never
-returns an invalid partial statement.
-
-Tree returns full State identity and compact owned Node and Transition
-bindings sufficient for exact follow-up Queries. It does not expand every
-reflected Node property or every Binding by default. This keeps the normal
-orientation path small while preserving all authored order.
-
-Tree contains only the State hierarchy and each returned State's compact owned
-Nodes and Transitions. StateTree-wide Evaluators and Global Tasks belong to
-`summary`, so a tree subtree read never repeats them.
-
-### Collections And Exact Objects
-
-`states ["text"]` searches current State names, descriptions, tags, visible
-paths, and native State type text. `nodes ["text"]` searches all directly
-authored Evaluators, Global Tasks, Enter Conditions, Tasks, Considerations, and
-Transition Conditions by current display name, selected native type, owning
-State, and role path. Embedded Property Functions remain part of Binding state
-and do not become ordinary Node collection results; the owning Binding returns
-their `node(...)` text and `node@id` remains exact-readable.
-
-`parameters ["text"]` searches root and State Parameter names, native Property
-Bag types, metadata, and visible owner paths. Each result includes the complete
-container/property identity, omits the current value, and preserves descriptor
-order inside its container. Context Data have no collection operation:
-`summary` is their compact discovery surface and `object@context-id` is their
-exact read.
-
-Collection results use shared bounded cursor pagination with a default page of
-50 and a maximum page of 200. Result order follows authored document order, not
-relevance. `states`, `nodes`, and `parameters` accept only their optional
-search text and cursor `page` clauses; they accept no `where`, `order by`,
-`with schema`, or `depth`.
-
-`state@id`, `node@id`, `transition@id`, and
-`parameter@container-id/property-id` are exact within the bound Asset. A valid,
-unique Schema Context descriptor additionally supports `object@context-id`.
-Exact reads return the object's full meaningful authored fields and enough
-owner context to copy its reference into a later Patch. Context Data objects
-are read-only. A Property Function `node@id` is exact but retains its outer
-Binding-owned lifecycle.
-
-All active contained-object exact reads start with a compact Asset owner
-binding. Node and Transition reads preserve the exact object's owning global
-role, State, or Transition context, and a Transition read returns its owned
-Conditions in UE authored order. Parameter reads return their descriptor and
-current `Value`; owner, layout, inheritance, and override facts remain adjacent
-comments. An exact native Parameter value above 1 MiB fails the complete Query
-with `validation.result_too_large` and is never truncated. Exact Node native
-fields use the same fail-complete rule at 2,048 fields or 1 MiB of native value
-text; partial Node/Instance/ExecutionRuntimeData objects are never returned.
-Context Data exact reads return only the Schema-authored descriptor, never
-compiled `Handle` state or a runtime value. Like every Query in this domain,
-these reads inspect authored data without validating, repairing, compiling,
-dirtying, or saving it.
-
-Exact State, Node, Transition, Parameter, and Context Data reads additionally
-append only the Binding arrows directly incident to the exact selected stable
-object. Ownership expansion does not expand relationship scope: for example,
-`state@id` may return its owned Nodes and `transition@id` its Conditions, but
-their arrows require their own exact Queries. `summary`, `tree`, and collection
-reads do not emit Binding arrows.
-
-Explicit relationships preserve their authored order in
-`FStateTreeEditorPropertyBindings::PropertyBindings`. Derived automatic Context
-relationships have no authored array position; they are marked as automatic
-and emitted in deterministic target/member traversal order without pretending
-to be stored records. If either endpoint cannot be mapped uniquely to an
-existing stable owner and native member path, SAL emits no malformed or
-invented Edge. It instead returns a diagnostic with the native Binding index
-and path evidence so the corrupt authored fact remains inspectable.
-
-Ordinary Target replacement and duplicate detection use UE's native
-`FPropertyBindingPath` equality, including Struct id, Segment name, concrete
-Instance Struct, and array index. A rendered SAL member path is navigation
-text, not a substitute for that native identity. If a malformed Binding still
-resolves its Target root to a Context-usage Property, that authored root remains
-an override and suppresses the derived automatic Context arrow; failure in a
-later Segment must not invent an unbound Context relationship. Diagnostics for
-a malformed Binding with no canonical endpoint owner are returned by
-`summary`; they are not attached to unrelated exact objects. A global
-relationship-analysis budget failure may appear on both `summary` and exact
-reads because it makes every relationship result incomplete.
-
-### References
-
-StateTree local references are factual relationships inside the resolved
-Asset. They include:
-
-- Transition and linked-State links to `state@id`;
-- State links embedded in native Node or Instance fields;
-- explicit Property Bindings whose source or target belongs to a Node,
-  Parameter, Context Data, Required Event, or Delegate endpoint;
-- automatic Context relationships currently derived by UE for unoverridden
-  Context-usage Properties;
-- outer and nested Property Function Bindings.
-
-An automatic Context relationship is returned in the same data-flow direction
-as an explicit Binding, with an adjacent comment identifying it as automatic
-and derived. This keeps references factual without pretending that the asset
-contains a removable Binding record.
-
-Required Event member references use the stable owner rather than UE's derived
-Event Struct ID. Delegate references use the stable owner plus the reflected
-Dispatcher or Listener member path. Examples include:
-
-```sal
-references to state@state-guid.RequiredEventToEnter.Payload
-references to transition@transition-guid.RequiredEvent.Payload.Value
-references to node@producer-guid.Instance.OnFinished
-references to transition@transition-guid.DelegateListener
-```
-
-References return stored Property Bindings even when their endpoint is
-currently inactive, with an adjacent diagnostic explaining that state. Runtime
-Event Tag matching is not an authored reference: two Event descriptors using
-the same Gameplay Tag do not reference one another.
-
-The initial domain does not support `in project`. UE's StateTree Asset Registry
-tag exposes Schema identity but not a zero-load authored-reference index.
-Loading every StateTree asset to simulate project scope would repeat the
-unbounded-load failure that the shared reference design explicitly forbids.
-Project scope requires a dedicated index before it can be claimed complete.
-
-## Schema Discovery
-
-`with schema` applies to the exact StateTree target, State, Node, Transition,
-Parameter, Context Data object, or destination-bound Palette Entry. The adapter
-derives discoverable capability from:
-
-- current `UStateTreeSchema` virtual capability methods;
-- explicit non-mutating `UStateTreeEditorSchema` capability hooks;
-- UE Reflection on the concrete State, Node struct/Class, Instance data, and
-  Transition fields;
-- Property usage and edit-condition metadata;
-- StateTree Property Binding visibility and compatibility;
-- the exact Palette candidate and intended owner relationship.
-
-Schema must report dynamic restrictions such as allowed State types and
-selection behavior, whether Evaluators, Enter Conditions, Considerations,
-multiple Tasks, global Parameters, or task completion are supported, and which
-native Node types the current Schema permits. It must not infer these facts
-from reflected fields alone because the authoritative rules are virtual
-methods.
-
-Arbitrary custom `UStateTreeEditorSchema::Validate()` logic is not a
-discoverable schema surface: the method mutates and reports no enumerable rule
-set. Rules exposed only there are checked on the transient preflight copy and
-returned as diagnostics rather than presented as complete schema guidance.
-
-The target itself also owns behavior fields such as `GlobalTasksCompletion`,
-Schema and Editor Schema instances, Root Parameters, Evaluators, and Global
-Tasks. Bare `query omle` is its exact read; `with schema` reports those fields,
-supported Query operations, native creation destinations, and direct Patch
-statements. `summary` is the compact discovery surface for the read-only
-Context Data objects declared by the current Schema; it remains orientation
-and is never treated as a writable target read.
-
-Exact object schema also reports copyable native destination forms, allowed
-lifecycle operations, bindable `Node` and `Instance` member surfaces, member
-direction and native type compatibility, indexed member paths, and Parameter
-inheritance or override constraints. `ExecutionRuntimeData` is not a Property
-Binding surface. Context Data schema is read-only. Property Function Node
-schema reports its Binding-owned creation and deletion cascades rather than
-advertising independent `add`, `remove`, or `move`.
-
-State and Transition schema distinguish the writable Required Event descriptor
-from its conditional read-only Binding surface. The descriptor contains
-`PayloadStruct`; the runtime `FStateTreeEvent` surface contains bindable native
-members such as `Tag`, `Payload.*`, and `Origin`. Schema reports the current
-Payload member layout, source visibility, and the activation condition
-`bHasRequiredEventToEnter == true` or `Trigger == OnEvent`.
-
-Exact schema marks reflected `FStateTreeDelegateDispatcher` members as Binding
-sources and `FStateTreeDelegateListener` members as Binding targets. Transition
-schema marks its `FStateTreeTransitionDelegateListener` member as a Binding
-target. These members do not support `set` or `reset`. Parameter Delegate
-endpoints are advertised only when the current Schema and compiler
-configuration actually support them; UE 5.7 disables Root Parameter Dispatcher
-compilation by default.
-
-As in every SAL domain, schema guidance is returned in adjacent comments around
-ordinary Object Text. StateTree introduces no schema-result object.
-
-Exact schema discovery is fail-complete. The adapter permits at most 2,048
-reflected fields and 1 MiB of schema text across the requested exact surface;
-if either bound is exceeded it returns `validation.result_too_large` instead of
-silently omitting fields that an Agent might otherwise assume do not exist.
-
-## Palette
-
-Every StateTree Palette query includes the exact destination it is meant to
-serve:
-
-```sal
-query omle
-palette entries "Follow" to state@companion-guid.Tasks
-
-query omle
-palette @P_OmleFollowTask to state@companion-guid.Tasks
-with schema
-```
-
-The destination is part of candidate discovery, not information deferred to a
-later Patch. It lets the adapter apply Schema, role, cardinality, type,
-visibility, and ordering rules before returning a candidate. An exact Palette
-entry is still revalidated against the same destination when consumed.
-
-Palette returns ordinary `state(...)`, `node(...)`, `transition(...)`, or
-`parameter(...)` creation bindings containing a stable creation-capability
-`palette` id. It does not ask the Agent to infer a constructor from a native
-Class, editor label, or owner role. Context Data are Schema-owned and
-read-only, so Palette never offers them.
-
-Node discovery uses UE's `FStateTreeNodeClassCache` and revalidates every
-candidate against the current Schema. It must filter hidden, abstract,
-deprecated, and disallowed native structs and Blueprint Classes, as well as
-role capabilities such as Evaluators, Conditions, Considerations, and
-multiple Tasks.
-
-A destination-bound search returns ordinary copyable creation bindings:
-
-```sal
-follow = node(palette: "P_OmleFollowTask")
-```
-
-The later Patch repeats the same exact destination, and `add` revalidates it
-before materialization. Query-result aliases are local to their returned
-document; the agent copies the returned constructor call into the Patch and may
-choose a new alias.
-
-State and Transition entries wrap UE-native construction behavior but keep
-their `type` as the native Class or Struct path. A new Transition starts from
-UE's own Array-add defaults: `Trigger` is `OnStateCompleted` and `State` links
-to the root State unless copied constructor fields explicitly change them.
-State `Type`, Transition `Trigger`, target, and other required arguments remain
-named native fields returned by the exact entry's schema.
-
-The ordinary State entry covers the native `State`, `Group`, and `Subtree`
-types allowed by the current Schema. A `Linked` State entry is target-specific:
-it is returned only when a valid Subtree target exists outside the destination
-State's ancestor chain, and its copyable constructor includes that exact
-`LinkedSubtree: state@id`. `LinkedAsset` has one separate fixed-type entry; UE
-5.7 permits its native asset reference to remain null, so discovery does not
-scan or load candidate assets and the reference can be supplied through its
-ordinary native field. Patch revalidates every fixed State type and exact
-linked target against the same entry; neither requirement can be substituted.
-Parameter entries likewise derive a deterministic unique `Name` from their
-exact destination bag (`NewParameter`, `NewParameter_1`, and so on), and exact
-Palette reads recompute that constructor so a stale name cannot silently
-collide.
-
-A Property Function entry is a destination-bound `node(...)` candidate. It is
-consumed by the first owning
-`bind function.Instance.<schema-output-member> -> target`, not by `add`; that
-Binding materializes and owns the function Node. The member is the exact single
-Output property returned by the Palette Entry schema, not a fixed `Result`
-name. Parameter entries are consumed by ordinary
-`add ... to <Parameters destination>`.
-
-Blueprint StateTree Node discovery must remain bounded. The adapter first
-filters and pages Asset Registry-backed candidates, then resolves the Classes
-needed for the returned page or exact entry. It must not synchronously load
-every Blueprint Node asset merely to answer an unbounded Palette query.
-
-## Patch
-
-StateTree activates these Core lifecycle operations:
-
-- `add`
-- `remove`
-- `set`
-- `reset`
-- `move`
-- `save`
-
-StateTree additionally defines the relationship operations `bind` and
-`unbind`. They edit Property Bindings but do not create a Binding object.
-`compile` is a StateTree terminal statement following the already established
-Blueprint terminal model. No StateTree `invoke` capability is currently
-advertised; an exact schema must expose an Operation before that syntax becomes
-valid.
-
-### Add
-
-Every directly added object uses a local Palette-backed alias and an exact
-destination. There is no bare StateTree `add`, including for top-level States:
-
-```sal
-patch omle
-
-newRoot = state(palette: "P_State", Name: Root)
-add newRoot to omle.SubTrees
-
-follow = node(palette: "P_OmleFollowTask")
-add follow to state@companion-guid.Tasks
-
-onFailure = transition(palette: "P_Transition", Trigger: OnStateFailed)
-add onFailure to state@companion-guid.Transitions
-
-speed = parameter(palette: "P_FloatParameter")
-add speed to state@companion-guid.Parameters
-```
-
-The Parameter binding above is abbreviated. A real Palette result and copied
-Patch binding include every schema-required native field; the agent must not
-assume that `palette` alone is sufficient.
-
-Destinations are native authored roles exposed by exact schema: target
-`SubTrees`, `Evaluators`, `GlobalTasks`, and `RootParameters`; State
-`Children`, `EnterConditions`, `Tasks` or `SingleTask`, `Considerations`,
-`Transitions`, and State `Parameters`; and Transition `Conditions`. The exact
-schema supplies the copyable spelling. Schema cardinality decides whether a
-Task role uses `Tasks` or `SingleTask`; the adapter reports corrupt source state
-if both contain authored Nodes rather than silently hiding one. An object's
-native type never implies a missing destination.
-
-`before` and `after` may place a new object relative to a sibling in the same
-ordered destination. Cross-owner placement must use an exact compatible `to`
-destination and is validated before mutation.
-
-### Set And Reset
-
-`set` and `reset` use exact schema-approved native fields:
-
-```sal
-set state@companion-guid.Name = Companion
-set state@companion-guid.Weight = 1.5
-set transition@transition-guid.State = {
-  Name: SafetyRecovery,
-  ID: state@safety-guid,
+  ID: @dddddddd-dddd-dddd-dddd-dddddddddddd,
   LinkType: GotoState,
   Fallback: None
 }
-set node@follow-task-guid.Instance.AcceptanceRadius = 150.0
-reset node@follow-task-guid.Instance.AcceptanceRadius
-
-set state@companion-guid.bHasRequiredEventToEnter = true
-set state@companion-guid.RequiredEventToEnter.PayloadStruct = <native-struct-type>
-set transition@transition-guid.Trigger = OnEvent
-set transition@transition-guid.RequiredEvent.Tag = <native-gameplay-tag>
-
-set parameter@container-guid/property-guid.<schema-name-member> = MoveSpeed
-set parameter@container-guid/property-guid.<schema-type-member> = <native-type>
-set parameter@container-guid/property-guid.<schema-value-member> = 600.0
-reset parameter@container-guid/property-guid.<schema-value-member>
 ```
 
-The exact Node field path comes from `with schema`; the example `Instance`
-partition is not assumed for every Node type. Node `type` is read-only after
-materialization. Replacing a Node type requires a schema-discovered compound
-Operation because UE must recreate Node, Instance, execution data, id, and
-Bindings coherently.
-
-Changing State `Type`, Linked State targets, linked assets, or Parameters must
-follow UE's native semantic setter path and report every planned cascade. A
-plain reflected write is insufficient when UE clears Tasks, changes selection
-behavior, or rebuilds linked Parameter layout.
-
-Required Event descriptor fields use ordinary `set` and `reset`; the derived
-`Payload.*` and `Origin` Binding surface is read-only. An ordered Patch may
-activate and configure the Event before binding from it. Changing the activation
-field or `PayloadStruct` preserves the descriptor itself but can make existing
-Event-source Bindings inactive or structurally invalid. The mutation result
-must report that consequence rather than silently deleting or hiding it.
-
-The Parameter member tokens above are schema placeholders, not SAL-renamed
-fields. The agent copies the native member paths returned by exact `with
-schema`. On an inherited fixed-layout Parameter, setting its value creates or
-updates the local override and resetting it removes that override. Rename,
-type change, removal, and reordering are rejected unless the current container
-owns an editable layout.
-
-### Move
-
-State hierarchy and authored collection order use Core `move`:
-
-```sal
-move state@idle-guid before state@follow-guid
-move state@catch-up-guid after state@safety-guid
-move state@pickup-guid to state@companion-guid.Children
-move parameter@container-guid/a-guid before parameter@container-guid/b-guid
-```
-
-Moving a State keeps its native id. The adapter rejects moving a State into
-itself or its descendants and rejects overlapping multi-object plans that
-would move both a parent and one of its included descendants. Reordering Nodes
-or Transitions is available only where the exact object's schema declares a
-compatible ordered destination. Parameter `before` and `after` references must
-belong to the same editable container.
-
-Order affects which Binding sources are visible. Preflight therefore validates
-the post-move document and reports every Binding that would become invalid.
-No live move may silently lose a Binding that was absent from its mutation
-plan.
-
-### Remove And Invoke
-
-`remove node@id` deletes one independently owned Evaluator, Task, Condition, or
-Consideration. `remove transition@id` deletes one owned Transition.
-`remove parameter@container-id/property-id` is available only for an editable
-local Parameter layout.
-`remove state@id` removes that State's complete authored subtree, including all
-descendant States, owned Nodes, and Transitions. Preflight and the mutation
-result must enumerate that cascade before live application. Removal cleans
-Bindings whose source or target no longer exists. A Transition outside the
-removed subtree that points at a removed State is not automatically deleted;
-UE preserves the invalid link for diagnosis, and the mutation result reports
-it.
-
-A Property Function Node is not independently removable. Its lifecycle belongs
-to the outer Binding described below. Context Data objects are read-only and do
-not support field or lifecycle mutation.
-
-Specialized subordinate actions use `invoke` only after the exact Operation is
-designed and exposed by the subject's schema. StateTree does not add equivalent
-domain verbs alongside Core `add`, `remove`, or `move`. If a future duplicate
-Operation is exposed, it must reproduce UE's deep-copy and identity-remapping
-semantics without the system Clipboard; its name, arguments, and result are
-not defined here.
-
-## Property Bindings And Parameters
+Special native link kinds remain native enum semantics and do not create fake
+State objects.
 
 ### Parameters
 
-A Parameter is one authored, ordered Property Bag entry exposed as
-`parameter(...)`. Its exact identity is the pair of its Parameter-container
-Guid and Property descriptor Guid:
-
 ```sal
-query omle
-parameters "speed"
-
-query omle
-parameter@container-guid/property-guid
-with schema
-```
-
-Collection results retain their owner container and descriptor order. Exact
-readback uses the same composite text in `id`:
-
-```sal
-speed = parameter(
-  id: "container-guid/property-guid",
+speed = {
+  id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee/ffffffff-ffff-ffff-ffff-ffffffffffff",
   type: "FloatProperty",
   Name: Speed,
   Value: 600.0,
   MetaData: [
     { Key: ClampMin, Value: "0" }
   ]
-)
-
-###
-owner: state@companion-guid
-bFixedLayout: true
-value source: local override
-###
+}
+# owner: @bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+# bFixedLayout: true
+# value source: local override
 ```
 
-Collection results use the compact identity form; the example above is an
-exact read. `Value` is the explicit public current-value field. `type` uses the
-same UE-native Property Reflection text as the Class domain, remaining
-descriptor fields retain UE names, and `MetaData` preserves descriptor order as
-`Key` / `Value` entries. Owner, fixed-layout, inheritance, and override facts
-are comments because they describe the owning container rather than fields on
-the descriptor. Editable local layouts support Palette-backed `add`,
-schema-approved rename and type/value/metadata edits, same-container reorder,
-and `remove`. Linked fixed layouts retain the inherited descriptor identity;
-only value override `set` and `reset` are local edits.
+The `id` data mirrors the StableRef path, but the StableRef itself is
+`@container-guid/property-guid`. Descriptor fields and metadata retain native
+names and order.
 
-### Binding Endpoints
+### Context Data
 
-The authoritative store for explicit authored Bindings is
-`FStateTreeEditorPropertyBindings::PropertyBindings`. A Binding has no stable
-id and never becomes `binding(...)` or `binding@id`. UE may additionally derive
-an automatic relationship for an unoverridden Context-usage Property through
-`UStateTreeEditorData::FindContextData()`. Object Text uses the same ordinary
-arrow in actual data-flow direction for both:
+Context descriptors preserve `id`, `type`, `Name`, `Struct`, and
+`Requirement`. Runtime `Handle` and value are not authored state. Context Data
+are read-only; member binding schema comes from the descriptor's native
+`Struct`.
+
+## Ordering
+
+Object Text preserves:
+
+- top-level and child State order;
+- Evaluator and Global Task order;
+- Conditions, Tasks, Considerations, and Transition order;
+- Transition Condition order;
+- Parameter descriptor order;
+- explicit Property Binding order.
+
+These orders affect execution. Condition expressions remain UE's flat ordered
+Nodes plus `ExpressionOperand` and `ExpressionIndent`; SAL does not translate
+them into an AST.
+
+## Query
 
 ```sal
-parameter@container-guid/speed-guid -> node@task-guid.Instance.AcceptanceRadius
-
-# automatic Context
-object@actor-context-guid -> node@task-guid.Instance.Actor
-
-node@producer-guid.Instance.Points[0].Value -> node@consumer-guid.Instance.Targets[1].Value
-parameter@container-guid/points-guid[0].X -> node@consumer-guid.Instance.TargetX
-node@task-guid.Instance.<schema-output-member> -> parameter@container-guid/result-guid
+target
+summary
+tree [@state-guid] [depth N]
+states ["text"]
+nodes ["text"]
+parameters ["text"]
+@identity
+references to <exact-object-or-member>
+palette entries ["text"] to <exact-destination>
+palette @id to <same-exact-destination>
 ```
 
-The adjacent comment is sufficient to distinguish the derived relationship;
-StateTree adds no `automatic` keyword, relationship constructor, or normalized
-object. An automatic Context arrow is queryable but has no authored record or
-independent lifecycle.
+`target with schema` reads the exact StateTree surface. `summary` returns
+Schema, Context Data, global Nodes, top-level States, counts, compiled hash
+orientation, and structural diagnostics without repair or compile.
 
-Readback walks explicit `PropertyBindings` in stored authored order. It resolves
-each native `TargetPath` root Property and applies UE's effective rule:
-`Usage=Output` makes the Binding output; every other usage makes it ordinary.
-For an ordinary Binding, `TargetPath` is the unique input slot and the SAL arrow
-is `SourcePath -> TargetPath`. For an effective output Binding, the SAL arrow is
-`TargetPath -> SourcePath`, and several output records may share that native
-`TargetPath` to fan out from one logical producer. The adapter must not collapse
-those records under the ordinary TargetPath-uniqueness rule.
+`tree` defaults to depth 20. Depth counts State hierarchy edges only. A
+truncated boundary State remains present with a comment.
 
-The authored `bIsOutputBinding` value is retained evidence, not the source of
-truth for Query direction. If it differs from the target Property's effective
-usage, Query does not invoke UE's mutating repair path; it emits the effective
-arrow and a diagnostic identifying the mismatch.
+Collections preserve authored order, use cursor pagination, and accept only
+optional search text and page clauses. Page limit defaults to 50 and is capped
+at 200. Collections accept no `where`, `order by`, `with schema`, or `depth`
+clause. Property Functions are Binding-owned, so they are absent from `nodes`
+but remain exact-readable.
 
-Automatic Context arrows are derived by applying the current Context-usage
-Property and `UStateTreeEditorData::FindContextData()` behavior only when an
-explicit Binding does not override the target. They are not inserted into the
-authored order or counted as `EditorBindings`. Their adjacent annotation makes
-their derived status explicit.
+Exact StableRef reads return meaningful authored fields, owner context, and
+only directly incident relationships. They may use `with schema`.
 
-An endpoint is one stable owner plus an ordered native member path. Array
-segments use non-negative `[N]` indexes and normalize as numeric path segments;
-the adapter never stores only a localized display path. Bindable StateTree Node
-surfaces are `node@id.Node...` and `node@id.Instance...` as reported by exact
-schema. `ExecutionRuntimeData` is runtime state and cannot be bound.
+Object and schema readback are fail-complete. Oversized exact values, excessive
+reflected fields, or relationship-analysis budget failure return
+`validation.result_too_large`, never partial state.
 
-Those two Node prefixes map to different native struct identities:
+An exact Parameter native value is limited to 1 MiB. An exact Node surface is
+limited to 2,048 reflected fields and 1 MiB of native value text across its
+Node, Instance, and Execution Runtime Data surfaces. Crossing either bound
+fails the complete Query; fields and values are never truncated.
 
-- `node@N.Instance.X` uses `FStateTreeEditorNode::ID` as the native Struct ID
-  and encodes `X` after removing the public `Instance` prefix;
-- `node@N.Node.X` uses `FStateTreeEditorNode::GetNodeID()` and encodes `X`
-  after removing the public `Node` prefix;
-- `parameter@C/P...` uses container `C` as the native Struct ID and descriptor
-  `P` as the implicit first Property path segment before any suffix;
-- in `parameter@C/P[0].X`, index `0` is the `ArrayIndex` of that implicit
-  descriptor segment, followed by member `X`.
+StateTree references are local to the bound Target. `in project` is rejected
+until a complete bounded index exists.
 
-Native path segments also carry current Property Guid, polymorphic instance
-type, and access information. Parse and preflight reconstruct and validate
-those facts from the exact current value and schema through UE's native
-Property Binding path resolution. They are never guessed from display names or
-dropped from execution state. If the public member path cannot reconstruct one
-unique native path, the adapter rejects it and returns schema guidance; this
-document does not silently add another path syntax.
+## Property Bindings
 
-Readback follows the same fail-closed rule. A corrupt native path that cannot
-be converted to one canonical stable owner and member path is preserved as a
-diagnostic with its native array location and path text, not emitted as a fake
-SAL Edge, alias, or typed id.
+Explicit relationships live in
+`FStateTreeEditorPropertyBindings::PropertyBindings`. Automatic Context
+relationships are derived by UE for eligible unoverridden inputs.
 
-`object@context-id` selects one valid, uniquely identified Schema Context Data
-slot. Its following member path is resolved against the descriptor's native
-`Struct`. The actual Context value is supplied by the runtime execution owner
-and is not stored in the StateTree asset.
+Both render as Edges in actual data-flow direction:
+
+```sal
+@container-guid/speed-guid ->
+  @follow-task-guid.Instance.AcceptanceRadius
+
+@actor-context-guid ->
+  @follow-task-guid.Instance.Actor
+# automatic Context
+```
+
+There is no Binding object or Binding StableRef.
+
+For ordinary explicit input Bindings, native TargetPath is the unique
+replacement slot and renders `SourcePath -> TargetPath`. For effective Output
+Bindings, native TargetPath is the logical producer and the rendered arrow is
+reversed; several records may fan out from it.
+
+The stored `bIsOutputBinding` bit is evidence, not authority. Query classifies
+direction from the resolved root Property usage without mutating source. A
+mismatch is diagnosed with native index and path evidence.
+
+Endpoint member paths preserve native owner, Property Guid, polymorphic
+instance type, and array index. Public examples include:
+
+```sal
+@node-guid.Instance.Points[0].Value
+@container-guid/property-guid[0].X
+```
+
+`ExecutionRuntimeData` is not bindable.
+
+Corrupt native paths that cannot map to one canonical owner/member path remain
+diagnostic evidence; no false Edge is emitted.
 
 ### Required Events
 
-`FStateTreeEventDesc` is authored inside a State or Transition. When active, UE
-also presents a temporary `FStateTreeEvent` as a Property Binding source. SAL
-keeps both views under the native owner field instead of exposing UE's
-deterministic internal Event Struct ID:
+Required Event descriptors are authored fields on State or Transition. Their
+runtime Binding surface stays under that owner:
 
 ```sal
-state@state-guid.RequiredEventToEnter.Payload.Request ->
-  node@task-guid.Instance.Request
+@state-guid.RequiredEventToEnter.Payload.Request ->
+  @task-guid.Instance.Request
 
-transition@transition-guid.RequiredEvent.Payload.Value ->
-  node@condition-guid.Instance.Value
+@transition-guid.RequiredEvent.Payload.Value ->
+  @condition-guid.Instance.Value
 ```
 
-In `set` and `reset`, `RequiredEventToEnter` or `RequiredEvent` resolves to the
-authored descriptor. In a Binding-source position, its native runtime members
-resolve against `FStateTreeEvent`. `PayloadStruct` is descriptor-only;
-`Payload.*` and `Origin` are source-only. Exact `with schema` makes that
-operation-dependent distinction explicit, so SAL does not need another Event
-reference form.
-
-A State Event exists as a Binding source only while
-`bHasRequiredEventToEnter` is true. It follows UE's State execution-path
-visibility and may feed later accessible Nodes. A Transition Event exists only
-while `Trigger == OnEvent` and may feed Conditions owned by that same
-Transition. A new `bind` rejects an inactive or inaccessible Event source.
-
-The descriptor is valid when at least one of `Tag` or `PayloadStruct` is set.
-Compilation also verifies that an On Event Transition is compatible with the
-Required Event of its target State. These are native compiler constraints, not
-additional SAL validation rules.
-
-UE preserves hidden descriptor values when an Event is disabled or a
-Transition changes Trigger. A raw Property Binding using the derived Event ID
-may also remain in malformed or not-yet-validated EditorData. Query scans and
-returns that authored fact without invoking validation, maps the internal ID
-back to the owner-derived member path, and annotates the relationship as
-inactive or invalid. Native validation or compile may subsequently remove an
-Event Binding whose source no longer exists.
+State Event source requires `bHasRequiredEventToEnter`. Transition Event source
+requires `Trigger == OnEvent`. Inactive stored Bindings remain visible with
+diagnostics. Query never repairs them.
 
 ### Delegates
 
-StateTree Delegates are native Property Binding endpoints, not authored
-objects. A Dispatcher is a source and a Listener is a target:
+Dispatchers are Binding sources and Listeners are targets:
 
 ```sal
-node@producer-guid.Instance.OnFinished ->
-  node@consumer-guid.Instance.Listener
+@producer-guid.Instance.OnFinished ->
+  @consumer-guid.Instance.Listener
 
-node@producer-guid.Instance.OnFinished ->
-  transition@transition-guid.DelegateListener
+@producer-guid.Instance.OnFinished ->
+  @transition-guid.DelegateListener
 ```
 
-The exact endpoint may live on a Node's `Node` or `Instance` surface, or on a
-schema-approved Parameter surface. `with schema` supplies the reflected path,
-direction, accessibility, and current compiler support. Dispatcher and
-Listener endpoints cannot be bound across StateTree assets.
+Runtime dispatcher/listener tokens are compiled data and never SAL identity.
+A Transition Listener is active only while `Trigger == OnDelegate`; dormant
+authored relationships remain readable and removable.
 
-The authored relationship remains one ordinary entry in `EditorBindings`.
-Compilation assigns or reuses an internal Dispatcher Guid and generates
-Listener ids; those tokens are derived runtime data and never become SAL ids or
-fields. A Transition Listener is only an empty editor-side Binding target;
-compiled Transition data stores the resolved Dispatcher token directly.
+## Schema
 
-For a Transition, a new Delegate Binding is valid only when the final ordered
-Patch state has `Trigger == OnDelegate`:
+Exact schema derives from:
+
+- current `UStateTreeSchema` capabilities;
+- non-mutating editor-schema capability hooks;
+- native Reflection;
+- Property usage and edit conditions;
+- Binding visibility and compatibility;
+- exact Palette candidate and destination.
+
+It reports writable fields, lifecycle, destinations, native member paths,
+Binding direction/types, Parameter layout and override rules, and Property
+Function ownership. It does not claim arbitrary mutating `Validate()` logic is
+statically enumerable.
+
+Context Data schema is read-only. Property Function schema reports
+Binding-owned lifecycle rather than independent add/remove/move.
+
+Exact schema discovery is limited to 2,048 reflected fields and 1 MiB of schema
+text across the requested surface. Crossing either bound returns
+`validation.result_too_large` rather than an apparently complete schema with
+omitted capabilities.
+
+## Palette
+
+Palette is always destination-bound:
 
 ```sal
-patch omle
-set transition@transition-guid.Trigger = OnDelegate
-bind node@producer-guid.Instance.OnFinished ->
-  transition@transition-guid.DelegateListener
+query behavior
+palette entries "Follow" to @companion-guid.Tasks
+
+query behavior
+palette @P_FollowTask to @companion-guid.Tasks
+with schema
 ```
 
-Changing the Trigger away from `OnDelegate` does not remove the authored
-Binding. UE keeps it dormant and ignores it during compilation; changing back
-reactivates it. Query and `references` therefore preserve the arrow and add an
-adjacent comment:
+Results contain ordinary creation fields:
 
 ```sal
-node@producer-guid.Instance.OnFinished ->
-  transition@transition-guid.DelegateListener
-# inactive: Transition.Trigger is not OnDelegate
+follow = { palette: "P_FollowTask" }
 ```
 
-An inactive relationship can still be removed by an exact `unbind`. An active
-On Delegate Transition without a Dispatcher Binding is a compiler error.
+The exact destination participates in candidate discovery and revalidation.
+Native type never implies a missing destination.
+
+State and Transition candidates preserve UE-native defaults and constraints.
+Linked State candidates fix an exact valid linked target. Linked Asset does
+not scan assets. Parameter candidates choose a deterministic unique name
+inside the destination bag.
+
+Property Function Palette entries are consumed by their first result `bind`,
+not `add`.
+
+Blueprint StateTree Node discovery remains bounded: filter/page Asset Registry
+candidates first, then load only Classes required for the returned page or
+exact entry.
+
+## Patch
+
+StateTree supports:
+
+- `add`
+- `remove`
+- `set`
+- `reset`
+- `move`
+- `bind`
+- `unbind`
+- terminal `compile`
+- terminal `save`
+
+It currently exposes no `invoke`.
+
+### Add
+
+Every direct creation uses a Palette binding and exact destination:
+
+```sal
+patch behavior
+
+newRoot = { palette: "P_State", Name: Root }
+add newRoot to behavior.SubTrees
+
+follow = { palette: "P_FollowTask" }
+add follow to @companion-guid.Tasks
+
+onFailure = { palette: "P_Transition", Trigger: OnStateFailed }
+add onFailure to @companion-guid.Transitions
+
+speed = { palette: "P_FloatParameter" }
+add speed to @companion-guid.Parameters
+```
+
+Destinations are exact native roles returned by schema. `before` and `after`
+may place a new object relative to a sibling in the same ordered destination.
+
+### Set And Reset
+
+```sal
+set @companion-guid.Name = Companion
+set @transition-guid.State = {
+  Name: SafetyRecovery,
+  ID: @safety-guid,
+  LinkType: GotoState,
+  Fallback: None
+}
+set @follow-task-guid.Instance.AcceptanceRadius = 150.0
+reset @follow-task-guid.Instance.AcceptanceRadius
+```
+
+Changing State type, link, linked asset, or Parameters follows UE semantic
+setters and reports cascades. Required Event activation and Payload changes may
+make existing Bindings inactive or invalid without silently deleting them.
+
+Editable local Parameter layouts may rename/change type/value/metadata.
+Inherited fixed layouts allow only local value override `set` and `reset`.
+
+### Move And Remove
+
+```sal
+move @idle-guid before @follow-guid
+move @pickup-guid to @companion-guid.Children
+move @container-guid/a-guid before @container-guid/b-guid
+
+remove @transition-guid
+remove @state-guid
+```
+
+Moving a State preserves its id, rejects cycles, and validates post-move
+Binding visibility. State removal deletes its authored subtree and cleans
+Bindings whose endpoints disappear. External Transition links to the removed
+State remain invalid authored facts for diagnosis.
+
+A Property Function is not independently removable or movable.
 
 ### Bind And Unbind
 
-Patch uses explicit relationship operations:
-
 ```sal
-patch omle
-bind parameter@container-guid/speed-guid -> node@task-guid.Instance.AcceptanceRadius
-unbind parameter@container-guid/old-threshold-guid -> node@guard-guid.Instance.Threshold
+bind @container-guid/speed-guid ->
+  @task-guid.Instance.AcceptanceRadius
 
-bind state@state-guid.RequiredEventToEnter.Payload.Target ->
-  node@task-guid.Instance.Target
-
-bind node@producer-guid.Instance.OnFinished ->
-  transition@transition-guid.DelegateListener
+unbind @container-guid/old-guid ->
+  @guard-guid.Instance.Threshold
 ```
 
-`bind` and `unbind` use the same real data-flow direction as returned arrows.
-The adapter resolves member identity, visibility, direction, and native type
-compatibility, then maps the pair to UE's Source Path, Target Path, and output
-flag. For an ordinary input Binding, the native Target Path is the arrow's
-right endpoint and is its unique replacement slot. For a UE output Binding, the
-native Target Path is the arrow's left endpoint because UE stores that copy
-direction inversely; it is a fan-out producer rather than an ordinary unique
-input slot, and multiple output records may share it. `bind` applies the
-matching native ordinary or output operation instead of one generic TargetPath
-replacement rule and exposes every replacement or fan-out effect in preflight
-and mutation results. `unbind` names the complete
-existing pair; a source mismatch is an error rather than permission to remove
-whichever Binding currently reaches the target.
+Operations use the same data-flow direction as readback. The adapter resolves
+native direction, visibility, owner, path, and type compatibility.
 
-On UE 5.7, an external Windows plugin cannot link the StateTree editor binding
-vtable because `FStateTreeEditorPropertyBindings::AddBindingInternal` is the
-only binding-collection override in that table without `UE_API`. Avoiding a
-direct call is insufficient: compiling code that materializes the vtable still
-requires the same missing symbol from the Installed Build import library.
+`unbind` names the complete existing pair. Automatic Context arrows cannot be
+unbound because no authored record exists. Removing an explicit override may
+restore an automatic Context relationship, which the plan reports.
 
-The Windows compatibility unit therefore supplies the missing member definition
-with the exact UE 5.7 implementation: append an
-`FStateTreePropertyPathBinding` constructed from the source path, target path,
-and `bIsOutputBinding = false`, and return the appended record through the base
-binding pointer. Ordinary Bindings continue to enter through the generic
-`AddBinding` operation, so UE's target replacement behavior remains unchanged;
-effective output Bindings continue through exported `AddOutputBinding`.
-
-This is a Windows-only ABI completion for an omitted export, not a second
-binding model. It must remain source-identical to the supported UE implementation
-and should be removed when the supported UE build exports `AddBindingInternal`.
-It changes neither SAL arrow direction nor the `bind` / `unbind` schema,
-replacement rules, diagnostics, or mutation result.
-
-The Windows acceptance audit builds the plugin with the UE 5.7.4 Installed
-Build and runs the complete Loomle Automation category. The compatibility unit
-is accepted only when Win64 linking succeeds and the StateTree mutation tests
-remain part of the passing category.
-
-Binding an explicit source to a Context-usage Property creates or replaces its
-authored override and suppresses automatic Context resolution for that target.
-`unbind` accepts only an explicit authored Binding. If removing that override
-causes UE to derive an automatic Context relationship again, preflight and the
-mutation result report the restored data flow. Attempting to `unbind` an
-automatic arrow is an error because there is no authored relationship to
-remove.
-
-After changing an explicit Node-targeted Binding, the adapter follows UE's
-editor path and calls `FStateTreeNodeBase::OnBindingChanged`. Native Nodes may
-use that callback to synchronize authored Instance data, for example an enum
-comparison's selected enum type. The callback runs after the requested
-Binding change; its complete authored before/after manifest is captured
-separately, every resulting cascade is included in the mutation plan, and an
-authored hash change outside that manifest fails closed. Bind passes the
-resolved Source Path; unbind follows UE's removal path and passes an empty
-Source Path so dependent Node metadata is cleared rather than retaining the
-removed source's type. Non-Node targets do not run this callback or pay for
-its manifest snapshots.
-
-Delegate Bindings use the same target-owned replacement rule. One Dispatcher
-may feed multiple Listeners, while one Listener has at most one Dispatcher.
-Replacing a Listener source is an ordinary reported Binding replacement. A
-Required Event Binding uses the same operation but additionally validates its
-conditional Event source and execution-path visibility.
-
-An exact State, Node, Transition, Parameter, Context object, or member
-`references` query discovers all matching explicit and automatic uses. Exact
-object reads interleave relevant arrows with ordinary Object Text and annotate
-automatic Context or inactive Event/Delegate arrows adjacently; there is no
-`with bindings` expansion.
+Node-targeted Binding changes call native `OnBindingChanged` and capture every
+authored cascade. Unplanned changes fail closed.
 
 ### Property Functions
 
-A Property Function is an `FStateTreeEditorNode` embedded in and owned by its
-function-result Binding. It uses ordinary `node(...)` text and may be queried
-exactly with `node@id`, but it is not returned by the ordinary `nodes`
-collection and has no independent lifecycle operation:
-
 ```sal
-clamp = node(
-  id: "function-guid",
-  type: "<native Property Function struct>"
-)
-parameter@container-guid/min-guid -> clamp.Instance.Min
-clamp.Instance.<schema-output-member> -> node@task-guid.Instance.AcceptanceRadius
+clamp = { palette: "P_ClampPropertyFunction" }
+bind clamp.Instance.<schema-output-member> ->
+  @task-guid.Instance.AcceptanceRadius
+bind @container-guid/min-guid -> clamp.Instance.Min
 ```
 
-Creation starts from a destination-bound Palette entry. Its schema identifies
-the function's single native Output property; SAL never assumes that property
-is named `Result`. The first owning result `bind` consumes the local creation
-binding and materializes the embedded Node. It must precede bindings to that
-function's inputs in the same ordered Patch:
-
-```sal
-patch omle
-
-clamp = node(palette: "P_ClampPropertyFunction")
-bind clamp.Instance.<schema-output-member> -> node@task-guid.Instance.AcceptanceRadius
-bind parameter@container-guid/min-guid -> clamp.Instance.Min
-```
-
-`add clamp`, `remove node@function-guid`, and moving the function independently
-are invalid. Unbinding an ordinary input removes only that relationship. If an
-input is itself the owning result Binding of a nested Property Function, its
-nested subtree is removed. Unbinding the outer function-result Binding deletes
-the complete owned Property Function subtree,
-including nested functions and their input Bindings, and reports that cascade:
-
-```sal
-unbind node@function-guid.Instance.<schema-output-member> -> node@task-guid.Instance.AcceptanceRadius
-```
-
-## Normalized Contract
-
-StateTree reuses the shared `Target`, `Query`, `Patch`, `ObjectText`, `Call`,
-`StableRef`, `MemberRef`, result, and diagnostic shapes. It adds no domain
-request or result wrapper.
-
-- bare target read uses the shared `{kind: "target"}` Query operation;
-- collections add `states`, `nodes`, and `parameters` operation kinds;
-- exact operations use `state`, `node`, `transition`, `parameter`, and the
-  literal fallback kind `object`;
-- `parameter@container/property` normalizes as
-  `{kind: "parameter", id: "container/property"}`; the adapter parses and
-  validates both native Guid components inside the bound Asset;
-- StateTree Palette operations carry their exact destination Member Reference;
-- indexed member paths normalize each `[N]` as a numeric path segment;
-- `bind` and `unbind` normalize to an operation kind plus exact `from` and
-  `to` References in data-flow order.
-
-The StateTree-owned normalized additions are:
-
-```ts
-interface StateTreePaletteEntriesOperation {
-  kind: "palette_entries";
-  text?: string;
-  to: Ref;
-}
-
-interface StateTreePaletteIdOperation {
-  kind: "palette";
-  id: string;
-  to: Ref;
-}
-
-interface BindOperation {
-  kind: "bind";
-  from: Ref;
-  to: Ref;
-}
-
-interface UnbindOperation {
-  kind: "unbind";
-  from: Ref;
-  to: Ref;
-}
-```
-
-Constructor calls remain generic Calls. `state`, `node`, `transition`,
-`parameter`, and `object` are adapter-declared callees, not new expression
-types. Explicit Binding and automatic Context arrows remain ordinary ordered
-Edges in Object Text; their StateTree meaning comes from the resolved target,
-endpoint schema, and adjacent comments. Automatic status adds no normalized
-relationship type.
+The first result Binding materializes and owns the function Node. Unbinding
+that outer result removes the complete nested Property Function subtree.
 
 ## Compile And Save
 
-Compilation is explicit and uses the same independent Patch target as authored
-editing:
+Finalization is independent:
 
 ```sal
-patch omle
-compile
-```
-
-Compile followed by save is valid:
-
-```sal
-patch omle
+patch behavior
 compile
 save
 ```
 
-No ordinary authored edit implicitly compiles. Core `save` may persist stale
-EditorData without compiling, but the result warns that compiled data is out
-of date. `save` never means compile.
+Valid forms are compile, save, or compile followed by save. Authored edits
+cannot share the request. Save does not imply compile.
 
-The Bridge calls `UStateTreeEditingSubsystem::CompileStateTree()`. Native
-compilation first validates the StateTree. On failure UE clears invalid old
-compiled data and resets `LastCompiledEditorDataHash`; this is a real mutation,
-not a read-only check. Compiler messages preserve severity and map their
-available context back to `state@id`, `node@id`, `transition@id`, or
-`parameter@container-id/property-id` when UE provides that authored context.
+Compile uses `UStateTreeEditingSubsystem::CompileStateTree()`. Validation may
+repair or remove invalid authored relationships. On native compile failure UE
+clears invalid old compiled data and resets `LastCompiledEditorDataHash`; these
+are planned native effects. Compiler errors are resulting state and may still
+be followed by explicit save.
 
-Validation before compile may remove Required Event Bindings whose conditional
-Event source no longer exists. A dormant Transition Delegate Binding remains
-structurally valid, is ignored while `Trigger` is not `OnDelegate`, and is not
-removed merely by compilation. Compile generates Delegate runtime tokens but
-never exposes them as authored output. An `OnDelegate` Transition without a
-valid Dispatcher Binding fails compilation.
+A save-only request may persist stale EditorData. Its result warns that
+compiled data is out of date; `save` never performs an implicit compile.
 
-As in the Blueprint terminal contract, compiler errors are resulting authored
-asset state rather than failure to execute the statement. A completed compile
-may therefore continue to an explicit following `save`, including when UE has
-cleared invalid compiled data. Only inability to resolve or execute the
-compiler stops the terminal sequence before save.
+Compile is rejected during PIE when native StateTree editing rejects it.
+Save is external I/O; failure leaves completed in-memory edits or compile state
+dirty and unsaved.
 
-Compile is rejected during PIE when the native StateTree editor would reject
-it. Dry-run compile executes against the transient preflight copy and cannot
-alter live compiled data.
+## Dry Run And Transactions
 
-## Mutation Planning, Transactions, And Dry Run
+Preflight duplicates the complete StateTree, maps regenerated copy ids back to
+source structural locations, executes the same ordered edit functions,
+captures validation/compile cascades, and compares them with the plan.
 
-StateTree uses the shared mutation result and dry-run contract:
+Dry run stops before live apply. Live authored mutation and compile use one
+top-level transaction. Save occurs afterward. An unplanned repair, id change,
+link rewrite, or Binding removal fails closed.
 
-1. resolve the exact Asset Path and current revision;
-2. resolve every stable or composite Parameter reference, Context object, and
-   destination-bound Palette capability;
-3. duplicate the complete StateTree into transient ownership;
-4. map live ids to the duplicated structural locations, because UE asset
-   duplication regenerates authored ids;
-5. execute the same ordered lifecycle, Parameter, `bind`, `unbind`, and
-   Property Function edit adapter against the transient copy;
-6. run StateTree validation on the copy to discover repairs, and run compile
-   only when the ordered Patch requests it;
-7. classify every repair as an immediate native edit consequence, an explicit
-   compile consequence, or a dormant authored diagnostic, then compare every
-   applied cascade with the mutation plan;
-8. stop for dry run, or execute one live top-level transaction;
-9. roll back that transaction and restore prior dirty state on an in-memory
-   edit or compile execution failure;
-10. mark the Package dirty and notify an already-open ViewModel after success;
-11. after the transaction is complete, perform any requested Package save as
-    external I/O.
+## Adapter Boundary
 
-A save failure is not a transaction failure. Already completed authored edits
-or compile state remain in memory and dirty but unsaved; Loomle reports the
-save diagnostic and does not pretend that external I/O could roll the in-memory
-transaction back.
+The StateTree adapter owns native hierarchy, identity, Schema, Property Bag,
+Binding, validation, compile, and save semantics. Core owns only structural
+Target/ObjectExpr/StableRef/Query/Patch/result syntax.
 
-`ValidateStateTree()` is a mutating repair pass. An unplanned removal, id
-change, link rewrite, or Binding cleanup is not silently accepted just because
-UE validation performed it. The adapter must either include the effect in the
-preflight result or reject and roll back. Validation on the transient copy does
-not authorize an ordinary live `set` to erase latent authored data that UE's
-native property edit preserves. When the Patch explicitly includes `compile`,
-the validation performed by that native compile path and its reported cleanup
-are part of the terminal operation.
+No native Class, role name, semantic tag, or Palette prefix can switch the
+request to another Domain.
 
-One SAL Patch produces one Undo step. The Bridge does not drive
-`FStateTreeViewModel` selection-oriented commands as its primary edit API,
-because they alter user selection and open separate transactions. Its thin
-StateTree edit adapter uses public UE types and APIs, reproduces the native
-initialization and notification sequence, then asks an existing ViewModel only
-to refresh.
+### UE 5.7 Win64 ABI Compatibility
 
-## Diagnostics
+UE 5.7 omits `UE_API` from
+`FStateTreeEditorPropertyBindings::AddBindingInternal`. An external Win64
+plugin that materializes that vtable therefore cannot link against an
+Installed Build even when it never calls the member directly.
 
-StateTree diagnostics use the shared registered diagnostic model. Important
-diagnostic conditions include:
+The compatibility unit supplies the exact UE 5.7 member definition: append an
+`FStateTreePropertyPathBinding` from the source and target paths with
+`bIsOutputBinding = false`, then return the appended record through the base
+binding pointer. Ordinary Bindings still use `AddBinding`; effective output
+Bindings still use exported `AddOutputBinding`.
 
-- target Asset Path missing or resolving to a non-StateTree Class;
-- State, Node, Transition, Context object, or composite Parameter reference
-  missing or ambiguous in corrupt source;
-- Schema Context descriptor with an invalid or duplicate ID;
-- stale Palette capability, destination mismatch, or Schema-disallowed
-  placement;
-- unsupported State type, selection behavior, or owner collection;
-- invalid move hierarchy or order-dependent Binding loss;
-- read-only Context Data mutation;
-- invisible, incorrectly directed, indexed-path-invalid, or type-incompatible
-  Binding endpoint;
-- explicit or derived Binding endpoint that cannot map to one canonical SAL
-  path; the diagnostic preserves native evidence and no false Edge is emitted;
-- inactive or inaccessible Required Event Binding source, invalid Event
-  descriptor, or Event Binding invalidated by a Payload type change;
-- Delegate source/target direction mismatch, cross-asset Delegate endpoint,
-  dormant Transition Delegate Binding, or active On Delegate Transition with no
-  Dispatcher Binding;
-- stored `bIsOutputBinding` disagreement with the resolved target root
-  Property's effective Output usage;
-- attempt to `unbind` a derived automatic Context relationship, or failure to
-  report automatic Context data flow restored after removing an override;
-- attempt to add, remove, or move a Binding-owned Property Function directly;
-- replacement Binding, Property Function subtree, or linked Parameter override
-  cascade omitted from the mutation plan;
-- malformed State Link, linked Asset, Event, delegate listener, or Parameter
-  layout;
-- compiler error or warning tied to the nearest stable authored object;
-- unplanned validation cascade;
-- compile attempted during PIE;
-- save failure after a completed compile.
-
-Diagnostics must preserve malformed authored content in Query results and
-guide an Agent to an exact follow-up object, schema, or Patch. They must not
-convert a failed exact reference into a display-name search.
-
-## Runtime And Debugger Boundary
-
-Runtime StateTree execution is one-to-many with its asset and may be hosted by
-`UStateTreeComponent`, Behavior Tree, Mass, or a custom execution context.
-Scanning Components would therefore create a false runtime model.
-
-Schema Context Data descriptors are Schema-declared and target-visible, but
-their actual values belong to one runtime execution owner. `object@context-id`
-therefore never implies a live Actor, Component, subsystem, or execution
-instance lookup.
-
-Ordinary Query must never enable Trace automatically. Trace startup changes
-channels and recording state, and late recording may be incomplete. Runtime
-recording, timeline reads, breakpoints, events, and execution control require a
-separate future design; none are implied by the authored domain.
-
-## Asset Creation Boundary
-
-UE creates a StateTree asset through `UStateTreeFactory`, which requires a
-native Schema Class, creates the matching EditorData and EditorSchema Classes,
-adds a Root State, and compiles the new asset. The current Asset domain has no
-Factory-backed creation contract.
-
-StateTree Patch therefore starts from an existing exact Asset. A future generic
-Asset creation design may expose the StateTree Factory through Asset Palette,
-but this domain must not hide Asset creation inside `patch state_tree`, guess a
-Schema, or invent a second creation path.
-
-## Implementation Status
-
-The UE 5.7 Bridge now implements the complete authored contract above: parser
-and normalized operations, exact identity and traversal, relationships and
-local references, dynamic schema, destination-bound Palette, transactional
-Patch with transient dry-run preflight, Property Function ownership, native
-compile, registered diagnostics, and explicit save composition. The complete
-LoomleBridge module and StateTree automation-test sources compile and link with
-UBT.
-
-Runtime automation has not yet been executed in the local source-built Editor
-because that Editor installation lacks its `UnrealEditor-SandboxFile` dynamic
-library. This is an environment limitation rather than a StateTree compilation
-failure. The remaining acceptance work is a real-project authored workflow and
-runtime automation once that Editor dependency is available. Live execution,
-debugger control, StateTree asset creation, and zero-load project-wide
-references remain intentionally outside the active domain.
+This is Windows-only ABI completion, not another Binding model. It must remain
+source-identical to the supported UE implementation and be removed once the
+supported engine exports the member. Acceptance requires the plugin to link
+against the UE 5.7.4 Win64 Installed Build and the complete StateTree mutation
+Automation category to pass.

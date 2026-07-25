@@ -440,11 +440,11 @@ TSharedPtr<FJsonValue> PropertyValue(const FProperty* Property, const void* Cont
     {
         const void* Address = Enum->ContainerPtrToValuePtr<void>(Container);
         const int64 Raw = Enum->GetUnderlyingProperty()->GetSignedIntPropertyValue(Address);
-        return Value::Name(Enum->GetEnum()->GetNameStringByValue(Raw));
+        return Value::NameOrString(Enum->GetEnum()->GetNameStringByValue(Raw));
     }
     if (const FByteProperty* Byte = CastField<FByteProperty>(Property); Byte != nullptr && Byte->Enum != nullptr)
     {
-        return Value::Name(Byte->Enum->GetNameStringByValue(Byte->GetPropertyValue_InContainer(Container)));
+        return Value::NameOrString(Byte->Enum->GetNameStringByValue(Byte->GetPropertyValue_InContainer(Container)));
     }
     if (const FNameProperty* Name = CastField<FNameProperty>(Property))
     {
@@ -680,7 +680,7 @@ TSharedPtr<FJsonObject> NamedSlotsValue(
                     TEXT("%s -> %s"),
                     *NativeName,
                     Content != nullptr && !Id.IsEmpty()
-                        ? *(TEXT("widget@") + Id)
+                        ? *(TEXT("@") + Id)
                         : TEXT("null")));
             }
             continue;
@@ -861,18 +861,18 @@ void EmitSubtree(
     }
     AddUnavailableNamedSlotsComment(
         Builder,
-        TEXT("widget@") + WidgetId(Blueprint, Widget),
+        TEXT("@") + WidgetId(Blueprint, Widget),
         UnavailableNamedSlots);
     AddUnavailableNativeFieldsComment(
         Builder,
-        TEXT("widget@") + WidgetId(Blueprint, Widget),
+        TEXT("@") + WidgetId(Blueprint, Widget),
         UnavailableFields);
     const TArray<UWidget*> Children = DirectChildren(Widget);
     if (Depth >= MaxDepth)
     {
         if (!Children.IsEmpty())
         {
-            Builder.AddComment(FString::Printf(TEXT("truncated: widget@%s has %d child widget(s)"), *WidgetId(Blueprint, Widget), Children.Num()));
+            Builder.AddComment(FString::Printf(TEXT("truncated: @%s has %d child widget(s)"), *WidgetId(Blueprint, Widget), Children.Num()));
         }
         return;
     }
@@ -941,18 +941,16 @@ void AddEventOwnerLocator(
     UEdGraph* Graph,
     const UEdGraphNode* Node)
 {
-    Lines.Add(TEXT("      eventOwner = blueprint("));
+    Lines.Add(TEXT("      eventGraph = target {"));
+    Lines.Add(TEXT("        domain: graph,"));
     Lines.Add(FString::Printf(TEXT("        asset: \"%s\","), *Blueprint->GetPathName()));
-    Lines.Add(FString::Printf(TEXT("        id: \"%s\""), *WidgetGuidText(Blueprint->GetBlueprintGuid())));
-    Lines.Add(TEXT("      )"));
-    Lines.Add(TEXT("      eventGraph = graph("));
-    Lines.Add(TEXT("        asset: eventOwner,"));
+    Lines.Add(FString::Printf(TEXT("        blueprintId: \"%s\","), *WidgetGuidText(Blueprint->GetBlueprintGuid())));
     Lines.Add(FString::Printf(TEXT("        id: \"%s\""), *WidgetGuidText(Graph->GraphGuid)));
-    Lines.Add(TEXT("      )"));
+    Lines.Add(TEXT("      }"));
     Lines.Add(TEXT("      query eventGraph"));
     if (Node != nullptr)
     {
-        Lines.Add(FString::Printf(TEXT("      node@%s"), *WidgetGuidText(Node->NodeGuid)));
+        Lines.Add(FString::Printf(TEXT("      @%s"), *WidgetGuidText(Node->NodeGuid)));
     }
 }
 
@@ -1025,7 +1023,7 @@ void AddGraphEventSchema(
         Lines.Add(TEXT("    discover with:"));
         AddEventOwnerLocator(Lines, Blueprint, Graph, nullptr);
         Lines.Add(FString::Printf(TEXT("      palette entries \"%s\""), *Delegate->GetName()));
-        Lines.Add(FString::Printf(TEXT("      where widget = widget@%s"), *WidgetId(Blueprint, Widget)));
+        Lines.Add(FString::Printf(TEXT("      where widget = @%s"), *WidgetId(Blueprint, Widget)));
     }
 }
 
@@ -1215,11 +1213,11 @@ void EmitExactWidget(FSalObjectBuilder& Builder, UWidgetBlueprint* Blueprint, UW
                 &UnavailableFields));
         AddUnavailableNamedSlotsComment(
             Builder,
-            TEXT("widget@") + WidgetId(Blueprint, Top),
+            TEXT("@") + WidgetId(Blueprint, Top),
             UnavailableNamedSlots);
         AddUnavailableNativeFieldsComment(
             Builder,
-            TEXT("widget@") + WidgetId(Blueprint, Top),
+            TEXT("@") + WidgetId(Blueprint, Top),
             UnavailableFields);
         StartIndex = 1;
     }
@@ -1250,11 +1248,11 @@ void EmitExactWidget(FSalObjectBuilder& Builder, UWidgetBlueprint* Blueprint, UW
         }
         AddUnavailableNamedSlotsComment(
             Builder,
-            TEXT("widget@") + WidgetId(Blueprint, ChainWidget),
+            TEXT("@") + WidgetId(Blueprint, ChainWidget),
             UnavailableNamedSlots);
         AddUnavailableNativeFieldsComment(
             Builder,
-            TEXT("widget@") + WidgetId(Blueprint, ChainWidget),
+            TEXT("@") + WidgetId(Blueprint, ChainWidget),
             UnavailableFields);
     }
     if (Top != Blueprint->WidgetTree->RootWidget && !bTreeNamed)
@@ -1672,8 +1670,8 @@ FString PaletteSchema(UWidgetBlueprint* Blueprint, const FPaletteEntry& Entry)
     TArray<FString> Lines = {
         TEXT("schema"),
         TEXT(""),
-        TEXT("constructor:"),
-        TEXT("  widget(palette: string)"),
+        TEXT("creation object:"),
+        TEXT("  { palette: string }"),
         TEXT(""),
         TEXT("result type:"),
         TEXT("  ") + Preview->GetClass()->GetPathName(),
@@ -1792,7 +1790,7 @@ TSharedPtr<FJsonObject> FSalWidgetInterface::Query(const FSalQuery& Query, const
     UWidgetBlueprint* Blueprint = WidgetBlueprint(Target);
     if (Blueprint == nullptr || Blueprint->WidgetTree == nullptr)
     {
-        return QueryError(TEXT("capability.interface_unavailable"), TEXT("Widget interface requires a resolved UWidgetBlueprint with a WidgetTree."));
+        return QueryError(TEXT("capability.interface_unavailable"), TEXT("Widget Domain requires a resolved UWidgetBlueprint with a WidgetTree."));
     }
     FString IdError;
     if (!ValidateWidgetIds(Blueprint, IdError))
@@ -1826,10 +1824,10 @@ TSharedPtr<FJsonObject> FSalWidgetInterface::Query(const FSalQuery& Query, const
         Args->SetStringField(TEXT("id"), WidgetGuidText(Blueprint->GetBlueprintGuid()));
         Args->SetField(
             TEXT("type"),
-            Value::Name(StaticEnum<EBlueprintType>()->GetNameStringByValue(static_cast<int64>(Blueprint->BlueprintType))));
+            Value::NameOrString(StaticEnum<EBlueprintType>()->GetNameStringByValue(static_cast<int64>(Blueprint->BlueprintType))));
         Args->SetField(
             TEXT("Status"),
-            Value::Name(StaticEnum<EBlueprintStatus>()->GetNameStringByValue(static_cast<int64>(Blueprint->Status))));
+            Value::NameOrString(StaticEnum<EBlueprintStatus>()->GetNameStringByValue(static_cast<int64>(Blueprint->Status))));
         if (Blueprint->ParentClass != nullptr)
         {
             Args->SetStringField(TEXT("ParentClass"), Blueprint->ParentClass->GetPathName());
@@ -2092,7 +2090,7 @@ void SeedPlanIdentities(FWidgetPatchContext& Context)
         const FString Id = WidgetId(Context.Blueprint, Widget);
         Context.PlanIdentities.Add(
             Widget,
-            {Id.IsEmpty() ? FString() : TEXT("widget@") + Id, Widget->GetName(), TEXT("live")});
+            {Id.IsEmpty() ? FString() : TEXT("@") + Id, Widget->GetName(), TEXT("live")});
     }
 }
 
@@ -2286,7 +2284,7 @@ UWidget* ResolvePatchWidget(FWidgetPatchContext& Context, const TSharedPtr<FJson
     FString Identity;
     if (!ReadRef(Ref, Kind, Identity))
     {
-        OutError = TEXT("Expected a local or widget@id reference.");
+        OutError = TEXT("Expected a local or Target-relative @WidgetGuid reference.");
         return nullptr;
     }
     if (Kind == TEXT("local"))
@@ -2370,7 +2368,7 @@ UWidget* Materialize(FWidgetPatchContext& Context, const FString& Alias, FString
     if (PaletteId == nullptr)
     {
         Context.ErrorCode = TEXT("resolution.binding_not_found");
-        OutError = FString::Printf(TEXT("Widget binding %s was not declared with widget(palette: ...)."), *Alias);
+        OutError = FString::Printf(TEXT("Widget binding %s was not declared with { palette: ... }."), *Alias);
         return nullptr;
     }
     TSharedPtr<FWidgetTemplate> Template = ResolveTemplate(Context.Blueprint, *PaletteId, OutError);
@@ -2896,8 +2894,8 @@ TSharedPtr<FJsonObject> RemoveCascadePlan(
                 TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
                 Entry->SetObjectField(TEXT("widget"), PlanIdentity(Context, Widget));
                 Entry->SetStringField(TEXT("graphName"), Graph->GetName());
-                if (Graph->GraphGuid.IsValid()) Entry->SetStringField(TEXT("graphRef"), TEXT("graph@") + WidgetGuidText(Graph->GraphGuid));
-                if (Node->NodeGuid.IsValid()) Entry->SetStringField(TEXT("nodeRef"), TEXT("node@") + WidgetGuidText(Node->NodeGuid));
+                if (Graph->GraphGuid.IsValid()) Entry->SetStringField(TEXT("graphGuid"), WidgetGuidText(Graph->GraphGuid));
+                if (Node->NodeGuid.IsValid()) Entry->SetStringField(TEXT("nodeGuid"), WidgetGuidText(Node->NodeGuid));
                 else Entry->SetStringField(TEXT("nodeName"), Node->GetName());
                 VariableNodes.Add(MakeShared<FJsonValueObject>(Entry));
             }
@@ -3683,7 +3681,7 @@ bool ParseDeclaration(
         || !(*Call)->TryGetObjectField(TEXT("args"), Args) || Args == nullptr
         || !(*Args)->TryGetStringField(TEXT("palette"), Palette) || Palette.IsEmpty())
     {
-        OutError = TEXT("Widget Patch bindings must be local widget(palette: ...) declarations.");
+        OutError = TEXT("Widget Patch bindings must be local { palette: ... } declarations.");
         return false;
     }
     if (Alias == Context.TargetAlias || Context.Declarations.Contains(Alias) || Context.Locals.Contains(Alias))
@@ -3699,10 +3697,10 @@ bool ParseDeclaration(
         }
         OutError = WidgetReservedFields().Contains(Pair.Key)
             ? FString::Printf(
-                TEXT("Widget constructor field collides with a reserved Widget field: %s."),
+                TEXT("Widget creation field collides with a reserved Widget field: %s."),
                 *Pair.Key)
             : FString::Printf(
-                TEXT("Widget constructors accept only palette; set %s after materialization."),
+                TEXT("Widget creation objects accept only palette; set %s after materialization."),
                 *Pair.Key);
         return false;
     }
@@ -4008,11 +4006,11 @@ TSharedPtr<FJsonObject> PatchObject(UWidgetBlueprint* Blueprint, const FWidgetPa
             }
             AddUnavailableNamedSlotsComment(
                 Builder,
-                TEXT("widget@") + WidgetId(Blueprint, Widget),
+                TEXT("@") + WidgetId(Blueprint, Widget),
                 UnavailableNamedSlots);
             AddUnavailableNativeFieldsComment(
                 Builder,
-                TEXT("widget@") + WidgetId(Blueprint, Widget),
+                TEXT("@") + WidgetId(Blueprint, Widget),
                 UnavailableFields);
             Emitted.Add(Widget);
             for (UWidget* Child : DirectChildren(Widget))
@@ -4711,7 +4709,7 @@ TSharedPtr<FJsonObject> FSalWidgetInterface::Patch(const FSalPatch& Patch, const
     UWidgetBlueprint* Blueprint = WidgetBlueprint(Target);
     if (Blueprint == nullptr || Blueprint->WidgetTree == nullptr || !HasExactPatchTargetId(Target))
     {
-        return MutationError(Patch, Target, TEXT("validation.exact_widget_blueprint_required"), TEXT("Widget Patch requires blueprint(asset: ..., id: ...) resolving a UWidgetBlueprint."), TEXT("patch"));
+        return MutationError(Patch, Target, TEXT("validation.exact_widget_blueprint_required"), TEXT("Widget Patch requires canonical target { domain: widget, asset: ..., id: ... }."), TEXT("patch"));
     }
 
     for (const TSharedPtr<FJsonValue>& Value : Patch.Statements)
@@ -4730,7 +4728,7 @@ TSharedPtr<FJsonObject> FSalWidgetInterface::Patch(const FSalPatch& Patch, const
             Patch,
             Target,
             TEXT("capability.mixed_patch_interfaces_unavailable"),
-            TEXT("One authored Patch must be owned atomically by one interface planner. Split Blueprint-owned and Widget-owned statements into separate ordered requests."),
+            TEXT("One authored Patch must be owned atomically by one Domain adapter. Split Blueprint-owned and Widget-owned statements into separate ordered requests."),
             TEXT("patch"));
     }
 
@@ -4848,5 +4846,55 @@ TSharedPtr<FJsonObject> FSalWidgetInterface::Patch(const FSalPatch& Patch, const
             TEXT("patch"));
     }
     return MakeMutationResult(PatchObject(Blueprint, &Applied), {}, false, true, true, Target.AssetPath, TEXT("patch"), Plan);
+}
+
+bool FSalWidgetInterface::LowerStableReference(
+    const FSalResolvedTarget& Target,
+    const TArray<FString>& IdentityPath,
+    FString& OutLegacyKind,
+    FString& OutLegacyId,
+    FString& OutCode,
+    FString& OutMessage)
+{
+    OutLegacyKind.Reset();
+    OutLegacyId.Reset();
+    OutCode = TEXT("resolution.object_not_found");
+    OutMessage = TEXT("Stable reference was not found in the bound Widget identity environment.");
+    UWidgetBlueprint* Blueprint = Cast<UWidgetBlueprint>(Target.Blueprint);
+    if (Blueprint == nullptr || IdentityPath.Num() != 1)
+    {
+        return false;
+    }
+    FGuid Guid;
+    if (!FGuid::Parse(IdentityPath[0], Guid) || !Guid.IsValid())
+    {
+        OutMessage = TEXT("Widget identity component must be a valid non-zero Guid.");
+        return false;
+    }
+    TArray<UWidget*> Matches;
+    for (UWidget* Widget : SourceWidgets(Blueprint))
+    {
+        const FGuid* WidgetGuid =
+            Widget != nullptr
+                ? Blueprint->WidgetVariableNameToGuidMap.Find(Widget->GetFName())
+                : nullptr;
+        if (WidgetGuid != nullptr && *WidgetGuid == Guid)
+        {
+            Matches.Add(Widget);
+        }
+    }
+    if (Matches.Num() != 1)
+    {
+        OutCode = Matches.IsEmpty()
+            ? TEXT("resolution.object_not_found")
+            : TEXT("resolution.identity_conflict");
+        OutMessage = Matches.IsEmpty()
+            ? TEXT("Authored Widget was not found.")
+            : TEXT("WidgetGuid is duplicated in the bound Widget Blueprint.");
+        return false;
+    }
+    OutLegacyKind = TEXT("widget");
+    OutLegacyId = WidgetGuidText(Guid);
+    return true;
 }
 }

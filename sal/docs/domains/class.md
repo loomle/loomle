@@ -2,72 +2,52 @@
 
 ## Scope
 
-The class domain exposes UE `UClass` Reflection and effective Class Defaults as
-an agent-readable view. It covers Class identity and hierarchy, implemented
-interfaces, effective Properties, effective Functions, Parameters, Reflection
-Metadata, Class Default Object values, Sparse Class Data values, and navigation
-back to Blueprint or native C++ sources.
+Class Domain exposes UE `UClass` Reflection and effective Class Defaults. It
+covers:
 
-Reflection declarations remain read-only. Class Defaults may be changed only
-when UE provides a durable Blueprint source. The domain does not expose the CDO
-as a separate object, recursively expand default subobjects or Component
-Templates, inspect live instances, enumerate subclasses or implementers, or
-edit native C++ source.
+- Class identity and hierarchy;
+- implemented interfaces;
+- effective Properties and Functions;
+- Function Parameter Properties;
+- Reflection Metadata;
+- CDO, Sparse Class Data, and Config-backed effective values;
+- navigation to Blueprint or native C++ sources.
 
-Class Reflection is distinct from the Blueprint domain. A `UBlueprint` is an
-authored source asset with a persistent `BlueprintGuid`; its generated `UClass`
-is compiled Reflection state with a Class Path and no intrinsic persistent
-Guid.
+Reflection declarations remain read-only. Supported Class Defaults may be
+changed only when UE provides durable Blueprint source ownership.
 
-## UE Identity Boundary
+Class Domain does not expose live instances, recursive default subobjects,
+Component Templates, subclass enumeration, implementer search, or C++ editing.
 
-`UClass` and `UFunction` are UObjects. Their native locators are UObject Paths:
+## Native Identity
 
-```text
-/Script/Engine.Actor
-/Game/BP_Door.BP_Door_C
-/Script/Engine.Actor:TakeDamage
-```
-
-Neither type owns a universal persistent Guid. `UObject::GetUniqueID()` is an
-in-memory index that may be reused, and creating an `FUniqueObjectGuid` on
-demand mutates object annotation state and dirties the package. Neither is a
-public SAL identity.
-
-`FProperty` is an `FField`, not a UObject. Its native locator is an
-owner-qualified `FFieldPath`:
-
-```text
-/Script/Engine.Actor:RootComponent
-/Script/Engine.Actor:TakeDamage:BaseDamage
-```
-
-Blueprint-authored Properties and Functions may also be traceable to a
-`VarGuid`, `GraphGuid`, or `NodeGuid`. Those are source provenance, not
-universal Reflection ids. The class domain therefore does not support
-`<object>@<id>`.
-
-## Class Object
-
-A Class must be explicitly bound before querying. A bare Path does not cause
-the language or adapter to infer a Class target:
+The Target is the exact native Class Path:
 
 ```sal
-actorClass = class(path: "/Script/Engine.Actor")
-doorClass = class(path: "/Game/BP_Door.BP_Door_C")
+actorClass = target {
+  domain: class,
+  path: "/Script/Engine.Actor"
+}
+
+doorClass = target {
+  domain: class,
+  path: "/Game/BP_Door.BP_Door_C"
+}
 ```
 
-This `class(path: ...)` binding is already the complete request locator. Class
-Path is globally resolvable and there is no Class Guid to add. A Function name,
-Property name, or Default name is an exact selector inside the resolved Class;
-none can replace the top-level Class target. Returned Function and Property
-objects carry their complete native UObject Path or `FFieldPath` for navigation,
-but SAL does not fabricate typed ids for them.
+`UClass` and `UFunction` own UObject Paths; `FProperty` owns an
+owner-qualified `FFieldPath`. They do not own a universal persistent Guid.
+`UObject::GetUniqueID()` is process-local, and creating an
+`FUniqueObjectGuid` on demand would mutate state.
 
-Complete Class text uses the native Class Path and meaningful Reflection state:
+Class Domain therefore exposes no contained StableRef in the current contract.
+Function and Property names are exact scoped Query selectors; returned native
+Paths are ordinary navigation data.
+
+## Class Object Data
 
 ```sal
-actorClass = class(
+{
   path: "/Script/Engine.Actor",
   type: "/Script/CoreUObject.Class",
   SuperClass: "/Script/CoreUObject.Object",
@@ -84,274 +64,139 @@ actorClass = class(
       bImplementedByK2: false
     }
   ]
-)
+}
 ```
 
-`type` is the actual Class object's native UE class path. A Blueprint Generated
-Class therefore uses `/Script/Engine.BlueprintGeneratedClass` and may include
-the editor-only source relation:
+Blueprint Generated Classes may include:
 
 ```sal
-doorClass = class(
+{
   path: "/Game/BP_Door.BP_Door_C",
   type: "/Script/Engine.BlueprintGeneratedClass",
   SuperClass: "/Script/Engine.Actor",
   ClassGeneratedBy: "/Game/BP_Door.BP_Door",
   ClassFlags: "<EClassFlags native text>"
-)
+}
 ```
 
-`ClassUnique`, `ClassCastFlags`, Reflection linked lists, function maps,
-replication caches, layout state, and the CDO pointer are implementation state
-and do not appear as authored Class fields.
+`ClassUnique`, reflection linked lists, caches, memory layout, and CDO pointer
+are implementation state and are omitted.
 
-## Summary
-
-Class orientation uses the shared `summary` primary operation:
+## Query
 
 ```sal
-query actorClass
 summary
-```
-
-The adapter returns the compact Class object, including effective Class
-Metadata and Interfaces, followed by collection counts:
-
-```sal
-# properties: 42 effective
-# functions: 86 effective
-# defaults: 18 effective
-# default overrides: 4 local
-```
-
-`defaults` counts the effective Class Defaults collection, including inherited,
-Sparse, and read-only Config values. `default overrides` counts only durable
-local CDO and Sparse differences owned by the current Class; Config hierarchy
-overrides are not included. Summary does not expand any collection.
-`SuperClass` gives the exact path needed to bind and inspect the parent Class
-separately.
-
-## Property Objects
-
-Property collection results use compact `property(...)` text:
-
-```sal
-rootComponent = property(
-  path: "/Script/Engine.Actor:RootComponent",
-  type: "ObjectProperty(/Script/Engine.SceneComponent)"
-)
-```
-
-The binding comes from the current `FName`; it is a local text alias rather than
-identity. `path` is the complete `FFieldPath`. `type` preserves the native UE
-Property type expression without an SAL-specific type system:
-
-```sal
-type: "FloatProperty"
-type: "EnumProperty(EWeaponType, ByteProperty)"
-type: "ArrayProperty(ObjectProperty(/Script/Engine.Actor))"
-```
-
-Because the native type text already carries Enum, underlying, element, key,
-value, Class, and Struct relations, exact Property text does not repeat them as
-parallel translated fields.
-
-An exact Property read adds meaningful native state and effective Metadata:
-
-```sal
-damage = property(
-  path: "/Script/Game.DamageComponent:Damage",
-  type: "FloatProperty",
-  PropertyFlags: "<EPropertyFlags native text>",
-  MetaData: {
-    Category: "Combat",
-    ClampMax: "1000.0",
-    ClampMin: "0.0",
-    Units: "hp"
-  }
-)
-```
-
-Relevant non-default state may include `ArrayDim`, `PropertyFlags`,
-`RepNotifyFunc`, and `BlueprintReplicationCondition`. Memory layout and link
-state such as `ElementSize`, `Offset_Internal`, `IndexInOwner`, `RepIndex`, and
-Property link pointers are excluded.
-
-Sparse Class Data Properties participate in the same effective `properties`
-collection. Their `path` remains the native `FFieldPath` of the owning Sparse
-`UScriptStruct`, not a fabricated Class-owned path. Storage provenance is
-reported by comments when it matters; the class domain does not introduce a
-Sparse Property object.
-
-## Function Objects
-
-Function collection results use compact `function(...)` text:
-
-```sal
-takeDamage = function(
-  path: "/Script/Engine.Actor:TakeDamage",
-  type: "/Script/CoreUObject.Function"
-)
-```
-
-An exact Function read adds `FunctionFlags`, effective Metadata, and the
-Function's Parameter Properties. The result is one ordered document rather
-than a Function object containing a parameter array:
-
-```sal
-takeDamage = function(
-  path: "/Script/Engine.Actor:TakeDamage",
-  type: "/Script/CoreUObject.Function",
-  FunctionFlags: "<EFunctionFlags native text>",
-  MetaData: {Category: "Game|Damage"}
-)
-
-damagedActor = property(
-  path: "/Script/Engine.Actor:TakeDamage:DamagedActor",
-  type: "ObjectProperty(/Script/Engine.Actor)",
-  PropertyFlags: "CPF_Parm"
-)
-
-baseDamage = property(
-  path: "/Script/Engine.Actor:TakeDamage:BaseDamage",
-  type: "FloatProperty",
-  PropertyFlags: "CPF_Parm"
-)
-
-returnValue = property(
-  path: "/Script/Engine.Actor:TakeDamage:ReturnValue",
-  type: "FloatProperty",
-  PropertyFlags: "CPF_Parm | CPF_OutParm | CPF_ReturnParm"
-)
-```
-
-Parameters and return values are ordinary `FProperty` objects. Native flags
-such as `CPF_Parm`, `CPF_OutParm`, `CPF_ReturnParm`, `CPF_ReferenceParm`, and
-`CPF_ConstParm` preserve their meaning without a new Parameter object or
-direction field. Statement order follows the UE Function declaration order.
-
-Applicable non-default `RPCId` and `RPCResponseId` may be returned as native
-Function fields; they are network service/response numbers, never SAL object
-ids. `NumParms`, `ParmsSize`, `ReturnValueOffset`, native function pointers,
-event-graph offsets, and internal caches are excluded as derived implementation
-state.
-
-An override comment identifies the parent Function Path. Blueprint-backed
-Functions also receive navigation comments for the source Graph and entry or
-event Node when those objects can be resolved.
-
-## Metadata
-
-`MetaData` is an ordinary inline map on exact Class, Property, and Function
-text. It does not introduce a Metadata object or query operation. Values remain
-the exact UE strings, including `"true"` and meaningful empty strings. Keys are
-formatted in stable lexical order because UE's Metadata map has no semantic
-iteration order.
-
-Collection results omit Metadata to stay compact. Exact reads include all
-effective Metadata because keys such as `WorldContext`, `DeterminesOutputType`,
-`ClampMin`, `AllowedClasses`, `DisplayName`, and `ToolTip` contain behavior and
-constraints not recoverable from type or flags.
-
-Effective Reflection Metadata may combine locally authored, inherited, and
-compiler-generated values. `with schema` comments identify source and
-writability per key rather than declaring the whole map writable:
-
-```sal
-query doorClass
-property Health
-with schema
-```
-
-For a Blueprint Variable, source fields may include
-`FBPVariableDescription::FriendlyName`, `Category`, or `MetaDataArray`. For a
-Blueprint Function, source fields normally belong to
-`UK2Node_FunctionEntry::MetaData`; Custom Events use their corresponding source
-Node. Native Metadata points back to its C++ declaration. Generated Reflection
-objects remain read-only: edits must target the real Blueprint or C++ source so
-they survive recompilation.
-
-## Class Defaults
-
-Class Defaults are effective values attached to the bound Class. The CDO is an
-implementation container, not a public SAL object and not a stable identity:
-
-SAL member paths use identifier segments. A legal UE Property name outside
-that syntax is still returned as a local value with its exact native name in an
-adjacent Comment, so the result remains readable and valid. SAL does not invent
-a sanitized Class member: Patch for that Default is unavailable until member
-path syntax is designed explicitly.
-
-```sal
-query doorClass
+properties ["text"]
+property <name>
+functions ["text"]
+function <name>
 defaults ["text"]
-
-query doorClass
 default <name>
 ```
 
-The collection follows UE Class Defaults semantics rather than exposing every
-field in CDO memory. It includes effective top-level `CPF_Edit` Properties,
-including inherited and Sparse Properties, plus visible read-only values such
-as `EditConst` and Config-backed defaults. It excludes internal non-editable
-state, transient and deprecated state, template-disabled Properties, inline
-edit-condition toggles, hidden categories, Component Template fields, and
-default-subobject internals. The `properties` collection remains the discovery
-surface for Reflection fields outside this Defaults collection.
+`summary` returns compact Class data and counts for effective Properties,
+Functions, Defaults, and local Default overrides.
 
-Default values use the owning Property's native UE `ExportText` form wrapped in
-an SAL string. SAL does not translate the value into a second type system.
-The one exception is native fixed-dimension `FProperty::ArrayDim > 1`: UE
-exports and imports those values per element, so SAL uses its existing array
-Expr with exactly `ArrayDim` native strings in index order. A dynamic
-`FArrayProperty` still uses one complete native string. The first design
-addresses only top-level Properties; Struct members and dynamic-container
-elements are read and written as part of the complete native Property value.
-It does not add nested value paths.
+Plural operations include inherited effective state and use cursor pagination.
+Enumeration preserves UE order within each declaring owner. Search covers
+native/authored names and relevant effective Metadata. The returned `path`
+always records the actual declaring owner.
+
+Only `defaults` accepts:
 
 ```sal
-actorClass.SomeFixedArray = ["1.000000", "2.000000", "3.000000"]
+where overridden = true
 ```
 
-An exact read first declares the compact Class binding needed by its member
-references, then returns the Property binding, value, and source comments in
-reading order. It does not repeat unrelated Class state merely for context:
+Class defines no Domain-specific `order by`. Exact Property, Function, and
+Default reads may append `with schema`; summary and collections may not.
+
+## Property And Function Data
 
 ```sal
-doorClass = class(path: "/Game/BP_Door.BP_Door_C")
+health = {
+  path: "/Script/Game.DoorBase:Health",
+  type: "FloatProperty",
+  PropertyFlags: "<EPropertyFlags native text>",
+  MetaData: {
+    Category: "Stats",
+    ClampMin: "0.0"
+  }
+}
+```
 
-health = property(
+Native Property type text carries Enum, element, key, value, Class, and Struct
+relationships without a SAL type system. Meaningful fields such as `ArrayDim`,
+`PropertyFlags`, `RepNotifyFunc`, and Blueprint replication condition remain
+native.
+
+An exact Function is followed by its Parameter and return-value Properties in
+native declaration order:
+
+```sal
+takeDamage = {
+  path: "/Script/Engine.Actor:TakeDamage",
+  type: "/Script/CoreUObject.Function",
+  FunctionFlags: "<EFunctionFlags native text>",
+  MetaData: { Category: "Game|Damage" }
+}
+
+baseDamage = {
+  path: "/Script/Engine.Actor:TakeDamage:BaseDamage",
+  type: "FloatProperty",
+  PropertyFlags: "CPF_Parm"
+}
+```
+
+Parameters are ordinary `FProperty` data. Native flags preserve input, output,
+reference, const, and return semantics; Class does not invent a Parameter
+object.
+
+Metadata remains an ordinary map. Exact schema reports source and writability
+per key; generated Reflection is not mutated in place.
+
+## Class Defaults
+
+Defaults expose effective top-level editable Properties plus visible read-only
+Config and Sparse values. They exclude internal, transient, deprecated,
+template-disabled, Component Template, and default-subobject state.
+
+Values use complete native UE `ExportText` strings:
+
+```sal
+result exact_target
+target doorClass = target {
+  domain: class,
+  path: "/Game/BP_Door.BP_Door_C"
+}
+objects
+health = {
   path: "/Script/Game.DoorBase:Health",
   type: "FloatProperty"
-)
-
+}
 doorClass.Health = "150.000000"
 # value: local override
 # source: /Game/BP_Door.BP_Door
 ```
 
-An inherited result names the exact parent Class:
+A native fixed array (`ArrayDim > 1`) is an SAL array with one native string
+per fixed element. A dynamic `FArrayProperty` remains one complete string.
+Struct members and container elements stay inside the native value; the first
+contract has no nested Default value path.
+
+Inherited and Sparse examples remain the same binding shape with comments:
 
 ```sal
 doorClass.Health = "100.000000"
 # value: inherited from /Game/BP_DoorBase.BP_DoorBase_C
-```
 
-Sparse storage remains transparent to the query shape:
-
-```sal
 doorClass.SomeSparseValue = "<native value text>"
 # value: local override
 # storage: sparse class data
 # struct: /Script/Game.DoorSparseClassData
 ```
 
-The adapter must read Sparse values from the bound Class. A getter may return
-the parent's shared Sparse data when the current Class has no local allocation;
-that inherited address must never be treated as writable current-Class state.
-
-Config Properties return the effective value already loaded into the CDO and
-their logical config coordinate:
+Config values are effective read-only state:
 
 ```sal
 engineClass.NearClipPlane = "10.000000"
@@ -359,155 +204,57 @@ engineClass.NearClipPlane = "10.000000"
 # config: Engine, section: /Script/Engine.Engine, key: NearClipPlane
 ```
 
-The effective value may combine engine, plugin, project, platform, user,
-generated, command-line, or runtime config layers. Class Defaults do not infer
-which physical layer should be edited. Config values are read-only through
-this domain; direct config-file editing is outside this design.
+Class Domain does not choose which physical config layer to edit.
 
-`with schema` keeps the same object and value text and adds comments for the
-Property's native type and Metadata, constraints, source, writability, reset
-behavior, Sparse Struct when applicable, and Config coordinate when
-applicable. It does not introduce a schema result object.
-
-Enumeration without search text follows UE Class Defaults category and display
-order. Ordinary CDO and Sparse values remain interleaved. Category comments may
-separate groups:
-
-```sal
-# category: Replication
-doorClass.NetUpdateFrequency = "100.000000"
-doorClass.MinNetUpdateFrequency = "2.000000"
-```
-
-Search covers native name, `DisplayName`, `Category`, and `ToolTip`, orders by
-adapter relevance, and uses the complete Property Path as a stable tie-breaker.
-Enumeration uses the complete Path only as a final deterministic tie-breaker.
-Both forms use shared cursor pagination.
-
-The only Defaults filter is an explicit condition:
-
-```sal
-query doorClass
-defaults
-where overridden = true
-```
-
-An override is a durable value owned by the current Class relative to its CDO
-or Sparse archetype. A Property first introduced by the current Class is local
-by definition. Config Properties do not participate because their ownership
-belongs to the config hierarchy rather than Class archetype serialization.
-
-## Query
-
-Class queries use six primary operations:
-
-```sal
-query <class>
-properties ["text"]
-
-query <class>
-property <name>
-
-query <class>
-functions ["text"]
-
-query <class>
-function <name>
-
-query <class>
-defaults ["text"]
-
-query <class>
-default <name>
-```
-
-`properties` and `functions` return the effective view of the bound Class,
-including inherited objects. Callers do not request a separate `with inherited`
-expansion. A derived override replaces the hidden parent Function in the
-effective collection. Every result retains its actual declaring-owner Path; to
-inspect a hidden parent version, bind the parent Class explicitly.
-
-Plural operations enumerate without search text and search with it. Property
-search covers native and authored names plus relevant `DisplayName`, `Category`,
-and `ToolTip` Metadata. Function search additionally covers `Keywords`.
-Enumeration walks from the bound Class through its parents while preserving UE
-Reflection order within each declaring Class. Search uses adapter relevance,
-then actual Path as a stable tie-breaker. Cursor pagination uses the shared
-`page` clauses.
-
-Singular operations resolve the current local `FName` through UE Class
-Reflection. `function TakeDamage` follows the effective Class, interface, and
-superclass resolution behavior; `property RootComponent` similarly accepts an
-inherited Property. The returned object's full Path records the actual owner.
-`default` resolves the same local `FName` only within the effective Defaults
-collection. Zero matches and invalid ambiguity produce diagnostics rather than
-path, type, or storage inference.
-
-These names are exact scoped Query selectors, not persistent ids and not Patch
-aliases. A later request always binds the Class Path again. Where the returned
-full Function or Property Path participates in cross-target navigation, the
-guidance must preserve that native Path instead of reducing it to an unscoped
-name.
-
-The first design adds no Class-specific `order by`. Only `defaults` supports
-the exact `where overridden = true` condition above. Flag filtering needs a
-separately reviewed bit-flag expression rather than pretending flags are
-ordinary scalar strings.
+Property names outside member-path grammar remain readable through quoted
+object data and exact-name comments but are not patchable until a lossless
+member-path form exists.
 
 ## Defaults Patch
 
-The Patch target is the same complete `class(path: ...)` locator used by Query.
-Only the bound Class alias may own the field path in `set` or `reset`.
-
-Defaults mutation reuses the shared Patch envelope and the existing `set`
-operation. The Class domain additionally defines `reset` because assigning the
-parent's current value is not equivalent to resuming inheritance:
+Only Blueprint Generated Classes with durable source ownership may patch
+ordinary or Sparse Defaults:
 
 ```sal
-patch doorClass
+patch doorClass [dry run]
 set doorClass.Health = "150.000000"
 reset doorClass.NetUpdateFrequency
 ```
 
-`set` imports the complete native value and establishes a local override on the
-bound Class. `reset` restores the parent archetype value and removes the local
-override so later parent changes continue to propagate. For a Property first
-introduced by the current Class, reset restores UE's initialized Property
-default; the Property remains local by definition.
+`set` imports the entire native value and establishes a local override.
+`reset` removes the override and resumes inheritance, or restores the
+initialized default of a Property introduced by this Class.
 
-Only Blueprint Generated Classes provide a durable ordinary or Sparse Defaults
-mutation source. Native `/Script/...` Classes are read-only even though their
-CDO memory is technically mutable. Config Properties are also rejected because
-the Patch does not identify a physical config layer. Component Templates and
-default subobjects remain outside this Patch.
+Preflight:
 
-Sparse mutation must call `GetOrCreateSparseClassData()` for the bound Class,
-use UE Property Access change propagation, mark the generated Sparse data as
-serializable, and dirty the source Blueprint. It must never write through an
-inherited Sparse data pointer.
+1. resolves the exact Class and Property;
+2. verifies membership in the Defaults surface;
+3. applies template editability and `CanEditChange`;
+4. evaluates known edit conditions and object restrictions;
+5. parses every value into initialized temporary native storage;
+6. requires complete input consumption;
+7. plans CDO or Sparse ownership and archetype propagation.
 
-The whole Patch is preflighted before mutation. The adapter must resolve the
-Class and every Property, verify membership in the Defaults collection, apply
-UE template editability and `CanEditChange` rules, evaluate known edit
-conditions and object-reference restrictions, parse each value into initialized
-temporary storage with the owning `FProperty`, and require the parser to
-consume the complete input. Any failure rejects the whole Patch.
+Sparse mutation must allocate data for the bound Class and never write through
+an inherited Sparse pointer.
 
-Real application uses one UE transaction, property pre/post-change
-notifications, archetype propagation, and an explicit
-`FBlueprintEditorUtils::MarkBlueprintAsModified` call. `dry run` shares parse,
-resolve, validation, and planning, then stops before creating Sparse data,
-opening a transaction, sending notifications, or dirtying the Blueprint.
-Any changing live Patch requires an available top-level editor transaction and
-verifies that its scoped transaction is outstanding before CDO mutation or
-Sparse allocation. Otherwise it returns `capability.transaction_unavailable`
-with `applied: false`; dry run and live no-op requests do not require a
-transaction.
+Live apply uses one transaction, property notifications, archetype
+propagation, Blueprint modification, and Package dirtying. Dry run shares the
+same resolve/validate/plan path and stops before Sparse allocation,
+transactions, notifications, or dirtying.
 
-Successful application returns refreshed exact Default text once for every
-final affected Property. If one Property appears more than once, its group is
-ordered at that Property's last Patch operation. The structured `planned`
-operations still retain every input operation in original Patch order:
+Every changing live Patch requires an available top-level editor transaction
+and verifies that its scoped transaction is outstanding before CDO mutation or
+Sparse allocation. Otherwise it returns
+`capability.transaction_unavailable` with `applied: false`; it must not fall
+back to an untracked memory write. Dry run and an all-no-op live Patch do not
+require a transaction.
+
+Successful live readback exports refreshed exact current Default text once for
+each final affected Property. When one Property appears several times, its
+single output group is positioned by that Property's last Patch operation;
+the structured plan still preserves every input operation in original order.
+This makes final Object Text deterministic without hiding authored order:
 
 ```sal
 doorClass.Health = "100.000000"
@@ -515,8 +262,9 @@ doorClass.Health = "100.000000"
 # value: inherited from /Game/BP_DoorBase.BP_DoorBase_C
 ```
 
-A successful dry run returns current truth and the plan without presenting the
-planned value as applied state:
+A successful dry run reports current native truth plus the proposed plan. It
+does not substitute the planned value into Object Text or imply a local
+override was created:
 
 ```sal
 doorClass.Health = "100.000000"
@@ -526,235 +274,53 @@ doorClass.Health = "100.000000"
 # applied: false
 ```
 
-Change detection includes override state as well as value. UE 5.7's ordinary
-Blueprint CDO delta serialization cannot persist an explicit local override
-whose value equals its archetype. Therefore `set` of an inherited Property to
-that same inherited value is rejected with a validation diagnostic; callers
-use `reset` to inherit or set a distinct value. Loomle does not enable UE's
-experimental `FOverridableManager` to manufacture different semantics.
-Repeating an identical durable local set, or resetting an already inherited
-Property, is a no-op and must not dirty the Blueprint or create an empty
-transaction.
+UE 5.7 cannot durably serialize an explicit Blueprint CDO override equal to
+its inherited value. Such a `set` is rejected; use `reset` to inherit or set a
+distinct value. Repeating an identical local value and resetting an already
+inherited value are no-ops.
 
-Structured mutation results follow the shared Mutation Dry Run Contract. The
-domain does not add a Defaults-specific result, diff, or revision syntax, and
-must not expose revision controls until the Bridge enforces them.
+Native Classes, Config values, Component Templates, default subobjects,
+Reflection declarations, and Metadata are read-only. Defaults Patch has no
+creation, Palette, nested value mutation, or `invoke`.
 
-## Save
-
-A Blueprint Generated Class resolves durable Defaults ownership through
-`ClassGeneratedBy`, so it may use the shared Core `save` terminal Patch:
+## Save And Compile Handoff
 
 ```sal
 patch doorClass
 save
 ```
 
-This is an independent terminal request and cannot be mixed with Defaults
-`set` or `reset`. It saves only the dirty Package of the exact source Blueprint.
-A native Class, transient Class, or Class without resolvable persistent source
-ownership does not support `save`.
+Class save resolves `ClassGeneratedBy` and persists only that source
+Blueprint's Package. A native or transient Class without durable source cannot
+save.
 
-Class defines no `compile` statement. When compilation is required, bind the
-exact source Blueprint named by `ClassGeneratedBy` and use the Blueprint
-terminal Patch. Saving Class Defaults does not implicitly compile that source.
+Class defines no `compile`. When compilation is needed, result navigation
+returns an independent Blueprint Target:
 
-## Normalized JSON
+The following is a Result Text fragment, not a standalone Result Text document.
 
-### Target And Requests
-
-The SAL `class(path: ...)` locator uses the shared `Target`:
-
-```json
-{
-  "alias": "doorClass",
-  "value": {
-    "kind": "call",
-    "callee": "class",
-    "args": {"path": "/Script/Game.DoorBase"}
-  }
+```sal
+related sourceBlueprint = target {
+  domain: blueprint,
+  asset: "/Game/BP_Door.BP_Door",
+  id: "11111111-1111-1111-1111-111111111111"
 }
+handoff compile to sourceBlueprint
 ```
 
-It preserves the native Class Path without an adapter-routing `domain` field
-or fabricated Class id.
+## Result And Adapter Boundary
 
-The seven Class operations use the shared required `Query.operation` field:
+Results use the shared explicit Target table and ordered Object Text. Class,
+Property, and Function data are ObjectExpr; none is a Target or StableRef.
 
-```ts
-type ClassQueryOperation =
-  | {kind: "summary"}
-  | {kind: "properties"; text?: string}
-  | {kind: "property"; name: string}
-  | {kind: "functions"; text?: string}
-  | {kind: "function"; name: string}
-  | {kind: "defaults"; text?: string}
-  | {kind: "default"; name: string};
-```
+The Class adapter owns:
 
-The confirmed override filter reuses the shared Condition shape. The following
-shows operation data and shared modifiers inside the common Query envelope:
+- native Class/Function/Property Path resolution;
+- effective inheritance and Metadata;
+- CDO, Sparse, Config, and override provenance;
+- native import/export and Defaults validation;
+- durable Blueprint ownership;
+- save and Blueprint handoff.
 
-```json
-{
-  "operation": {"kind": "defaults", "text": "health"},
-  "where": {
-    "kind": "eq",
-    "field": {"path": ["overridden"]},
-    "value": true
-  },
-  "page": {"limit": 50}
-}
-```
-
-Capability validation enforces the text contract after structural validation:
-`schema` is allowed only on singular exact operations; `where` is allowed only
-as `overridden = true` on `defaults`; `page` is allowed only on plural
-operations; and Class operations do not accept `orderBy`. Unsupported
-combinations are diagnostics, not ignored fields.
-
-### Defaults Patch
-
-Class Defaults reuse the shared Patch envelope and `MemberRef`. The member path
-contains exactly one Property name relative to the resolved Class and cannot
-introduce a nested value path:
-
-```ts
-type ClassPatchOp =
-  | {kind: "set"; target: MemberRef; value: string | string[]}
-  | {kind: "reset"; target: MemberRef};
-```
-
-The owner alias in `set doorClass.Health` remains the `MemberRef.object` local
-reference and is checked against the resolved Patch target.
-
-`value` is the complete native UE text string for `ArrayDim == 1`, including a
-dynamic `FArrayProperty`. For native fixed-dimension Properties it is an array
-of exactly `ArrayDim` native strings, one per fixed element. It is never a
-translated JSON number, boolean, Struct, dynamic container, or object. Class
-Defaults creates no objects, so `Patch.statements` contains only `set` and
-`reset`. The Bridge resolves each current local Property name to its exact
-`FFieldPath` during preflight.
-
-### Ordered Results
-
-Query and mutation return the shared ordered object model:
-
-```ts
-interface ObjectText {
-  statements: Statement[];
-}
-
-type Statement = Binding | Edge | Comment;
-```
-
-Class constrains ordinary bindings through its interface semantics:
-
-- `ClassBinding`: local target plus `class(path: ..., nativeFields...)` Call.
-- `PropertyBinding`: local target plus `property(path: ..., type: ...,
-  nativeFields...)` Call.
-- `FunctionBinding`: local target plus `function(path: ..., type: ...,
-  nativeFields...)` Call.
-- `DefaultValueBinding`: member target plus one native value string, or exactly
-  `ArrayDim` native strings in a Core array Expr for a fixed array.
-- `Comment`: `{kind: "comment", text: string}` containing one non-empty line
-  without the `# ` prefix.
-
-One exact Default result is therefore one ordered JSON sequence:
-
-```json
-{
-  "statements": [
-    {
-      "target": {"kind": "local", "name": "doorClass"},
-      "value": {
-        "kind": "call",
-        "callee": "class",
-        "args": {"path": "/Game/BP_Door.BP_Door_C"}
-      }
-    },
-    {
-      "target": {"kind": "local", "name": "health"},
-      "value": {
-        "kind": "call",
-        "callee": "property",
-        "args": {
-          "path": "/Script/Game.DoorBase:Health",
-          "type": "FloatProperty"
-        }
-      }
-    },
-    {
-      "target": {
-        "kind": "member",
-        "object": {"kind": "local", "name": "doorClass"},
-        "path": ["Health"]
-      },
-      "value": "150.000000"
-    },
-    {"kind": "comment", "text": "value: local override"},
-    {"kind": "comment", "text": "source: /Game/BP_Door.BP_Door"}
-  ]
-}
-```
-
-The `statements` array is the only serialized reading order. Summary count
-comments, Function Parameter Properties, category comments, ordinary and
-Sparse Defaults, schema comments, and Patch-order refreshed values all remain
-interleaved. Class results never add parallel `classes`, `properties`,
-`functions`, `defaults`, or `comments` arrays.
-
-Every Class Object Text is a self-contained ordered response. A compact Class
-binding precedes any member value that refers to its alias; it contains only
-the native Class Path and any state requested by the operation. Every other
-referenced alias must likewise be bound earlier in the same array. An exact
-`default` result places the matching Property binding before its Default value
-binding. A plural `defaults` result may omit per-Property bindings to remain
-compact. A Patch result emits one Property/value/comment group per final
-affected Property, ordered by its last Patch operation. Object Text never
-repeats a binding target; the structured mutation plan preserves every
-original operation in Patch order.
-
-Mutation responses put this same `ObjectText` in the ordinary `object` field.
-The shared `MutationResult` extends the normal Result with execution fields such
-as `dryRun`, `valid`, `applied`, `planned`, and `diff`; it does not wrap or
-replace the Class object. Consequently the same formatter produces query,
-successful mutation, no-op, and dry-run SAL text.
-
-### Round Trip Rules
-
-Normalized JSON round-trips to canonical SAL semantics, not original lexical
-spelling. Whitespace, blank lines, the caller's local alias, and constructor
-argument order are not identity. A formatter chooses deterministic aliases and
-canonical field order, then uses those aliases consistently throughout the
-document. Named native fields retain their exact names and values.
-
-Statement order and comment placement are semantic and must round-trip exactly.
-The formatter walks `statements` once without regrouping. The shared parser,
-schema, formatter, and result contract preserve Comments, Targets, Class Query
-operations, Patch operations, and Mutation fields without a Class wrapper.
-
-These JSON shapes introduce no `class_result(...)`, CDO object, Default object,
-Sparse object, nested value path, or other Agent-facing SAL syntax.
-
-## Adapter And Mutation Boundary
-
-The adapter may resolve Class, Function, and Property Paths; walk effective
-inheritance; read Reflection flags and Metadata; identify CDO and Sparse
-overrides; read effective Config values; and trace Blueprint-generated objects
-back to authored sources.
-
-Generated Reflection declarations and Metadata remain read-only and must not be
-mutated in place. Confirmed Defaults Patch operations write the durable
-Blueprint CDO or Sparse source through UE's native edit paths. Other
-Blueprint-owned declaration edits belong to their authored Blueprint or Graph
-objects. Native declarations and native ordinary defaults require source-code
-editing and recompiling.
-
-The TypeScript schema, parser, formatter, and fixtures implement the shared
-Class request and result shapes. The Bridge now resolves live Reflection,
-imports and exports native values, reads CDO/Sparse/Config provenance, and
-applies the documented CDO and Sparse edits through UE-backed paths. The
-generic memory executor remains a contract fixture rather than evidence of UE
-behavior; native C++ declarations and ordinary native defaults remain
-intentionally read-only.
+Core never infers Class Domain from a `/Script/...` string or an object's
+native `type`.

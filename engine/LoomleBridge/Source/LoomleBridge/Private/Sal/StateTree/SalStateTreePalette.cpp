@@ -668,7 +668,7 @@ void GatherLinkedStateEntries(
         FEntry Entry = BaseEntry;
         Entry.Id = FString(LinkedStatePalettePrefix) + GuidText(Candidate->ID);
         Entry.DisplayName = Candidate->Name.IsNone()
-            ? FString::Printf(TEXT("Linked State -> state@%s"), *GuidText(Candidate->ID))
+            ? FString::Printf(TEXT("Linked State -> @%s"), *GuidText(Candidate->ID))
             : FString::Printf(TEXT("Linked State -> %s"), *Candidate->Name.ToString());
         Entry.LinkedSubtreeId = Candidate->ID;
         Entry.bSpawnable = true;
@@ -737,7 +737,7 @@ bool FixedDestinationEntries(
             FStateTreeStateParameters::StaticStruct());
         Entry.ParameterName = UniqueParameterName(EditorData, Destination);
         // This is an explicit, valid UE native seed type, not an implicit SAL
-        // default. The copied constructor may replace it with any Property Bag
+        // default. The copied creation object may replace it with any Property Bag
         // type accepted by exact schema and Patch validation.
         Entry.ParameterType = TEXT("FloatProperty");
         Entry.bSpawnable = Entry.bSpawnable && !Entry.ParameterName.IsEmpty();

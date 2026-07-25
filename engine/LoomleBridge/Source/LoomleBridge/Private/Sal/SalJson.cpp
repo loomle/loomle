@@ -37,10 +37,15 @@ bool IsSalJsonIdentifier(const FString& Text)
 
 bool IsLocalIdentifier(const FString& Text)
 {
+    static const TSet<FString> Reserved = {
+        TEXT("true"), TEXT("false"), TEXT("null"),
+        TEXT("target"), TEXT("domain"), TEXT("tree"),
+        TEXT("context"), TEXT("palette"), TEXT("object"), TEXT("asset"),
+        TEXT("blueprint"), TEXT("class"), TEXT("graph"),
+        TEXT("state_tree"), TEXT("widget")
+    };
     return IsSalJsonIdentifier(Text)
-        && Text != TEXT("true")
-        && Text != TEXT("false")
-        && Text != TEXT("null");
+        && !Reserved.Contains(Text);
 }
 
 bool IsStableId(const FString& Text)
@@ -130,8 +135,62 @@ bool ReadRequiredString(const TSharedPtr<FJsonObject>& Object, const TCHAR* Fiel
     return Object.IsValid() && Object->TryGetStringField(Field, Out) && !Out.IsEmpty();
 }
 
+bool IsValidGuidString(const FString& Text)
+{
+    FGuid Guid;
+    return FGuid::Parse(Text, Guid)
+        && Guid.IsValid()
+        && Text == Guid.ToString(EGuidFormats::DigitsWithHyphensLower);
+}
+
+bool IsSemanticTag(const FString& Text)
+{
+    static const TSet<FString> Reserved = {
+        TEXT("true"), TEXT("false"), TEXT("null"),
+        TEXT("target"), TEXT("domain"), TEXT("tree"),
+        TEXT("context"), TEXT("palette"), TEXT("object"), TEXT("asset"),
+        TEXT("blueprint"), TEXT("class"), TEXT("graph"),
+        TEXT("state_tree"), TEXT("widget")
+    };
+    return IsSalJsonIdentifier(Text) && !Reserved.Contains(Text);
+}
+
+bool ValidateIdentityPath(const TSharedPtr<FJsonObject>& Object, FString& OutMessage)
+{
+    const TArray<TSharedPtr<FJsonValue>>* Path = nullptr;
+    if (!Object->TryGetArrayField(TEXT("identityPath"), Path)
+        || Path == nullptr
+        || Path->IsEmpty())
+    {
+        OutMessage = TEXT("Stable reference requires a non-empty identityPath.");
+        return false;
+    }
+    for (const TSharedPtr<FJsonValue>& SegmentValue : *Path)
+    {
+        FString Segment;
+        if (!SegmentValue.IsValid()
+            || !SegmentValue->TryGetString(Segment)
+            || Segment.IsEmpty())
+        {
+            OutMessage = TEXT("Stable reference identityPath contains an empty or non-string segment.");
+            return false;
+        }
+    }
+    FString Tag;
+    if (Object->HasField(TEXT("semanticTag"))
+        && (!ReadRequiredString(Object, TEXT("semanticTag"), Tag)
+            || !IsSemanticTag(Tag)))
+    {
+        OutMessage = TEXT("Stable reference semanticTag is invalid or reserved.");
+        return false;
+    }
+    return true;
+}
+
 bool ValidateExpr(const TSharedPtr<FJsonValue>& Value, FString& OutMessage);
 bool ValidateRef(const TSharedPtr<FJsonObject>& Object, bool bBindingTarget, FString& OutMessage);
+bool ValidateResultExpr(const TSharedPtr<FJsonValue>& Value, FString& OutMessage);
+bool ValidateResultRef(const TSharedPtr<FJsonObject>& Object, bool bBindingTarget, FString& OutMessage);
 
 bool ValidateMemberPath(const TSharedPtr<FJsonObject>& Object, const TCHAR* Field, FString& OutMessage)
 {
@@ -220,18 +279,24 @@ bool ValidateRef(const TSharedPtr<FJsonObject>& Object, const bool bBindingTarge
         OutMessage = TEXT("Reference requires a valid kind.");
         return false;
     }
-    if (Object->HasField(TEXT("id")))
+    if (Kind == TEXT("stable_ref"))
     {
-        FString Id;
         if (bBindingTarget
-            || !HasOnly(Object, {TEXT("kind"), TEXT("id")})
-            || !ReadRequiredString(Object, TEXT("id"), Id)
-            || !IsStableId(Id))
+            || !HasOnly(Object, {TEXT("kind"), TEXT("identityPath"), TEXT("semanticTag")})
+            || !ValidateIdentityPath(Object, OutMessage))
         {
-            OutMessage = TEXT("Stable reference requires a kind and formatter-safe id without whitespace, dots, or brackets.");
+            if (OutMessage.IsEmpty())
+            {
+                OutMessage = TEXT("Stable reference has an invalid normalized shape.");
+            }
             return false;
         }
         return true;
+    }
+    if (Object->HasField(TEXT("id")))
+    {
+        OutMessage = TEXT("Legacy kind@id references are not accepted by Bridge protocol v3; use stable_ref.identityPath.");
+        return false;
     }
     if (Kind == TEXT("local"))
     {
@@ -312,13 +377,18 @@ bool ValidateExpr(const TSharedPtr<FJsonValue>& Value, FString& OutMessage)
     FString Kind;
     if ((*Object)->TryGetStringField(TEXT("kind"), Kind))
     {
+        if (Kind == TEXT("stable_ref"))
+        {
+            return ValidateRef(*Object, false, OutMessage);
+        }
         if ((*Object)->HasField(TEXT("id")))
         {
             return ValidateRef(*Object, false, OutMessage);
         }
         if (Kind == TEXT("call"))
         {
-            return ValidateCall(*Object, OutMessage);
+            OutMessage = TEXT("Legacy Call object construction is not accepted by Bridge protocol v3; use ObjectExpr.");
+            return false;
         }
         if (Kind == TEXT("name"))
         {
@@ -336,16 +406,197 @@ bool ValidateExpr(const TSharedPtr<FJsonValue>& Value, FString& OutMessage)
         {
             return ValidateRef(*Object, false, OutMessage);
         }
-    }
-    for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Object)->Values)
-    {
-        if (!IsSalJsonIdentifier(Pair.Key) || !ValidateExpr(Pair.Value, OutMessage))
+        if (Kind == TEXT("object"))
         {
-            OutMessage = TEXT("Inline object contains an invalid field or value.");
-            return false;
+            const TSharedPtr<FJsonObject>* Fields = nullptr;
+            FString Tag;
+            if (!HasOnly(*Object, {TEXT("kind"), TEXT("fields"), TEXT("semanticTag")})
+                || !(*Object)->TryGetObjectField(TEXT("fields"), Fields)
+                || Fields == nullptr
+                || !(*Fields).IsValid()
+                || ((*Object)->HasField(TEXT("semanticTag"))
+                    && (!ReadRequiredString(*Object, TEXT("semanticTag"), Tag)
+                        || !IsSemanticTag(Tag))))
+            {
+                OutMessage = TEXT("Object expression requires fields and an optional non-reserved semanticTag.");
+                return false;
+            }
+            for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Fields)->Values)
+            {
+                if (!ValidateExpr(Pair.Value, OutMessage))
+                {
+                    return false;
+                }
+            }
+            return true;
         }
     }
-    return true;
+    OutMessage = TEXT("Ordinary object expressions require the normalized ObjectExpr wrapper.");
+    return false;
+}
+
+bool ValidateResultRef(
+    const TSharedPtr<FJsonObject>& Object,
+    const bool bBindingTarget,
+    FString& OutMessage)
+{
+    FString Kind;
+    if (!ReadRequiredString(Object, TEXT("kind"), Kind)
+        || !IsLocalIdentifier(Kind))
+    {
+        OutMessage = TEXT("Result reference requires a valid kind.");
+        return false;
+    }
+    if (Kind == TEXT("scoped_stable_ref"))
+    {
+        const TSharedPtr<FJsonObject>* Target = nullptr;
+        const TSharedPtr<FJsonObject>* Reference = nullptr;
+        FString TargetKind;
+        FString ReferenceKind;
+        if (bBindingTarget
+            || !HasOnly(Object, {TEXT("kind"), TEXT("target"), TEXT("reference")})
+            || !Object->TryGetObjectField(TEXT("target"), Target)
+            || Target == nullptr
+            || !Object->TryGetObjectField(TEXT("reference"), Reference)
+            || Reference == nullptr
+            || !(*Target)->TryGetStringField(TEXT("kind"), TargetKind)
+            || TargetKind != TEXT("local")
+            || !(*Reference)->TryGetStringField(TEXT("kind"), ReferenceKind)
+            || ReferenceKind != TEXT("stable_ref")
+            || !ValidateRef(*Target, false, OutMessage)
+            || !ValidateRef(*Reference, false, OutMessage))
+        {
+            if (OutMessage.IsEmpty())
+            {
+                OutMessage = TEXT("Scoped StableRef requires one local Target alias and one StableRef.");
+            }
+            return false;
+        }
+        return true;
+    }
+    if (Kind == TEXT("local") || Kind == TEXT("stable_ref"))
+    {
+        return ValidateRef(Object, bBindingTarget, OutMessage);
+    }
+    if (Kind == TEXT("member"))
+    {
+        const TSharedPtr<FJsonObject>* Owner = nullptr;
+        FString OwnerKind;
+        if (!HasOnly(Object, {TEXT("kind"), TEXT("object"), TEXT("path")})
+            || !Object->TryGetObjectField(TEXT("object"), Owner)
+            || Owner == nullptr
+            || !(*Owner).IsValid()
+            || !ValidateMemberPath(Object, TEXT("path"), OutMessage)
+            || !(*Owner)->TryGetStringField(TEXT("kind"), OwnerKind)
+            || (OwnerKind != TEXT("local")
+                && OwnerKind != TEXT("stable_ref")
+                && OwnerKind != TEXT("scoped_stable_ref"))
+            || (bBindingTarget && OwnerKind != TEXT("local"))
+            || !ValidateResultRef(*Owner, false, OutMessage))
+        {
+            if (OutMessage.IsEmpty())
+            {
+                OutMessage = TEXT("Result member reference requires a local, StableRef, or ScopedStableRef owner and a non-empty path.");
+            }
+            return false;
+        }
+        return true;
+    }
+    OutMessage = TEXT("Unsupported result reference kind.");
+    return false;
+}
+
+bool ValidateResultExpr(const TSharedPtr<FJsonValue>& Value, FString& OutMessage)
+{
+    if (!Value.IsValid())
+    {
+        OutMessage = TEXT("Result expression is missing.");
+        return false;
+    }
+    if (Value->IsNull())
+    {
+        return true;
+    }
+    FString StringValue;
+    double NumberValue = 0.0;
+    bool BoolValue = false;
+    if (Value->TryGetString(StringValue)
+        || Value->TryGetNumber(NumberValue)
+        || Value->TryGetBool(BoolValue))
+    {
+        return true;
+    }
+    const TArray<TSharedPtr<FJsonValue>>* Array = nullptr;
+    if (Value->TryGetArray(Array) && Array != nullptr)
+    {
+        for (const TSharedPtr<FJsonValue>& Item : *Array)
+        {
+            if (!ValidateResultExpr(Item, OutMessage))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    const TSharedPtr<FJsonObject>* Object = nullptr;
+    if (!Value->TryGetObject(Object)
+        || Object == nullptr
+        || !(*Object).IsValid())
+    {
+        OutMessage = TEXT("Unsupported result expression value.");
+        return false;
+    }
+    FString Kind;
+    if (!(*Object)->TryGetStringField(TEXT("kind"), Kind))
+    {
+        OutMessage = TEXT("Ordinary result objects require the normalized ObjectExpr wrapper.");
+        return false;
+    }
+    if (Kind == TEXT("local")
+        || Kind == TEXT("stable_ref")
+        || Kind == TEXT("scoped_stable_ref")
+        || Kind == TEXT("member"))
+    {
+        return ValidateResultRef(*Object, false, OutMessage);
+    }
+    if (Kind == TEXT("name"))
+    {
+        FString Name;
+        if (!HasOnly(*Object, {TEXT("kind"), TEXT("name")})
+            || !ReadRequiredString(*Object, TEXT("name"), Name)
+            || !IsLocalIdentifier(Name))
+        {
+            OutMessage = TEXT("Name expression requires one valid name.");
+            return false;
+        }
+        return true;
+    }
+    if (Kind == TEXT("object"))
+    {
+        const TSharedPtr<FJsonObject>* Fields = nullptr;
+        FString Tag;
+        if (!HasOnly(*Object, {TEXT("kind"), TEXT("fields"), TEXT("semanticTag")})
+            || !(*Object)->TryGetObjectField(TEXT("fields"), Fields)
+            || Fields == nullptr
+            || !(*Fields).IsValid()
+            || ((*Object)->HasField(TEXT("semanticTag"))
+                && (!ReadRequiredString(*Object, TEXT("semanticTag"), Tag)
+                    || !IsSemanticTag(Tag))))
+        {
+            OutMessage = TEXT("Result ObjectExpr requires fields and an optional non-reserved semanticTag.");
+            return false;
+        }
+        for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Fields)->Values)
+        {
+            if (!ValidateResultExpr(Pair.Value, OutMessage))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    OutMessage = TEXT("Unsupported normalized result expression kind.");
+    return false;
 }
 
 bool ValidateBinding(const TSharedPtr<FJsonObject>& Object, FString& OutAlias, FString& OutTargetKey, FString& OutMessage)
@@ -492,10 +743,10 @@ bool ValidateStableRefField(const TSharedPtr<FJsonObject>& Object, const TCHAR* 
     return Object->TryGetObjectField(Field, Ref)
         && Ref != nullptr
         && ValidateRef(*Ref, false, OutMessage)
-        && (*Ref)->HasField(TEXT("id"));
+        && (*Ref)->GetStringField(TEXT("kind")) == TEXT("stable_ref");
 }
 
-bool ValidateStableOrStableMemberRefField(
+bool ValidateRelationshipSubjectField(
     const TSharedPtr<FJsonObject>& Object,
     const TCHAR* Field,
     FString& OutMessage)
@@ -503,33 +754,69 @@ bool ValidateStableOrStableMemberRefField(
     const TSharedPtr<FJsonObject>* Ref = nullptr;
     if (!Object->TryGetObjectField(Field, Ref)
         || Ref == nullptr
-        || !(*Ref).IsValid()
-        || !ValidateRef(*Ref, false, OutMessage))
+        || !(*Ref).IsValid())
     {
-        if (OutMessage.IsEmpty())
-        {
-            OutMessage = FString::Printf(TEXT("%s must be a stable reference or stable member reference."), Field);
-        }
+        OutMessage = FString::Printf(
+            TEXT("%s must be TargetSelf, a StableRef, or one of their members."),
+            Field);
         return false;
-    }
-    if ((*Ref)->HasField(TEXT("id")))
-    {
-        return true;
     }
 
     FString Kind;
+    if (!(*Ref)->TryGetStringField(TEXT("kind"), Kind))
+    {
+        OutMessage = TEXT("Relationship subject requires kind.");
+        return false;
+    }
+    if (Kind == TEXT("target_self"))
+    {
+        if (!HasOnly(*Ref, {TEXT("kind")}))
+        {
+            OutMessage = TEXT("TargetSelf relationship subject contains unsupported fields.");
+            return false;
+        }
+        return true;
+    }
+    if (Kind == TEXT("stable_ref"))
+    {
+        return ValidateRef(*Ref, false, OutMessage);
+    }
+    if (Kind != TEXT("member"))
+    {
+        OutMessage = TEXT("Relationship subject must be TargetSelf, a StableRef, or one of their members.");
+        return false;
+    }
+
     const TSharedPtr<FJsonObject>* Owner = nullptr;
-    if (!(*Ref)->TryGetStringField(TEXT("kind"), Kind)
-        || Kind != TEXT("member")
+    FString OwnerKind;
+    if (!HasOnly(*Ref, {TEXT("kind"), TEXT("object"), TEXT("path")})
         || !(*Ref)->TryGetObjectField(TEXT("object"), Owner)
         || Owner == nullptr
         || !(*Owner).IsValid()
-        || !(*Owner)->HasField(TEXT("id")))
+        || !ValidateMemberPath(*Ref, TEXT("path"), OutMessage)
+        || !(*Owner)->TryGetStringField(TEXT("kind"), OwnerKind))
     {
-        OutMessage = FString::Printf(TEXT("%s must be a stable reference or a member of a stable reference."), Field);
+        if (OutMessage.IsEmpty())
+        {
+            OutMessage = TEXT("Relationship member subject requires one exact owner and non-empty path.");
+        }
         return false;
     }
-    return true;
+    if (OwnerKind == TEXT("target_self"))
+    {
+        if (!HasOnly(*Owner, {TEXT("kind")}))
+        {
+            OutMessage = TEXT("TargetSelf relationship owner contains unsupported fields.");
+            return false;
+        }
+        return true;
+    }
+    if (OwnerKind == TEXT("stable_ref"))
+    {
+        return ValidateRef(*Owner, false, OutMessage);
+    }
+    OutMessage = TEXT("Relationship member owner must be TargetSelf or a StableRef.");
+    return false;
 }
 
 bool ValidateOperation(const TSharedPtr<FJsonObject>& Operation, FString& OutMessage)
@@ -558,6 +845,11 @@ bool ValidateOperation(const TSharedPtr<FJsonObject>& Operation, FString& OutMes
     if (Kind == TEXT("summary"))
     {
         return HasOnly(Operation, {TEXT("kind")});
+    }
+    if (Kind == TEXT("object") && Operation->HasField(TEXT("target")))
+    {
+        return HasOnly(Operation, {TEXT("kind"), TEXT("target")})
+            && ValidateStableRefField(Operation, TEXT("target"), OutMessage);
     }
     if (Collections.Contains(Kind))
     {
@@ -599,10 +891,8 @@ bool ValidateOperation(const TSharedPtr<FJsonObject>& Operation, FString& OutMes
     }
     if (IdKinds.Contains(Kind) && Operation->HasField(TEXT("id")))
     {
-        FString Id;
-        return HasOnly(Operation, {TEXT("kind"), TEXT("id")})
-            && ReadRequiredString(Operation, TEXT("id"), Id)
-            && IsStableId(Id);
+        OutMessage = TEXT("Legacy kind@id exact selectors are not accepted by Bridge protocol v3; use kind object with a StableRef target.");
+        return false;
     }
     if (Named.Contains(Kind) || IdKinds.Contains(Kind))
     {
@@ -612,11 +902,11 @@ bool ValidateOperation(const TSharedPtr<FJsonObject>& Operation, FString& OutMes
     if (Kind == TEXT("references"))
     {
         if (!HasOnly(Operation, {TEXT("kind"), TEXT("target"), TEXT("scope")})
-            || !ValidateStableOrStableMemberRefField(Operation, TEXT("target"), OutMessage))
+            || !ValidateRelationshipSubjectField(Operation, TEXT("target"), OutMessage))
         {
             if (OutMessage.IsEmpty())
             {
-                OutMessage = TEXT("References operation requires exactly one stable target.");
+                OutMessage = TEXT("References operation requires exactly one structural or stable relationship subject.");
             }
             return false;
         }
@@ -721,42 +1011,149 @@ bool ValidateOperation(const TSharedPtr<FJsonObject>& Operation, FString& OutMes
     return true;
 }
 
-bool ValidateTarget(const TSharedPtr<FJsonObject>& Target, FString& OutAlias, TSharedPtr<FJsonObject>& OutValue, FString& OutMessage)
+bool ValidateNormalizedTarget(
+    const TSharedPtr<FJsonObject>& Value,
+    const bool bForPatch,
+    FString& OutMessage)
+{
+    FString Kind;
+    FString Domain;
+    if (!ReadRequiredString(Value, TEXT("kind"), Kind)
+        || Kind != TEXT("target")
+        || !ReadRequiredString(Value, TEXT("domain"), Domain))
+    {
+        OutMessage = TEXT("Normalized Target requires kind target and one explicit domain.");
+        return false;
+    }
+
+    auto Required = [&](const TCHAR* Field, FString& Out)
+    {
+        if (!ReadRequiredString(Value, Field, Out))
+        {
+            OutMessage = FString::Printf(TEXT("Target field %s must be a non-empty string."), Field);
+            return false;
+        }
+        return true;
+    };
+    auto Optional = [&](const TCHAR* Field, FString& Out)
+    {
+        if (!Value->HasField(Field))
+        {
+            Out.Reset();
+            return true;
+        }
+        return Required(Field, Out);
+    };
+    auto GuidField = [&](const TCHAR* Field, const bool bRequired, FString& Out)
+    {
+        if (!(bRequired ? Required(Field, Out) : Optional(Field, Out)))
+        {
+            return false;
+        }
+        if (!Out.IsEmpty() && !IsValidGuidString(Out))
+        {
+            OutMessage = FString::Printf(TEXT("Target field %s must be a valid non-zero Guid."), Field);
+            return false;
+        }
+        return true;
+    };
+
+    FString Path;
+    FString Type;
+    FString Asset;
+    FString Id;
+    FString BlueprintId;
+    FString Name;
+    if (Domain == TEXT("asset"))
+    {
+        if (!HasOnly(Value, {TEXT("kind"), TEXT("domain"), TEXT("path"), TEXT("type")})
+            || !Optional(TEXT("path"), Path)
+            || !Optional(TEXT("type"), Type)
+            || (Path.IsEmpty() && !Type.IsEmpty())
+            || (bForPatch && (Path.IsEmpty() || Type.IsEmpty())))
+        {
+            if (OutMessage.IsEmpty())
+            {
+                OutMessage = bForPatch
+                    ? TEXT("Asset Patch requires canonical path and type.")
+                    : TEXT("Asset Target accepts a root or path with an optional type assertion.");
+            }
+            return false;
+        }
+        return true;
+    }
+    if (Domain == TEXT("blueprint"))
+    {
+        return HasOnly(Value, {TEXT("kind"), TEXT("domain"), TEXT("asset"), TEXT("id")})
+            && Required(TEXT("asset"), Asset)
+            && GuidField(TEXT("id"), bForPatch, Id);
+    }
+    if (Domain == TEXT("class"))
+    {
+        return HasOnly(Value, {TEXT("kind"), TEXT("domain"), TEXT("path")})
+            && Required(TEXT("path"), Path);
+    }
+    if (Domain == TEXT("graph"))
+    {
+        if (!HasOnly(
+                Value,
+                {TEXT("kind"), TEXT("domain"), TEXT("asset"), TEXT("blueprintId"), TEXT("id"), TEXT("name")})
+            || !Required(TEXT("asset"), Asset)
+            || !GuidField(TEXT("blueprintId"), bForPatch, BlueprintId)
+            || !GuidField(TEXT("id"), bForPatch, Id)
+            || !Optional(TEXT("name"), Name)
+            || (Id.IsEmpty() && Name.IsEmpty())
+            || (bForPatch && !Name.IsEmpty()))
+        {
+            if (OutMessage.IsEmpty())
+            {
+                OutMessage = bForPatch
+                    ? TEXT("Graph Patch requires canonical asset, blueprintId, and id without name.")
+                    : TEXT("Graph Target requires asset and at least one of id or exact name.");
+            }
+            return false;
+        }
+        return true;
+    }
+    if (Domain == TEXT("state_tree"))
+    {
+        return HasOnly(Value, {TEXT("kind"), TEXT("domain"), TEXT("asset"), TEXT("type")})
+            && Required(TEXT("asset"), Asset)
+            && Optional(TEXT("type"), Type)
+            && (!bForPatch || !Type.IsEmpty());
+    }
+    if (Domain == TEXT("widget"))
+    {
+        return HasOnly(Value, {TEXT("kind"), TEXT("domain"), TEXT("asset"), TEXT("id")})
+            && Required(TEXT("asset"), Asset)
+            && GuidField(TEXT("id"), bForPatch, Id);
+    }
+
+    OutMessage = TEXT("Target domain must be one of asset, blueprint, class, graph, state_tree, or widget.");
+    return false;
+}
+
+bool ValidateTarget(
+    const TSharedPtr<FJsonObject>& Target,
+    const bool bForPatch,
+    FString& OutAlias,
+    TSharedPtr<FJsonObject>& OutValue,
+    FString& OutMessage)
 {
     const TSharedPtr<FJsonObject>* Value = nullptr;
-    if (!HasOnly(Target, {TEXT("alias"), TEXT("value")})
-        || !ReadRequiredString(Target, TEXT("alias"), OutAlias)
+    if (!ReadRequiredString(Target, TEXT("alias"), OutAlias)
         || !IsLocalIdentifier(OutAlias)
-        || !Target->TryGetObjectField(TEXT("value"), Value)
+        || !HasOnly(Target, {TEXT("alias"), TEXT("target")})
+        || !Target->TryGetObjectField(TEXT("target"), Value)
         || Value == nullptr
         || !(*Value).IsValid())
     {
-        OutMessage = TEXT("Target requires a valid alias and Call or Name value.");
+        OutMessage = TEXT("Target binding requires a valid alias and one normalized target.");
         return false;
     }
-    FString Kind;
-    (*Value)->TryGetStringField(TEXT("kind"), Kind);
-    if (Kind == TEXT("call"))
+
+    if (!ValidateNormalizedTarget(*Value, bForPatch, OutMessage))
     {
-        if (!ValidateCall(*Value, OutMessage))
-        {
-            return false;
-        }
-    }
-    else if (Kind == TEXT("name"))
-    {
-        FString Name;
-        if (!HasOnly(*Value, {TEXT("kind"), TEXT("name")})
-            || !ReadRequiredString(*Value, TEXT("name"), Name)
-            || !IsLocalIdentifier(Name))
-        {
-            OutMessage = TEXT("Target Name is invalid.");
-            return false;
-        }
-    }
-    else
-    {
-        OutMessage = TEXT("Target value must be a Call or Name.");
         return false;
     }
     OutValue = *Value;
@@ -1275,8 +1672,6 @@ bool ValidateObjectText(const TSharedPtr<FJsonObject>& Object, FString& OutMessa
         OutMessage = TEXT("ObjectText requires one statements array.");
         return false;
     }
-    TSet<FString> Aliases;
-    TSet<FString> Targets;
     for (const TSharedPtr<FJsonValue>& StatementValue : *Statements)
     {
         const TSharedPtr<FJsonObject>* Statement = nullptr;
@@ -1287,26 +1682,18 @@ bool ValidateObjectText(const TSharedPtr<FJsonObject>& Object, FString& OutMessa
         }
         if ((*Statement)->HasField(TEXT("target")) && (*Statement)->HasField(TEXT("value")) && !(*Statement)->HasField(TEXT("kind")))
         {
-            FString Alias;
-            FString Key;
-            if (!ValidateBinding(*Statement, Alias, Key, OutMessage)
-                || Targets.Contains(Key)
-                || ((*Statement)->GetObjectField(TEXT("target"))->GetStringField(TEXT("kind")) == TEXT("member") && !Aliases.Contains(Alias))
-                || !ExprUsesDeclaredAliases((*Statement)->TryGetField(TEXT("value")), Aliases))
+            const TSharedPtr<FJsonObject>* Target = nullptr;
+            if (!HasOnly(*Statement, {TEXT("target"), TEXT("value")})
+                || !(*Statement)->TryGetObjectField(TEXT("target"), Target)
+                || Target == nullptr
+                || !ValidateResultRef(*Target, true, OutMessage)
+                || !ValidateResultExpr((*Statement)->TryGetField(TEXT("value")), OutMessage))
             {
-                if (OutMessage.IsEmpty()) OutMessage = TEXT("ObjectText binding value references an undeclared local alias.");
-                return false;
-            }
-            Targets.Add(Key);
-            const FString TargetKind = (*Statement)->GetObjectField(TEXT("target"))->GetStringField(TEXT("kind"));
-            if (TargetKind == TEXT("local"))
-            {
-                if (Aliases.Contains(Alias))
+                if (OutMessage.IsEmpty())
                 {
-                    OutMessage = TEXT("ObjectText contains duplicate local alias.");
-                    return false;
+                    OutMessage = TEXT("ObjectText binding requires a binding target and normalized result expression.");
                 }
-                Aliases.Add(Alias);
+                return false;
             }
             continue;
         }
@@ -1331,18 +1718,283 @@ bool ValidateObjectText(const TSharedPtr<FJsonObject>& Object, FString& OutMessa
                 || !(*Statement)->TryGetObjectField(TEXT("from"), From)
                 || !(*Statement)->TryGetObjectField(TEXT("to"), To)
                 || From == nullptr || To == nullptr
-                || !ValidateRef(*From, false, OutMessage)
-                || !ValidateRef(*To, false, OutMessage)
-                || !RefUsesDeclaredAlias(*From, Aliases)
-                || !RefUsesDeclaredAlias(*To, Aliases))
+                || !ValidateResultRef(*From, false, OutMessage)
+                || !ValidateResultRef(*To, false, OutMessage))
             {
-                if (OutMessage.IsEmpty()) OutMessage = TEXT("ObjectText Edge must follow both local endpoint bindings.");
+                if (OutMessage.IsEmpty())
+                {
+                    OutMessage = TEXT("ObjectText Edge requires two normalized result references.");
+                }
                 return false;
             }
             continue;
         }
         OutMessage = TEXT("ObjectText contains invalid statement.");
         return false;
+    }
+    return true;
+}
+
+struct FResultReferenceContext
+{
+    TSet<FString> Aliases;
+    TSet<FString> TargetAliases;
+    TSet<FString> StableScopeAliases;
+    TSet<FString> UsedTargetAliases;
+    TSet<FString> BindingTargets;
+    bool bAllowUnqualifiedStable = false;
+};
+
+void NoteResultTargetAlias(
+    const FString& Alias,
+    FResultReferenceContext& Context)
+{
+    if (Context.TargetAliases.Contains(Alias))
+    {
+        Context.UsedTargetAliases.Add(Alias);
+    }
+}
+
+FString ResultBindingTargetKey(const TSharedPtr<FJsonObject>& Target)
+{
+    FString Kind;
+    Target->TryGetStringField(TEXT("kind"), Kind);
+    if (Kind == TEXT("local"))
+    {
+        FString Name;
+        Target->TryGetStringField(TEXT("name"), Name);
+        return Name;
+    }
+
+    const TSharedPtr<FJsonObject>* Owner = nullptr;
+    FString OwnerName;
+    if (Target->TryGetObjectField(TEXT("object"), Owner)
+        && Owner != nullptr)
+    {
+        (*Owner)->TryGetStringField(TEXT("name"), OwnerName);
+    }
+    FString Key = OwnerName;
+    const TArray<TSharedPtr<FJsonValue>>* Path = nullptr;
+    if (Target->TryGetArrayField(TEXT("path"), Path)
+        && Path != nullptr)
+    {
+        for (const TSharedPtr<FJsonValue>& SegmentValue : *Path)
+        {
+            FString Segment;
+            double Index = 0.0;
+            if (SegmentValue->TryGetString(Segment))
+            {
+                Key += TEXT(".") + Segment;
+            }
+            else if (SegmentValue->TryGetNumber(Index))
+            {
+                Key += FString::Printf(TEXT("[%.0f]"), Index);
+            }
+        }
+    }
+    return Key;
+}
+
+bool ResultRefUsesContext(
+    const TSharedPtr<FJsonObject>& Ref,
+    FResultReferenceContext& Context)
+{
+    FString Kind;
+    if (!Ref.IsValid()
+        || !Ref->TryGetStringField(TEXT("kind"), Kind))
+    {
+        return false;
+    }
+    if (Kind == TEXT("local"))
+    {
+        FString Name;
+        if (!Ref->TryGetStringField(TEXT("name"), Name))
+        {
+            return false;
+        }
+        NoteResultTargetAlias(Name, Context);
+        return Context.Aliases.Contains(Name);
+    }
+    if (Kind == TEXT("stable_ref"))
+    {
+        return Context.bAllowUnqualifiedStable;
+    }
+    if (Kind == TEXT("scoped_stable_ref"))
+    {
+        const TSharedPtr<FJsonObject>* Target = nullptr;
+        FString Name;
+        if (!Ref->TryGetObjectField(TEXT("target"), Target)
+            || Target == nullptr
+            || !(*Target)->TryGetStringField(TEXT("name"), Name))
+        {
+            return false;
+        }
+        NoteResultTargetAlias(Name, Context);
+        return Context.StableScopeAliases.Contains(Name);
+    }
+    if (Kind == TEXT("member"))
+    {
+        const TSharedPtr<FJsonObject>* Owner = nullptr;
+        return Ref->TryGetObjectField(TEXT("object"), Owner)
+            && Owner != nullptr
+            && ResultRefUsesContext(*Owner, Context);
+    }
+    return false;
+}
+
+bool ResultExprUsesContext(
+    const TSharedPtr<FJsonValue>& Value,
+    FResultReferenceContext& Context)
+{
+    if (!Value.IsValid() || Value->IsNull())
+    {
+        return Value.IsValid();
+    }
+    FString String;
+    double Number = 0.0;
+    bool Boolean = false;
+    if (Value->TryGetString(String)
+        || Value->TryGetNumber(Number)
+        || Value->TryGetBool(Boolean))
+    {
+        return true;
+    }
+    const TArray<TSharedPtr<FJsonValue>>* Array = nullptr;
+    if (Value->TryGetArray(Array)
+        && Array != nullptr)
+    {
+        for (const TSharedPtr<FJsonValue>& Item : *Array)
+        {
+            if (!ResultExprUsesContext(Item, Context))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    const TSharedPtr<FJsonObject>* Object = nullptr;
+    FString Kind;
+    if (!Value->TryGetObject(Object)
+        || Object == nullptr
+        || !(*Object)->TryGetStringField(TEXT("kind"), Kind))
+    {
+        return false;
+    }
+    if (Kind == TEXT("local")
+        || Kind == TEXT("stable_ref")
+        || Kind == TEXT("scoped_stable_ref")
+        || Kind == TEXT("member"))
+    {
+        return ResultRefUsesContext(*Object, Context);
+    }
+    if (Kind == TEXT("name"))
+    {
+        return true;
+    }
+    if (Kind != TEXT("object"))
+    {
+        return false;
+    }
+    const TSharedPtr<FJsonObject>* Fields = nullptr;
+    if (!(*Object)->TryGetObjectField(TEXT("fields"), Fields)
+        || Fields == nullptr)
+    {
+        return false;
+    }
+    for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Fields)->Values)
+    {
+        if (!ResultExprUsesContext(Pair.Value, Context))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ValidateObjectTextContext(
+    const TSharedPtr<FJsonObject>& Object,
+    FResultReferenceContext& Context,
+    FString& OutMessage)
+{
+    const TArray<TSharedPtr<FJsonValue>>* Statements = nullptr;
+    if (!Object->TryGetArrayField(TEXT("statements"), Statements)
+        || Statements == nullptr)
+    {
+        OutMessage = TEXT("ObjectText requires one statements array.");
+        return false;
+    }
+    for (const TSharedPtr<FJsonValue>& StatementValue : *Statements)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        if (!StatementValue.IsValid()
+            || !StatementValue->TryGetObject(Statement)
+            || Statement == nullptr)
+        {
+            return false;
+        }
+        if ((*Statement)->HasField(TEXT("target"))
+            && (*Statement)->HasField(TEXT("value"))
+            && !(*Statement)->HasField(TEXT("kind")))
+        {
+            const TSharedPtr<FJsonObject> Target =
+                (*Statement)->GetObjectField(TEXT("target"));
+            FString TargetKind;
+            Target->TryGetStringField(TEXT("kind"), TargetKind);
+            if (TargetKind == TEXT("member"))
+            {
+                const TSharedPtr<FJsonObject> Owner =
+                    Target->GetObjectField(TEXT("object"));
+                FString OwnerName;
+                Owner->TryGetStringField(TEXT("name"), OwnerName);
+                NoteResultTargetAlias(OwnerName, Context);
+                if (!Context.Aliases.Contains(OwnerName))
+                {
+                    OutMessage = TEXT("ObjectText member binding owner is not declared.");
+                    return false;
+                }
+            }
+            if (!ResultExprUsesContext(
+                    (*Statement)->TryGetField(TEXT("value")),
+                    Context))
+            {
+                OutMessage = TEXT("ObjectText binding value is not valid in this Target context.");
+                return false;
+            }
+            const FString Key = ResultBindingTargetKey(Target);
+            if (Context.BindingTargets.Contains(Key))
+            {
+                OutMessage = TEXT("ObjectText contains a duplicate binding target.");
+                return false;
+            }
+            if (TargetKind == TEXT("local"))
+            {
+                FString Name;
+                Target->TryGetStringField(TEXT("name"), Name);
+                if (Context.Aliases.Contains(Name))
+                {
+                    OutMessage = TEXT("ObjectText local alias collides with another local or Target alias.");
+                    return false;
+                }
+                Context.Aliases.Add(Name);
+            }
+            Context.BindingTargets.Add(Key);
+            continue;
+        }
+        if ((*Statement)->HasField(TEXT("from"))
+            && (*Statement)->HasField(TEXT("to"))
+            && !(*Statement)->HasField(TEXT("kind")))
+        {
+            const TSharedPtr<FJsonObject> From =
+                (*Statement)->GetObjectField(TEXT("from"));
+            const TSharedPtr<FJsonObject> To =
+                (*Statement)->GetObjectField(TEXT("to"));
+            if (!ResultRefUsesContext(From, Context)
+                || !ResultRefUsesContext(To, Context))
+            {
+                OutMessage = TEXT("ObjectText Edge references an alias or StableRef unavailable in this Target context.");
+                return false;
+            }
+        }
     }
     return true;
 }
@@ -1432,6 +2084,322 @@ bool ValidateResultPage(const TSharedPtr<FJsonObject>& Page)
     FString Next;
     return !Page->HasField(TEXT("next")) || ReadRequiredString(Page, TEXT("next"), Next);
 }
+
+FString TargetKeyPart(
+    const TSharedPtr<FJsonObject>& Target,
+    const TCHAR* Field)
+{
+    FString Value;
+    return Target->TryGetStringField(Field, Value)
+        ? FString::Printf(TEXT("%d:%s"), Value.Len(), *Value)
+        : TEXT("#");
+}
+
+FString CanonicalTargetKey(const TSharedPtr<FJsonObject>& Target)
+{
+    FString Domain;
+    Target->TryGetStringField(TEXT("domain"), Domain);
+    if (Domain == TEXT("asset"))
+    {
+        return FString::Printf(
+            TEXT("asset|%s|%s"),
+            *TargetKeyPart(Target, TEXT("path")),
+            *TargetKeyPart(Target, TEXT("type")));
+    }
+    if (Domain == TEXT("blueprint") || Domain == TEXT("widget"))
+    {
+        return FString::Printf(
+            TEXT("%s|%s|%s"),
+            *Domain,
+            *TargetKeyPart(Target, TEXT("asset")),
+            *TargetKeyPart(Target, TEXT("id")));
+    }
+    if (Domain == TEXT("class"))
+    {
+        return FString::Printf(
+            TEXT("class|%s"),
+            *TargetKeyPart(Target, TEXT("path")));
+    }
+    if (Domain == TEXT("graph"))
+    {
+        return FString::Printf(
+            TEXT("graph|%s|%s|%s"),
+            *TargetKeyPart(Target, TEXT("asset")),
+            *TargetKeyPart(Target, TEXT("blueprintId")),
+            *TargetKeyPart(Target, TEXT("id")));
+    }
+    if (Domain == TEXT("state_tree"))
+    {
+        return FString::Printf(
+            TEXT("state_tree|%s|%s"),
+            *TargetKeyPart(Target, TEXT("asset")),
+            *TargetKeyPart(Target, TEXT("type")));
+    }
+    return FString();
+}
+
+bool ValidateCanonicalTargetBinding(
+    const TSharedPtr<FJsonObject>& Binding,
+    FString& OutAlias,
+    FString& OutTargetKey,
+    FString& OutMessage)
+{
+    OutAlias.Reset();
+    OutTargetKey.Reset();
+    const TSharedPtr<FJsonObject>* Target = nullptr;
+    if (!Binding.IsValid()
+        || !HasOnly(Binding, {TEXT("alias"), TEXT("target")})
+        || !ReadRequiredString(Binding, TEXT("alias"), OutAlias)
+        || !IsLocalIdentifier(OutAlias)
+        || !Binding->TryGetObjectField(TEXT("target"), Target)
+        || Target == nullptr
+        || !ValidateNormalizedTarget(*Target, true, OutMessage))
+    {
+        if (OutMessage.IsEmpty())
+        {
+            OutMessage = TEXT("Result Target binding is not canonical.");
+        }
+        return false;
+    }
+    OutTargetKey = CanonicalTargetKey(*Target);
+    if (OutTargetKey.IsEmpty())
+    {
+        OutMessage = TEXT("Result Target binding has no canonical identity.");
+        return false;
+    }
+    return true;
+}
+
+bool ValidateResultContext(
+    const TSharedPtr<FJsonObject>& Result,
+    const bool bMutation,
+    FString& OutMessage)
+{
+    FString Context;
+    if (!ReadRequiredString(Result, TEXT("targetContext"), Context))
+    {
+        OutMessage = TEXT("SAL result requires targetContext.");
+        return false;
+    }
+    if (Context == TEXT("unresolved_target"))
+    {
+        if (Result->HasField(TEXT("target"))
+            || Result->HasField(TEXT("relatedTargets"))
+            || Result->HasField(TEXT("handoffs")))
+        {
+            OutMessage = TEXT("unresolved_target cannot retain Targets or handoffs.");
+            return false;
+        }
+        const TSharedPtr<FJsonObject>* Object = nullptr;
+        if (Result->TryGetObjectField(TEXT("object"), Object)
+            && Object != nullptr)
+        {
+            FResultReferenceContext ReferenceContext;
+            if (!ValidateObjectText(*Object, OutMessage)
+                || !ValidateObjectTextContext(
+                    *Object,
+                    ReferenceContext,
+                    OutMessage))
+            {
+                if (OutMessage.IsEmpty())
+                {
+                    OutMessage = TEXT("unresolved_target ObjectText cannot use StableRefs or undeclared aliases.");
+                }
+                return false;
+            }
+        }
+        else if (Result->HasField(TEXT("object")))
+        {
+            OutMessage = TEXT("SAL result object must be ObjectText.");
+            return false;
+        }
+        return true;
+    }
+
+    const TSharedPtr<FJsonObject>* MainBinding = nullptr;
+    if (!Result->TryGetObjectField(TEXT("target"), MainBinding)
+        || MainBinding == nullptr)
+    {
+        OutMessage = TEXT("Resolved result requires its Target binding.");
+        return false;
+    }
+    TSet<FString> TargetAliases;
+    TSet<FString> TargetKeys;
+    TSet<FString> RelatedAliases;
+    if (Context == TEXT("domain_root"))
+    {
+        const TSharedPtr<FJsonObject>* Root = nullptr;
+        FString Alias;
+        FString Kind;
+        FString Domain;
+        if (bMutation
+            || !HasOnly(*MainBinding, {TEXT("alias"), TEXT("target")})
+            || !ReadRequiredString(*MainBinding, TEXT("alias"), Alias)
+            || !IsLocalIdentifier(Alias)
+            || !(*MainBinding)->TryGetObjectField(TEXT("target"), Root)
+            || Root == nullptr
+            || !HasOnly(*Root, {TEXT("kind"), TEXT("domain")})
+            || !(*Root)->TryGetStringField(TEXT("kind"), Kind)
+            || Kind != TEXT("target")
+            || !(*Root)->TryGetStringField(TEXT("domain"), Domain)
+            || Domain != TEXT("asset"))
+        {
+            OutMessage = TEXT("domain_root is Query-only and requires target { domain: asset }.");
+            return false;
+        }
+        TargetAliases.Add(Alias);
+        TargetKeys.Add(CanonicalTargetKey(*Root));
+    }
+    else if (Context == TEXT("exact_target"))
+    {
+        FString MainAlias;
+        FString MainKey;
+        if (!ValidateCanonicalTargetBinding(
+                *MainBinding,
+                MainAlias,
+                MainKey,
+                OutMessage))
+        {
+            return false;
+        }
+        TargetAliases.Add(MainAlias);
+        TargetKeys.Add(MainKey);
+    }
+    else
+    {
+        OutMessage = TEXT("Unknown result targetContext.");
+        return false;
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* Related = nullptr;
+    if (Result->HasField(TEXT("relatedTargets")))
+    {
+        if (!Result->TryGetArrayField(TEXT("relatedTargets"), Related)
+            || Related == nullptr
+            || Related->IsEmpty())
+        {
+            OutMessage = TEXT("relatedTargets must be non-empty when present.");
+            return false;
+        }
+        for (const TSharedPtr<FJsonValue>& Value : *Related)
+        {
+            const TSharedPtr<FJsonObject>* Binding = nullptr;
+            FString Alias;
+            FString Key;
+            if (!Value.IsValid()
+                || !Value->TryGetObject(Binding)
+                || Binding == nullptr
+                || !ValidateCanonicalTargetBinding(
+                    *Binding,
+                    Alias,
+                    Key,
+                    OutMessage)
+                || TargetAliases.Contains(Alias)
+                || TargetKeys.Contains(Key))
+            {
+                if (OutMessage.IsEmpty())
+                {
+                    OutMessage = TEXT("Result Target aliases and canonical Target identities must both be unique.");
+                }
+                return false;
+            }
+            TargetAliases.Add(Alias);
+            TargetKeys.Add(Key);
+            RelatedAliases.Add(Alias);
+        }
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* Handoffs = nullptr;
+    TSet<FString> UsedRelatedAliases;
+    if (Result->HasField(TEXT("handoffs")))
+    {
+        if (!Result->TryGetArrayField(TEXT("handoffs"), Handoffs)
+            || Handoffs == nullptr
+            || Handoffs->IsEmpty())
+        {
+            OutMessage = TEXT("handoffs must be non-empty when present.");
+            return false;
+        }
+        for (const TSharedPtr<FJsonValue>& Value : *Handoffs)
+        {
+            const TSharedPtr<FJsonObject>* Handoff = nullptr;
+            const TSharedPtr<FJsonObject>* Ref = nullptr;
+            FString Kind;
+            FString Purpose;
+            FString RefKind;
+            FString Alias;
+            if (!Value.IsValid()
+                || !Value->TryGetObject(Handoff)
+                || Handoff == nullptr
+                || !HasOnly(*Handoff, {TEXT("kind"), TEXT("purpose"), TEXT("target")})
+                || !(*Handoff)->TryGetStringField(TEXT("kind"), Kind)
+                || Kind != TEXT("target_handoff")
+                || !ReadRequiredString(*Handoff, TEXT("purpose"), Purpose)
+                || !(*Handoff)->TryGetObjectField(TEXT("target"), Ref)
+                || Ref == nullptr
+                || !HasOnly(*Ref, {TEXT("kind"), TEXT("name")})
+                || !(*Ref)->TryGetStringField(TEXT("kind"), RefKind)
+                || RefKind != TEXT("local")
+                || !ReadRequiredString(*Ref, TEXT("name"), Alias)
+                || !IsLocalIdentifier(Alias)
+                || !RelatedAliases.Contains(Alias))
+            {
+                OutMessage = TEXT("Every handoff must name one related Target alias.");
+                return false;
+            }
+            UsedRelatedAliases.Add(Alias);
+        }
+    }
+
+    const TSharedPtr<FJsonObject>* Object = nullptr;
+    if (Result->TryGetObjectField(TEXT("object"), Object)
+        && Object != nullptr)
+    {
+        FResultReferenceContext ReferenceContext;
+        ReferenceContext.Aliases = TargetAliases;
+        ReferenceContext.TargetAliases = TargetAliases;
+        ReferenceContext.StableScopeAliases =
+            Context == TEXT("exact_target")
+                ? TargetAliases
+                : RelatedAliases;
+        ReferenceContext.bAllowUnqualifiedStable =
+            Context == TEXT("exact_target");
+        if (!ValidateObjectText(*Object, OutMessage)
+            || !ValidateObjectTextContext(
+                *Object,
+                ReferenceContext,
+                OutMessage))
+        {
+            if (OutMessage.IsEmpty())
+            {
+                OutMessage = TEXT("SAL result ObjectText is invalid for its Target context.");
+            }
+            return false;
+        }
+        for (const FString& Alias : ReferenceContext.UsedTargetAliases)
+        {
+            if (RelatedAliases.Contains(Alias))
+            {
+                UsedRelatedAliases.Add(Alias);
+            }
+        }
+    }
+    else if (Result->HasField(TEXT("object")))
+    {
+        OutMessage = TEXT("SAL result object must be ObjectText.");
+        return false;
+    }
+
+    for (const FString& Alias : RelatedAliases)
+    {
+        if (!UsedRelatedAliases.Contains(Alias))
+        {
+            OutMessage = TEXT("Every related Target must be used by ObjectText or retained by a handoff.");
+            return false;
+        }
+    }
+    return true;
+}
 }
 
 bool FSalJson::DecodeQuery(
@@ -1455,7 +2423,12 @@ bool FSalJson::DecodeQuery(
     const TSharedPtr<FJsonObject>* Operation = nullptr;
     if (!Object->TryGetObjectField(TEXT("target"), Target)
         || Target == nullptr
-        || !ValidateTarget(*Target, OutQuery.Alias, OutQuery.TargetValue, Message)
+        || !ValidateTarget(
+            *Target,
+            false,
+            OutQuery.Alias,
+            OutQuery.TargetValue,
+            Message)
         || !Object->TryGetObjectField(TEXT("operation"), Operation)
         || Operation == nullptr
         || !ValidateOperation(*Operation, Message))
@@ -1533,11 +2506,16 @@ bool FSalJson::DecodePatch(
     const TSharedPtr<FJsonObject>* Target = nullptr;
     if (!Object->TryGetObjectField(TEXT("target"), Target)
         || Target == nullptr
-        || !ValidateTarget(*Target, OutPatch.Alias, OutPatch.TargetValue, Message)
+        || !ValidateTarget(
+            *Target,
+            true,
+            OutPatch.Alias,
+            OutPatch.TargetValue,
+            Message)
         || !OutPatch.TargetValue.IsValid()
-        || OutPatch.TargetValue->GetStringField(TEXT("kind")) != TEXT("call"))
+        || OutPatch.TargetValue->GetStringField(TEXT("kind")) != TEXT("target"))
     {
-        OutError = Invalid(Message.IsEmpty() ? TEXT("Patch requires a bound Call target.") : Message);
+        OutError = Invalid(Message.IsEmpty() ? TEXT("Patch requires a canonical bound Target.") : Message);
         return false;
     }
     if (!ExprUsesDeclaredAliases(MakeShared<FJsonValueObject>(OutPatch.TargetValue), {}))
@@ -1648,15 +2626,26 @@ bool FSalJson::ValidateResult(
                 Result,
                 {TEXT("object"), TEXT("diagnostics"), TEXT("page"), TEXT("isError"), TEXT("dryRun"),
                  TEXT("valid"), TEXT("applied"), TEXT("assetPath"), TEXT("operation"), TEXT("resolvedRefs"),
-                 TEXT("planned"), TEXT("diff"), TEXT("previousRevision"), TEXT("newRevision")}))
+                 TEXT("planned"), TEXT("diff"), TEXT("previousRevision"), TEXT("newRevision"),
+                 TEXT("targetContext"), TEXT("target"), TEXT("relatedTargets"), TEXT("handoffs")}))
         {
             OutError = InvalidResult(TEXT("MutationResult contains unsupported fields."));
             return false;
         }
     }
-    else if (!HasOnly(Result, {TEXT("object"), TEXT("diagnostics"), TEXT("page")}))
+    else if (!HasOnly(
+                 Result,
+                 {TEXT("object"), TEXT("diagnostics"), TEXT("page"),
+                  TEXT("targetContext"), TEXT("target"), TEXT("relatedTargets"), TEXT("handoffs")}))
     {
         OutError = InvalidResult(TEXT("SAL Result contains unsupported fields."));
+        return false;
+    }
+
+    FString ContextMessage;
+    if (!ValidateResultContext(Result, bMutation, ContextMessage))
+    {
+        OutError = InvalidResult(ContextMessage);
         return false;
     }
 
@@ -1678,21 +2667,31 @@ bool FSalJson::ValidateResult(
             return false;
         }
     }
-    const TSharedPtr<FJsonObject>* Object = nullptr;
-    FString Message;
-    if (Result->TryGetObjectField(TEXT("object"), Object) && Object != nullptr)
+    FString ResultContext;
+    Result->TryGetStringField(TEXT("targetContext"), ResultContext);
+    if (ResultContext == TEXT("unresolved_target"))
     {
-        if (!ValidateObjectText(*Object, Message))
+        bool bHasError = false;
+        for (const TSharedPtr<FJsonValue>& DiagnosticValue : *Diagnostics)
         {
-            OutError = InvalidResult(Message.IsEmpty() ? TEXT("SAL result ObjectText is invalid.") : Message);
+            const TSharedPtr<FJsonObject>* Diagnostic = nullptr;
+            FString Severity;
+            if (DiagnosticValue->TryGetObject(Diagnostic)
+                && Diagnostic != nullptr
+                && (*Diagnostic)->TryGetStringField(TEXT("severity"), Severity)
+                && Severity == TEXT("error"))
+            {
+                bHasError = true;
+                break;
+            }
+        }
+        if (!bHasError)
+        {
+            OutError = InvalidResult(TEXT("unresolved_target requires at least one error diagnostic."));
             return false;
         }
     }
-    else if (Result->HasField(TEXT("object")))
-    {
-        OutError = InvalidResult(TEXT("SAL result object must be ObjectText."));
-        return false;
-    }
+    FString Message;
     const TSharedPtr<FJsonObject>* Page = nullptr;
     if (Result->TryGetObjectField(TEXT("page"), Page) && Page != nullptr)
     {
@@ -1709,6 +2708,32 @@ bool FSalJson::ValidateResult(
     }
     if (bMutation)
     {
+        const TSharedPtr<FJsonObject>* ResolvedRefs = nullptr;
+        if (Result->HasField(TEXT("resolvedRefs")))
+        {
+            if (!Result->TryGetObjectField(TEXT("resolvedRefs"), ResolvedRefs)
+                || ResolvedRefs == nullptr)
+            {
+                OutError = InvalidResult(TEXT("MutationResult resolvedRefs must be an object."));
+                return false;
+            }
+            for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*ResolvedRefs)->Values)
+            {
+                const TSharedPtr<FJsonObject>* Ref = nullptr;
+                FString RefKind;
+                if (!IsLocalIdentifier(Pair.Key)
+                    || !Pair.Value.IsValid()
+                    || !Pair.Value->TryGetObject(Ref)
+                    || Ref == nullptr
+                    || !ValidateRef(*Ref, false, Message)
+                    || !(*Ref)->TryGetStringField(TEXT("kind"), RefKind)
+                    || RefKind != TEXT("stable_ref"))
+                {
+                    OutError = InvalidResult(TEXT("MutationResult resolvedRefs must map aliases to normalized StableRefs."));
+                    return false;
+                }
+            }
+        }
         bool bIsError = false;
         bool bDryRun = false;
         bool bValid = false;
@@ -1726,6 +2751,12 @@ bool FSalJson::ValidateResult(
         if (bDryRun && bApplied)
         {
             OutError = InvalidResult(TEXT("MutationResult cannot report applied=true for a dry run."));
+            return false;
+        }
+        if (ResultContext == TEXT("unresolved_target")
+            && (!bIsError || bValid || bApplied))
+        {
+            OutError = InvalidResult(TEXT("Unresolved MutationResult must be isError=true, valid=false, applied=false."));
             return false;
         }
         for (const TCHAR* Field : {TEXT("assetPath"), TEXT("previousRevision"), TEXT("newRevision")})

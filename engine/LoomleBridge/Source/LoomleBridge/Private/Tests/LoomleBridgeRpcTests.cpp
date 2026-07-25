@@ -18,6 +18,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Guid.h"
 #include "Misc/Paths.h"
+#include "Sal/SalJson.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 
@@ -351,8 +352,8 @@ bool FLoomleBridgeRpcSalQueryTest::RunTest(const FString& Parameters)
         TEXT(
             "{\"protocolVersion\":%d,\"tool\":\"sal.query\",\"args\":{\"object\":{"
             "\"kind\":\"query\","
-            "\"target\":{\"alias\":\"actorClass\",\"value\":{\"kind\":\"call\","
-            "\"callee\":\"class\",\"args\":{\"path\":\"/Script/Engine.Actor\"}}},"
+            "\"target\":{\"alias\":\"actorClass\",\"target\":{\"kind\":\"target\","
+            "\"domain\":\"class\",\"path\":\"/Script/Engine.Actor\"}},"
             "\"operation\":{\"kind\":\"summary\"}}}}"),
         Loomle::Protocol::Version);
     const TSharedPtr<FJsonObject> Response = ParseResponse(
@@ -403,6 +404,86 @@ bool FLoomleBridgeRpcSalQueryTest::RunTest(const FString& Parameters)
     TestTrue(
         TEXT("SAL payload contains diagnostics"),
         (*Payload)->HasTypedField<EJson::Array>(TEXT("diagnostics")));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FLoomleBridgeRpcEditorContextTest,
+    "Loomle.Runtime.Rpc.EditorContextPublicPath",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FLoomleBridgeRpcEditorContextTest::RunTest(
+    const FString& Parameters)
+{
+    FLoomleBridgeModule Module;
+    FLoomleBridgeRpcTestAccess::InitializeRequestCancellation(Module);
+    FLoomleBridgeRpcTestAccess::SetBridgeLifecycle(
+        Module,
+        ELoomleBridgeLifecycle::Ready);
+
+    const FString Params = FString::Printf(
+        TEXT(
+            "{\"protocolVersion\":%d,"
+            "\"tool\":\"editor.context\","
+            "\"args\":{}}"),
+        Loomle::Protocol::Version);
+    const TSharedPtr<FJsonObject> Response = ParseResponse(
+        *this,
+        FLoomleBridgeRpcTestAccess::Handle(
+            Module,
+            MakeRequest(TEXT("rpc.invoke"), Params)));
+    if (!Response.IsValid())
+    {
+        return false;
+    }
+    TestFalse(
+        TEXT("Successful Editor Context is not an RPC error"),
+        Response->HasField(TEXT("error")));
+
+    const TSharedPtr<FJsonObject>* Result = nullptr;
+    const TSharedPtr<FJsonObject>* Payload = nullptr;
+    bool bOk = false;
+    TestTrue(
+        TEXT("rpc.invoke returns its Editor Context envelope"),
+        Response->TryGetObjectField(TEXT("result"), Result)
+            && Result != nullptr
+            && (*Result).IsValid());
+    if (Result == nullptr || !(*Result).IsValid())
+    {
+        return false;
+    }
+    TestTrue(
+        TEXT("rpc.invoke reports successful Editor Context dispatch"),
+        (*Result)->TryGetBoolField(TEXT("ok"), bOk) && bOk);
+    TestTrue(
+        TEXT("rpc.invoke returns the Editor Context payload"),
+        (*Result)->TryGetObjectField(TEXT("payload"), Payload)
+            && Payload != nullptr
+            && (*Payload).IsValid());
+    if (Payload == nullptr || !(*Payload).IsValid())
+    {
+        return false;
+    }
+
+    FString TargetContext;
+    TestTrue(
+        TEXT("Public Editor Context declares Target context"),
+        (*Payload)->TryGetStringField(
+            TEXT("targetContext"),
+            TargetContext));
+    TestTrue(
+        TEXT("Public Editor Context uses a supported contextual branch"),
+        TargetContext == TEXT("exact_target")
+            || TargetContext == TEXT("domain_root")
+            || TargetContext == TEXT("unresolved_target"));
+
+    TSharedPtr<FJsonObject> ValidationError;
+    TestTrue(
+        TEXT("Public Editor Context payload satisfies SAL v3 Result schema"),
+        Loomle::Sal::FSalJson::ValidateResult(
+            *Payload,
+            ValidationError));
     return true;
 }
 

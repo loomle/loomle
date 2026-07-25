@@ -1,12 +1,8 @@
 {
   "kind": "query",
   "target": {
-    "alias": "graph",
-    "value": {
-      "kind": "call",
-      "callee": "graph",
-      "args": { "id": "graph-guid" }
-    }
+    "alias": "g",
+    "target": { "kind": "target", "domain": "graph", "asset": "/Game/BP_Test.BP_Test", "name": "EventGraph" }
   },
-  "operation": { "kind": "node", "id": "node id" }
+  "operation": { "kind": "object", "target": { "kind": "stable_ref", "identityPath": [""] } }
 }

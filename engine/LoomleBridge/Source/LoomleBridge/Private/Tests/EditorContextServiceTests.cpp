@@ -7,6 +7,7 @@
 #include "Dom/JsonObject.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Misc/AutomationTest.h"
+#include "Sal/SalJson.h"
 #include "Sal/SalObjectBuilder.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Widgets/SWidget.h"
@@ -74,7 +75,21 @@ public:
         ++BuildCount;
         FSalObjectBuilder Builder;
         Builder.AddComment(Marker);
-        return Builder.BuildResult();
+        TSharedPtr<FJsonObject> Result = Builder.BuildResult();
+        Result->SetStringField(
+            TEXT("targetContext"),
+            TEXT("exact_target"));
+        TSharedPtr<FJsonObject> Target = MakeShared<FJsonObject>();
+        Target->SetStringField(TEXT("kind"), TEXT("target"));
+        Target->SetStringField(TEXT("domain"), TEXT("class"));
+        Target->SetStringField(
+            TEXT("path"),
+            TEXT("/Script/CoreUObject.Object"));
+        TSharedPtr<FJsonObject> Binding = MakeShared<FJsonObject>();
+        Binding->SetStringField(TEXT("alias"), TEXT("context_root"));
+        Binding->SetObjectField(TEXT("target"), Target);
+        Result->SetObjectField(TEXT("target"), Binding);
+        return Result;
     }
 
     void SetRecognize(const bool bValue)
@@ -175,6 +190,30 @@ bool ResultContainsDiagnosticCode(
     return false;
 }
 
+bool ResultHasTargetContext(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& Expected)
+{
+    FString Context;
+    return Result.IsValid()
+        && Result->TryGetStringField(
+            TEXT("targetContext"),
+            Context)
+        && Context == Expected;
+}
+
+bool IsValidSalResult(
+    FAutomationTestBase& Test,
+    const TSharedPtr<FJsonObject>& Result)
+{
+    TSharedPtr<FJsonObject> Error;
+    const bool bValid = FSalJson::ValidateResult(Result, Error);
+    Test.TestTrue(
+        TEXT("Editor Context output satisfies the SAL v3 Result schema"),
+        bValid);
+    return bValid;
+}
+
 void RestoreEditorContextService(
     FEditorContextService& Service,
     const TArray<FName>& ProviderNames,
@@ -234,6 +273,10 @@ bool FEditorContextProviderPriorityAndFocusFallbackTest::RunTest(
     TestTrue(
         TEXT("The highest-priority matching Provider owns the current interaction"),
         ResultContainsComment(First, TEXT("test provider: high")));
+    TestTrue(
+        TEXT("An exact Provider result retains its Target context"),
+        ResultHasTargetContext(First, TEXT("exact_target")));
+    IsValidSalResult(*this, First);
     TestEqual(
         TEXT("A lower-priority matching Provider is not asked to build"),
         Low->GetBuildCount(),
@@ -247,6 +290,7 @@ bool FEditorContextProviderPriorityAndFocusFallbackTest::RunTest(
     TestTrue(
         TEXT("Losing Slate keyboard focus retains the last exact interaction"),
         ResultContainsComment(AfterFocusLoss, TEXT("test provider: high")));
+    IsValidSalResult(*this, AfterFocusLoss);
     TestEqual(
         TEXT("The retained Provider reads current state again"),
         High->GetBuildCount(),
@@ -305,6 +349,12 @@ bool FEditorContextStaleTrackedTabTest::RunTest(
         TEXT("A destroyed tracked DockTab fails closed"),
         ResultContainsDiagnosticCode(Stale, TEXT("context.owner_invalid")));
     TestTrue(
+        TEXT("A stale tracked surface has unresolved Target context"),
+        ResultHasTargetContext(
+            Stale,
+            TEXT("unresolved_target")));
+    IsValidSalResult(*this, Stale);
+    TestTrue(
         TEXT("The stale surface is reported rather than silently replaced"),
         ResultContainsComment(Stale, TEXT("selection: unavailable")));
     TestEqual(
@@ -348,6 +398,12 @@ bool FEditorContextBuiltInModalProviderTest::RunTest(
     TestTrue(
         TEXT("Modal context suppresses the previous editor selection"),
         ResultContainsComment(Result, TEXT("previous context: suppressed")));
+    TestTrue(
+        TEXT("Modal suppression has unresolved Target context"),
+        ResultHasTargetContext(
+            Result,
+            TEXT("unresolved_target")));
+    IsValidSalResult(*this, Result);
 
     Input.bModal = false;
     FInteractionRecord Rejected;
@@ -402,6 +458,10 @@ bool FEditorContextBuiltInContentBrowserOwnershipTest::RunTest(
         ResultContainsComment(
             Result,
             TEXT("no public side-effect-free selection API")));
+    TestTrue(
+        TEXT("Content Browser without one Asset retains Asset Domain root"),
+        ResultHasTargetContext(Result, TEXT("domain_root")));
+    IsValidSalResult(*this, Result);
 
     FRecognitionInput DrawerInput;
     DrawerInput.TabId = FName(TEXT("ContentBrowserDrawer7"));
@@ -488,6 +548,17 @@ bool FEditorContextBuiltInUnknownFallbackTest::RunTest(
     TestTrue(
         TEXT("Unknown surfaces do not invent a selection"),
         ResultContainsComment(Result, TEXT("selection: unavailable")));
+    TestTrue(
+        TEXT("Unknown surfaces have unresolved Target context"),
+        ResultHasTargetContext(
+            Result,
+            TEXT("unresolved_target")));
+    TestTrue(
+        TEXT("Unknown surfaces explain why no exact Target is available"),
+        ResultContainsDiagnosticCode(
+            Result,
+            TEXT("resolution.unresolved_target")));
+    IsValidSalResult(*this, Result);
 
     FInteractionRecord MissingRecord;
     TestFalse(

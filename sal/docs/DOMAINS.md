@@ -1,210 +1,171 @@
 # SAL Domains
 
-## Intent
+## Definition
 
-SAL domains own UE-specific language features. The docs should be organized the
-same way the runtime should be organized: adding a new domain should usually add
-or update one domain document, not scatter changes across unrelated language
-files.
+A Domain is SAL's adapter for one coherent UE semantic surface. It owns:
 
-## Domain Contract
+- one flat Target grammar;
+- one Target-relative identity environment;
+- Query, Patch, Palette, schema, and diagnostics;
+- canonical object formatting and recommended erasable tags;
+- native resolution, validation, planning, application, and handoffs.
 
-Each domain document should define:
+There is no public resolver, locator layer, interface composition, or
+capability-discovery step between Target and Domain. Routing begins and ends
+with `Target.domain`.
 
-- intent and UE semantic boundary
-- agent workflows
-- object text
-- root locator and contained-object identity scopes
-- canonical text
-- accepted sugar and its canonical expansion
-- summary behavior for each supported target type
-- query text
-- patch text
-- palette entry behavior, when the domain exposes discoverable
-  creation entries
-- normalized JSON object model
-- diagnostics
-- examples
+## The Six Domains
 
-The shared language core defines text kinds, bindings, constructors,
-references, arrays, inline object values, and statement lists. Domains define
-what those constructs mean for their UE area.
+| Domain | Target identity | Primary scope |
+| --- | --- | --- |
+| `asset` | Asset Path plus verified native Class | Asset Registry discovery and generic save |
+| `blueprint` | Asset Path plus `BlueprintGuid` | Blueprint declarations, settings, SCS, compile/save |
+| `class` | exact Class Path | Reflection and supported Generated Class Defaults |
+| `graph` | Blueprint asset, `BlueprintGuid`, `GraphGuid` | one Graph, Nodes, Pins, Edges, Graph Palette |
+| `state_tree` | Asset Path plus verified StateTree Class | authored StateTree hierarchy and bindings |
+| `widget` | WidgetBlueprint asset plus `BlueprintGuid` | WidgetTree, Widgets, Slots, Widget Palette |
 
-Every target-owning domain must define one complete locator chain. The chain
-starts from a UE-global address such as Asset Path or Class Path and then adds
-native ids only inside their real owner scopes. A stable `<kind>@<id>` is exact
-inside the resolved target but is never a replacement for the target chain.
-Domains must distinguish exact-name discovery, stable-id access, native
-path-based identity, and Patch-local creation aliases, and must reject identity
-mismatch or ambiguity without falling back to display text.
+Domain names are structural keywords. They cannot be semantic tags.
 
-Public constructors describe SAL object shape; they are not adapter selectors
-or translated UE Classes. Once a locator loads its real UE object, capability
-composition follows that object's native Class and inheritance chain. A
-specialized Blueprint asset therefore retains one `blueprint(...)` target and
-adds the capabilities valid for its actual subclass. Domain documents remain
-modular descriptions of those capabilities, not competing public target types.
+## Target Grammar
 
-Constructor vocabulary remains small. A domain may declare literal
-`object(...)` / `object@id` for a closed, explicitly supported set of
-long-tail objects. It must define their identity scope, resolver, fields, and
-capabilities, and it must not expose a second concise kind for the same object.
-This does not create a universal UE wrapper or an `objects` collection.
-
-For the `summary` query operation, the resolved target's composed capabilities
-define the useful orientation view. Their most-specific adapter chooses the
-existing SAL objects, comments, and statement order returned for that target.
-The shared core does not require every
-graph-like target to expose entry points, nodes, or any other common summary
-object. Summary content remains domain semantics, not shared language syntax.
-
-Domain docs should be the source of truth for the domain language. They should
-describe the intended syntax, object model, query behavior, patch behavior, and
-adapter boundary directly.
-
-## Normalization Boundary
-
-Domains may define syntax sugar only when the rewrite is pure SAL syntax.
-
-Allowed normalization examples:
-
-```sal
-begin.Then -> delay.Exec/Completed -> print.Exec
+```text
+target {
+  domain: <one of the six Domain keywords>,
+  <Domain-defined field>: <non-empty JSON string>,
+  ...
+}
 ```
 
-to canonical graph object text:
+Each Domain closes its field set:
+
+| Domain | Accepted fields |
+| --- | --- |
+| Asset | no fields for collection root; otherwise `path`, optional `type` |
+| Blueprint | `asset`, optional `id` for discovery |
+| Class | `path` |
+| Graph | `asset`, `id` or exact `name`, optional `blueprintId` for discovery |
+| StateTree | `asset`, optional `type` for discovery |
+| Widget | `asset`, optional `id` for discovery |
+
+Patch requires the canonical exact form:
+
+- Asset: `path + type`
+- Blueprint: `asset + id`
+- Class: `path`
+- Graph: `asset + blueprintId + id`
+- StateTree: `asset + type`
+- Widget: `asset + id`
+
+Target fields are scalar address or verification facts. They cannot contain an
+alias, ObjectExpr, array, or another Target.
+
+Guid-valued Target fields are non-zero, canonical lowercase text with hyphens
+and must satisfy UE `FGuid::IsValid()`.
+
+## Domain Selection
+
+Selection order is fixed:
+
+1. parse the Target;
+2. read `Target.domain`;
+3. validate that Domain's closed Target fields;
+4. open and canonicalize the native object;
+5. interpret the request through that Domain;
+6. resolve StableRefs inside that exact Target's identity environment.
+
+No later information changes the selected Domain:
+
+- a native UE Class may validate but never route;
+- an object `type` field is data;
+- a semantic tag is presentation;
+- a Palette id is an opaque capability identity;
+- an operation name belongs to the already selected Domain.
+
+## One UObject, Multiple Targets
+
+One native object can support several independent Domains:
 
 ```sal
-edge(begin.Then, delay.Exec)
-edge(delay.Completed, print.Exec)
+menuBlueprint = target {
+  domain: blueprint,
+  asset: "/Game/UI/WBP_Menu.WBP_Menu",
+  id: "11111111-1111-1111-1111-111111111111"
+}
+
+menuWidgets = target {
+  domain: widget,
+  asset: "/Game/UI/WBP_Menu.WBP_Menu",
+  id: "11111111-1111-1111-1111-111111111111"
+}
 ```
 
-Patch sugar may normalize differently because statement context matters:
+The two Targets have separate operations, Palettes, identity environments, and
+mutation authority. A request never gains both merely because the loaded
+object is a `UWidgetBlueprint`.
+
+A `UStateTree` similarly has an Asset Target for generic asset behavior and a
+StateTree Target for authored StateTree behavior.
+
+## Graph Is Not A Nested Domain
+
+Graph Target identity is flat:
 
 ```sal
-connect begin.Then -> print.Exec
+g = target {
+  domain: graph,
+  asset: "/Game/BP_Door.BP_Door",
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
 ```
 
-to:
+Top-level and child/collapsed Graphs use the same Target. `GraphGuid` is scoped
+by the owning Blueprint verification fields. A duplicate GraphGuid inside that
+Blueprint is an identity conflict, not a reason to invent a nested Graph
+Domain or a `graphs/...` path.
+
+## Identity Environments
+
+| Domain | One-segment StableRefs | Owner-relative StableRefs |
+| --- | --- | --- |
+| Asset | none | none |
+| Blueprint | Variables, Dispatchers, Graphs, SCS Components, referenceable Nodes | Function local: `@GraphGuid/VarGuid` |
+| Class | none currently | none |
+| Graph | Nodes and declared owning-Blueprint identities allowed by Graph | Pin: `@NodeGuid/PinId`; outer function local when needed |
+| StateTree | States, Editor Nodes, Transitions, valid Context descriptors | Parameter: `@ContainerGuid/PropertyGuid` |
+| Widget | authored Widgets | none |
+
+All categories sharing a path shape are audited together. A tag cannot rescue
+a collision.
+
+## Operation Ownership
+
+| Domain | Owns | Explicit handoff |
+| --- | --- | --- |
+| Asset | Registry search, exact Asset read, generic save | another asset-backed Domain |
+| Blueprint | settings, Variables, Dispatchers, top-level Graph lifecycle, SCS, compile/save | Graph, Widget, Class |
+| Class | Reflection and supported Defaults/save | Blueprint compile |
+| Graph | Graph body, Nodes, Pins, Edges, Graph Palette | Blueprint compile/save |
+| StateTree | hierarchy, bindings, Palette, compile/save | only explicit related targets |
+| Widget | WidgetTree, Widgets, Slots, Widget Palette | Graph events; Blueprint compile/save |
+
+Resolving an identity does not grant mutation authority. If the desired
+operation belongs to another Domain, the result returns a related canonical
+Target and handoff. It never silently switches adapters.
+
+## Cross-Domain Result
+
+The following is a Result Text fragment, not a standalone Result Text document.
 
 ```sal
-connect(begin.Then, print.Exec)
+related bp = target {
+  domain: blueprint,
+  asset: "/Game/BP_Door.BP_Door",
+  id: "11111111-1111-1111-1111-111111111111"
+}
+handoff compile to bp
 ```
 
-Not allowed in pure normalization:
-
-- resolving whether a UE node type exists
-- deciding whether a pin exists
-- checking whether an edge is legal
-- picking a palette entry from fuzzy text
-- loading or inspecting UE assets
-
-Those belong to adapters and the UE bridge.
-
-Each domain should explicitly separate:
-
-- sugar text accepted for agent convenience
-- canonical text emitted by the formatter
-- normalized JSON validated by schema and sent across the bridge
-
-Each domain that supports queries must define:
-
-- its request target locator fields and every contained id's owner scope
-- whether a Path-only first discovery differs from later exact access or Patch
-- supported summary targets and the orientation each adapter returns
-- supported plural collection, singular exact-name, and stable-id forms
-- default result shape without `with`
-- supported `with` expansions
-- how `with schema` discovers one exact object, object-backed value surface, or
-  creation entry
-- supported `where` fields and operators
-- supported `order by` keys
-- pagination behavior and defaults
-
-When several capability modules apply to one concrete UE object, the resolved
-target exposes their compatible operation union. It has one target-specific
-`summary` and one combined `palette`; it does not require callers to select a
-module with a public `domain` field. The most specific adapter owns summary
-ordering, while Palette returns every direct creation capability valid for the
-resolved target as ordinary typed constructor bindings.
-
-`with schema` has shared language semantics, but adapters own the discovered
-content. They derive it from their real edit surface, UE Reflection, Graph
-Schema, spawners, template objects, or other UE-owned metadata. A schema should
-describe only Query operations, fields, direct Patch statements, and object
-Operations the adapter can faithfully execute; identify SAL common,
-adapter-modeled, native, and relationship-backed sources when relevant; and
-remain valid for the exact subject and context that produced it.
-
-Adapters return schema guidance as comments around ordinary object, value, or
-creation text. They must not define domain-specific schema result objects.
-
-Every domain reuses the confirmed shared `Target`, `Query`, `Patch`,
-`ObjectText`, and result contract. Domain docs specify semantic constraints on
-generic Calls, operations, fields, and references; they do not introduce new
-request envelopes or result wrappers.
-
-## Interface Schema Cards
-
-The formal domain documents below preserve design intent, UE mapping, complete
-semantics, and implementation boundaries. They are not returned directly by
-`sal.schema("<module>")`.
-
-Each active module has a compact interface card in the top-level
-`@loomle/interfaces` workspace. The card is the normative static Text injected
-into SAL and returned by `sal.schema("<module>")`. It assumes the resident Core
-guide, contains only operational target, Query, Object Text, Palette, Patch,
-and handoff information, and should remain approximately 800–1200 model
-Tokens. It never loads UE state; exact instance capabilities remain the role of
-`with schema`.
-
-Current interface cards:
-
-- [`../../interfaces/README.md`](../../interfaces/README.md): catalog ownership
-  and generation
-- [`../../interfaces/asset.md`](../../interfaces/asset.md)
-- [`../../interfaces/blueprint.md`](../../interfaces/blueprint.md)
-- [`../../interfaces/class.md`](../../interfaces/class.md)
-- [`../../interfaces/graph.md`](../../interfaces/graph.md)
-- [`../../interfaces/state_tree.md`](../../interfaces/state_tree.md)
-- [`../../interfaces/widget.md`](../../interfaces/widget.md)
-
-StateTree exposes the authored target, `summary`, `tree`, State, Node, and
-Parameter collections, exact contained-object reads, local factual references,
-dynamic exact schema, destination-bound Palette, transactional authored Patch,
-Property Bindings and Property Functions, native compile, and explicit save
-composition. Exact contained-object reads return only their directly incident
-explicit and derived Property Binding arrows. Project-wide references, live
-execution and debugger state, and StateTree asset lifecycle remain outside the
-active interface.
-
-## Current Domains
-
-Shared cross-domain relationship design:
-
-- [`REFERENCE_QUERIES.md`](REFERENCE_QUERIES.md): exact declaration and
-  use-site resolution, local and project scope, ordered results, and project
-  completion semantics.
-
-- [`domains/graph.md`](domains/graph.md): graph objects, nodes, pins, edges,
-  graph queries, graph patches, and Palette-backed creation.
-- [`domains/asset.md`](domains/asset.md): asset discovery, resolution,
-  registry metadata, and asset-level query/reference results.
-- [`domains/blueprint.md`](domains/blueprint.md): Class Settings for Blueprint
-  assets, variables, dispatchers, graphs, component trees, and compound
-  Timeline Node backing state.
-- [`domains/class.md`](domains/class.md): Class Reflection identity, hierarchy,
-  Properties, Functions, Parameters, Metadata, effective Class Defaults, and
-  Blueprint-backed Defaults patches.
-- [`domains/widget.md`](domains/widget.md): authored Widget objects, tree views,
-  Panel Slot and Named Slot relationships, queries, Palette-backed creation,
-  and widget tree patching.
-- [`domains/state_tree.md`](domains/state_tree.md): authored State hierarchy,
-  Nodes, Transitions, Parameters, Context Data, Property Bindings,
-  destination-bound Palette, compile diagnostics, and runtime boundary.
-
-The TypeScript SDK includes the shared parser, formatter, schema, fixtures,
-examples, and deterministic in-memory contract coverage. Loomle's UE 5.7
-Bridge implements the live asset, Blueprint, class, graph, widget, and
-StateTree executor surfaces over the same normalized request and ordered result
-model.
+The handoff points to the related Target alias. It does not embed another
+Target, infer it from an object, or extend the current Target's capabilities.

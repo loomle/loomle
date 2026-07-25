@@ -1,1403 +1,922 @@
 # SAL Language Core
 
-## Scope
+## Purpose
 
-The language core defines the text shape shared by all SAL domains:
-statements, expressions, values, bindings, constructors, references, and
-syntax sugar normalization.
+SAL is a line-oriented language for expressing UE Targets, ordinary object
+data, native identities, relationships, queries, and ordered mutations. Core
+defines shared syntax and normalized structure. Each Domain defines its Target
+fields, identity environment, operations, Palette, schema, and UE behavior.
 
-It does not define graph nodes, asset registry search, widget trees, or
-UE-specific patch operations. Those belong to domain documents.
+## Invariants
 
-## Basic Form
+1. `{...}` is the only ordinary object expression.
+2. An optional semantic tag is erasable presentation metadata.
+3. `target { domain: ... }` is structural syntax, not an object expression.
+4. `Target.domain` is the only Domain selector.
+5. One request has one active Target and one Domain.
+6. StableRefs are native identity paths relative to one exact Target.
+7. A Target never contains another Target.
+8. Parentheses never represent objects. They are used only by true calls or by
+   an explicitly defined non-object grammar such as condition grouping and
+   Graph coordinate pairs.
+9. Cross-Domain work uses an independent related Target and explicit handoff.
 
-SAL is a line-oriented text language. A document is a sequence of statements:
+## Lexical Structure
 
-```sal
-# Name objects, then refer to them from later statements.
-door = blueprint(asset: "/Game/BP_Door.BP_Door", id: "blueprint-guid")
-g = graph(asset: door, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
-print = node(graph: g, id: "node-guid", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")
+SAL is UTF-8 text. A depth-zero newline ends a statement. A newline inside
+matched `{}`, `[]`, or grammar-defined `()` is ordinary whitespace; wrapping
+must not change normalized JSON, statement order, or execution. Delimiters must
+balance, indentation has no meaning, and SAL has no continuation backslash.
+Comma requirements do not change merely because an expression wraps.
+
+Quoted strings do not become multiline strings when their containing
+expression wraps. After the final delimiter closes, the next depth-zero
+newline ends the statement. An unclosed delimiter is a syntax error at its
+opening span; the parser never guesses where a wrapped statement should end.
+
+Identifiers use:
+
+```text
+[A-Za-z_][A-Za-z0-9_]*
 ```
 
-Short statements may stay on one line. Long statements may wrap according to
-the shared delimiter rule below. Blank lines are allowed. Indentation is visual
-only and does not create hierarchy.
+The parser, normalized Schema, and Bridge validator maintain the same reserved
+set. Parser/Schema parity and Bridge conformance tests keep their behavior
+aligned. The set contains the JSON literals, the retired generic label
+`object`, `target`, `domain`, the six Domain names, and the irreducibly
+ambiguous exact-operation prefixes `tree`, `context`, and `palette`. A reserved
+word cannot be a semantic tag, local alias, or unquoted SAL Name. It remains
+legal as an ordinary object field key, where its position is data rather than
+grammar.
 
-## Statement Boundaries And Line Wrapping
+JSON strings provide lossless spelling for arbitrary field keys and identity
+segments. Numbers are finite JSON numbers; formatting preserves the distinct
+JSON spelling `-0`, while `NaN` and infinities are invalid. Booleans and `null`
+follow JSON meaning. Native UE symbolic values such as `GT_Function` remain SAL
+Names rather than quoted strings when their exact native spelling fits the Name
+grammar.
 
-Single-line and multi-line forms are the same SAL syntax. Line wrapping changes
-only presentation; it must not change parsing, normalized JSON, statement
-order, or execution.
-
-A newline ends the current statement only when delimiter depth is zero. Inside
-matched `(...)`, `[...]`, or `{...}`, a newline is ordinary whitespace:
-
-```sal
-print = node(graph: g, id: "node-guid", type: "/Script/BlueprintGraph.K2Node_CallFunction")
-```
-
-is exactly equivalent to:
-
-```sal
-print = node(
-  graph: g,
-  id: "node-guid",
-  type: "/Script/BlueprintGraph.K2Node_CallFunction"
-)
-```
-
-The rule applies uniformly to constructors, calls, arrays, inline objects,
-condition grouping, query text, Patch text, and returned Object Text. In
-particular:
-
-- delimiters must be balanced
-- indentation carries no meaning
-- no continuation backslash exists
-- existing comma requirements are unchanged by wrapping
-- a quoted string does not become a multi-line string because its surrounding
-  expression is wrapped
-- single-line and multi-line comments are independent depth-zero statements,
-  not content inserted inside a delimited expression
-- after the final delimiter closes, the next depth-zero newline ends the
-  statement
-
-Parsers may report an unclosed delimiter at its opening span rather than
-guessing where a wrapped statement was intended to end. Formatters may choose a
-single-line or multi-line layout, but both must normalize identically.
-
-## Statements
-
-| Statement | Syntax | Example |
-| --- | --- | --- |
-| Single-line comment | `# text` | `# Inspect a Blueprint event graph.` |
-| Multi-line comment | `###` lines around text | see below |
-| Binding | `target = Expression` | `g = graph(asset: door, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)` |
-| Domain statement | domain-defined line | `query g` |
-| Sugar statement | domain-defined shorthand | `begin.Then -> print.Exec` |
-
-Comments have one normalized model and two text forms. `# ` is the compact
-single-line form:
+Comments are ordinary depth-zero ordered statements:
 
 ```sal
-# Inspect a Blueprint event graph.
-```
+# one line
 
-An exact depth-zero line containing only `###` opens or closes the multi-line
-form:
-
-```sal
 ###
-schema
-
-fields:
-  NodeComment: FString; read, write
+several lines
 ###
 ```
 
-The delimiters are not comment content. Text between them is preserved with its
-line breaks and blank lines. It is opaque comment text: SAL does not interpret
-indentation, Markdown, constructors, or references inside it. Multi-line
-comments do not nest, and a content line containing only `###` closes the
-comment. An unclosed multi-line comment is a syntax error at its opening
-delimiter. A formatter uses `# text` for a one-line `Comment.text` and the
-`###` form when `Comment.text` contains a newline. Consequently, normalized
-multi-line `Comment.text` cannot itself contain a line that trims to `###`;
-an adapter must escape such opaque native or user text, or preserve it in a
-string field, before constructing the normalized result. The one-line comment
-value `###` remains representable as `# ###`.
+An exact line containing only `###` opens or closes a multiline Comment. The
+delimiter lines are not content. Interior text and blank lines are preserved
+verbatim and are opaque to SAL: indentation, braces, references, and apparent
+operations inside the block are not parsed. Multiline Comments do not nest,
+and an unclosed block is a syntax error at its opening delimiter.
 
-Bindings name objects or values so later statements can reference them. The
-binding target is usually a local identifier:
+Normalized `Comment.text` stores content without delimiters. A formatter uses
+`# text` for one line and `###` for text containing a newline. A normalized
+multiline value therefore cannot contain a line that trims to `###`; adapters
+must escape such opaque native text or preserve it in a string field. The
+single-line value `###` remains representable as `# ###`.
 
-```sal
-delay = node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")
-```
+Comments cannot appear inside a delimited expression. Their placement is
+semantic result order and must be preserved without regrouping.
 
-Domains may also allow member paths as binding targets when they compactly
-express document-local ownership. Graph pin object text uses this form:
+## Expressions
+
+### Scalars And Arrays
 
 ```sal
-delay.Duration = pin(id: "pin-guid", type: "<FEdGraphPinType native text>", direction: in, DefaultValue: "1.0")
+null
+true
+42
+3.5
+"UE string"
+GT_Ubergraph
+[1, 2, { key: "value" }]
 ```
 
-Domain statements are owned by a domain. The core language only requires them
-to remain line-oriented and normalize through the same text-to-JSON pipeline.
+### Object Expression
 
-Normalized JSON:
+```text
+object_expression =
+  [semantic_tag whitespace] "{" [member {"," member}] "}"
+
+member =
+  (identifier | json_string) ":" expression
+```
+
+```sal
+{
+  id: "N",
+  type: "/Script/...",
+  "key with space": true,
+  nested: { values: [1, 2] }
+}
+```
+
+The JSON-compatible subset round-trips without loss. Duplicate decoded keys
+are invalid.
+
+An optional tag may improve reading:
+
+```sal
+node {
+  id: "N",
+  type: "/Script/BlueprintGraph.K2Node_Event"
+}
+```
+
+Tag erasure produces the same executable value:
+
+```sal
+{
+  id: "N",
+  type: "/Script/BlueprintGraph.K2Node_Event"
+}
+```
+
+A tag never:
+
+- chooses a Domain;
+- determines native or SAL type;
+- supplies identity;
+- selects a schema or operation;
+- routes creation;
+- changes validation, planning, effects, or mutation.
+
+The normalized form stores fields separately from optional presentation:
 
 ```ts
-interface Binding {
-  target: BindingTarget;
-  value: Expr;
-}
-
-type BindingTarget =
-  | LocalRef
-  | BindingMemberRef;
-
-interface BindingMemberRef {
-  kind: "member";
-  object: LocalRef;
-  path: (string | number)[];
+interface ObjectExpr<E> {
+  kind: "object";
+  fields: Record<string, E>;
+  semanticTag?: string;
 }
 ```
 
-Local targets cover aliases such as `g` or `print`. Member targets cover
-document-local paths such as `delay.Duration`, `door.Health`, or `stack.start`.
-Domains define valid member targets. Every binding value normalizes through the
-same `Expr` union. A constructor used for creation remains an ordinary `Call`;
-Core does not give it a second creation-only expression type.
+The object fields named `kind`, `id`, `callee`, or `args` remain ordinary data
+inside `fields`; they cannot collide with AST structure.
 
-## Expressions And Values
+### Parentheses And True Calls
 
-| Expression | Syntax | Example |
+Parentheses are never an alternative object delimiter. Operation invocation
+uses a true call:
+
+```sal
+invoke @node-guid Rename(displayName: "Start Button")
+```
+
+Domain operation names and arguments are validated by exact schema. Core does
+not interpret an operation name as an object kind. Arguments are named;
+positional call arguments are unsupported.
+
+Parentheses may also occur where a grammar explicitly assigns non-object
+meaning, for example:
+
+```sal
+where not (loaded or path ~= "/Developers/")
+move @node-guid to (640, 0)
+```
+
+The first is condition grouping and the second is a Graph coordinate pair.
+Neither creates an Expr, ObjectExpr, or operation invocation.
+
+## Domain Targets
+
+### Surface
+
+```text
+target_expression =
+  "target" "{"
+  "domain" ":" domain_name
+  { "," target_field ":" json_string }
+  "}"
+```
+
+Domain values are the six structural keywords:
+
+```text
+asset | blueprint | class | graph | state_tree | widget
+```
+
+Every field after `domain` has a non-empty JSON string value. Domains close
+the accepted field set.
+
+```sal
+g = target {
+  domain: graph,
+  asset: "/Game/BP_Door.BP_Door",
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
+```
+
+The following is invalid because Targets are flat:
+
+```sal
+# invalid
+g = target {
+  domain: graph,
+  owner: { asset: "/Game/BP_Door.BP_Door" },
+  id: "22222222-2222-2222-2222-222222222222"
+}
+```
+
+Target fields and completeness are:
+
+| Domain | Query form | Canonical exact form and Patch |
 | --- | --- | --- |
-| Constructor | `Name(arg: value)` | `node(graph: g, type: "/Script/BlueprintGraph.K2Node_CallFunction")` |
-| Reference | `name` | `g` |
-| Member reference | `name.member` | `begin.Then` |
-| Stable reference | `<kind>@<id>` | `node@A001` |
-| String | `"text"` | `"Ready"` |
-| Number | number literal | `1.0` |
-| Boolean | `true`, `false` | `enabled: true` |
-| Null | `null` | `DefaultValue: null` |
-| Symbol | unquoted word | `PrintString` |
-| Array | `[value, value]` | `[320, 72]` |
-| Inline object | `{key: value}` | `{TraceComplex: false}` |
+| Asset | root, or `path` with optional `type` | `path + type` |
+| Blueprint | `asset`, optional `id` | `asset + id` |
+| Class | `path` | `path` |
+| Graph | `asset + id` or `asset + name`, optional `blueprintId` | `asset + blueprintId + id` |
+| StateTree | `asset`, optional `type` | `asset + type` |
+| Widget | `asset`, optional `id` | `asset + id` |
 
-`true`, `false`, and `null` are literal keywords and cannot be local aliases or
-bare `Name` values.
+When Graph supplies both `id` and `name`, `id` selects identity and `name` is a
+strict readable-state assertion. Canonical readback drops `name`.
 
-Quoted values are strings. Unquoted words are symbols resolved by domains or
-adapters. In the target normalized JSON model, symbols map to `Name`.
+Target paths, native types, and Guid fields canonicalize after opening. Guid
+text is non-zero and uses lowercase digits with hyphens, matching
+`FGuid::IsValid()`.
 
-Normalized JSON uses one recursively composable expression model:
+### Request Binding
 
-```ts
-type Expr =
-  | null
-  | boolean
-  | number
-  | string
-  | Name
-  | Ref
-  | Call
-  | Expr[]
-  | { [key: string]: Expr };
+One Query or Patch prelude binds exactly one active Target:
 
-interface Name {
-  kind: "name";
-  name: string;
+```sal
+door = target {
+  domain: blueprint,
+  asset: "/Game/BP_Door.BP_Door",
+  id: "11111111-1111-1111-1111-111111111111"
 }
 
-interface Call {
-  kind: "call";
-  callee: string;
-  args: Record<string, Expr>;
-}
+query door
+summary
 ```
 
-`Name` is the normalized form for unquoted symbols. Domains and adapters
-resolve what each name means. Arrays and inline objects may contain the same
-references and calls that are valid at the top level. This adds no container
-syntax; it only keeps ordinary values composable. For example, an adapter-owned
-relationship map may contain `widget@id` values without translating them into
-strings or inventing a relationship object.
+Target aliases are request-local and do not survive into another request.
 
 ## References
 
-Local references point at previously named values or objects. Stable id
-references resolve existing target state. Member references are domain-owned:
+### Local Reference
+
+A local alias points to a binding or operation output inside one text:
 
 ```sal
-begin.Then
-delay.Duration
+print = { palette: "P_PrintString" }
+add print
+set print.NodeComment = "Created here"
 ```
 
-In the graph domain, `begin.Then` refers to a pin on the node binding `begin`.
-Other domains may define their own member meanings.
+Local aliases are presentation handles, not cross-request identity.
 
-Local aliases and member paths exist only inside the current SAL document. They
-make ordered object text readable, but the alias alone is not identity. A later
-request may repeat a complete target binding and choose any local alias for it;
-it must not carry only the earlier alias without its locator fields.
-
-Existing objects expose native `id` only when UE provides a stable one; other
-objects retain their native Path or exact scoped name. Aliases are
-document-local handles. A creation binding uses an alias before the native
-object exists. After creation, the adapter returns its real native locator,
-including `id` when applicable. Use aliases and member paths within one SAL
-document, and repeat the complete owner locator chain in later requests.
-
-Stable references always state the canonical object-shape kind before `@`:
-
-```sal
-node@A001
-pin@P001
-graph@G001
-object@C001
-```
-
-`<kind>@<id>` is the common cross-query form. `object@C001` is the
-literal form for an object whose resolved domain explicitly declares the
-generic `object(...)` shape; `object` is not a placeholder that may replace
-another returned kind. Every stable reference is resolved inside the exact
-request target. It is a scoped selector, not a global address. A bare `@id` is
-invalid.
-The current stable-id token contains no whitespace, `.`, or `[`; `.` and `[`
-begin a following member path. Stable refs normally map to UE Guid-like ids. A
-domain may define an unambiguous composite id inside that token, such as
-`parameter@container-guid/property-guid`, when every component and its owner
-scope are native identity. Consequently,
-`parameter@container-guid/property-guid[0].X` has stable id
-`container-guid/property-guid` and member path `[0, "X"]`. If a future domain
-has a native stable id that needs `.`, `[`, or whitespace, its quoted form must
-be designed explicitly rather than emitted as ambiguous text.
-Domains map the public `id` field to native identity such as BlueprintGuid,
-GraphGuid, VarGuid, VariableGuid, NodeGuid, or PinId. The object word is part of
-the reference and must match the returned object kind; an adapter never guesses
-it from context.
-
-SAL does not define object-specific ref constructors such as `graph_ref`,
-`variable_ref`, `component_ref`, or `pin_ref`. A domain must return unknown or
-ambiguous rather than resolve an id by display name. A Blueprint Asset Path is
-its load address; the Blueprint object's stable `id` maps to its persisted
-`BlueprintGuid`. The Path locates the asset and the Guid verifies its identity;
-the Guid is not a project-wide asset lookup key.
-
-Normalized JSON:
-
-```ts
-type Ref =
-  | LocalRef
-  | MemberRef
-  | StableRef;
-
-interface LocalRef {
-  kind: "local";
-  name: string;
-}
-
-interface StableRef {
-  kind: string;
-  id: string;
-}
-
-interface MemberRef {
-  kind: "member";
-  object: LocalRef | StableRef;
-  path: (string | number)[];
-}
-```
-
-Identifier members use `.Name`; array elements use `[N]` and normalize the
-index as a number in the same ordered path:
-
-```sal
-node@task-guid.Instance.Targets[0].Location
-```
-
-This normalizes to `path: ["Instance", "Targets", 0, "Location"]`. A domain
-whose native property path supports indexes must preserve them rather than
-stringifying an index into an invented member name.
-
-Each adapter schema defines the object words it supports. For example, Graph
-may use `node`, `pin`, and `graph`, while another closed domain model may also
-declare the literal generic kind `object`. The word before `@` selects that
-schema's identity namespace; it is not a native UE `type` and is not inferred
-from one. One materialized object has exactly one canonical kind: an adapter
-must not return both `state@id` and `object@id` for the same object.
-`MemberRef.path` preserves every member segment after either a local alias or a
-kind-qualified stable reference. The same shape therefore covers `begin.Then`,
-`node@id.NodeComment`, and `menu.NamedSlots.Body` without separate field-path
-types.
-
-### Request Targets And Locator Chains
-
-A Query or Patch target is a document-local alias whose preceding bindings
-form a complete locator chain. Each binding contributes only the native address
-or scoped identity required to resolve the next object:
-
-```sal
-door = blueprint(
-  asset: "/Game/BP_Door.BP_Door",
-  id: "blueprint-guid"
-)
-
-eventGraph = graph(
-  asset: door,
-  id: "graph-guid"
-)
-
-query eventGraph
-node@node-guid
-```
-
-Normalized JSON uses one target shape:
-
-```ts
-interface Target {
-  alias: string;
-  value: Call | Name;
-}
-```
-
-For a bound target, normalization recursively replaces local references in the
-target value with their preceding bound values. The example above therefore
-contains a `graph(...)` Call whose `asset` argument is the complete nested
-`blueprint(...)` Call. `alias` is presentation context for compact result
-references; it never participates in identity. A collection root such as
-`query asset` uses `{alias: "asset", value: {kind: "name", name: "asset"}}`.
-Patch requires a bound `Call`, not a collection-root `Name`.
-
-Only the final target alias survives normalization. Intermediate locator
-aliases are expanded away and therefore cannot be referenced by Query clauses
-or Patch statements. Every other local reference must point to a binding or
-`invoke` output declared earlier in the same ordered document.
-
-`Target` has no public domain field and no Asset-, Blueprint-, Widget-, Class-,
-or Graph-specific variant. The executor resolves the generic Call through the
-active object schema and decides which arguments are locator fields. Other
-arguments carried from full Object Text are not fallback identity or implicit
-state assertions.
-
-Resolution is ordered: load the Blueprint by Asset Path, verify its
-BlueprintGuid, resolve the GraphGuid inside that Blueprint, then resolve the
-NodeGuid inside that Graph. `node@node-guid` is exact only because
-`eventGraph` already establishes its owner scope.
-
-A locator binding is a projection of ordinary Object Text, not a second text
-syntax. It may omit descriptive state such as native fields, `name`, `type`,
-layout, or status when those values do not participate in resolution. Full
-returned Object Text remains valid input, but non-locator fields do not become
-fallback identity or implicit state assertions.
-
-Each domain must define:
-
-- its globally resolvable root locator, such as Asset Path or Class Path;
-- the owner scope of every native id;
-- which locator fields are required for Query and Patch;
-- whether an exact current name is available for discovery;
-- how missing, mismatched, or duplicate identity is reported.
-
-An id-bearing object uses its kind-qualified id for later exact access. An
-exact-name Query may discover such an object, but Patch must not use its current
-name as a substitute for the returned id. An object without a native stable id continues
-to use its UE Path or an exact name inside an already resolved owner. An object
-that does not exist yet uses a Patch-local alias until mutation returns its real
-id.
-
-A scoped stable reference cannot stand alone as the request target:
-
-```sal
-query graph@graph-guid
-patch graph@graph-guid
-```
-
-Both forms are invalid because they omit the owning target chain. Request
-targets use a complete local binding; stable references select objects inside
-that target. A domain-wide collection root such as `query asset` is the narrow
-exception because it does not claim to identify one object.
-
-## Constructors
-
-The Core parses every `Name(named: arguments)` expression through the same
-generic `Call` syntax. It neither reserves nor predeclares a constructor
-vocabulary. Names such as `asset`, `graph`, `node`, `pin`, and `variable` are
-data returned by adapters in Object Text, not built-in business constructs:
-
-```sal
-asset(path: "/Game/BP_Door.BP_Door", type: "/Script/Engine.Blueprint")
-graph(asset: door, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
-node(graph: g, id: "A002", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "<FMemberReference native text>")
-```
-
-A returned constructor name is an object-shape label comparable to a schema
-discriminator in JSON. It may identify the object's field schema, identity
-namespace, ownership shape, and text layout. It must not translate native UE
-`type`, encode a UE business role, or decide an operation merely from its name.
-For example, `graph(...)` identifies Graph-shaped object text; it does not mean
-Function Graph, Event Graph, or Dispatcher Signature Graph.
-
-Constructors also do not select an adapter domain. The adapter resolves the
-real UE object and composes capabilities from its native Class and inheritance
-chain. A `blueprint(...)` target that loads a `UWidgetBlueprint`, for example,
-retains the same Blueprint-shaped locator while gaining the valid Widget
-operations of that concrete UE type. SAL does not repeat that decision through
-a `domain` argument or translate native Classes into constructor names.
-
-A constructor expression has no mutation side effect. It may describe an
-existing object returned by a query or bind an unmaterialized object inside a
-Patch. Every constructor accepted by direct `add` is discovered through
-Palette. The Palette Entry returns the complete copyable `Call`, including its
-creation-capability `palette` id and any required parameters. A separate
-ordered `add` performs creation:
-
-```sal
-door.Health = variable(
-  palette: "P_BlueprintVariable",
-  type: "<FEdGraphPinType native text>"
-)
-add door.Health
-```
-
-The agent copies the constructor name and argument shape returned by the
-adapter; it does not guess them from a UE Class, type value, editor label, or
-object role. The same object-shape constructor is used for materialized
-readback and creation bindings, while creation-only arguments such as `palette`
-are absent from materialized object state. The Palette query need not occur in
-the same request as the Patch, but `add` always resolves and revalidates the
-Palette Entry in the current target context before applying anything.
-
-Creation performed by `invoke`, or native subordinate effects such as default
-Graph Nodes, generated Pins, and Dispatcher Signature Graphs, is not a second
-direct `add` and therefore does not require another Palette Entry.
-
-### Generic Object Shape
-
-A resolved domain may explicitly declare `object(...)` for a closed set of
-low-frequency objects that have real native identity and capabilities but do
-not justify another public constructor word. Its exact stable reference is
-`object@id`:
-
-```sal
-contextActor = object(
-  id: "context-guid",
-  type: "/Script/StateTreeModule.StateTreeExternalDataDesc",
-  Name: Actor,
-  Struct: "/Script/Engine.Actor",
-  Requirement: Required
-)
-```
-
-This uses the existing generic `Call` and `StableRef` grammar; it adds no
-special object expression. The declaring domain must define the closed native
-object set, id owner scope, exact resolver, returned fields, schema surface,
-and supported operations. The native `type` and native fields remain the
-source of truth.
-
-`object(...)` is not an automatic wrapper for arbitrary UE values or editor
-selections. Core, Editor Context, and adapters must not infer it merely because
-a value is a UObject, UStruct, Property, typed element, or unknown native
-model. Unsupported values remain unsupported. Declaring the generic object
-shape also does not create an `objects` collection query or grant generic
-mutation; discovery and operations remain domain-defined.
-
-Specific concise shapes remain appropriate for frequent structural objects
-such as `graph`, `node`, or `state`. A domain chooses either that specific
-shape or `object` for one native object, never both. The generic shape is a
-long-tail fallback, not a replacement for useful structural vocabulary.
-
-Constructor arguments are named because they are clear for agents, easy to
-validate, and safe to evolve:
-
-```sal
-g = graph(asset: door, id: "graph-guid", name: EventGraph, type: GT_Ubergraph)
-```
-
-Positional constructor arguments are not supported:
-
-```sal
-g = graph(blueprint, bp, EventGraph)
-```
-
-## UE Native Type Text
-
-SAL never defines or translates its own type system. Every field named `type`
-carries the canonical native UE text supplied by the UE system that owns that
-object. It is not a friendly label, an SAL category, or a closed SAL enum.
-
-The native source varies because UE itself uses different representations:
-
-- Asset `type` is `FAssetData::AssetClassPath`, such as
-  `"/Script/Engine.Blueprint"`.
-- Blueprint `type` is native `EBlueprintType` text, such as `BPTYPE_Normal`.
-- Graph `type` is native `EGraphType` text returned by its Schema, such as
-  `GT_Function`, `GT_Ubergraph`, or `GT_Macro`.
-- Node, Component, Widget, and similar UObject `type` fields use their exact
-  native Class Path.
-- Pin and Blueprint Variable `type` fields use canonical
-  `FEdGraphPinType` text.
-- Reflected Property `type` fields use the owning `FProperty` native text.
-
-The owning adapter selects the native source and codec, preserves every
-required detail, and validates the text through UE. Query results must return
-type text that can be copied back into a compatible create or edit operation.
-SAL must not replace it with friendly asset, Graph, Node, value, container,
-Struct, or Enum aliases. It must not use localized editor labels as type
-identity.
-
-Native enum tokens may use ordinary unquoted Name syntax. Paths and structured
-native text use strings. Normalized JSON uses those ordinary `Name` or string
-values and preserves the native text without semantic remapping; there is no
-type-specific AST or JSON model.
-
-The adapter-defined object word or normalized discriminator remains structural
-information such as `asset`, `graph`, `node`, or `pin`. Optional capability
-hints such as an Asset result's `domains` list are descriptive discovery data,
-not target-routing selectors. None of them substitute for native `type` or the
-resolved UE Class.
-
-## Arrays And Objects
-
-Arrays use JSON-like brackets and only mean arrays:
-
-```sal
-at: [320, 0]
-domains: [asset, blueprint]
-```
-
-Inline objects use JSON-like braces and only mean value objects:
-
-```sal
-options: {TraceComplex: false, DrawDebugType: ForOneFrame}
-```
-
-Braces are not structural blocks:
-
-```sal
-asset "/Game/BP_Door.BP_Door" {
-  type: "/Script/Engine.Blueprint"
-}
-```
-
-## Text And JSON Forms
-
-SAL has three forms with different audiences:
-
-| Form | Audience | Purpose |
-| --- | --- | --- |
-| Sugar text | Agents | Compact, readable authoring and object text |
-| Canonical text | Parsers and validators | Unambiguous text after sugar expansion |
-| Normalized JSON | Bridge and schemas | Explicit RPC contract for execution |
-
-The conversion direction is one-way:
+### Stable Reference
 
 ```text
-sugar text -> canonical text -> normalized JSON
+stable_ref =
+  [semantic_tag whitespace]
+  "@" identity_segment { "/" identity_segment }
+
+identity_segment =
+  safe_bare_segment | json_string
 ```
-
-Agents read and write text. The UE bridge executes normalized JSON. Parsers,
-validators, and adapters own conversion. Sugar text is optional and
-domain-defined; it must normalize without UE state or schema lookup.
-
-Canonical text keeps the SAL surface, but removes shorthand. It is still
-agent-readable and domain-specific:
 
 ```sal
-# Sugar text
-begin.Then -> delay.Exec/Completed -> print.Exec
-
-# Canonical text
-edge(begin.Then, delay.Exec)
-edge(delay.Completed, print.Exec)
+@node-guid
+@node-guid/pin-guid
+@"owner/part"/"leaf.with.dot"
 ```
 
-Patch sugar follows the same rule:
+Identity paths are interpreted only after the exact Target and Domain are
+known. Path components come from UE's native identity contract. Display names,
+semantic tags, current array positions, and collection words never become
+identity components.
+
+Optional tags decorate a StableRef:
 
 ```sal
-# Sugar text
-connect begin.Then -> print.Exec
-
-# Canonical text
-connect(begin.Then, print.Exec)
+node @node-guid
+pin @node-guid/pin-guid
 ```
 
-Normalized JSON is the schema and RPC contract. It must be explicit enough for
-the bridge to parse, resolve, validate, plan, and apply operations without
-guessing from display text. Shared JSON belongs here; domain JSON belongs in
-the relevant domain feature sections.
+They remain optional AST presentation metadata, but are excluded from identity
+equality, identity hashing, native lookup, planning, and mutation.
 
-## Query Text
-
-### Summary
-
-`summary` is the shared orientation primary operation:
-
-```sal
-query <target>
-summary
-```
-
-The owning domain adapter decides which existing SAL objects best summarize
-that target. Different domains, and different target types within one domain,
-may return different kinds of objects. The core does not define entry points or
-any other universal summary content.
-
-A summary result is an ordered SAL document made from existing object statements
-and `#` comment statements. Adapters may use comments for counts or other
-agent-facing context. Objects and comments may be interleaved, and the formatter
-must preserve the adapter's order instead of regrouping statements by object
-type.
-
-Summary introduces no result constructor, section syntax, or summary-specific
-object type. It is one ordinary query operation and does not accept `where`,
-`with`, `order by`, or `page` clauses.
-
-Normalized JSON uses the same query envelope as every other read:
+The normalized form is:
 
 ```ts
-interface SummaryOperation {
-  kind: "summary";
+interface StableRef {
+  kind: "stable_ref";
+  identityPath: [string, ...string[]];
+  semanticTag?: string;
 }
 ```
 
-The shared `Query.operation` union includes `SummaryOperation`. The parser
-resolves the query target binding into its canonical `Target`; the
-document-local alias is not target identity and need not cross the RPC
-boundary.
+### Owner Scope
 
-### Query Envelope
-
-Query text uses a shared multi-line envelope around an exact bound target and,
-normally, one domain-owned primary operation:
+If a native local id is not globally unique in the Target, its native identity
+owner precedes it:
 
 ```sal
-query <target>
-<primary operation>
-<allowed clauses>
+@node-guid/pin-guid
+@parameter-container-guid/property-guid
+@function-graph-guid/local-variable-guid
 ```
 
-An exact bound target may be read directly by omitting the operation:
+The required path shape does not change merely because the current asset
+happens to contain one matching local id.
+
+### Member Reference
+
+Member paths follow identity and remain distinct:
 
 ```sal
-query <target>
-
-query <target>
-with schema
+@node-guid/pin-guid.DefaultValue
+@node-guid.NativeArray[0].Value
 ```
 
-The first form returns the target's own compact meaningful object fields. The
-second also returns its usable schema. This is not `summary`: it reads one
-exact target rather than producing an orientation view. A collection root such
-as `query asset` is not an exact target and cannot use the bare form. All other
-queries contain one explicit primary operation.
+The StableRef selects the object; the member path selects current schema state
+inside that object. A member path is not independent stable identity.
 
-Reads follow one small, reusable model. Each operation below occupies the line
-after `query <target>`:
+### Target Self
 
-```sal
-summary
-<collection> ["text"]
-<kind> <name>
-<kind>@<id>
-```
-
-The plural collection form enumerates or searches one domain-owned view. The
-singular name form resolves one exact object by its current local name inside
-the bound target. A kind-qualified stable reference is itself the exact-id
-primary operation; it needs no `find` prefix. If the declared kind is literally
-`object`, the request is literally `object@id`. Bare `@id` is invalid.
-A domain supports only the forms that match its UE objects; for example, Class
-Reflection has no universal id and Graph Nodes have no reliable local name.
-
-Domains may also define clear relationship operations such as Graph `context`,
-`exec flow`, `data flow`, `palette entries`, and `palette @id`. Every query
-contains exactly one normalized operation. That operation explicitly defines
-whether `where`, `with`, `order by`, `page`, or operation-local arguments such
-as `depth` are legal.
-
-The shared factual reference relationship is:
-
-```sal
-query <target>
-references to <stable-ref>[.<native-member-path>] [in project]
-page limit 50
-```
-
-The bound target defines local scope; `in project` selects project-owned
-authored content instead. Reference subjects, results, and pagination use
-existing Member References, ordered Object Text, and cursor forms. See
-[`REFERENCE_QUERIES.md`](REFERENCE_QUERIES.md) for the complete confirmed
-resolution, scope, UE mapping, and completion rules.
-
-Query text is clause-per-line. Do not combine `query`, its primary operation,
-or trailing clauses on one line. Object text may prefer compact single-line
-statements, but query text should keep its structure visible.
-
-Query syntax summaries use literal words for required keywords, `<name>` for
-semantic placeholders, `[item]` for optional parts, and `a|b` for choosing one
-literal.
-
-| Clause | Purpose | Example |
-| --- | --- | --- |
-| `query` | target domain or bound object | `query asset`, `query g` |
-| primary operation | choose one domain read; omit only for exact target read | `assets "door"`, `context node@node-id depth 2` |
-| `where` | structured filter expression | `where type = "/Script/Engine.Blueprint" and not loaded` |
-| `with` | expand beyond the domain default result | `with registryTags`, `with schema, layout` |
-| `order by` | deterministic result ordering | `order by score desc, path asc` |
-| `page limit` | maximum result count | `page limit 50` |
-| `page after` | continue after a returned cursor | `page after "cursor"` |
-
-There is no `select` clause. The target read or primary operation defines its
-default result shape and allowed expansions. Unsupported clauses are errors
-rather than ignored generic options.
-
-The optional quoted text after a plural collection operation is its primary
-search text. `where` is for structured filters:
-
-```sal
-assets "door"
-where root = "/Game" and type = "/Script/Engine.Blueprint"
-
-nodes "Print"
-where type = "/Script/BlueprintGraph.K2Node_CallFunction"
-```
-
-Field-level fuzzy conditions are allowed for advanced filters, but primary
-search text belongs on the plural collection operation. Domains may define
-operation-local arguments, such as graph palette pin-context arguments `from
-<pin>` and `to <pin>`.
-
-Condition expressions use a small SQL-like subset:
-
-```sal
-where type = "/Script/Engine.Blueprint"
-where root = "/Game" and type = "/Script/Engine.Blueprint"
-where NodeComment ~= "debug"
-where not loaded
-```
-
-Supported condition operators:
-
-| Operator | Meaning |
-| --- | --- |
-| `=` | equal |
-| `!=` | not equal |
-| `~=` | domain-defined contains or fuzzy contains |
-| `>` `>=` `<` `<=` | ordered comparison |
-| `not` | negation |
-| `and` | conjunction |
-| `or` | disjunction |
-| `(...)` | grouping |
-
-Condition precedence follows the usual SQL subset: parentheses first, then
-`not`, then `and`, then `or`.
-
-Normalized JSON always has one explicit operation. A bare exact-target Query
-normalizes to the shared `target` operation; every other operation comes from
-the owning domain:
-
-```ts
-interface Query {
-  kind: "query";
-  target: Target;
-  operation: {kind: string};
-  where?: Condition;
-  with?: string[];
-  orderBy?: OrderBy[];
-  page?: Page;
-}
-
-interface TargetOperation {
-  kind: "target";
-}
-```
-
-The interface above shows only the shared envelope. The actual JSON Schema
-replaces `operation: {kind: string}` with a closed union assembled from the
-operation types defined by implemented domains, and replaces `with: string[]`
-with the shared `schema` literal plus the closed set of domain details. Every
-operation has a readable snake_case `kind` and only its own arguments. Target
-read uses `{kind: "target"}`. Plural
-operations normally carry optional `text`; singular operations carry `name`;
-stable-id operations carry `id`, with their `kind` preserving the canonical object
-word. Relationship operations define
-their own fields. Summary uses `{kind: "summary"}` and carries no operation
-arguments.
-
-The old normalized `find` property represented the earlier find-centric text
-model and is not part of the contract. `node@id` normalizes directly to
-`{kind: "node", id: "..."}`; `variable Health` normalizes to
-`{kind: "variable", name: "Health"}`. There is no internal `find_by_id`
-operation.
-
-Shared condition, ordering, and pagination value shapes remain:
-
-```ts
-type Condition =
-  | { kind: "eq"; field: FieldPath; value: Expr }
-  | { kind: "ne"; field: FieldPath; value: Expr }
-  | { kind: "contains"; field: FieldPath; value: Expr }
-  | { kind: "compare"; op: "gt" | "gte" | "lt" | "lte"; field: FieldPath; value: Expr }
-  | { kind: "not"; condition: Condition }
-  | { kind: "and"; conditions: Condition[] }
-  | { kind: "or"; conditions: Condition[] };
-
-interface FieldPath {
-  path: string[];
-}
-
-interface OrderBy {
-  key: string;
-  direction: "asc" | "desc";
-}
-
-interface Page {
-  limit?: number;
-  after?: string;
-}
-```
-
-Domain documents define their primary operations, supported `where` fields,
-`with` items, ordering keys, and pagination defaults. `~=` lowers to
-`contains`; domains decide its exact match behavior.
-
-### Object Schema Expansion
-
-`schema` is the shared object-discovery expansion:
-
-```sal
-query target
-node@id
-with schema
-```
-
-An exact request target uses the same expansion through the bare target read:
-
-```sal
-query target
-with schema
-```
-
-An exact name operation may request the same expansion:
-
-```sal
-query actorClass
-property Health
-with schema
-```
-
-The subject must resolve to exactly one bound target, one existing object, one
-exact object-backed value surface, or one exact creation entry. Existing
-objects use either a kind-qualified stable reference or a domain-owned singular
-name operation;
-object-backed values such as one Class Default reuse the exact owning object;
-creation entries use the owning domain's exact palette identity. `with schema`
-is not valid for summary results, collections, or ambiguous palette searches.
-
-The ordinary object, value, or creation text remains the query result. The
-adapter adds one immediately following multi-line Comment containing the
-primary subject's complete usable schema:
-
-- fields, with native UE type text, readable/writable status,
-  required/default behavior, source, and constraints when known
-- target-local Query operations, with their accepted clauses, expansions,
-  current availability, and copyable request text when useful
-- adapter-owned editing Operations, with named parameters, current
-  availability, primary outputs, a copyable `invoke` template, and UE source
-- direct Patch statements available when that exact object is the request
-  target, with current availability, constraints, and copyable request text
-
-There is no separate `with operations` expansion. Operations are normally
-short enough that one `with schema` read should tell the agent everything it can
-read, write, reset, or invoke on the exact subject. The result does not
-introduce `schema(...)`, `field(...)`, `operation(...)`, or another
-schema-specific object syntax.
-
-The Comment uses a stable plain-text layout, not a nested SAL or Markdown
-grammar:
-
-```sal
-###
-schema
-
-fields:
-  NodeComment: FString; read, write
-
-operations:
-  AddExecutionPin()
-    availability: available
-    output pin: one Pin
-    invoke: invoke node@sequence-id AddExecutionPin() as next
-###
-```
-
-When the exact subject is also the request target, the same Comment may expose
-its context-sensitive Query surface:
-
-```sal
-###
-schema
-
-query:
-  exec flow from|to node@id|pin@id [depth N]
-    availability: available
-    with: layout
-###
-```
-
-`query:` lists primary operations accepted when the exact subject is the
-request target. `operations:` is reserved for object interfaces called through
-`invoke`. `patch:` lists direct statements accepted when the exact subject is
-the Patch target. `copy:` contains complete request text the agent may reuse.
-These are stable sections of opaque Comment text, not nested SAL grammar or
-additional schema objects. A Query or direct Patch statement that is
-temporarily unavailable remains in its section with the UE-derived reason.
-
-An Operation name is a stable PascalCase name owned by the adapter and grounded
-in UE editor semantics. Prefer an exact non-localized UE Editor Action identity;
-otherwise use the closest native interface behavior. Do not expose arbitrary
-C++ methods. Adapters maintain the UE Action and native execution-path mapping.
-The runtime schema includes optional `UE action:` or `native:` provenance only
-when it disambiguates a non-obvious mapping or explains an availability or
-constraint decision.
-
-An Operation name is resolved inside the exact target object's schema, not in a
-global Operation namespace. Reusing a UE Action or native interface name across
-object types does not imply identical parameters, outputs, or effects. The
-agent must use the contract and copyable template returned for that target by
-`with schema`; it must not infer one target's contract from another target that
-happens to expose the same name.
-
-Schema lists every Operation supported by the subject type. Instance reads mark
-current availability and give the UE reason when an Operation is unavailable.
-Outputs describe only ordinary objects the agent may need to reference later:
-zero outputs are omitted, fixed outputs use named roles, and variable outputs
-use an ordered keyed role such as `subpins.X`. A primary output may be newly
-created or may be an existing object that the Operation makes relevant or usable
-for subsequent statements. Mirrored objects, reconstructed call sites, removed
-Edges, and other cascades are effects reported by preflight and mutation results
-rather than primary outputs.
-
-Schema applies only to the primary subject. It does not recursively add schemas
-for expanded children such as Pins. Child objects require their own exact
-query. An adapter that cannot provide the requested schema returns a capability
-diagnostic rather than silently omitting it.
-
-For a creation entry, `with schema` describes accepted creation fields,
-constraints, and Operations determinable for the initial created state in the
-current domain context. A domain may expose an identity for the creation entry
-itself; that identity is not a future object id. The query does not invent Node,
-Pin, or other instance ids before UE creates them. After creation, the mutation
-result returns the real objects and ids, whose instance schema may differ and
-may be queried separately.
-
-Pagination is cursor-based. If `page limit` is omitted, domains normally use
-50. If `page after` is omitted, the query returns the first page. Results with
-more data return an opaque cursor that agents pass back unchanged:
+The active Target is read structurally in every Domain:
 
 ```sal
 query g
-palette entries "Print String"
-page limit 50
-
-query g
-palette entries "Print String"
-page limit 50
-page after "cursor-from-previous-result"
-```
-
-SAL text should not expose offset pagination. Bridge adapters may internally
-map cursors to offsets or other backend-specific pagination state.
-
-## Patch Text
-
-Patch text is a statement list:
-
-```sal
-patch target
-binding = constructor(arg: value)
-operation ...
-```
-
-Core reserves seven common Patch operations whose intent remains stable across
-domains:
-
-| Operation | Common intent |
-| --- | --- |
-| `add` | Materialize one declared binding as a domain-owned lifecycle object |
-| `remove` | Delete one domain-owned lifecycle object |
-| `set` | Write one schema-approved field |
-| `reset` | Restore one field through its schema-approved native reset behavior |
-| `move` | Change one object's layout, authored collection order, or domain-owned structural placement |
-| `invoke` | Execute one target-local Operation discovered through `with schema` |
-| `save` | Persist the Patch target's owning UE Package through the native save path |
-
-The common operation name does not bypass the domain adapter. Each domain
-defines the exact supported object kinds, operand forms, constraints, native UE
-path, cascades, and result. `move`, for example, may support `to` and `by` for
-Graph layout while an authored collection supports `before` and `after`.
-
-Domains may additionally define operations that depend on their own model.
-Graph owns `connect`, `disconnect`, `break`, and `insert` because their meanings
-require Pins, Edges, Nodes, and a Graph Schema. Those are not Core lifecycle
-operations merely because Graph was the first Patch domain. Widget likewise
-owns `wrap` and `replace` because preserving Panel Slots, Named Slots, Root
-placement, Widget identity, and references requires the Widget ownership model.
-
-A domain must not expose two equivalent ways to perform the same mutation. If
-an object is a declared lifecycle object, ordinary creation and deletion use
-`add` and `remove`, not target-local `Add...`, `Delete`, or `Remove` Operations.
-`invoke` remains appropriate for specialized subordinate behavior that is not
-valid for the object kind in general, such as removing one editable signature
-Parameter Pin through `RemoveParameter()`; this does not make arbitrary Pins
-valid `remove` targets.
-
-An operation exists only where its domain defines an exact meaning. For
-example, Class Defaults use `reset` to remove a local default override and
-resume inheritance. Bindings make later operations precise:
-
-```sal
-patch g
-print = node(palette: "P_PrintString")
-add print
-connect pin@begin-then-id -> print.execute
-```
-
-Each binding occupies one complete statement. It declares an unmaterialized local or
-member-path alias; the owning domain defines which `add` form materializes it.
-Every binding passed directly to `add` must contain the `palette` identity of an
-exact creation capability returned by Palette. Missing, stale, or context-
-invalid Palette identities fail validation. Core still treats the binding value
-as an ordinary `Call`; the adapter owns capability resolution and argument
-validation.
-
-A domain operation may explicitly consume and materialize an unmaterialized
-Palette-backed binding when creation and a native structural transformation are
-one indivisible operation. Graph `insert` materializes its Node binding; Widget
-`wrap` materializes its wrapper binding, and Widget `replace` may materialize a
-replacement binding. Such a binding is not also passed to `add`, and the domain
-operation must document its exact identity, placement, and failure semantics.
-This is a domain operation, not Core creation sugar.
-
-Inline binding forms such as `add print = node(...)` are invalid. A domain may
-define operation-local sugar, but it must lower to ordinary ordered statements
-before validation. For example, Graph
-`add print pin@source-id -> print.execute` lowers to `add print` followed by
-`connect(pin@source-id, print.execute)`.
-
-Object text describes state. Patch text always requires an explicit operation:
-a bare Graph Edge is object text and cannot mean `connect` merely because it
-appears inside a Patch.
-
-`save` is the shared terminal Patch operation:
-
-```sal
-patch target
-save
-```
-
-The target may be an Asset, Blueprint, Graph, Widget, or another domain object
-whose real UE ownership resolves to persistent Package state. Core does not
-require the caller to retarget the request to a separate Asset binding merely
-because UE ultimately serializes a Package. A transient target or a target
-without resolvable persistent ownership does not support `save`.
-
-`save` persists only dirty Package state. A clean Package returns a successful
-`already clean` result without rewriting it. Saving follows UE's non-interactive,
-source-control-aware path: enabled Source Control may check out an existing
-file or mark a new file for add, and checkout, read-only, or disk failures are
-returned as diagnostics. Native external Package ownership, such as a World's
-external packages, remains UE-defined. Core does not add `save all`, interactive
-prompts, checkout flags, or a second Asset-only save syntax.
-
-`save` may appear at most once and must be the last statement in its Patch. It
-may be the only statement, or it may follow a terminal statement whose domain
-explicitly permits that sequence. It cannot be mixed with bindings, authored
-source mutation, or arbitrary `invoke` statements. The Blueprint domain, for
-example, permits `compile` followed by `save`; `save` followed by `compile`,
-repeated terminal statements, and undeclared terminal combinations are invalid.
-
-`save` normalizes directly to `{kind: "save"}`. Blueprint `compile` follows the
-same terminal-statement rule and normalizes to `{kind: "compile"}`.
-
-`invoke` is the shared Patch operation for adapter-owned object interfaces:
-
-```sal
-invoke <target> <Operation>(named arguments) [as <alias>]
-invoke <target> <Operation>(named arguments) as <selector>: <alias>, ...
-```
-
-For example:
-
-```sal
-invoke node@sequence-id AddExecutionPin() as next
-invoke pin@vector-id SplitStructPin() as subpins.X: x, subpins.Z: z
-```
-
-The target is one kind-qualified stable reference or one already materialized
-local alias. `Operation` is copied exactly from the target's `with schema` result.
-Arguments use the existing named-argument and line-wrapping rules; when the
-argument list wraps, the closing `)` and optional `as` clause remain in the same
-statement. `invoke` is a statement, never an expression nested inside another
-call or binding. Operation lookup is target-local; the same Operation name may
-have a different schema on a different target type.
-
-The optional `as` clause binds primary outputs for later statements in the same
-Patch. When the Operation has exactly one primary output, `as <alias>` binds it
-directly; its object kind comes from the exact target's schema and is not
-repeated in text. When an Operation has multiple primary outputs, each binding
-uses an exact adapter-provided selector such as `key` or a keyed-many selector
-such as `subpins.X`. SAL defines no universal `members` or `items` role. The
-caller may omit outputs it does not need from a multi-output Operation. Every
-alias is unique and becomes valid only after the `invoke` statement succeeds.
-It is then an ordinary object reference equivalent in operation position to a
-stable typed reference.
-
-Normalized JSON:
-
-```ts
-interface Patch {
-  kind: "patch";
-  target: Target;
-  dryRun: boolean;
-  statements: PatchStatement[];
-}
-
-type PatchStatement = Binding | PatchOperation;
-
-interface Invoke {
-  kind: "invoke";
-  target: Ref;
-  operation: string;
-  args: Record<string, Expr>;
-  outputs: InvokeOutputBinding[];
-}
-
-interface InvokeOutputBinding {
-  selector?: string;
-  alias: string;
-}
-```
-
-An omitted JSON `selector` is valid only when the resolved Operation schema has
-exactly one primary output. Pure normalization preserves that omission; the
-owning adapter resolves and validates it against the same schema used by
-`with schema`.
-
-The single `statements` array preserves exact source order. Bindings appear
-directly as `{target, value}` and are not wrapped in a second `binding`
-statement. Operations must not be regrouped into parallel arrays because
-binding lifetime, creation, member resolution, and execution all depend on
-that order.
-
-`PatchOperation` is the closed schema union of Core and domain-specific
-operation payloads; `Invoke` is the shared operation shape above. Direct fields
-mirror SAL keywords: `connect` and `disconnect` carry `from` and `to`; `move`
-carries exactly one of `to`, `by`, `before`, or `after`; `wrap` and `replace`
-carry `with`; `save` and `compile` carry no arguments. Core normalization
-preserves output-binding order but does not decide whether the target supports
-the Operation, whether arguments are valid, or which UE API executes it. The
-owning adapter validates all of those against the same schema it returns to the
-agent.
-
-Stable object references are typed in text and JSON: for example, `node@id` normalizes to
-`{kind: "node", id}`, while a document alias remains a `LocalRef` and an alias
-member remains a `MemberRef`. A bare stable `@id` does not exist.
-
-Dry run is a mutation mode, not a separate language: parse, resolve, validate,
-and plan through the real path, then stop before applying changes. Authored
-source Patches are ordered and atomic; a failed validation applies nothing,
-and an apply failure must restore the entire Patch rather than return partial
-success.
-
-Terminal execution is ordered but not rollbackable. A terminal Patch validates
-its complete sequence before executing the first statement, but a later
-external failure cannot undo an earlier compile or disk write. The result must
-report every completed step honestly. If a Blueprint compiles and its following
-`save` then fails, the mutation returns `isError: true` and `applied: true`, the
-ordinary Blueprint object contains the resulting compile state, and the save
-diagnostic explains the failure. It must not claim that compilation rolled back.
-
-## Creation Discovery
-
-Palette is the universal discovery path for every object created directly by a
-binding followed by `add`. Each domain exposes Palette in the target context
-through the existing plural search and exact-id operations:
-
-```sal
-query door
-palette entries "Variable"
-
-query door
-palette @P_BlueprintVariable
+target
 with schema
 ```
 
-The same discovered constructor Call is used when a documented domain
-operation materializes a binding directly, such as Graph `insert` or Widget
-`wrap` and Palette-backed `replace`.
-
-A Palette result is ordinary ordered Object Text. Each entry contains a binding
-whose value is the complete constructor `Call` the agent may copy into Patch
-text. The adapter chooses the constructor name, the `palette` identity, and the
-argument shape:
+The References operation also has a structural Target-self subject:
 
 ```sal
-Variable = variable(
-  palette: "P_BlueprintVariable",
-  type: "<FEdGraphPinType native text>"
-)
-
-PrintString = node(palette: "P_PrintString")
+query g
+references to target
 ```
 
-`with schema` adds the accepted fields, native type text, constraints, and
-initially available Operations through the shared structured comment contract.
-Domain-owned child previews such as future Graph Pins may follow the creation
-binding in the same ordered Object Text. They are descriptive output, not more
-objects the Patch must create directly.
+It receives no synthetic StableRef. Native support is intentionally narrower
+than the grammar: bare `target` resolves only when the exact Graph Target is a
+callable Function or Macro declaration. A Graph Target's direct
+`target.InterfaceGuid` member resolves when that native Interface declaration
+exists. Other Graph roles and the other five Domains return
+`capability.reference_unavailable` while retaining exact Target context.
 
-There is no closed `ShortcutEntry | ClassEntry | PaletteEntry` union and no
-separate grouped `PaletteResult`. A Palette creation binding normalizes exactly
-like any other binding, with an ordinary `Call` value:
+### Scoped Result Reference
 
-```json
-{
-  "target": {"kind": "local", "name": "Variable"},
-  "value": {
-    "kind": "call",
-    "callee": "variable",
-    "args": {
-      "palette": "P_BlueprintVariable",
-      "type": "<FEdGraphPinType native text>"
-    }
-  }
-}
+Results may contain several independent Targets. An unqualified StableRef is
+relative to the main Target; a foreign one uses:
+
+```sal
+bp::@variable-guid
 ```
-
-The `palette` value identifies a creation capability in one adapter context. It
-is not the stable id of the future UE object and is not persisted as materialized
-object state. At `add`, the adapter resolves it again, validates the current
-context and all arguments against the same entry schema, then returns the real
-created object and native id through the domain's ordinary ordered Object Text.
-
-## Results And Diagnostics
-
-Bridge-facing results use normalized JSON plus diagnostics. SDK results format
-successful objects back to SAL text.
-
-Normalized JSON:
 
 ```ts
-interface Result {
-  object?: ObjectText;
-  diagnostics: Diagnostic[];
-  page?: {
-    next: string;
-  };
+interface ScopedStableRef {
+  kind: "scoped_stable_ref";
+  target: LocalRef;
+  reference: StableRef;
 }
+```
 
-interface MutationResult extends Result {
-  isError: boolean;
-  dryRun: boolean;
-  valid: boolean;
-  applied: boolean;
-  assetPath?: string;
-  operation: string;
-  resolvedRefs?: unknown;
-  planned?: unknown;
-  diff?: unknown;
-  previousRevision?: string;
-  newRevision?: string;
-}
+This is result-side normalized structure. A request may spell the active
+Target redundantly, for example `g::@identity` in a request whose active alias
+is `g`; the parser immediately lowers that spelling to an ordinary unscoped
+StableRef. A foreign or unknown qualifier is rejected. To follow a related
+Target, the caller copies it into a new request as the active Target and uses
+an ordinary Target-relative StableRef.
 
-interface Comment {
-  kind: "comment";
-  text: string;
-}
+## Object Text Statements
 
+Object Text is an ordered list:
+
+```ts
 interface ObjectText {
   statements: Statement[];
 }
 
 type Statement = Binding | Edge | Comment;
+```
 
-interface Edge {
-  from: Ref;
-  to: Ref;
+Domain documents may show an Object Text excerpt without repeating the result
+envelope. A real Bridge response still carries the explicit result context and
+Target table defined below.
+
+### Binding
+
+```sal
+alias = <expression>
+owner.member = <expression>
+```
+
+Examples:
+
+```sal
+beginPlay = node {
+  id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  type: "/Script/BlueprintGraph.K2Node_Event"
 }
 
-interface Diagnostic {
-  severity: "error" | "warning" | "info";
-  code: string;
-  message: string;
-  span?: SourceSpan;
-  suggestion?: string;
-}
-
-interface SourceSpan {
-  line: number;
-  column: number;
-  length?: number;
+beginPlay.then = pin {
+  id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+  type: "<native FEdGraphPinType text>",
+  direction: out
 }
 ```
 
-Queries and mutations use the same `object: ObjectText` content model and the
-same SAL formatter. `MutationResult` only adds execution state around that
-ordinary object; it does not introduce a second mutation-specific object or
-text format. Optional revision fields remain absent from a concrete tool's
-public response until that tool enforces them.
+A binding target is unique inside one Object Text. A referenced local alias
+must already be bound.
 
-A result returns the state requested by its normalized operation. It must not
-repeat a complete target snapshot merely to identify the request again, and it
-must not inherit local aliases from the request. When returned statements refer
-to the target or another owner, the result first declares a compact binding for
-that object using only the kind-qualified id, native Path, or other state needed
-by the returned relationships. This compact result binding is not a substitute for a
-complete request locator. When a result navigates to a different target, it
-must provide enough owning locator information to construct a later
-self-contained request; a scoped id alone is insufficient.
+### Edge
 
-For an ordered terminal Patch, `applied` means that at least one terminal step
-actually executed. `isError` reports whether the requested sequence completed
-successfully. The combination `applied: true, isError: true` is therefore valid
-when a later non-rollbackable step fails after an earlier one completed; the
-ordered object comments and structured diagnostics identify the exact boundary.
+```sal
+beginPlay.then -> print.execute
+```
 
-`Comment.text` stores the content without text delimiters. A one-line value
-formats as `# text`; a value containing a newline formats between depth-zero
-`###` delimiter lines. The delimiters and a block's final line ending are not
-part of `text`. A normalized multi-line value cannot contain its own standalone
-delimiter line; result builders escape that opaque input before formatting.
-Comments are data in the ordered object, not an auxiliary comments array.
-Schema is one use of an ordinary multi-line Comment, not a new result statement
-type.
+An Edge describes one ordered relationship. Domains decide endpoint validity
+and meaning. In Patch, a bare Edge is state description and cannot authorize a
+mutation; use a Domain operation such as `connect`, `disconnect`, `bind`, or
+`unbind`.
 
-Every result serializes its Object Text in one `statements` array. Bindings,
-Edges, and Comments are interleaved in exact formatter order. It must not use
-domain result wrappers such as `GraphResult`, `ClassResult`, `AssetResult`, or
-`PaletteResult`, or parallel arrays such as `nodes`, `pins`, `properties`,
-`defaults`, and `comments`. Exact Call fields and operation capabilities remain
-executor-owned; the result container does not repeat the domain distinction.
+## Query Text
 
-The ordered result container is normalized JSON only. It does not add
-`document(...)`, `result(...)`, section syntax, or any other SAL text form.
-Blank lines are canonical formatting and are not result statements.
+```text
+<target binding>
 
-`page.next` is opaque. Agents should pass it back through `page after` without
-parsing it. Diagnostics should be teachable: they should name the failed
-construct and, when possible, point to the query, patch, or object text that
-should be changed.
+query <target alias>
+<one primary operation>
+[where <condition>]
+[with <detail>, ...]
+[order by <field> [asc|desc], ...]
+[page limit <count>]
+[page after <json string>]
+```
 
-## Core Rules
+Core structural operations are:
 
-1. SAL text is a statement list.
-2. A depth-zero newline ends a statement; newlines inside matched `()`, `[]`,
-   or `{}` are presentation-only whitespace.
-3. Structure comes from bindings, references, constructors, arrays, inline
-   objects, and domain statements.
-4. `{}` is only an inline value object, never a structural block.
-5. `[]` is only an array.
-6. Constructors use named arguments.
-7. Positional constructor arguments are not part of SAL.
-8. Query text and patch text use statement lists, not JSON-like bodies.
-9. Sugar text must have a canonical text form.
-10. Canonical text must lower to normalized JSON.
-11. The language core does not decide whether a symbol is a class, enum, asset,
-   field, node type, or operation. Domains and adapters resolve those meanings.
-12. Comments normalize to ordered `Comment` objects. `# text` is the one-line
-    form and depth-zero `###` delimiter lines enclose the multi-line form.
-13. `invoke` is the shared Patch operation for schema-discovered object
-    Operations; domains and adapters own the available Operations and outputs.
-14. `save` is the shared terminal Patch operation for a target with persistent
-    owning Package state; it is final, non-interactive, and never means save all.
-15. A Query or Patch target alias expands to a complete domain-defined locator
-    chain; a scoped `<kind>@<id>` cannot replace that chain.
-16. Exact names discover existing id-bearing objects, kind-qualified ids access
-    and modify them, native Paths or scoped names identify objects that have no
-    native id, and Patch-local aliases identify objects that do not exist yet.
-17. Constructors describe SAL object shape. Native UE Class and inheritance
-    determine adapter capabilities and are never translated into constructor
-    names or repeated through a public `domain` field.
+```sal
+target
+@identity
+references to target
+references to @identity.Member
+palette entries ["text"]
+palette @id
+```
+
+Domains add operations such as `summary`, collections, `tree`, `context`,
+`exec flow`, and `data flow`. Each static Domain card closes the valid
+operation and clause matrix. In particular, accepting the structural
+`target_self` subject does not promise a native provider: current Target-self
+reference support is limited to callable Function/Macro Graph Targets and the
+direct Graph `target.InterfaceGuid` member described above.
+
+Conditions support:
+
+```text
+= != ~= > >= < <= not and or ( )
+```
+
+Precedence is parentheses, then `not`, then `and`, then `or`. Conditions lower
+to a closed tree rather than an opaque string:
+
+```ts
+type Condition =
+  | { kind: "eq"; field: FieldPath; value: RequestExpr }
+  | { kind: "ne"; field: FieldPath; value: RequestExpr }
+  | { kind: "contains"; field: FieldPath; value: RequestExpr }
+  | {
+      kind: "compare";
+      op: "gt" | "gte" | "lt" | "lte";
+      field: FieldPath;
+      value: RequestExpr;
+    }
+  | { kind: "not"; condition: Condition }
+  | { kind: "and"; conditions: [Condition, Condition, ...Condition[]] }
+  | { kind: "or"; conditions: [Condition, Condition, ...Condition[]] };
+
+interface FieldPath {
+  path: [string, ...string[]];
+}
+```
+
+`~=` lowers to `contains`; the Domain defines its exact contains or fuzzy
+semantics. Domains close allowed fields, operand value types, and operators.
+Boolean shorthand such as `loaded` is Domain-defined sugar for an explicit
+condition. Unsupported fields, operators, clauses, and clause combinations are
+errors, never ignored input.
+
+Exact object and Palette reads may request dynamic schema:
+
+```sal
+query g
+@node-guid
+with schema
+```
+
+### Shared `with schema` Contract
+
+`schema` is the shared discovery expansion for one exact subject. Valid
+subjects are:
+
+- the exact active Target through `target`;
+- one exact existing object selected by StableRef or a Domain-owned singular
+  name operation;
+- one exact object-backed value surface, such as a Class Default;
+- one exact creation entry selected by its Domain Palette identity.
+
+It is invalid on summaries, collections, ambiguous Palette searches, or any
+operation that does not resolve exactly one primary subject. The ordinary
+object, value, or Palette entry remains the result. Immediately after it, the
+adapter emits one multiline Comment with the complete currently usable
+contract. No `schema` object, schema tag, or second expression model is added.
+
+The stable Comment sections are:
+
+```sal
+###
+schema
+
+fields:
+  NodeComment: FString; read, write
+
+query:
+  exec flow from|to @identity [depth N]
+    availability: available
+    with: layout
+
+operations:
+  AddExecutionPin()
+    availability: available
+    output pin: one Pin
+    invoke: invoke @aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa AddExecutionPin() as next
+
+patch:
+  save
+    availability: unavailable
+    reason: package has no persistent owner
+
+copy:
+  query g
+  @aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+  with schema
+###
+```
+
+The sections have these exact responsibilities:
+
+- `fields:` lists native UE type text, read/write/reset status,
+  required/default behavior, source, and known constraints;
+- `query:` lists primary operations accepted when the subject is itself the
+  request Target, including accepted clauses, expansions, availability, and
+  copyable text;
+- `operations:` lists adapter-owned target-local operations invoked through
+  `invoke`, including named parameters, availability, primary outputs,
+  copyable invocation, and UE source when useful;
+- `patch:` lists direct Patch statements accepted when the subject is the
+  request Target, with current availability and constraints;
+- `copy:` contains complete request text that can be copied without inventing
+  missing context.
+
+The Comment is opaque text, not nested SAL or Markdown grammar. There is no
+separate `with operations`: one exact `with schema` read must describe
+everything currently readable, writable, resettable, invokable, or directly
+patchable on that subject. A temporarily unavailable Query, Patch statement,
+or operation remains listed with the UE-derived reason. If the adapter cannot
+provide the requested exact schema, it returns a capability diagnostic rather
+than silently omitting the schema.
+
+Operation names are stable PascalCase adapter contracts grounded in UE editor
+actions or native interfaces; arbitrary C++ methods are not exposed. Lookup is
+local to the exact object schema, not a global operation namespace. The same
+name on two object types may have different parameters, outputs, effects, and
+availability.
+
+Instance schema is live and instance-sensitive. It lists every operation
+supported by that subject type and marks current availability. Schema applies
+only to the primary subject and does not recursively attach schemas to returned
+children.
+
+Creation-entry schema is deliberately different from instance schema. It
+describes creation fields, constraints, fixed initial facts, and only those
+operations determinable for the initial created state in the current Target
+context. A Palette entry id identifies the creation capability, not the future
+object. It cannot fabricate future native ids. After creation, readback returns
+the real native objects and identities; their instance schema may differ and
+must be queried separately.
+
+## Patch Text
+
+```text
+<canonical exact target binding>
+
+patch <target alias> [dry run]
+<binding or operation>
+...
+```
+
+Core operations are:
+
+```sal
+add <binding> [to <destination>|before <anchor>|after <anchor>]
+remove <object>
+set <object>.<field> = <value>
+reset <object>.<field>
+move <Domain-defined operands>
+invoke <object> <Operation>(namedArguments) [as <alias>]
+save
+```
+
+Domains extend this list. Examples include Graph `connect`, Widget `wrap`,
+StateTree `bind`, and Blueprint or StateTree `compile`.
+
+Bindings for objects that do not yet exist are ordinary ObjectExpr values:
+
+```sal
+print = { palette: "P_PrintString" }
+add print
+```
+
+A semantic tag may be emitted but remains erasable:
+
+```sal
+print = node { palette: "P_PrintString" }
+add print
+```
+
+### Invoke Targets And Outputs
+
+`invoke` is a statement, never an expression nested inside an ObjectExpr,
+binding, or another call:
+
+```text
+invoke <object> <Operation>(named arguments) [as <outputs>]
+```
+
+The target is the active Target alias when its schema exposes the operation,
+one StableRef, or an already materialized object alias. The operation name,
+named arguments, availability, output roles, and effects are copied from that
+exact subject's `with schema` result. Unknown operations, unavailable
+operations, positional arguments, invalid arguments, unknown selectors,
+duplicate aliases, or forward references invalidate the request.
+
+For exactly one primary output, the schema permits a direct binding:
+
+```sal
+invoke @sequence-node-guid AddExecutionPin() as next
+```
+
+For multiple outputs, each selected output uses the exact adapter-provided
+selector:
+
+```sal
+invoke @map-node-guid AddKeyValuePair()
+  as key: newKey, value: newValue
+
+invoke @vector-node-guid/vector-pin-guid SplitStructPin()
+  as subpins.X: x, subpins.Z: z
+```
+
+SAL defines no universal `items`, `members`, or ordinal selector. A caller may
+omit outputs it does not need. An omitted normalized selector is valid only
+when the exact schema declares one primary output. Fixed outputs use named
+roles; variable outputs use an ordered keyed role such as `subpins.X`.
+
+An output may be newly created or an existing object made usable by the
+operation. Output aliases become valid only after successful execution of the
+`invoke` statement and then behave like ordinary materialized local
+references. They never become stable cross-request identity. Removed objects,
+reconstructed call sites, mirrored objects, disconnected Edges, and other
+cascades are effects reported by preflight and mutation readback, not primary
+outputs.
+
+If preflight cannot determine the output shape or final native identity, later
+statements cannot consume that output. The adapter must fail before live
+mutation rather than publish a temporary or guessed id.
+
+Patch statements execute in written order. Aliases become usable only after
+their materializing statement. The whole authored batch is parsed, resolved,
+validated, and planned before live mutation. `dry run` uses the same path and
+stops before applying live state.
+
+Terminal compile/save rules are Domain-defined. A terminal request is separate
+from authored edits when its Domain card says so.
+
+## Result Envelope
+
+Every result uses one of three contexts:
+
+```text
+result exact_target
+result domain_root
+result unresolved_target
+```
+
+An exact result includes its canonical Target:
+
+```sal
+result exact_target
+target g = target {
+  domain: graph,
+  asset: "/Game/BP_Door.BP_Door",
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
+objects
+call = node {
+  id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  type: "/Script/BlueprintGraph.K2Node_CallFunction"
+}
+```
+
+The Asset collection root uses:
+
+```sal
+result domain_root
+target assets = target { domain: asset }
+objects
+...
+```
+
+An unresolved normalized result has no Target table and at least one error
+diagnostic. Its first MCP text block remains only canonical Result Text:
+
+```sal
+result unresolved_target
+no_objects
+```
+
+The diagnostic is a later independent MCP text block:
+
+```sal
+###
+SAL diagnostics
+ERROR resolution.target_not_found: ...
+###
+```
+
+Once a Target opens, later operation failure retains `exact_target` and its
+canonical Target.
+
+### Related Targets And Handoffs
+
+The following is a Result Text fragment, not a standalone Result Text document.
+
+```sal
+related bp = target {
+  domain: blueprint,
+  asset: "/Game/BP_Door.BP_Door",
+  id: "11111111-1111-1111-1111-111111111111"
+}
+handoff compile to bp
+```
+
+Rules:
+
+- related Targets are canonical, flat, independent, and deduplicated;
+- they never repeat the main Target;
+- aliases are unique across the Target table and Object Text;
+- each handoff points to one related Target alias;
+- every related Target is retained by Object Text or a handoff;
+- no tag or object field is used to reconstruct a Target.
+
+`objects` begins ordered Object Text; `no_objects` represents its absence and
+must be the final line of that canonical Result Text block. The Client never
+appends mutation metadata or diagnostics to this block. It emits each as a
+later independent MCP text block containing SAL comments. Those transport
+annotations cannot fabricate `objects` or otherwise change object presence.
+
+## Normalized Core Model
+
+```ts
+type Domain =
+  | "asset"
+  | "blueprint"
+  | "class"
+  | "graph"
+  | "state_tree"
+  | "widget";
+
+interface TargetBase {
+  kind: "target";
+  domain: Domain;
+}
+
+interface TargetBinding<T extends Target = Target> {
+  alias: string;
+  target: T;
+}
+
+interface QueryRequest {
+  kind: "query";
+  target: TargetBinding<QueryAcceptedTarget>;
+  operation: QueryOperation;
+  where?: Condition;
+  with?: [string, ...string[]];
+  orderBy?: [OrderBy, ...OrderBy[]];
+  page?: Page;
+}
+
+interface PatchRequest {
+  kind: "patch";
+  target: TargetBinding<CanonicalTarget>;
+  dryRun: boolean;
+  statements: [PatchStatement, ...PatchStatement[]];
+}
+```
+
+Expression unions are closed:
+
+```ts
+type RequestExpr =
+  | null
+  | boolean
+  | number
+  | string
+  | Name
+  | RequestRef
+  | ObjectExpr<RequestExpr>
+  | RequestExpr[];
+
+type ResultExpr =
+  | null
+  | boolean
+  | number
+  | string
+  | Name
+  | ResultRef
+  | ObjectExpr<ResultExpr>
+  | ResultExpr[];
+```
+
+Target is not an Expr. Normalized request references do not include
+`ScopedStableRef`; parsed request text may use only a redundant qualifier for
+its own active Target, which is lowered away. Result references may remain
+scoped.
+
+## Canonical Formatting
+
+Canonical formatting:
+
+- emits braces for every ordinary object;
+- emits a semantic tag only by Domain presentation policy;
+- emits explicit flat Targets and canonical field order;
+- emits tag-free StableRefs by default, unless a readability policy adds an
+  erasable tag;
+- preserves statement and comment order;
+- uses identifier keys and identity segments only when safe, otherwise JSON
+  strings;
+- never infers Domain or Target from native Class, object `type`, or tag.
+
+Whitespace and local alias choice are not identity. Target and StableRef
+canonical strings are.
+
+## Legacy Compatibility
+
+This section is the only place where the previous spellings are normative.
+Only the direct TypeScript parser accepts them during protocol v3, and only
+when its caller explicitly enables compatibility mode. MCP tools and the
+default SDK facade do not enable that mode:
+
+```sal
+node(palette: "P") # legacy object call
+graph(asset: bp, id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb") # legacy Target call
+node@cccccccc-cccc-cccc-cccc-cccccccccccc # legacy fused kind reference
+```
+
+It lowers them before normal planning:
+
+- `object(...)` becomes an untagged `ObjectExpr`; any other accepted legacy
+  object callee becomes an erasable semantic tag, and a reserved callee is
+  rejected rather than discarded;
+- legacy Asset, Blueprint, Class, and Graph Target calls become one flat
+  `target { domain: ... }`;
+- legacy fused references become Target-relative native identity paths only
+  when their shape is complete and unambiguous in the already selected active
+  Domain;
+- mixed or ambiguous legacy Domain requests are rejected. Every Target
+  declaration must belong to the selected legacy Target's alias-dependency
+  closure; unused declarations and mixtures of explicit v3 and legacy Targets
+  are rejected rather than ignored.
+
+The safe fused-reference window is closed:
+
+| Active Domain | Accepted legacy fused reference shapes |
+| --- | --- |
+| Asset | none |
+| Blueprint | one-component Dispatcher, Graph, Component, or Node; two-component Function-local Variable |
+| Class | none |
+| Graph | one-component Node, Dispatcher, or Component; two-component Pin or Function-local Variable |
+| StateTree | one-component State, Node, Transition, or Object; two-component Parameter |
+| Widget | one-component Widget |
+
+Every identity component must be a complete non-zero native Guid and is
+canonicalized during lowering. Under-scoped owner identities, target-self
+fused references, and forms that would require a name lookup or UE-assisted
+recovery are rejected with migration guidance.
+
+The protocol v3 Bridge rejects normalized legacy Call and fused-reference
+shapes; compatibility never changes Domain execution semantics. Current
+formatters never emit the legacy spellings. The compatibility reader is
+removed with protocol v4 unless a later release note explicitly extends the
+window.

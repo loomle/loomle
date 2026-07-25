@@ -55,7 +55,7 @@ struct FDestination
     TSharedPtr<Schema::FResolvedMember> BindingTarget;
 };
 
-/** One currently available constructor in an exact StateTree destination. */
+/** One currently available creation capability in an exact StateTree destination. */
 struct FEntry
 {
     FString Id;

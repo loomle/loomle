@@ -1210,6 +1210,7 @@ export async function runPackagedE2E(options, {
             projectRoot: prepared.projectDirectory,
             fixture: prepared.fixture,
             expectedServerVersion: prepared.versionName,
+            protocolVersion: metadata.protocolVersion,
             clientExecutable: prepared.clientExecutable,
             clientWorkingDirectory: prepared.projectDirectory,
             clientEnvironment: editorEnvironment,
@@ -2060,6 +2061,7 @@ async function defaultPackagedMcpSmoke(options) {
   const runtimeLifecycle = await runPackagedRuntimeLifecycle({
     projectRoot: options.projectRoot,
     fixture: options.fixture,
+    protocolVersion: options.protocolVersion,
     stateRoot: options.runtimeLifecycleStateRoot,
     clientExecutable: options.clientExecutable,
     clientWorkingDirectory: options.clientWorkingDirectory,

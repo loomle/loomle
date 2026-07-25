@@ -1,160 +1,163 @@
 import assert from "node:assert/strict";
-import { parseSalObject } from "../../src/index.js";
+import { parseSalObject, parseSalResultText } from "../../src/index.js";
 
-const graph = `bp = blueprint(asset: "/Game/BP_SALExample.BP_SALExample")
-g = graph(asset: bp, name: "EventGraph")`;
+const graphTarget = `g = target {domain: graph, asset: "/Game/BP_Test.BP_Test", blueprintId: "11111111-1111-1111-1111-111111111111", id: "22222222-2222-2222-2222-222222222222"}`;
 
 const cases: Array<{ name: string; text: string; code: string }> = [
   {
-    name: "patch requires statement",
-    text: `${graph}\npatch g`,
-    code: "language.missing_patch_statement",
-  },
-  {
-    name: "patch requires bound call target",
-    text: "patch asset\nsave",
+    name: "missing target",
+    text: "query g\nsummary",
     code: "language.unknown_target",
   },
   {
-    name: "search text must be quoted",
-    text: `${graph}\nquery g\nnodes Print String`,
-    code: "language.expected_quoted_text",
+    name: "multiple request targets",
+    text: `a = target {domain: asset}\nb = target {domain: asset}\nquery a`,
+    code: "language.multiple_request_targets",
   },
   {
-    name: "relationship query requires stable ref",
-    text: `${graph}\nquery g\ncontext localNode`,
+    name: "nested target value",
+    text: `${graphTarget}\npatch g\nvalue = {nested: target {domain: asset}}`,
+    code: "language.target_not_object_expression",
+  },
+  {
+    name: "reserved semantic tag",
+    text: "value = graph {id: \"G\"}",
+    code: "language.reserved_semantic_tag",
+  },
+  {
+    name: "operation keyword semantic tag",
+    text: "value = tree {id: \"T\"}",
+    code: "language.reserved_semantic_tag",
+  },
+  {
+    name: "universal object keyword object tag",
+    text: "value = object {id: \"O\"}",
+    code: "language.reserved_semantic_tag",
+  },
+  {
+    name: "universal object keyword stable reference tag",
+    text: `${graphTarget}\nquery g\ncontext object @11111111-1111-1111-1111-111111111111`,
+    code: "language.reserved_semantic_tag",
+  },
+  {
+    name: "invalid target guid",
+    text: "g = target {domain: graph, asset: \"/Game/BP.BP\", id: \"not-a-guid\"}\nquery g",
+    code: "language.invalid_target_guid",
+  },
+  {
+    name: "zero target guid",
+    text: "g = target {domain: graph, asset: \"/Game/BP.BP\", id: \"00000000-0000-0000-0000-000000000000\"}\nquery g",
+    code: "language.invalid_target_guid",
+  },
+  {
+    name: "unknown target field",
+    text: "g = target {domain: graph, asset: \"/Game/BP.BP\", name: \"EventGraph\", owner: \"bp\"}\nquery g",
+    code: "language.unknown_target_field",
+  },
+  {
+    name: "incomplete patch target",
+    text: "g = target {domain: graph, asset: \"/Game/BP.BP\", name: \"EventGraph\"}\npatch g\nsave",
+    code: "language.incomplete_patch_target",
+  },
+  {
+    name: "scoped request reference",
+    text: `${graphTarget}\nquery g\ncontext bp::@N`,
+    code: "language.invalid_reference",
+  },
+  {
+    name: "local references query",
+    text: `${graphTarget}\nquery g\nreferences to g.FunctionReference`,
     code: "language.expected_stable_reference",
   },
   {
-    name: "references query rejects a local alias",
-    text: `${graph}\nquery g\nreferences to g`,
-    code: "language.expected_stable_reference",
-  },
-  {
-    name: "references query rejects a local member",
-    text: `${graph}\nquery g\nreferences to g.FunctionReference`,
-    code: "language.expected_stable_reference",
-  },
-  {
-    name: "references query rejects an unsupported scope",
-    text: `${graph}\nquery g\nreferences to node@N1 in engine`,
-    code: "language.invalid_operation",
-  },
-  {
-    name: "invalid insert shape",
-    text: `${graph}\npatch g\ninsert pin@A -> delay.execute -> pin@B`,
-    code: "language.invalid_operation",
-  },
-  {
-    name: "stable ids cannot absorb an array index",
-    text: `${graph}\nquery g\nstate@ROOT[0]`,
-    code: "language.invalid_operation",
-  },
-  {
-    name: "member indexes must be non-negative integers",
-    text: `${graph}\npatch g\nbind parameter@CONTAINER/POINTS[-1] -> node@TASK.Instance.Value`,
+    name: "malformed identity path",
+    text: `${graphTarget}\nquery g\ncontext @OWNER/`,
     code: "language.invalid_reference",
   },
   {
-    name: "member indexes cannot be decimal numbers",
-    text: `${graph}\npatch g\nbind parameter@CONTAINER/POINTS[1.5] -> node@TASK.Instance.Value`,
+    name: "negative member index",
+    text: `${graphTarget}\npatch g\nset @TASK.Values[-1] = 1`,
     code: "language.invalid_reference",
   },
   {
-    name: "member indexes cannot exceed int32",
-    text: `${graph}\npatch g\nbind parameter@CONTAINER/POINTS[2147483648] -> node@TASK.Instance.Value`,
+    name: "decimal member index",
+    text: `${graphTarget}\npatch g\nset @TASK.Values[1.5] = 1`,
     code: "language.invalid_reference",
   },
   {
-    name: "member indexes cannot be empty",
-    text: `${graph}\npatch g\nbind parameter@CONTAINER/POINTS[] -> node@TASK.Instance.Value`,
+    name: "overflow member index",
+    text: `${graphTarget}\npatch g\nset @TASK.Values[2147483648] = 1`,
     code: "language.invalid_reference",
   },
   {
-    name: "member indexes cannot contain names",
-    text: `${graph}\npatch g\nbind parameter@CONTAINER/POINTS[first] -> node@TASK.Instance.Value`,
-    code: "language.invalid_reference",
-  },
-  {
-    name: "Palette destination cannot use an unknown local alias",
-    text: `${graph}\nquery g\npalette entries \"Follow\" to missing.Tasks`,
-    code: "language.unknown_local_reference",
-  },
-  {
-    name: "Palette from context is reserved for Graph Pins",
-    text: `${graph}\nquery g\npalette entries \"Follow\" from state@COMPANION.Tasks`,
-    code: "language.expected_stable_reference",
-  },
-  {
-    name: "set requires member ref",
-    text: `${graph}\npatch g\nset node@A = 1`,
+    name: "set requires member",
+    text: `${graphTarget}\npatch g\nset @TASK = 1`,
     code: "language.expected_member",
   },
   {
-    name: "invalid order direction",
-    text: `${graph}\nquery g\nnodes\norder by score descending`,
-    code: "language.invalid_order_by",
+    name: "unknown local",
+    text: `${graphTarget}\npatch g\nconnect missing.Out -> @P`,
+    code: "language.unknown_local_reference",
   },
   {
-    name: "page limit must be positive",
-    text: `${graph}\nquery g\nnodes\npage limit 0`,
-    code: "language.invalid_page",
+    name: "duplicate local",
+    text: `${graphTarget}\npatch g\nvalue = {x: 1}\nvalue = {x: 2}`,
+    code: "language.duplicate_binding",
   },
   {
-    name: "unclosed block comment",
-    text: "###\nunfinished",
-    code: "language.unclosed_comment",
-  },
-  {
-    name: "invalid string escape",
-    text: `${graph}\nquery g\nnodes "bad\\q"`,
-    code: "language.invalid_string",
-  },
-  {
-    name: "duplicate inline object key",
-    text: "value = object(fields: {Name: 1, Name: 2})",
+    name: "duplicate object key",
+    text: "value = {x: 1, x: 2}",
     code: "language.duplicate_object_key",
   },
   {
-    name: "empty array element is not discarded",
-    text: "value = [1,,2]",
-    code: "language.unsupported_value",
+    name: "non-finite number",
+    text: "value = {n: 1e999}",
+    code: "language.invalid_number",
   },
   {
-    name: "empty edge endpoint is not discarded",
-    text: "pin@A -> -> pin@B",
-    code: "language.invalid_object_statement",
-  },
-  {
-    name: "literal keyword cannot be a local alias",
-    text: "true = node()",
-    code: "language.invalid_binding_target",
-  },
-  {
-    name: "object edge requires an earlier local binding",
-    text: "missing.Out -> pin@B",
-    code: "language.unknown_local_reference",
-  },
-  {
-    name: "member binding requires an earlier owner",
-    text: "missing.Value = 1",
-    code: "language.unknown_local_reference",
-  },
-  {
-    name: "patch cannot use an erased locator alias",
-    text: `${graph}\npatch g\ninvoke bp Reconstruct()`,
-    code: "language.unknown_local_reference",
-  },
-  {
-    name: "object text binding targets are unique",
-    text: "value = 1\nvalue = 2",
-    code: "language.duplicate_binding",
+    name: "target is not object expression",
+    text: "value = target {domain: asset}",
+    code: "language.target_not_object_expression",
   },
 ];
 
 for (const testCase of cases) {
-  const result = parseSalObject(testCase.text);
-  assert.equal(result.object, undefined, testCase.name);
-  assert.equal(result.diagnostics[0]?.code, testCase.code, testCase.name);
-  console.log(`[PASS] ${testCase.name}`);
+  const parsed = parseSalObject(testCase.text);
+  assert.equal(parsed.object, undefined, testCase.name);
+  assert.equal(parsed.diagnostics[0]?.code, testCase.code, testCase.name);
 }
+
+const invalidResult = parseSalResultText(`result unresolved_target
+target g = target {domain: asset}
+no_objects`);
+assert.equal(invalidResult.result, undefined);
+assert.equal(invalidResult.diagnostics[0]?.code, "language.unresolved_target_has_table");
+
+const unusedRelated = parseSalResultText(`result exact_target
+target g = target {domain: graph, asset: "/Game/BP.BP", blueprintId: "11111111-1111-1111-1111-111111111111", id: "22222222-2222-2222-2222-222222222222"}
+related bp = target {domain: blueprint, asset: "/Game/BP.BP", id: "11111111-1111-1111-1111-111111111111"}
+no_objects`);
+assert.equal(unusedRelated.result, undefined);
+assert.equal(unusedRelated.diagnostics[0]?.code, "language.invalid_result_context");
+
+const leadingResultComment = parseSalResultText(`# transport metadata
+result unresolved_target
+no_objects`);
+assert.equal(leadingResultComment.result, undefined);
+assert.equal(leadingResultComment.diagnostics[0]?.code, "language.invalid_result_envelope");
+
+const reservedResultAlias = parseSalResultText(`result exact_target
+target graph = target {domain: graph, asset: "/Game/BP.BP", blueprintId: "11111111-1111-1111-1111-111111111111", id: "22222222-2222-2222-2222-222222222222"}
+no_objects`);
+assert.equal(reservedResultAlias.result, undefined);
+assert.equal(reservedResultAlias.diagnostics[0]?.code, "language.invalid_target_binding");
+
+const emptyHandoffPurpose = parseSalResultText(`result exact_target
+target g = target {domain: graph, asset: "/Game/BP.BP", blueprintId: "11111111-1111-1111-1111-111111111111", id: "22222222-2222-2222-2222-222222222222"}
+related bp = target {domain: blueprint, asset: "/Game/BP.BP", id: "11111111-1111-1111-1111-111111111111"}
+handoff "" to bp
+no_objects`);
+assert.equal(emptyHandoffPurpose.result, undefined);
+assert.equal(emptyHandoffPurpose.diagnostics[0]?.code, "language.invalid_result_envelope");
+
+console.log(`invalid cases passed: ${cases.length + 5}`);

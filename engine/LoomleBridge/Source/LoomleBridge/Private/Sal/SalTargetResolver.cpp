@@ -58,7 +58,7 @@ TSharedPtr<FJsonObject> ResolutionError(
 TSharedPtr<FJsonObject> InvalidTarget(const FString& Message)
 {
     return FSalDiagnostics::Result(
-        FSalDiagnostics::Error(TEXT("validation.invalid_target_locator"), Message)
+        FSalDiagnostics::Error(TEXT("validation.invalid_target"), Message)
             .Path({TEXT("object"), TEXT("target"), TEXT("value")})
             .Build());
 }
@@ -120,6 +120,25 @@ UClass* ResolveClassPath(const FString& Path)
     }
     return LoadObject<UClass>(nullptr, *Path);
 }
+
+TSharedPtr<FJsonObject> MakeCall(
+    const FString& Callee,
+    const TSharedPtr<FJsonObject>& Args)
+{
+    TSharedPtr<FJsonObject> Call = MakeShared<FJsonObject>();
+    Call->SetStringField(TEXT("kind"), TEXT("call"));
+    Call->SetStringField(TEXT("callee"), Callee);
+    Call->SetObjectField(TEXT("args"), Args);
+    return Call;
+}
+
+TSharedPtr<FJsonObject> MakeCanonicalTarget(const FString& Domain)
+{
+    TSharedPtr<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("target"));
+    Target->SetStringField(TEXT("domain"), Domain);
+    return Target;
+}
 }
 
 bool FSalTargetResolver::Resolve(
@@ -132,7 +151,213 @@ bool FSalTargetResolver::Resolve(
     OutTarget = FSalResolvedTarget();
     OutTarget.Alias = Alias;
     OutTarget.Locator = TargetValue;
-    return ResolveValue(Alias, TargetValue, bForPatch, OutTarget, OutError);
+    FString Kind;
+    if (TargetValue.IsValid()
+        && TargetValue->TryGetStringField(TEXT("kind"), Kind)
+        && Kind == TEXT("target"))
+    {
+        return ResolveTarget(Alias, TargetValue, bForPatch, OutTarget, OutError);
+    }
+    OutError = InvalidTarget(
+        TEXT("Bridge protocol v3 accepts only normalized target { domain: ... } values; legacy Target call shapes must be lowered before RPC."));
+    return false;
+}
+
+bool FSalTargetResolver::ResolveTarget(
+    const FString& Alias,
+    const TSharedPtr<FJsonObject>& Target,
+    const bool bForPatch,
+    FSalResolvedTarget& OutTarget,
+    TSharedPtr<FJsonObject>& OutError) const
+{
+    FString Domain;
+    Target->TryGetStringField(TEXT("domain"), Domain);
+
+    if (Domain == TEXT("asset"))
+    {
+        FString Path;
+        if (!Target->TryGetStringField(TEXT("path"), Path))
+        {
+            if (bForPatch)
+            {
+                OutError = InvalidTarget(TEXT("Asset collection root cannot be patched."));
+                return false;
+            }
+            OutTarget.Kind = ESalTargetKind::AssetRoot;
+            OutTarget.Domain = ESalDomain::Asset;
+            OutTarget.bDomainRoot = true;
+            OutTarget.Alias = Alias;
+            OutTarget.Name = TEXT("asset");
+            OutTarget.Interfaces = {FName(TEXT("asset"))};
+            OutTarget.CanonicalTarget = MakeCanonicalTarget(TEXT("asset"));
+            return true;
+        }
+        TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
+        Args->SetStringField(TEXT("path"), Path);
+        if (!ResolveValue(Alias, MakeCall(TEXT("asset"), Args), bForPatch, OutTarget, OutError))
+        {
+            return false;
+        }
+        FString ExpectedType;
+        Target->TryGetStringField(TEXT("type"), ExpectedType);
+        const FString ActualType =
+            OutTarget.Object != nullptr && OutTarget.Object->GetClass() != nullptr
+                ? OutTarget.Object->GetClass()->GetPathName()
+                : FString();
+        if (!ExpectedType.IsEmpty() && ExpectedType != ActualType)
+        {
+            OutError = InvalidTarget(FString::Printf(
+                TEXT("Asset target type %s does not match resolved native Class %s."),
+                *ExpectedType,
+                *ActualType));
+            return false;
+        }
+        OutTarget.Domain = ESalDomain::Asset;
+        OutTarget.Interfaces = {FName(TEXT("asset"))};
+        OutTarget.CanonicalTarget = MakeCanonicalTarget(TEXT("asset"));
+        OutTarget.CanonicalTarget->SetStringField(TEXT("path"), OutTarget.AssetPath);
+        OutTarget.CanonicalTarget->SetStringField(TEXT("type"), ActualType);
+        return true;
+    }
+
+    if (Domain == TEXT("blueprint") || Domain == TEXT("widget"))
+    {
+        FString Asset;
+        FString Id;
+        Target->TryGetStringField(TEXT("asset"), Asset);
+        Target->TryGetStringField(TEXT("id"), Id);
+        TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
+        Args->SetStringField(TEXT("asset"), Asset);
+        if (!Id.IsEmpty())
+        {
+            Args->SetStringField(TEXT("id"), Id);
+        }
+        if (!ResolveValue(Alias, MakeCall(TEXT("blueprint"), Args), bForPatch, OutTarget, OutError))
+        {
+            return false;
+        }
+        if (Domain == TEXT("widget") && !OutTarget.Blueprint->IsA<UWidgetBlueprint>())
+        {
+            OutError = FSalDiagnostics::Result(
+                FSalDiagnostics::Error(
+                    TEXT("capability.interface_unavailable"),
+                    TEXT("Widget Domain requires a UWidgetBlueprint target."))
+                    .Ref(OutTarget.AssetPath)
+                    .Build());
+            return false;
+        }
+        OutTarget.Domain =
+            Domain == TEXT("widget") ? ESalDomain::Widget : ESalDomain::Blueprint;
+        OutTarget.Interfaces = {
+            FName(Domain == TEXT("widget") ? TEXT("widget") : TEXT("blueprint"))};
+        OutTarget.CanonicalTarget = MakeCanonicalTarget(Domain);
+        OutTarget.CanonicalTarget->SetStringField(TEXT("asset"), OutTarget.AssetPath);
+        OutTarget.CanonicalTarget->SetStringField(TEXT("id"), OutTarget.Id);
+        return true;
+    }
+
+    if (Domain == TEXT("class"))
+    {
+        FString Path;
+        Target->TryGetStringField(TEXT("path"), Path);
+        TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
+        Args->SetStringField(TEXT("path"), Path);
+        if (!ResolveValue(Alias, MakeCall(TEXT("class"), Args), bForPatch, OutTarget, OutError))
+        {
+            return false;
+        }
+        OutTarget.Domain = ESalDomain::Class;
+        OutTarget.Interfaces = {FName(TEXT("class"))};
+        OutTarget.CanonicalTarget = MakeCanonicalTarget(TEXT("class"));
+        OutTarget.CanonicalTarget->SetStringField(
+            TEXT("path"),
+            OutTarget.Class != nullptr ? OutTarget.Class->GetPathName() : Path);
+        return true;
+    }
+
+    if (Domain == TEXT("state_tree"))
+    {
+        FString Asset;
+        FString ExpectedType;
+        Target->TryGetStringField(TEXT("asset"), Asset);
+        Target->TryGetStringField(TEXT("type"), ExpectedType);
+        TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
+        Args->SetStringField(TEXT("path"), Asset);
+        if (!ExpectedType.IsEmpty())
+        {
+            Args->SetStringField(TEXT("type"), ExpectedType);
+        }
+        if (!ResolveValue(Alias, MakeCall(TEXT("asset"), Args), bForPatch, OutTarget, OutError))
+        {
+            return false;
+        }
+        UStateTree* StateTree = Cast<UStateTree>(OutTarget.Object);
+        if (StateTree == nullptr)
+        {
+            OutError = FSalDiagnostics::Result(
+                FSalDiagnostics::Error(
+                    TEXT("capability.interface_unavailable"),
+                    TEXT("StateTree Domain requires a UStateTree target."))
+                    .Ref(OutTarget.AssetPath)
+                    .Build());
+            return false;
+        }
+        OutTarget.Domain = ESalDomain::StateTree;
+        OutTarget.Interfaces = {FName(TEXT("state_tree"))};
+        OutTarget.CanonicalTarget = MakeCanonicalTarget(TEXT("state_tree"));
+        OutTarget.CanonicalTarget->SetStringField(TEXT("asset"), OutTarget.AssetPath);
+        OutTarget.CanonicalTarget->SetStringField(
+            TEXT("type"),
+            StateTree->GetClass()->GetPathName());
+        return true;
+    }
+
+    if (Domain == TEXT("graph"))
+    {
+        FString Asset;
+        FString BlueprintId;
+        FString Id;
+        FString Name;
+        Target->TryGetStringField(TEXT("asset"), Asset);
+        Target->TryGetStringField(TEXT("blueprintId"), BlueprintId);
+        Target->TryGetStringField(TEXT("id"), Id);
+        Target->TryGetStringField(TEXT("name"), Name);
+
+        TSharedPtr<FJsonObject> BlueprintArgs = MakeShared<FJsonObject>();
+        BlueprintArgs->SetStringField(TEXT("asset"), Asset);
+        if (!BlueprintId.IsEmpty())
+        {
+            BlueprintArgs->SetStringField(TEXT("id"), BlueprintId);
+        }
+        TSharedPtr<FJsonObject> GraphArgs = MakeShared<FJsonObject>();
+        GraphArgs->SetObjectField(
+            TEXT("asset"),
+            MakeCall(TEXT("blueprint"), BlueprintArgs));
+        if (!Id.IsEmpty())
+        {
+            GraphArgs->SetStringField(TEXT("id"), Id);
+        }
+        if (!Name.IsEmpty())
+        {
+            GraphArgs->SetStringField(TEXT("name"), Name);
+        }
+        if (!ResolveValue(Alias, MakeCall(TEXT("graph"), GraphArgs), bForPatch, OutTarget, OutError))
+        {
+            return false;
+        }
+        OutTarget.Domain = ESalDomain::Graph;
+        OutTarget.Interfaces = {FName(TEXT("graph"))};
+        OutTarget.CanonicalTarget = MakeCanonicalTarget(TEXT("graph"));
+        OutTarget.CanonicalTarget->SetStringField(TEXT("asset"), OutTarget.AssetPath);
+        OutTarget.CanonicalTarget->SetStringField(
+            TEXT("blueprintId"),
+            GuidText(OutTarget.Blueprint->GetBlueprintGuid()));
+        OutTarget.CanonicalTarget->SetStringField(TEXT("id"), OutTarget.Id);
+        return true;
+    }
+
+    OutError = InvalidTarget(TEXT("Unknown Target domain."));
+    return false;
 }
 
 bool FSalTargetResolver::ResolveValue(
@@ -177,7 +402,7 @@ bool FSalTargetResolver::ResolveValue(
         FString Path;
         if (!ReadStringArg(Args, TEXT("path"), Path))
         {
-            OutError = InvalidTarget(TEXT("asset target requires one non-empty path locator argument."));
+            OutError = InvalidTarget(TEXT("Asset Target requires one non-empty path."));
             return false;
         }
         UObject* Asset = LoadExactObject(Path);
@@ -223,7 +448,7 @@ bool FSalTargetResolver::ResolveValue(
                 || !(*AssetCall).IsValid())
             {
                 OutError = InvalidTarget(
-                    TEXT("blueprint target requires an Asset Path string or nested asset(...) locator and accepts an optional id."));
+                    TEXT("Blueprint Target requires a non-empty asset field and accepts an optional id."));
                 return false;
             }
             FSalResolvedTarget AssetOwner;
@@ -233,7 +458,7 @@ bool FSalTargetResolver::ResolveValue(
             }
             if (AssetOwner.Kind != ESalTargetKind::Asset)
             {
-                OutError = InvalidTarget(TEXT("blueprint asset must resolve through asset(...)."));
+                OutError = InvalidTarget(TEXT("Blueprint Target asset did not resolve to an exact native container."));
                 return false;
             }
             Path = AssetOwner.AssetPath;
@@ -299,7 +524,7 @@ bool FSalTargetResolver::ResolveValue(
         OutTarget.Alias = Alias;
         // A Blueprint may be embedded in another top-level asset (for example,
         // a World Level Script or a Level Sequence Director Blueprint). Keep
-        // the public locator anchored to that durable container asset.
+        // the public Target anchored to that durable container asset.
         OutTarget.AssetPath = BlueprintContainer->GetPathName();
         OutTarget.Id = ActualId;
         OutTarget.Name = Blueprint->GetName();
@@ -319,7 +544,7 @@ bool FSalTargetResolver::ResolveValue(
         FString Path;
         if (!ReadStringArg(Args, TEXT("path"), Path))
         {
-            OutError = InvalidTarget(TEXT("class target requires one non-empty path locator argument."));
+            OutError = InvalidTarget(TEXT("Class Target requires one non-empty path."));
             return false;
         }
         UClass* Class = ResolveClassPath(Path);
@@ -366,7 +591,7 @@ bool FSalTargetResolver::ResolveValue(
         if (Blueprint == nullptr)
         {
             OutError = InvalidTarget(
-                TEXT("graph asset must be a nested blueprint(...) locator; a bare asset(...) path does not carry Blueprint identity."));
+                TEXT("Graph Target asset did not resolve to an exact Blueprint owner."));
             return false;
         }
         FString Id;
@@ -408,7 +633,7 @@ bool FSalTargetResolver::ResolveValue(
             {
                 if (Graph != nullptr)
                 {
-                    OutError = ResolutionError(TEXT("Graph locator is ambiguous in its Blueprint owner."), !Id.IsEmpty() ? Id : Name);
+                    OutError = ResolutionError(TEXT("Graph Target is ambiguous in its Blueprint owner."), !Id.IsEmpty() ? Id : Name);
                     return false;
                 }
                 Graph = Candidate;
@@ -444,10 +669,10 @@ bool FSalTargetResolver::ResolveValue(
     }
 
     OutError = FSalDiagnostics::Result(
-        FSalDiagnostics::Error(TEXT("capability.interface_unavailable"), FString::Printf(TEXT("Unknown target constructor %s."), *Callee))
+        FSalDiagnostics::Error(TEXT("capability.interface_unavailable"), FString::Printf(TEXT("Unsupported Target Domain %s."), *Callee))
             .Actual(Callee)
             .Supported({TEXT("asset"), TEXT("blueprint"), TEXT("class"), TEXT("graph")})
-            .Suggestion(TEXT("Run sal_schema({}) to inspect active target locators."))
+            .Suggestion(TEXT("Run sal_schema({}) to inspect active Targets."))
             .Build());
     return false;
 }

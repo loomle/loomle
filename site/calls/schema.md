@@ -2,7 +2,7 @@
 layout: default
 title: SAL Schema
 parent: MCP Calls
-nav_order: 3
+nav_order: 4
 description: List active SAL interface modules or read one static UE interface card.
 ---
 

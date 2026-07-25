@@ -20,27 +20,40 @@ SAL Text
   -> parse and normalize
   -> schema-valid SalObject
   -> SalExecutor
-  -> schema-valid ObjectResult
-  -> ordered SAL Object Text
+  -> schema-valid contextual Result
+  -> canonical SAL Result Text
 ```
 
 - `createSal({ executor, catalog })` exposes `query`, `patch`, and `schema`.
 - `catalog` supplies static interface descriptions and Text; the executor's
-  `interfaces` property selects the names active for its current target.
-- Query and Patch use one generic `Target`; there is no public `domain` field.
+  `interfaces` property selects the names active for its current Domain.
+- Query and Patch use one flat `target { domain: ..., ... }`. `target`,
+  `domain`, and the six Domain values are structural SAL keywords.
+- The current Domains are `asset`, `blueprint`, `class`, `graph`,
+  `state_tree`, and `widget`; each owns its closed Target schema and
+  Target-relative identity environment.
 - Query has one primary `operation` plus optional `where`, `with`, `orderBy`,
   and `page`.
 - Patch contains one ordered `statements` array. Bindings and operations are
   not regrouped.
-- Query and Patch return the same ordered `ObjectText` made from bindings,
-  edges, and comments.
-- `references to object@id[.member] [in project]` normalizes as one shared
+- Query and Patch return contextual Result Text with a main Target,
+  optional related Targets and handoffs, ordered Object Text, and diagnostics.
+- `references to @id[.member] [in project]` normalizes as one shared
   factual-reference Query operation. The UE 5.7 Bridge implements factual
   local and project Blueprint reference scans with cursor pagination.
 - Patch results add mutation state around that ordinary Object Text.
-- Typed stable references use `object@id`; new objects use local aliases.
-- Constructors and fields preserve UE-native text. SAL does not define a
-  parallel UE type system.
+- Stable references use a native Target-relative identity path such as `@N`
+  or `@N/P`; new objects use document-local aliases until UE assigns identity.
+- `{...}` is the universal ordinary object expression. An optional semantic
+  tag in `node {...}` or `node @N` is erasable presentation metadata and never
+  selects a Domain, type, identity, creation path, or operation.
+- Parentheses are non-object delimiters: they serve true calls, condition
+  grouping, and Graph coordinate pairs. Constructor-shaped objects, Domain
+  Target calls, and fused `kind@id` references are accepted only by the
+  explicitly enabled direct TypeScript compatibility parser; MCP tools and
+  canonical formatting never accept or emit them.
+- Fields preserve UE-native text. SAL does not define a parallel UE type
+  system.
 - `with schema` remains an ordinary exact-object or exact-Palette query.
 
 ## Layout

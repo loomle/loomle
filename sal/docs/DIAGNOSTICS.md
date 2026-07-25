@@ -1,24 +1,22 @@
 # SAL Diagnostics
 
-## Intent
+## Contract
 
-Diagnostics are agent navigation data. They should explain what failed, where
-it failed, what layer owns the failure, and what the agent can do next.
-
-Human-readable `message` text is useful, but agents and tests should depend on
-stable fields such as `code`, `path`, `span`, `supported`, and `matches`.
-
-## Shape
-
-All SDK, bridge, and domain diagnostics use the same normalized shape:
+Diagnostics are structured, registered, ordered, and actionable. They explain
+what failed, where it failed, and what exact discovery or handoff can resolve
+it.
 
 ```ts
 interface Diagnostic {
   severity: "error" | "warning" | "info";
   code: string;
   message: string;
-  path?: DiagnosticPath;
-  span?: SourceSpan;
+  path?: (string | number)[];
+  span?: {
+    line: number;
+    column: number;
+    length?: number;
+  };
   domain?: string;
   operation?: string;
   ref?: string;
@@ -28,312 +26,268 @@ interface Diagnostic {
   matches?: unknown[];
   suggestion?: string;
 }
-
-type DiagnosticPath = Array<string | number>;
-
-interface SourceSpan {
-  line: number;
-  column: number;
-  length?: number;
-}
 ```
 
-Required fields:
+Human-readable SAL comments may mirror diagnostics in a later, independent MCP
+text content block, but comments do not replace structured diagnostics. The
+Client never appends them to the first canonical Result Text block.
 
-- `severity`: error level.
-- `code`: stable machine-readable code.
-- `message`: concise human-readable description.
+## Result Context
 
-Optional fields:
+Diagnostics obey Target resolution state:
 
-- `path`: normalized JSON path, such as `["where", "field"]` or `["ops", 0]`.
-- `span`: SAL source span when text source is available.
-- `domain`: domain that produced or owns the diagnostic.
-- `operation`: patch operation or query operation involved.
-- `ref`: unresolved or ambiguous reference.
-- `expected`: expected shape, value, edge, type, or operation.
-- `actual`: observed shape, value, edge, type, or state.
-- `supported`: supported values or capability alternatives.
-- `matches`: candidate matches for ambiguity diagnostics.
-- `suggestion`: one direct next action when the repair is clear.
+- `exact_target`: opening succeeded, so the canonical Target remains present
+  even when a later Query, Patch, compile, or save step fails;
+- `domain_root`: only the Query-only Asset root is present;
+- `unresolved_target`: no Target or StableRef scope exists, and at least one
+  `severity: error` diagnostic is required.
 
-## Layers
+An unresolved mutation also has `isError: true`, `valid: false`, and
+`applied: false`.
 
-Diagnostic codes use layer prefixes. The prefix is part of the public contract.
+Related Targets referenced by a diagnostic must already be retained by Object
+Text or an explicit handoff. A diagnostic alone cannot smuggle a new Target
+into the result.
 
-### `language.*`
+The first MCP text block encodes only the canonical Result Text. If it ends in
+`no_objects`, that marker is a strict terminator. Diagnostics follow, when
+present, as an independent comment-only text block; they do not create an
+`objects` section or synthetic object presence.
 
-Language diagnostics report malformed SAL text or malformed normalized JSON.
-They do not require UE state.
+## Code Shape
+
+Codes use readable snake_case fragments:
+
+```text
+<category>.<specific_condition>
+```
+
+The registry's closed layer set is:
+
+- `language`
+- `resolution`
+- `validation`
+- `capability`
+- `project`
+- `runtime`
+- `tool`
 
 Examples:
 
-- `language.invalid_operation`
-- `language.unsupported_condition`
-- `language.invalid_order_by`
-- `language.invalid_page`
-- `language.invalid_object_shape`
-- `language.invalid_result_shape`
+```text
+language.invalid_object_shape
+language.invalid_target
+resolution.target_not_found
+resolution.identity_conflict
+resolution.pin_ambiguous
+validation.invalid_cursor
+validation.result_too_large
+capability.reference_unavailable
+capability.transaction_unavailable
+validation.save_failed
+project.offline
+runtime.incompatible
+tool.invalid_arguments
+```
 
-Example:
+Codes are protocol values, not localized display strings.
 
-```json
-{
-  "severity": "error",
-  "code": "language.invalid_order_by",
-  "message": "Invalid order by clause.",
-  "path": ["orderBy", 0],
-  "span": { "line": 4, "column": 1 },
-  "expected": "order by <field> [asc|desc]",
-  "actual": "order by score descending",
-  "suggestion": "Use: order by score desc"
+## Diagnostic Layers
+
+### Language
+
+- malformed brace ObjectExpr;
+- duplicate decoded object key;
+- non-finite numeric literal;
+- reserved keyword used as a semantic tag;
+- parentheses used as an object representation;
+- Target syntax inside an ordinary object field;
+- unknown Domain or Target field;
+- non-string or empty Target field;
+- nested Target;
+- malformed StableRef or member path;
+- foreign or unknown scoped qualifier in request text, or any
+  `ScopedStableRef` in a normalized request (a redundant active qualifier is
+  lowered before validation).
+
+### Resolution
+
+- no native object at the supplied address;
+- native type assertion mismatch;
+- BlueprintGuid or GraphGuid verification failure;
+- discovery Target resolves ambiguously;
+- incomplete Target cannot be canonicalized;
+- unsupported legacy request cannot choose exactly one Domain;
+- unused or mixed explicit/legacy Target declaration in compatibility input.
+- unknown Target-relative identity;
+- collision across categories sharing one identity path shape;
+- missing native owner component;
+- malformed or duplicate PinId within its owning Node;
+- invalid StateTree Context descriptor identity;
+- stale member path after schema change.
+
+Identity failures never retry by semantic tag, display name, native Class, or
+array position.
+
+### Capability
+
+- operation absent from the selected Domain;
+- identity is readable but outside that Domain's mutation scope;
+- current native object does not support an operation;
+- exact schema or Palette prerequisite is missing;
+- transaction, PIE, compiler, or save capability is unavailable;
+- project reference scope has no complete bounded provider.
+
+### Validation
+
+- stale Palette identity;
+- invalid destination or relationship direction;
+- incompatible native types;
+- unplanned native cascade;
+- alias used before materialization;
+- binding consumed more than once or never consumed;
+- finalization mixed with authored edits;
+- result or schema exceeds a complete-response budget.
+
+Native apply, rollback, compile invocation, and save failures that occur after
+request resolution also use registered `validation.*` codes, such as
+`validation.atomic_apply_failed`, `validation.atomic_rollback_failed`, and
+`validation.save_failed`.
+
+### Project
+
+- no matching project;
+- a bound project is offline;
+- selection or project disambiguation is required;
+- more than one Editor claims the same project.
+
+### Runtime
+
+- connection, health, protocol, or identity failure;
+- request timeout or cancellation;
+- malformed RPC or Bridge response;
+- Editor shutdown or unresponsiveness;
+- internal Client or Bridge failure.
+
+### Tool
+
+- unknown public tool;
+- arguments do not match that tool's closed input schema.
+
+Blueprint compiler errors and warnings are resulting native state and remain
+ordered comments in the first Result Text block. They are not structured
+execution diagnostics merely because their native severity is Error or
+Warning.
+
+## Suggestions
+
+Suggestions must be copyable and stay within known facts. Preferred forms are:
+
+```sal
+query g
+target
+with schema
+```
+
+```sal
+query g
+@aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+with schema
+```
+
+```sal
+query g
+nodes "search text"
+```
+
+or an explicit related Target and handoff:
+
+The following is a Result Text fragment, not a standalone Result Text document.
+
+```sal
+related bp = target {
+  domain: blueprint,
+  asset: "/Game/BP_Door.BP_Door",
+  id: "11111111-1111-1111-1111-111111111111"
 }
+handoff compile to bp
 ```
 
-### `capability.*`
+A suggestion must not:
 
-Capability diagnostics report language-valid requests that the resolved target
-or its active interface does not support.
+- invent a Guid, path, native type, Palette id, or operation argument;
+- infer Domain from native Class or semantic tag;
+- omit a required native owner identity component;
+- advise name search as if it were stable identity;
+- serialize a Target inside an object.
 
-Examples:
+## Identity Conflict Example
 
-- `capability.interface_unavailable`
-- `capability.unsupported_query_operation`
-- `capability.patch_unavailable`
+If Graph Domain finds the same one-segment identity in two categories:
 
-Example:
-
-```json
-{
-  "severity": "error",
-  "code": "capability.unsupported_query_operation",
-  "message": "The resolved target does not support data_flow.",
-  "operation": "data_flow",
-  "supported": ["summary", "nodes", "context"],
-  "suggestion": "Use sal_schema({ module: \"graph\" }) to inspect the active interface."
-}
+```sal
+query g
+@aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 ```
 
-### `resolution.*`
+it returns `resolution.identity_conflict` with canonical candidate descriptions.
+Adding `node` or another tag does not make the reference exact.
 
-Resolution diagnostics report valid requests whose target, reference, or
-context cannot be resolved, or resolves ambiguously.
+For a Pin, the required form includes the native owner:
 
-Examples:
-
-- `resolution.target_not_found`
-- `resolution.object_not_found`
-- `resolution.binding_not_found`
-- `resolution.edge_not_found`
-
-Example:
-
-```json
-{
-  "severity": "error",
-  "code": "resolution.target_not_found",
-  "message": "Target /Game/BP_Door.BP_Door was not found.",
-  "path": ["target"],
-  "ref": "/Game/BP_Door.BP_Door",
-  "suggestion": "Run query asset with assets \"BP_Door\" to discover the asset path."
-}
+```sal
+@aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
 ```
 
-Future ambiguity codes should include compact `matches` and must be registered
-before an executor emits them.
+If that path still finds multiple Pins inside the same owning Node, the result
+is `resolution.pin_ambiguous`.
 
-### `validation.*`
+## Cross-Domain Example
 
-Validation diagnostics report target-state or operation legality failures. They
-usually require a resolved target and are common in patch planning.
+If Graph Domain resolves an owning Blueprint Variable but a Patch tries to
+edit it:
 
-Examples:
-
-- `validation.field_unavailable`
-
-Example:
-
-```json
-{
-  "severity": "error",
-  "code": "validation.field_unavailable",
-  "message": "NodeComment is not writable on this object.",
-  "operation": "set",
-  "path": ["statements", 0],
-  "ref": "node@A001.NodeComment",
-  "suggestion": "Query node@A001 with schema before choosing a writable field."
-}
+```sal
+set @variable-guid.Category = Stats
 ```
 
-### `project.*`
+the Bridge returns a registered capability diagnostic such as
+`capability.operation_unavailable`, retains the exact Graph Target, and may
+return a related Blueprint Target with a handoff when that handoff is supported
+by the operation. It does not switch Domain or reinterpret the reference.
 
-Project diagnostics report session-level selection and binding state before a
-specific Editor runtime can execute UE work. They direct the agent back to the
-single public `project` tool; they are not SAL target-resolution failures.
+## Dry Run And Mutation
 
-Examples:
+Dry run and live apply use the same registered diagnostics through parse,
+resolve, validate, and plan. Dry run stops before live application.
 
-- `project.selection_required`: call `project({})`, then bind one returned
-  candidate with `project({ projectId: "<id>" })`.
-- `project.not_found`: the requested `projectId` or `projectRoot` is unknown or
-  invalid; the previous binding is unchanged.
-- `project.offline`: the bound project has no live Editor; Loomle does not fall
-  through to another project.
-- `project.multiple_editors`: several live or unresolved Editors may serve the
-  bound project and Loomle will not guess between them.
+Mutation results clearly separate:
 
-### `runtime.*`
+- `valid`: request and plan are valid;
+- `applied`: live authored state changed;
+- ordered `planned.operations`;
+- native `planned.effects`;
+- diagnostics;
+- current Object Text.
 
-Runtime diagnostics report compatibility, readiness, Game Thread admission,
-connection, transport, cancellation, timeout, shutdown, and internal execution
-failures for the bound project's current Editor runtime.
+At the MCP boundary, current Object Text stays in the first canonical Result
+Text block. Mutation state and plan are formatted as a later SAL-comment
+metadata block, and diagnostics as another later SAL-comment block. Neither is
+concatenated to Result Text or parsed as part of it.
 
-Examples:
+External save occurs after the in-memory transaction. A save failure therefore
+may return `applied: true` with an error and dirty unsaved state.
 
-- `runtime.starting`
-- `runtime.editor_unresponsive`
-- `runtime.identity_mismatch`
-- `runtime.invalid_health`
-- `runtime.incompatible`
-- `runtime.request_cancelled`
-- `runtime.editor_shutting_down`
-- `runtime.internal_error`
+## Registration
 
-### `tool.*`
+Every emitted code must be declared in the shared registry with:
 
-Tool diagnostics report failures at the public MCP tool or private Bridge tool
-invocation boundary, before a valid SAL operation reaches a domain interface.
+- its full code;
+- one of the registered layers;
+- its default severity;
+- its stable title.
 
-Examples:
-
-- `tool.invalid_arguments`
-- `tool.unknown`
-
-## Rules
-
-1. Codes are stable. Messages may improve over time.
-2. Do not merge unrelated failures into one diagnostic.
-3. Return multiple diagnostics when multiple independent repairs are possible.
-4. Include `supported` for capability failures whenever the set is small.
-5. Include `matches` for ambiguity when candidates are useful and compact.
-6. Include `path` for normalized JSON diagnostics and `span` for text-source
-   diagnostics when available.
-7. Avoid free-form diagnostic fields. Add fields to the shared schema when a
-   new kind of repair data becomes common.
-
-## Diagnostic Catalog
-
-All public diagnostic codes should be registered in a lightweight catalog. The
-catalog is for consistency and tests; it is not a heavy runtime error system.
-
-Location:
-
-```txt
-diagnostics/catalog.json
-diagnostics/catalog.schema.json
-```
-
-Each catalog entry records the stable code contract:
-
-```ts
-interface DiagnosticDefinition {
-  code: string;
-  layer: "language" | "capability" | "resolution" | "validation" | "project" | "runtime" | "tool";
-  defaultSeverity: "error" | "warning" | "info";
-  title: string;
-  requiredFields?: DiagnosticField[];
-  optionalFields?: DiagnosticField[];
-}
-
-type DiagnosticField =
-  | "path"
-  | "span"
-  | "domain"
-  | "operation"
-  | "ref"
-  | "expected"
-  | "actual"
-  | "supported"
-  | "matches"
-  | "suggestion";
-```
-
-Example:
-
-```json
-{
-  "code": "capability.unsupported_where_field",
-  "layer": "capability",
-  "defaultSeverity": "error",
-  "title": "Unsupported where field",
-  "requiredFields": ["domain", "actual", "supported"],
-  "optionalFields": ["path", "suggestion"]
-}
-```
-
-Catalog rules:
-
-1. Every public diagnostic `code` must have one catalog entry.
-2. The code prefix must match the entry's `layer`.
-3. `defaultSeverity` supplies a default, but callers may still send a different
-   severity when the situation is genuinely warning or info level.
-4. The catalog should define field expectations, not dynamic message text.
-5. `message` may be written at the call site so it can include local context.
-6. Tests should fail when SDK or bridge diagnostics use an unregistered code.
-7. Generated constants or helper APIs may come from the catalog later, but the
-   catalog should stay readable JSON.
-
-## SDK Rules
-
-The SDK produces `language.*` diagnostics from parsing, pure normalization, and
-schema validation. Parser-specific `ParseError` values should be converted into
-the shared diagnostic shape.
-
-The SDK executor boundary may produce `capability.*`, `resolution.*`, and
-`validation.*` diagnostics. Its test-only generic memory executor is a
-contract fixture for a UE-backed executor, so its diagnostic behavior should
-follow the same layer boundaries.
-
-The SDK should validate normalized objects before executor calls and validate
-executor results before formatting. Schema validation failures should become
-`language.invalid_object_shape` or `language.invalid_result_shape`.
-
-## Bridge Rules
-
-The bridge produces `language.*` diagnostics only at the RPC object boundary:
-envelope decoding, object kind, query or patch shape, result shape, and other
-schema-level failures.
-
-Bridge domain adapters should not hand-code language parsing diagnostics.
-After bridge core validation, adapters should produce:
-
-- `capability.*` for unsupported but language-valid query or patch features.
-- `resolution.*` for missing or ambiguous UE targets.
-- `validation.*` for target-state legality failures.
-
-The UE Bridge uses `FSalDiagnostics` as its shared construction helper. Domain
-interfaces add UE-specific context through that helper after the normalized
-object boundary has been validated centrally.
-
-JSON-RPC numeric error codes belong only to the private transport protocol;
-they are not public Diagnostic codes. An RPC error exposed to an agent must
-carry a registered string Diagnostic code in `error.data.code`. The Client
-normalizes that string into the shared Diagnostic shape and uses
-`runtime.rpc_error` only when an older or malformed peer omits it.
-
-## Domain Rules
-
-Each domain document defines its supported primary operations, `where` fields,
-details, order keys, pagination support, patch operations, and common resolution
-or validation failures.
-
-Domain diagnostics should make the next query or patch obvious. For example,
-missing assets should suggest an asset query, ambiguous nodes should return
-candidate nodes, and patch legality failures should include the operation path
-and expected target state.
-
-Diagnostics also close the interface-discovery loop without adding another
-reference field: unsupported Query or Patch syntax should name the relevant
-`sal_schema({ module: "<module>" })` call in `suggestion`; unknown fields and Operations
-should give the exact Query to retry `with schema`; and stale ids should point
-to the relevant summary, collection, or tree operation.
+The JSON Schema closes the optional diagnostic fields to `path`, `span`,
+`domain`, `operation`, `ref`, `expected`, `actual`, `supported`, `matches`,
+and singular `suggestion`. Unknown ad hoc codes fail registry tests. Domain
+adapters may add registered codes but cannot redefine Core meanings.

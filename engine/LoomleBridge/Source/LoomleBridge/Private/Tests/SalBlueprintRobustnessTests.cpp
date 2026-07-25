@@ -3,6 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Sal/Blueprint/SalBlueprintInterface.h"
+#include "SalTestObjectModel.h"
 #include "Tests/LoomleTestEditorState.h"
 
 #include "Components/AudioComponent.h"
@@ -141,16 +142,15 @@ TArray<TSharedPtr<FJsonObject>> RobustBlueprintCallArgs(
         const TSharedPtr<FJsonObject>* Statement = nullptr;
         const TSharedPtr<FJsonObject>* Call = nullptr;
         const TSharedPtr<FJsonObject>* Args = nullptr;
-        FString ActualCallee;
         if (StatementValue.IsValid()
             && StatementValue->TryGetObject(Statement)
             && Statement != nullptr
             && (*Statement)->TryGetObjectField(TEXT("value"), Call)
             && Call != nullptr
-            && (*Call)->TryGetStringField(TEXT("callee"), ActualCallee)
-            && ActualCallee == Callee
-            && (*Call)->TryGetObjectField(TEXT("args"), Args)
-            && Args != nullptr)
+            && Loomle::Tests::Sal::TryReadObjectExpr(
+                *Call,
+                Callee,
+                Args))
         {
             Calls.Add(*Args);
         }

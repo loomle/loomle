@@ -2,1023 +2,491 @@
 
 ## Scope
 
-The Widget domain describes the authored `UWidget` objects inside a
-`UWidgetBlueprint::WidgetTree`. It does not introduce a parallel Widget
-document object or translate Widget Classes and properties into SAL-specific
-types.
+Widget Domain exposes authored `UWidget` objects inside one
+`UWidgetBlueprint::WidgetTree`:
 
-This document is the normative SAL design. The TypeScript library implements
-its shared Query, Patch, ordered Object Text, and schema forms; its test suite
-uses a test-only generic memory executor. The UE Bridge executes the same
-contract against authored WidgetBlueprint state.
+- Widget tree and detached source Widgets;
+- native Widget and Panel Slot state;
+- Named Slot relationships;
+- Widget Palette;
+- structural add, move, wrap, replace, remove, rename, and duplicate;
+- handoffs to Graph events and Blueprint finalization.
 
-The current Widget contract covers the authored Widget tree, exact native
-Widget and Slot state, Palette-backed creation, structural editing, and Widget
-Graph events backed by multicast delegates.
+Widget Animations, Navigation, legacy `UWidgetBlueprint::Bindings`, and MVVM
+remain outside the current Domain.
 
-The following UE systems are intentionally outside the current contract:
+Those objects are not directly queryable or editable through Widget Domain,
+but native Widget operations may affect their references. Every determinable
+Animation/MovieScene, Navigation, Binding, Graph, generated-Class, and
+Extension cascade remains part of preflight isolation, the mutation plan, and
+result effects.
 
-- Widget Animations and their MovieScene timelines;
-- Widget Navigation;
-- legacy property and function bindings stored in
-  `UWidgetBlueprint::Bindings`;
-- the separate Model-View-ViewModel plugin binding system.
+## Target
 
-SAL does not currently define discovery, query, or mutation behavior for these
-systems. Widget lifecycle operations must still preserve or report their native
-UE reference and cascade effects; that requirement does not make the excluded
-systems independently readable or editable.
+```sal
+menu = target {
+  domain: widget,
+  asset: "/Game/UI/WBP_Menu.WBP_Menu",
+  id: "11111111-1111-1111-1111-111111111111"
+}
+```
 
-## UE Object Boundary
+Discovery Query may omit `id`; canonical exact readback and every Patch include
+verified `BlueprintGuid`.
 
-The domain maps UE objects directly:
+The same native `UWidgetBlueprint` can have a separate Blueprint Target:
 
-| UE concept | SAL representation |
-| --- | --- |
-| `UWidgetBlueprint` | the existing `blueprint(...)` object shape |
-| owned `UWidgetTree` | the Blueprint's tree relationship, not another object binding |
-| one authored `UWidget` | `widget(...)` |
-| `FWidgetTemplate` | one Palette creation capability |
+```sal
+menuBlueprint = target {
+  domain: blueprint,
+  asset: "/Game/UI/WBP_Menu.WBP_Menu",
+  id: "11111111-1111-1111-1111-111111111111"
+}
+```
 
-`UWidgetBlueprint` already owns its `UWidgetTree`. SAL therefore has no
-`widget(asset: ..., root: ...)` wrapper. The `tree` query is a view of that
-owned relationship, not a constructor or result object.
+These Targets do not combine Query, identity, Palette, or mutation surfaces.
+Widget Domain is selected only by `domain: widget`, never by native Class.
 
-The target remains one ordinary `blueprint(...)` binding. After UE loads the
-object, its actual `UWidgetBlueprint` Class composes the shared Blueprint
-capabilities with the Widget capabilities in this document. The public request
-does not select a second Widget adapter or carry a `domain` field. Consequently
-the target has one combined `summary` and one target-specific `palette`, not
-competing Blueprint and Widget variants.
+## Identity
 
-Every authored Widget uses the same neutral object shape. Native Classes do not
-become constructors such as `Button()`, `CanvasPanel()`, or `TextBlock()`.
-Existing objects return the exact UE Class path in `type`, and native properties
-retain their exact UE names and values.
+Each source Widget uses its entry in
+`UWidgetBlueprint::WidgetVariableNameToGuidMap`:
+
+```sal
+@widget-guid
+```
+
+The Guid is Target-relative. UE preserves it through Widget rename. A missing
+or duplicate map entry is invalid source state; Query never creates one.
+
+Object name and `DisplayLabel` are discovery data, not identity. Panel Slot and
+Named Slot relationships have no independent StableRef.
 
 ## Object Text
 
-Widget Object Text begins with its Asset and Blueprint context, then emits
-ordinary `widget(...)` bindings in a useful reading order:
+Widget state is ordinary brace data:
 
 ```sal
-menuAsset = asset(
-  path: "/Game/UI/WBP_Menu.WBP_Menu",
-  type: "/Script/UMGEditor.WidgetBlueprint"
-)
-
-menu = blueprint(
-  asset: menuAsset,
-  id: "blueprint-guid",
-  type: BPTYPE_Normal,
-  Status: BS_Dirty,
-  ParentClass: "/Script/UMG.UserWidget"
-)
-
-mainCanvas = widget(
-  id: "canvas-guid",
+mainCanvas = {
+  id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
   type: "/Script/UMG.CanvasPanel"
-)
+}
 
-mainCanvas.stack = widget(
-  id: "stack-guid",
+mainCanvas.stack = {
+  id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
   type: "/Script/UMG.VerticalBox",
   Slot: {
     type: "/Script/UMG.CanvasPanelSlot",
     LayoutData: "<FAnchorData native text>"
   }
-)
+}
 
-stack.title = widget(
-  id: "title-guid",
+stack.title = {
+  id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
   type: "/Script/UMG.TextBlock",
   Text: "<FText native text>",
   Slot: {
     type: "/Script/UMG.VerticalBoxSlot",
-    Padding: "<FMargin native text>",
-    HorizontalAlignment: HAlign_Fill
+    Padding: "<FMargin native text>"
   }
-)
+}
 ```
 
-The unique local top-level Widget binding in a tree is
-`UWidgetTree::RootWidget`. It needs no duplicate `root` argument. An empty
-WidgetTree has no root Widget binding.
+`widget` is a reserved Domain keyword and is not a semantic tag. Alias and
+owner path provide reading structure; `id`, `type`, and native fields provide
+data.
 
-A source Widget's `id` maps to its entry in
-`UWidgetBlueprint::WidgetVariableNameToGuidMap`. UE preserves that GUID through
-`OnVariableRenamed`, so later requests use `widget@id` rather than a current
-name. A missing or duplicate entry is invalid source state and is reported; a
-read never creates one. Query-result aliases remain document-local.
+Native Classes are never object constructors. Native and generated Classes
+retain complete UE Paths.
 
-Every `type` value is the complete native UE identity. For a native C++ Widget,
-`/Script/UMG.Button` means package `/Script/UMG` plus Class `Button`; it is not a
-filesystem address. SAL does not shorten it to `UMG.Button` or add an implicit
-`/Script` rule. WidgetBlueprint-generated Classes and plugin Classes likewise
-retain their exact UE paths.
+## Panel Slots
 
-Native Widget properties are flattened onto the `widget(...)` Call only when
-they are part of the requested object state. SAL does not rename `Text` to
-`text`, split native `Font` data into `fontSize`, or invent friendly Widget
-property types. `with schema` discovers the exact readable, writable, and
-resettable fields for the resolved Widget Class.
-
-### Panel Slots
-
-A `UPanelSlot` is relationship and layout state owned by a Widget's placement
-inside a `UPanelWidget`. It is nested on the placed Widget under `Slot`; it is
-not an independent query object or binding:
+A `UPanelSlot` is native placement/layout state owned by a child Widget. It is
+nested under `Slot`, not returned as an object:
 
 ```sal
-stack.start = widget(
-  id: "start-guid",
+stack.start = {
+  id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
   type: "/Script/UMG.Button",
   Slot: {
     type: "/Script/UMG.VerticalBoxSlot",
     Padding: "<FMargin native text>",
     HorizontalAlignment: HAlign_Fill
   }
-)
+}
 ```
 
-`Slot.type` is the exact native `UPanelSlot` Class path. The remaining keys are
-the exact readable native Slot properties selected by the query. The adapter
-does not repeat `Parent` and `Content`, because the member binding already
-expresses that relationship. A root Widget and Named Slot content have no
-`Slot` value.
+`Parent` and `Content` are omitted because the binding path expresses the
+relationship. Root and Named Slot content have no Panel `Slot`.
 
-Panel Slot fields use the same native field path for edits:
+Slot fields use Widget member paths:
 
 ```sal
-set widget@start-guid.Slot.Padding = "<FMargin native text>"
-reset widget@start-guid.Slot.Padding
+set @start-guid.Slot.Padding = "<FMargin native text>"
+reset @start-guid.Slot.Padding
 ```
 
-Dynamic Widget and Panel Slot field names must fit SAL identifier syntax and
-must not collide with structural fields such as `id`, `type`, `Slot`, or
-`NamedSlots`. Unrepresentable or colliding fields remain visible with their
-exported UE values in an adjacent Comment; they are not silently renamed and
-cannot currently be patched through a member path.
+There is no Slot query, StableRef, Palette entry, or lifecycle.
 
-There is no `slot` query, stable Slot id, Slot Palette entry, or Slot
-constructor. UE creates and owns the concrete Slot as part of the parent-child
-operation.
+## Named Slots
 
-### Named Slots
-
-Named Slots are a different relationship exposed by `INamedSlotInterface`.
-Their content is always a Widget, but the host is not necessarily a
-`UNamedSlot` Widget. For example, `UExpandableArea` exposes `Header` and `Body`
-directly through the interface.
-
-The host carries one adapter-modeled `NamedSlots` relationship map. Keys are UE
-slot names; values are typed stable Widget references or `null`:
+`INamedSlotInterface` relationships appear as a map on their native host:
 
 ```sal
-area = widget(
-  id: "area-guid",
+area = {
+  id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
   type: "/Script/UMG.ExpandableArea",
   NamedSlots: {
-    Header: widget@title-guid,
+    Header: @cccccccc-cccc-cccc-cccc-cccccccccccc,
     Body: null
   }
-)
-
-area.title = widget(
-  id: "title-guid",
-  type: "/Script/UMG.TextBlock"
-)
+}
 ```
 
-`NamedSlots` is not a translated UObject and introduces no Named Slot result
-type. It losslessly records the relationship exposed by `GetSlotNames` and
-`GetContentForSlot`. A stable reference may point to a Widget binding emitted
-later in the same ordered result because it resolves existing target state;
-document-local aliases still require an earlier binding.
-
-SAL member paths use identifier segments. If a native Named Slot name contains
-spaces, Unicode, or other characters outside that syntax, the adapter does not
-sanitize it into a false writable path. The addressable entries remain in
-`NamedSlots`; each unaddressable native name and its current `widget@id` or
-`null` content is preserved in an adjacent structured Comment. Reading remains
-valid, while assigning that particular slot is unavailable until member-path
-syntax is designed explicitly.
-
-Inherited Named Slot content stored directly by the current WidgetTree has no
-local host Widget. In that case the owning `blueprint(...)` carries the same
-relationship map:
+Inherited WidgetTree-level Named Slot content uses the Target alias:
 
 ```sal
-menu = blueprint(
-  asset: menuAsset,
-  id: "blueprint-guid",
-  type: BPTYPE_Normal,
-  Status: BS_Dirty,
-  NamedSlots: {
-    Header: widget@header-guid,
-    Body: null
-  }
-)
-
-menu.headerContent = widget(
-  id: "header-guid",
-  type: "/Script/UMG.TextBlock"
-)
+menu.NamedSlots = {
+  Header: @header-guid,
+  Body: null
+}
 ```
 
-A real `UNamedSlot` remains an ordinary
-`widget(type: "/Script/UMG.NamedSlot")`. Since it is a `UContentWidget`, its
-own content follows the ordinary Panel child relationship and has a native
-Panel `Slot`.
+Named Slots are relationships, not objects. Keys outside member-path grammar
+remain readable through quoted object keys and exact comments; mutation is
+unavailable until the path can be represented losslessly.
 
-Bindings and relationship fields are read together:
+Reading order:
 
-- a local Widget without `Slot` is the WidgetTree root;
-- `parent.child` with `Slot` is a Panel child;
-- `host.child` without `Slot`, whose id appears in `host.NamedSlots`, is Named
-  Slot content;
-- a `NamedSlots` value of `null` means that the named destination is empty;
-- a source Widget matching none of those relationships is detached or corrupt,
-  and the adapter reports it rather than guessing.
+1. host `NamedSlots`;
+2. Named Slot content;
+3. ordinary Panel children in native order.
 
-Sibling order is the order of child binding statements under the same parent.
-For a host, Named Slot relationships are emitted before ordinary Panel
-children, matching `UWidgetTree::ForWidgetAndChildren`. Structural braces,
-`children` arrays, separate Slot bindings, and translated parent constructor
-arguments are unnecessary.
-
-Normalized JSON uses the shared ordered `Binding`, ordinary `Call`, recursive
-inline objects, and typed references. It has no Widget-specific document,
-Panel Slot, or Named Slot expression.
+A source Widget matching no root, Panel, or Named Slot relationship is
+detached/corrupt and is reported rather than attached by guess.
 
 ## Query
 
-Widget queries use the same Blueprint locator chain:
-
 ```sal
-menu = blueprint(
-  asset: "/Game/UI/WBP_Menu.WBP_Menu",
-  id: "blueprint-guid"
-)
-```
-
-The first discovery Query may omit `id` and resolve by exact Asset Path so the
-adapter can return `BlueprintGuid`. Later exact Queries use both `asset` and
-`id`; Patch requires both. `widget@id` is scoped inside that resolved
-WidgetBlueprint and cannot replace the top-level `menu` target.
-
-Widget reads use the shared summary, collection, exact-name, exact-id, and
-Palette model:
-
-```sal
-query menu
+target
 summary
-
-query menu
-tree [widget@<id>] [depth <N>]
-
-query menu
+tree [@widget-guid] [depth N]
 widgets ["text"]
-
-query menu
 widget <name>
-
-query menu
-widget@<id>
-
-query menu
-references to widget@<id> [in project]
-
-query menu
+@widget-guid
+references to <exact-subject> [in project]
 palette entries ["text"]
-
-query menu
-palette @<id>
+palette @id
 ```
 
-`menu` resolves a `UWidgetBlueprint`, not an artificial Widget document. Each
-query has exactly one primary operation. A typed stable reference such as
-`widget@id` is itself the exact-id operation and does not take `find`.
+`target with schema` reads Widget Domain Target capabilities. `summary`
+returns the root identity and source/reachable/detached counts.
 
-### Summary
+`tree` returns structure and Slot layout, defaults to depth 20, and marks
+truncated boundaries. A nested User Widget is one leaf; its internal tree
+belongs to another Widget Target.
 
-The resolved `UWidgetBlueprint` has one target-specific `summary`. It combines
-the useful Blueprint directory with the Widget root identity when one exists
-and ordered comments for counts such as total source Widgets, reachable
-Widgets, and detached Widgets. When summary statements refer to the target, a
-compact Blueprint binding precedes them; the result does not inherit the
-request alias or repeat the complete Asset locator merely for context. It does
-not expand the tree and introduces no summary-specific object.
+`widgets` enumerates every source Widget, including detached objects. Search
+covers native object/display names and Class identity. Exact filters:
 
-### Tree
+| Field | Operators |
+| --- | --- |
+| `name`, `id`, `type`, `DisplayLabel` | `=`, `!=` |
+| `bIsVariable`, `reachable` | `=`, `!=`, boolean shorthand |
 
-`tree` returns the current WidgetBlueprint's editable authored structure. It is
-not a runtime/effective tree and does not automatically expand a parent
-WidgetBlueprint. Inherited Named Slot destinations whose content is authored
-in the current asset are represented through `blueprint.NamedSlots`; source
-comments identify the parent Class so the agent can query it separately.
+Predicates may combine with `not`, `and`, `or`, and parentheses. Ordered
+comparisons and `~=` are rejected. Ordering keys are `name`, `type`, and `id`,
+each ascending or descending. Pagination uses the shared cursor model and
+defaults to 50.
 
-A nested `UUserWidget` is one leaf in this tree. Its internal WidgetTree belongs
-to another WidgetBlueprint target and is never expanded implicitly.
+`widget <name>` is exact-name discovery. StableRef is exact identity. Exact
+reads return the shortest ancestor chain plus full target Widget state and may
+use `with schema`.
 
-The default is `depth 20`:
+References are local to the WidgetBlueprint by default. `in project` uses the
+bounded shared provider. Widget binding use-sites retain native field/path
+evidence instead of becoming a Binding object.
+
+The Query clause surface is closed:
+
+| Operation | Filters | Ordering | Pagination | Schema |
+| --- | --- | --- | --- | --- |
+| `target` | none | none | none | optional |
+| `summary` | none | none | none | none |
+| `tree` | optional root and `depth` only | none | none | none |
+| `widgets` | search text and the fields above | `name`, `type`, `id` | cursor, default 50 | none |
+| `widget <name>` / `@widget-guid` | none | none | none | optional |
+| `references` | shared reference clauses only | shared contract | shared contract | none |
+| `palette entries` | search text only | none | cursor, default 50 | none |
+| `palette @id` | none | none | none | optional |
+
+In particular, Palette collection queries accept no `where`, `order by`, or
+collection `with schema`; exact Palette entries may use `with schema`.
+
+## Schema And Graph Events
+
+Exact Widget schema covers:
+
+- Widget fields;
+- nested Panel Slot fields;
+- Named Slot destinations;
+- structural operation availability;
+- Graph-event delegate guidance.
+
+An accessible multicast delegate such as `OnClicked` is Graph capability, not
+writable Widget state. Schema returns an independent Graph Target:
+
+The following is a Result Text fragment, not a standalone Result Text document.
 
 ```sal
-query menu
-tree
-
-query menu
-tree widget@stack-guid depth 2
+related eventGraph = target {
+  domain: graph,
+  asset: "/Game/UI/WBP_Menu.WBP_Menu",
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
+handoff graph_event to eventGraph
 ```
 
-The root of the requested view is depth zero. Each Widget-to-Widget structural
-hop consumes one level; nested `Slot` state and `NamedSlots` relationship maps
-do not. When descendants remain beyond the requested depth, the adapter places
-an ordinary comment at each truncated boundary. A local tree operation accepts
-one stable Widget reference, not a guessed display label.
-
-The default tree result returns a structure-and-layout skeleton. If it uses
-`menu` for target-owned relationships such as `menu.NamedSlots`, it first
-declares a compact `menu = blueprint(id: "blueprint-guid")` binding:
-
-- Widget binding, `id`, and exact native `type`;
-- `DisplayLabel` only when it carries meaningful authored identity;
-- Panel `Slot` layout and `NamedSlots` relationships;
-- no arbitrary Widget detail such as `Text`, `Brush`, or `Visibility`.
-
-Within each host, Named Slot content is visited before ordinary Panel children,
-and Panel children preserve `GetChildAt` order. The top-level root traversal is
-emitted before WidgetTree-level inherited Named Slot content. Where UE exposes
-no authored order, the adapter must still return deterministic text rather than
-claim Panel sibling order.
-
-### Widget Collection
-
-`widgets` discovers source objects without expanding their structural context:
+The following request searches that Graph Palette:
 
 ```sal
-query menu
-widgets "Start"
-where type = "/Script/UMG.Button" and reachable
-order by name asc
-page limit 50
+query eventGraph
+palette entries "OnClicked"
+where widget = @button-guid
 ```
 
-The adapter enumerates every source Widget through
-`UBaseWidgetBlueprint::ForEachSourceWidget`, including detached Widgets that a
-root traversal would miss. Search text matches only stable editor discovery
-identity:
+Here the Widget identity is an owning-Blueprint declaration explicitly
+supported by Graph Domain's Palette condition. It does not compose Widget
+Domain into Graph.
 
-- UObject name;
-- authored `DisplayLabel` and `GetLabelTextWithMetadata()` text;
-- native Class name and Class display name;
-- exact native Class path.
+If an event Node already exists, the Widget result returns the Graph Target and
+a scoped Node reference such as `eventGraph::@event-node-guid`.
 
-It does not search arbitrary values such as `Text`, `Brush`, or nested native
-properties. Exact filtering over the supported discovery fields belongs in
-`where`; other values require a later exact query.
+A Widget is eligible only when its declaration resolves to a real
+`FObjectProperty` in the generated or Skeleton Class. When mapping a stored
+`FMemberReference` back to a Widget declaration, resolution must match that
+native Property identity; the adapter never falls back to Widget name or
+`bIsVariable`. An inherited `BindWidget` keeps the identity of its actual
+declaring Class Property rather than being rewritten as the current Widget
+Guid.
 
-Each result is a compact `widget(id, type)` binding. `DisplayLabel` appears only
-when it is authored and differs meaningfully from the object name. Collection
-bindings are result aliases, not claims that each item is a root. No ancestor,
-descendant, `Slot`, `NamedSlots`, or schema expansion is returned. A detached
-item receives an adjacent ordinary comment.
+If multiple Ubergraphs can own the event, schema returns one complete related
+Graph Target and handoff for every compatible Graph. It never chooses one from
+editor focus or `GetLastEditedUberGraph()`.
 
-The collection has one closed structured surface. String fields `name`, `id`,
-`type`, and `DisplayLabel` support exact `=` and `!=` only. Boolean fields
-`bIsVariable` and `reachable` support `=`, `!=`, and predicate shorthand such
-as `reachable` or `not bIsVariable`. Conditions may combine these predicates
-through `not`, `and`, `or`, and parentheses. Ordered comparisons and `~=` are
-unsupported; fuzzy discovery belongs to the primary search text.
-
-Explicit ordering supports `name`, `type`, and `id`, each ascending or
-descending. Without search text, reachable Widgets use tree reading order and
-detached Widgets follow by name. With search text, results order by match
-score, then reachable tree order, then detached name. Pagination uses the
-shared cursor model and defaults to 50 items.
-
-`widgets` does not accept `with schema`. The agent first discovers the exact
-name or id, then uses an exact Widget query.
-
-### Exact Widget
-
-The name and stable-id forms return the same object state; only resolution
-differs:
+A Widget without that generated object Property may require:
 
 ```sal
-query menu
-widget StartButton
-
-query menu
-widget@start-guid
+set @button-guid.bIsVariable = true
 ```
 
-`widget <name>` matches the exact UObject name, not `DisplayLabel` or localized
-Class display text. `widget@id` resolves the corresponding entry in
-`WidgetVariableNameToGuidMap`.
-
-The default result contains:
-
-1. The shortest compact ancestor chain needed to show the target relationship.
-2. The target Widget's `id`, exact native `type`, all readable non-default
-   native fields, Panel `Slot`, and `NamedSlots` relationships.
-
-Ancestors carry only navigation identity and relationship state. Descendants
-are not expanded. A detached Widget has no invented ancestor chain and receives
-an explicit adjacent comment.
-
-Exact reads accept `with schema`:
-
-```sal
-query menu
-widget@title-guid
-with schema
-```
-
-The schema applies to the target and its nested `Slot` and `NamedSlots`
-surfaces, not to compact ancestors. It reports exact readable, writable,
-resettable, and default behavior plus currently available adapter Operations.
-Writable and resettable are instance-aware Bridge decisions, not flag-only
-guesses: source Widgets and Panel Slots reject `EditConst`,
-`DisableEditOnTemplate`, `BlueprintReadOnly`, and `CanEditChange` failures;
-reset additionally rejects `NoResetToDefault`. `DisableEditOnInstance` does not
-by itself prohibit editing an authored template. Schema discovery and Patch
-execution use the same predicates.
-
-Missing GUID entries are not synthesized during a read. Zero matches return an
-unknown-object diagnostic; duplicate name or GUID state returns an ambiguity or
-invalid-state diagnostic rather than guessing.
-
-Widget uses the shared Query operations directly: `tree`, `widgets`, and
-singular/exact `widget`. It adds no Widget-specific Query envelope or result
-wrapper.
-
-### Graph Events
-
-An accessible native `FMulticastDelegateProperty` such as `OnClicked` is a
-Graph-event capability, not writable Widget state. An exact Widget read with
-`with schema` lists it in the existing `fields` section with its native name
-and delegate type. It does not introduce an Event object, an `events` query, or
-a Widget mutation Operation:
-
-```sal
-query menu
-widget@button-guid
-with schema
-
-###
-schema
-
-fields:
-  OnClicked: FOnButtonClickedEvent; graph event
-    availability: available
-    discover with:
-      eventOwner = blueprint(
-        asset: "/Game/UI/WBP_Menu.WBP_Menu",
-        id: "blueprint-guid"
-      )
-      eventGraph = graph(asset: eventOwner, id: "event-graph-guid")
-      query eventGraph
-      palette entries "OnClicked"
-      where widget = widget@button-guid
-
-  OnPressed: FOnButtonPressedEvent; graph event
-    availability: available
-    discover with:
-      eventOwner = blueprint(
-        asset: "/Game/UI/WBP_Menu.WBP_Menu",
-        id: "blueprint-guid"
-      )
-      eventGraph = graph(asset: eventOwner, id: "event-graph-guid")
-      query eventGraph
-      palette entries "OnPressed"
-      where widget = widget@button-guid
-###
-```
-
-The indented SAL under `discover with` is one complete copyable query. The
-label is schema Comment text, not another SAL keyword. The returned guidance
-includes the exact Blueprint owner locator because `graph@id` alone is scoped
-and cannot begin a new request. If more than one Ubergraph can own the event,
-the schema emits one complete `discover with` block for each compatible Graph
-rather than choosing from editor focus or `GetLastEditedUberGraph()`.
-
-If the Widget and delegate already have a bound event Node anywhere in the
-Blueprint, schema points directly to it:
-
-```sal
-###
-schema
-
-fields:
-  OnClicked: FOnButtonClickedEvent; graph event
-    availability: existing
-    inspect with:
-      eventOwner = blueprint(
-        asset: "/Game/UI/WBP_Menu.WBP_Menu",
-        id: "blueprint-guid"
-      )
-      eventGraph = graph(asset: eventOwner, id: "event-graph-guid")
-      query eventGraph
-      node@event-node-guid
-###
-```
-
-`inspect with` is likewise Comment guidance containing a complete exact Node
-query. Bound-event identity is the native component-property plus delegate
-pair, while the returned `node@id` remains the Graph Node's stable identity.
-
-A Widget must have a corresponding generated `FObjectProperty` before UE can
-create a component-bound event. When it does not, schema explains the concrete
-prerequisite:
-
-```sal
-###
-schema
-
-fields:
-  OnClicked: FOnButtonClickedEvent; graph event
-    availability: unavailable
-    reason: Widget has no generated FObjectProperty
-    requires: bIsVariable = true
-###
-```
-
-When the resolved Widget schema permits that native field, the agent can make
-the Widget a Blueprint-visible variable through the ordinary Widget Patch:
-
-```sal
-patch menu
-set widget@button-guid.bIsVariable = true
-```
-
-The adapter applies the same transaction and structural-modification behavior
-as the Widget Designer variable toggle and refreshes the generated Blueprint
-member context before a later Graph Palette query. It must not treat this as an
-isolated in-memory Boolean write.
-
-The adapter discovers Graph events through accessible
-`FMulticastDelegateProperty` fields and UE's Kismet accessibility rules. It
-checks the generated Widget property, delegate owner and visibility,
-deprecation state, and any existing `UK2Node_ComponentBoundEvent`. `OnClicked`
-and other Graph events never accept `set` or `reset`; creation and deletion
-remain Graph operations. Ordinary exact Widget reads do not emit this
-capability catalog unless `with schema` is present.
-
-### References
-
-Every source Widget has stable authored identity through
-`UWidgetBlueprint::WidgetVariableNameToGuidMap`:
-
-```sal
-query menu
-references to widget@button-guid
-
-query menu
-references to widget@button-guid in project
-page limit 50
-```
-
-A direct `widget@id` subject uses the source Widget's authored identity: owning
-Widget Blueprint plus `WidgetVariableNameToGuidMap` GUID. It therefore remains
-resolvable for dirty or newly created Widgets before GeneratedClass refresh.
-Panel Slot and Named Slot placement themselves are not independent reference
-subjects.
-
-When mapping a stored `FMemberReference` back to a Widget declaration, the
-provider requires a real generated or Skeleton-Class object Property and never
-falls back by name or `bIsVariable`. An inherited `BindWidget` Property keeps
-the identity of its actual declaring Class Property; the adapter does not
-collapse that native declaration into the current source Widget's authored
-GUID.
-
-Widget bindings are compound use-sites. A binding may refer to its destination
-Widget, destination Property or Delegate, source Function, and every native
-source-path segment. The Widget adapter records each matching fact through its
-native binding field or path provenance; it does not collapse the binding to
-one guessed target. Component Bound Event Nodes follow the Graph reference
-provider and may independently match the Widget member and its native Delegate.
-
-Reference results remain existing ordered Blueprint, Widget, Graph, and Node
-Object Text under the shared contract in
-[`../REFERENCE_QUERIES.md`](../REFERENCE_QUERIES.md). No Widget binding or
-reference result object is introduced.
+This follows Widget Designer structural modification behavior; it is not a raw
+Boolean memory write. The Boolean alone is never accepted as proof that the
+required generated Property already exists.
 
 ## Palette
 
-`palette` is the one catalog exposed by the resolved target. This section
-defines its Widget creation entries; it does not create a parallel
-Widget-adapter palette selected by public syntax.
-
-The combined Palette keeps the Blueprint query surface: optional primary search
-text and cursor pagination with a default limit of 50, without `where`,
-`order by`, or a collection `with` expansion. Exact `palette @id` may use
-`with schema`.
-
-Every new Widget materialized by `add` or by a Palette-backed `wrap` or
-`replace` starts from the Palette of the bound WidgetBlueprint:
+Widget Domain owns one Widget Palette:
 
 ```sal
 query menu
 palette entries "Button"
 
-Button = widget(palette: "P_Button")
-```
-
-An exact read returns the same copyable creation binding and may add its schema
-as structured comments:
-
-```sal
 query menu
 palette @P_Button
 with schema
-
-Button = widget(palette: "P_Button")
 ```
 
-All Widget Palette entries use `widget(...)`. Native Widget Classes, loaded or
-unloaded WidgetBlueprint assets, image-asset templates, and plugin templates do
-not produce separate Class constructors or a `widget(class: ...)` branch. The
-opaque Palette id selects the exact `FWidgetTemplate` creation capability.
+Results are ordinary ObjectExpr:
 
-The Palette call does not repeat `type` when the selected capability already
-fixes the created Class. `with schema` reports the resulting native `type`,
-current context constraints, native defaults, editable fields, and initially
-available Operations. Properties are edited after creation through ordinary
-ordered `set` statements rather than friendly constructor arguments.
+```sal
+Button = { palette: "P_Button" }
+```
 
-`FWidgetTemplate::Create` may create one Widget or a native subtree. The Palette
-binding names its primary returned Widget. Any descendants produced by that
-same template are native effects, not additional direct `add` inputs. The
-mutation result returns the complete materialized subtree in ordinary ordered
-Widget Object Text with real Widget ids.
+The opaque id selects an exact `FWidgetTemplate`. It is not a future Widget id,
+native Class constructor, or Domain selector.
 
-When `add`, `wrap`, or `replace` materializes a binding, the adapter resolves
-the Palette id again and validates at least:
+The adapter revalidates:
 
-1. The exact template is still available in the target WidgetBlueprint context.
-2. Its Widget Class is usable and not abstract, deprecated, hidden, or excluded
-   by project Palette settings.
-3. A User Widget does not introduce a circular WidgetBlueprint reference.
-4. Any new Widget name requested by the operation is valid and unused.
-5. The selected structural operation can accept the created primary Widget.
+- template availability;
+- native Class usability;
+- circular User Widget references;
+- exact requested name uniqueness;
+- structural destination/capacity.
 
-A Palette capability id is not a future Widget id and is not persisted in
-materialized Widget Object Text. Display labels, Class display names, and menu
-positions are never used as execution identity.
-
-Palette results are ordinary ordered bindings with ordinary `Call` values.
-Widget defines no `PaletteResult`, `ShortcutEntry`, `ClassEntry`, or
-Widget-specific creation expression.
+`FWidgetTemplate::Create` may create a native subtree. The binding names the
+primary Widget; descendants are native effects and receive real ids in final
+Object Text.
 
 ## Patch
 
-The `menu` Patch target must be a `blueprint(...)` locator containing both the
-exact Asset Path and verified `BlueprintGuid`. A path-only discovery binding is
-not sufficient for mutation.
+Patch requires the canonical Widget Target. Creation bindings and operations
+are ordered separately.
 
-Widget Patch uses shared lifecycle operations for ordinary object ownership and
-two Widget-domain structural operations for native transformations that cannot
-be decomposed without losing UE behavior. Bindings and operations remain
-separate ordered statements.
-
-Creating the root Widget uses a local binding:
+### Add
 
 ```sal
 patch menu
 
-mainCanvas = widget(palette: "P_CanvasPanel")
-add mainCanvas
+root = { palette: "P_CanvasPanel" }
+add root
+
+start = { palette: "P_Button" }
+add start to @stack-guid
+
+header = { palette: "P_TextBlock" }
+add header to @area-guid.NamedSlots.Header
 ```
 
-Direct `add` of a local Widget binding means set it as the WidgetTree root. It
-is valid only when no root currently exists. The binding is the exact requested
-initial Widget name and a document-local alias for later statements.
-
-Creating a child keeps creation identity separate from placement:
-
-```sal
-patch menu
-
-start = widget(palette: "P_Button")
-add start to widget@stack-guid
-set start.Text = "<FText native text>"
-```
-
-The adapter materializes the Palette template in the target `UWidgetTree`, uses
-the local binding as the exact requested Widget name, attaches the Widget
-through the explicit destination, creates the native Panel Slot when
-applicable, and registers every created source Widget through the
-WidgetBlueprint GUID path.
-
-`add` supports four Widget placement forms:
+Forms:
 
 ```sal
 add root
-add child to widget@panel-guid
-add child before widget@anchor-guid
-add child after widget@anchor-guid
+add child to @panel-guid
+add child before @anchor-guid
+add child after @anchor-guid
+add child to @host-guid.NamedSlots.Header
+add child to menu.NamedSlots.Body
 ```
 
-The bare form creates the root. `to widget@panel-guid` appends to a compatible
-`UPanelWidget`; `before` and `after` infer the Panel from the exact anchor and
-insert at that sibling position. Every form materializes exactly one
-Palette-backed binding.
+Bare `add` creates the root only when none exists. Panel placement creates the
+native Slot. Named Slot placement requires an existing empty exact slot and
+never replaces content implicitly.
 
-A Named Slot is an explicit structural destination rather than a writable
-field:
+### Set, Move, Remove
 
 ```sal
-header = widget(palette: "P_TextBlock")
-add header to widget@area-guid.NamedSlots.Header
+set @title-guid.Text = "<FText native text>"
+reset @title-guid.Text
 
-body = widget(palette: "P_Overlay")
-add body to menu.NamedSlots.Body
+move @help-guid after @start-guid
+move @help-guid to @stack-guid
+move @title-guid to @area-guid.NamedSlots.Header
+
+remove @quit-guid
 ```
 
-The Widget destination addresses a local `INamedSlotInterface` host. The
-Blueprint destination addresses one inherited Named Slot exposed by the
-WidgetTree. The exact slot must exist and be empty. `add` never replaces its
-current content implicitly.
+`set` and `reset` use exact instance schema and never change structural
+ownership. `NamedSlots` is read-only relationship state.
 
-Existing objects use typed stable references inside the resolved `menu` target.
-Each new request still begins with the complete WidgetBlueprint binding; the
-scoped references below then select its Widgets:
+Widget and Panel Slot fields are writable only when the exact native instance
+passes the same predicates used by schema: `EditConst`,
+`DisableEditOnTemplate`, `BlueprintReadOnly`, or a failed `CanEditChange`
+rejects the edit. `reset` additionally rejects `NoResetToDefault`.
+`DisableEditOnInstance` alone does not prohibit editing an authored template.
 
-```sal
-set widget@title-guid.Text = "<FText native text>"
-reset widget@title-guid.Text
-move widget@help-guid after widget@start-guid
-move widget@help-guid to widget@stack-guid
-move widget@title-guid to widget@area-guid.NamedSlots.Header
-remove widget@quit-guid
-```
+Move preserves same-Panel Slot when reordering. Reparenting creates a new
+native Slot and imports only compatible old Slot values. Moving to/from Named
+Slots clears and creates the correct relationship without fabricating a Panel
+Slot.
 
-`move before|after` both reorders same-Panel siblings and reparents a Widget to
-the anchor's Panel. `move ... to widget@panel-guid` appends to a Panel;
-`move ... to <host>.NamedSlots.<name>` assigns an empty Named Slot. The source
-and destination must be inside the same WidgetBlueprint, the destination must
-have capacity, and no operation may make a Widget a child of its own subtree.
-The current Root is not a valid `move` source: Root creation uses bare `add`,
-while Root-preserving transformation uses `wrap` or `replace` and Root deletion
-uses `remove`.
-
-Same-Panel reordering keeps the existing `UPanelSlot`. Reparenting to a Panel
-creates the destination's native Slot and imports only compatible old Slot
-properties, following Widget Designer drag/drop. Moving to a Named Slot
-removes the old Panel Slot; moving from a Named Slot explicitly clears the old
-host before attaching the Widget. Every discarded, created, or imported Slot
-value is part of preflight and mutation effects.
-
-`set` and `reset` edit only schema-approved Widget fields and nested Panel
-`Slot` fields. They never change Root, Panel-child, or Named Slot ownership.
-`NamedSlots` is therefore readable relationship state, not a writable field.
-
-`remove` means native deletion, never detach. It removes the target and its
-authored descendants, clears every removed Widget GUID record and applicable
-Graph variable node, removes delegate bindings owned by the selected deletion
-root, clears Desired Focus when it names that root, and then structurally
-modifies the WidgetBlueprint. This is the exact UE 5.7 `DeleteWidgets` cascade;
-SAL does not claim additional descendant-binding cleanup that the native path
-does not perform. Preflight reports the complete determinable subtree and each
-determinable reference effect; failure leaves the entire Patch unchanged.
-
-The complete Widget Patch surface is:
-
-| Operation | Meaning |
-| --- | --- |
-| `add binding [to destination|before anchor|after anchor]` | create and place one Palette-backed Widget |
-| `set widget.field = value` | write one schema-approved native Widget field |
-| `reset widget.field` | restore one field through its schema-approved native reset path |
-| `move widget to destination|before anchor|after anchor` | relocate or reorder one existing Widget subtree |
-| `remove widget` | remove one authored Widget subtree through native editor behavior |
-| `wrap widget-or-array with binding` | create one Panel wrapper while preserving the targets' external placement |
-| `replace widget with binding-or-widget` | perform one native Widget replacement or content promotion |
-| `invoke widget Operation(...)` | execute a specialized operation returned by that Widget's schema |
-
-There is no inline `add parent.child = widget(...)` form. A failed validation
-applies nothing, and all mutation results use the same ordered Widget Object
-Text as queries plus the shared mutation diagnostics and effects.
-
-The mutation `planned.effects` array is execution ordered. Each entry carries
-its stable live `widget@id` plus original name when one exists, or the local
-creation alias and relationship path for a new object. Structural entries
-contain before/after Root, Panel-child, or Named Slot placement; Panel placement
-also includes the concrete Slot type and values. `wrap` and `replace` explicitly
-report external placement transfer, newly created internal Slots, preserved
-children, and discarded objects. `remove` includes the full determinable
-subtree and its GUID, delegate, Desired Focus, and Graph-node cascade. Transient
-preflight GUIDs are never returned.
-
-Dry run executes the same ordered native edit path against a fully transient
-WidgetBlueprint sandbox. The sandbox must isolate WidgetTree Widgets, Slots,
-Navigation objects, Graphs, Generated and Skeleton Generated Classes and CDOs,
-Animations and MovieScenes, Bindings, and Blueprint Extensions. If UE cannot
-prove that every object the operation may write is in the sandbox, preflight
-fails instead of touching the live asset. Creation bindings must be consumed
-exactly once by `add`, `wrap`, or `replace`; an unused binding invalidates both
-dry run and live execution through the shared path.
+`remove` means native subtree deletion, never detach. It removes the authored
+subtree, clears each removed Widget GUID record and applicable Graph variable
+node, removes delegate bindings owned by the selected deletion root, clears
+Desired Focus when it names that root, and structurally modifies the
+WidgetBlueprint. This is the exact UE 5.7 `DeleteWidgets` cascade; SAL does not
+claim extra descendant-binding cleanup that the native path does not perform.
+Every determinable cascade is planned.
 
 ### Wrap
 
-`wrap` is a Widget-domain atomic operation, analogous to Graph `insert`. It is
-not sugar for `add` followed by `move` because UE preserves the target's
-external Panel Slot, Named Slot, or Root position while creating new internal
-Slots:
-
 ```sal
-patch menu
+wrapper = { palette: "P_VerticalBox" }
+wrap @title-guid with wrapper
 
-wrapper = widget(palette: "P_VerticalBox")
-wrap widget@title-guid with wrapper
+wrapper = { palette: "P_VerticalBox" }
+wrap [@title-guid, @body-guid] with wrapper
 ```
 
-One statement may wrap multiple direct Panel siblings with one wrapper:
+`wrap` materializes its binding; separate `add wrapper` is invalid. Multiple
+targets must be direct siblings under one Panel and are inserted into the
+wrapper in explicit array order. Root and Named Slot content can be wrapped
+only alone.
 
-```sal
-wrapper = widget(palette: "P_VerticalBox")
-wrap [widget@title-guid, widget@body-guid] with wrapper
-```
+The Palette capability must create exactly one primary `UPanelWidget`, and that
+Panel must have capacity for every target. A multi-target selection may not
+contain duplicates or an ancestor/descendant pair. Detached Widgets are
+rejected rather than silently attached or ignored.
 
-The operation materializes the Palette-backed `wrapper` binding itself; a
-separate `add wrapper` is invalid. The Palette capability must produce exactly
-one primary `UPanelWidget`, and that Panel must have capacity for every target.
-
-One `wrap` statement always creates exactly one wrapper. Multiple targets must
-be direct children of the same Panel, must not contain duplicate or
-ancestor/descendant selections, and are added to the wrapper in the explicit
-array order. The first target supplies the wrapper's external sibling position
-and Panel Slot. Other target Slots are removed, and every wrapped target gets a
-new native Slot owned by the wrapper. A Root or Named Slot target can only be
-wrapped alone; the wrapper takes that exact Root or Named Slot relationship.
-Detached Widgets are rejected rather than silently ignored.
-
-UE Widget Designer accepts an unordered selection, silently removes selected
-descendants of selected ancestors, and may create multiple wrappers for
-different parents or insufficient wrapper capacity. SAL deliberately does not
-copy that batch convenience: separate deterministic `wrap` statements express
-multiple wrappers.
+The wrapper takes the first target's external Root/Panel/Named Slot
+relationship. Every internal Slot creation and discarded old Slot is planned.
 
 ### Replace
 
-`replace` is the second Widget-domain atomic structural operation. A
-Palette-backed replacement follows Widget Designer's native Replace With path:
-
 ```sal
-replacement = widget(palette: "P_Border")
-replace widget@old-guid with replacement
+replacement = { palette: "P_Border" }
+replace @old-guid with replacement
+
+replace @panel-guid with @only-child-guid
 ```
 
-The operation materializes `replacement`, preserves the target's external
-Panel Slot, Named Slot, or Root relationship, imports compatible native
-properties, and moves existing children when both old and new Widgets are
-compatible Panels. It preserves the target's logical Widget `id` through
-`WidgetVariableNameToGuidMap` and updates native references through the editor
-rename and replacement paths. After success, both the local replacement alias
-and the old stable reference resolve to the replacement object. Any required
-name change or incompatible property, child, capacity, binding, animation, or
-reference effect is reported during preflight.
+Palette-backed replace follows Widget Designer Replace With, preserves the
+logical Widget Guid through the native replacement path, transfers external
+placement, imports compatible properties, and moves compatible children.
 
-The same operation promotes existing content through UE's native Replace With
-Child and Replace With Named Slot behavior:
-
-```sal
-replace widget@panel-guid with widget@only-child-guid
-replace widget@container-guid with widget@named-slot-content-guid
-```
-
-The existing replacement must be either the target Panel's only direct child
-or direct content of one of the target's Named Slots. It keeps its own `id` and
-is promoted into the target's exact external relationship; the old target and
-the rest of its subtree are removed. Any other existing-object relationship is
-invalid rather than being interpreted as a generic move-and-delete.
+Existing-content promotion is valid only for the target's only direct Panel
+child or direct Named Slot content. It is not a generic move-and-delete.
 
 ### Schema Operations
 
-Widget-wide editor actions that do not define a new ownership grammar remain
-target-local Operations discovered through `with schema`.
-
-Rename uses the complete Widget editor path rather than a direct UObject or
-`DisplayLabel` field write:
-
 ```sal
-invoke widget@start-guid Rename(displayName: "Start Button")
+invoke @start-guid Rename(displayName: "Start Button")
+invoke @start-guid Duplicate() as copy
 ```
 
-It validates and sanitizes the requested display name, renames the template and
-preview Widget, preserves the Widget `id`, and updates variable references,
-delegate bindings, Desired Focus, animations, navigation bindings, UI
-Components, and affected child Blueprints. A collision is a validation error;
-the adapter never silently chooses a unique suffix.
+Rename follows the complete Widget editor path and preserves Widget Guid while
+updating native references. Duplicate uses native subtree serialization,
+creates new names and Guids, and is available only with an unambiguous Panel
+sibling destination.
 
-Duplicate copies one existing Widget subtree through UE's internal Widget
-serialization path and exposes the new root as an output:
+Clipboard Cut/Copy/Paste and lifecycle aliases such as attach/detach/reparent
+are not Patch operations.
 
-```sal
-invoke widget@start-guid Duplicate() as copy
-```
+## Dry Run And Transactions
 
-The duplicate receives new Widget names and GUIDs, keeps copied native and Slot
-state, and is inserted immediately after the source. It is available only when
-the source has a Panel parent that permits an unambiguous sibling insertion.
-Root, Named Slot, detached, and single-child-parent cases are unavailable
-rather than invoking Widget Designer's clipboard fallback or replacing
-existing content.
+Dry run executes the same ordered native edits against a fully isolated
+WidgetBlueprint sandbox, including WidgetTree, Slots, Graphs, generated
+Classes/CDOs, Animations/MovieScenes, Bindings, Navigation, and Extensions.
 
-`Cut`, `Copy`, and `Paste` remain editor clipboard commands, not SAL Patch
-operations. `Find References` and `Open Widget Blueprint` are discovery or
-navigation behavior, not mutations. Widget introduces no `attach`, `detach`,
-`reparent`, `promote`, or lifecycle `Delete` Operation aliases.
+If the adapter cannot prove all writable objects are isolated, preflight fails.
+Creation bindings must be consumed exactly once by add, wrap, or replace.
+Transient Guids never escape.
 
-## Relationship Mutation Boundary
+Live apply uses one transaction. Every relationship change and native cascade
+appears in ordered `planned.effects`.
 
-Panel Slots and Named Slots remain different UE relationships even though the
-same placement operations can address both:
+## Blueprint Finalization Handoff
 
-- Panel placement creates the exact native `UPanelSlot`; its editable fields
-  use `set widget@id.Slot.Field` and `reset widget@id.Slot.Field`.
-- Named Slot content is returned through the host's `NamedSlots` relationship
-  map and never receives a fake Panel Slot.
-- `add` and `move` own ordinary placement; `wrap` and `replace` own the two
-  native compound transformations that must preserve an external relationship.
-- `set` and `reset` never reinterpret either relationship as a property write.
+Widget Domain does not compile or save the WidgetBlueprint:
 
-## Blueprint Finalization
-
-`UWidgetBlueprint` uses the existing `blueprint(...)` object shape, so it also
-uses the one Blueprint-domain terminal compile path rather than a Widget-specific
-operation:
+The following is a Result Text fragment, not a standalone Result Text document.
 
 ```sal
-patch menu
-compile
-save
+related bp = target {
+  domain: blueprint,
+  asset: "/Game/UI/WBP_Menu.WBP_Menu",
+  id: "11111111-1111-1111-1111-111111111111"
+}
+handoff compile to bp
 ```
 
-`compile` selects UE's registered Widget Blueprint compiler and follows every
-target, PIE, Full Compile, diagnostic, dependency, and dry-run rule in the
-Blueprint domain. The following Core `save` infers the same WidgetBlueprint's
-owning Package. Neither statement may be mixed with Widget tree edits such as
-`add`, `move`, `wrap`, `replace`, `set`, or `reset`.
+Compile/save occurs in a following Blueprint request. Widget and Blueprint
+authored edits never share one Patch.
 
-The Widget adapter does not define `CompileWidget`, duplicate compiler flags,
-or create another result shape. Exact schema on the `blueprint(...)` target
-reports `compile` and `save` under `patch:`; exact schema on an individual
-`widget(...)` remains about that Widget's fields, relationships, and interfaces.
+## UE Boundary
 
-## UE Mapping
+The adapter follows native ownership and editor paths:
 
-The adapter follows UE's native ownership and editor paths:
+- `UBaseWidgetBlueprint::WidgetTree`;
+- `UWidgetTree::RootWidget`;
+- `ForEachSourceWidget` and `ForWidgetAndChildren`;
+- `UPanelSlot` and `INamedSlotInterface`;
+- `FWidgetTemplate::Create`;
+- Widget GUID maintenance;
+- Designer hierarchy drop;
+- native wrap, replace, rename, duplicate, and delete utilities.
 
-- `UBaseWidgetBlueprint::WidgetTree` owns the authored tree.
-- `UWidgetTree::RootWidget` is the unique root.
-- `UBaseWidgetBlueprint::ForEachSourceWidget` enumerates every source Widget,
-  including detached objects outside a reachable root traversal.
-- `UWidgetTree::ForWidgetAndChildren` visits `INamedSlotInterface` content
-  before ordinary `UPanelWidget` children.
-- `UPanelSlot` stores the concrete Panel relationship and layout state, while
-  `INamedSlotInterface::GetSlotNames` and `GetContentForSlot` expose Named Slot
-  relationships without requiring a Slot UObject.
-- `FWidgetTemplate::Create(UWidgetTree*)` is the Palette creation path and may
-  preserve template-specific initialization.
-- `UWidgetBlueprint::WidgetVariableNameToGuidMap` supplies Widget `id` values;
-  `OnVariableAdded`, `OnVariableRenamed`, and `OnVariableRemoved` maintain them.
-- Widget Designer hierarchy drop owns Panel and Named Slot placement,
-  reparenting, compatible Slot-property import, capacity checks, and circular
-  relationship checks.
-- `FWidgetBlueprintEditorUtils::WrapWidgets`, replacement utilities,
-  `RenameWidget`, `DuplicateWidgets`, and `DeleteWidgets` own their complete
-  editor behaviors and cascades.
-- `UWidgetTree::RemoveWidget` and parent `UPanelWidget` operations provide the
-  lower-level structural behavior used by those editor paths.
-
-The adapter must not replace an exact `FWidgetTemplate` with a guessed Class and
-raw `ConstructWidget`, silently suffix requested names, synthesize missing ids
-during a read, shorten native Class paths, or collapse Panel Slot and Named Slot
-relationships into one field.
-
-## Adapter Boundary
-
-Pure SAL normalization may:
-
-- parse every `widget(...)` value as an ordinary `Call`;
-- preserve local and member binding targets and exact statement order;
-- normalize typed `widget@id` references, relationship destinations, and the
-  Widget-domain `wrap` and `replace` statement shapes;
-- preserve shared Blueprint `compile` and Core `save` terminal statement forms
-  without selecting a compiler or resolving Package state.
-
-Pure SAL normalization must not:
-
-- resolve a WidgetBlueprint, WidgetTree, Widget, Palette capability, or Class;
-- choose a constructor name from a native Class;
-- validate Widget property names, values, parent compatibility, or capacity;
-- infer a root, Panel Slot, or Named Slot relationship not present in the
-  ordered document;
-- select or execute the WidgetBlueprint compiler, resolve its owning Package,
-  or bind Widget events to Graph Nodes.
-
-Widget-specific responsibilities belong to the Widget adapter and Bridge.
-Compilation and saving delegate to the shared Blueprint compile and Core
-Package-save services; the Widget adapter must not implement parallel public
-semantics.
+It never guesses a Class from display text, raw-constructs in place of an exact
+template, silently suffixes names, synthesizes missing ids on read, or collapses
+Panel and Named Slot relationships.

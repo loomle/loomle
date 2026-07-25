@@ -4,6 +4,7 @@
 
 #include "Sal/Blueprint/SalBlueprintInterface.h"
 #include "Sal/Graph/SalGraphInterface.h"
+#include "SalTestObjectModel.h"
 #include "Tests/LoomleTestEditorState.h"
 
 #include "Animation/AnimBlueprint.h"
@@ -193,16 +194,15 @@ TArray<TSharedPtr<FJsonObject>> RobustGraphCallArgs(
         const TSharedPtr<FJsonObject>* Statement = nullptr;
         const TSharedPtr<FJsonObject>* Call = nullptr;
         const TSharedPtr<FJsonObject>* Args = nullptr;
-        FString ActualCallee;
         if (StatementValue.IsValid()
             && StatementValue->TryGetObject(Statement)
             && Statement != nullptr
             && (*Statement)->TryGetObjectField(TEXT("value"), Call)
             && Call != nullptr
-            && (*Call)->TryGetStringField(TEXT("callee"), ActualCallee)
-            && ActualCallee == Callee
-            && (*Call)->TryGetObjectField(TEXT("args"), Args)
-            && Args != nullptr)
+            && Loomle::Tests::Sal::TryReadObjectExpr(
+                *Call,
+                Callee,
+                Args))
         {
             Calls.Add(*Args);
         }
@@ -1182,14 +1182,39 @@ FString RobustGraphResolvedRef(
     const FString& Alias)
 {
     const TSharedPtr<FJsonObject>* Resolved = nullptr;
-    FString Id;
-    if (Result.IsValid()
-        && Result->TryGetObjectField(TEXT("resolvedRefs"), Resolved)
-        && Resolved != nullptr)
+    const TSharedPtr<FJsonObject>* Ref = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* IdentityPath = nullptr;
+    FString Kind;
+    if (!Result.IsValid()
+        || !Result->TryGetObjectField(TEXT("resolvedRefs"), Resolved)
+        || Resolved == nullptr
+        || !(*Resolved)->TryGetObjectField(Alias, Ref)
+        || Ref == nullptr
+        || !(*Ref)->TryGetStringField(TEXT("kind"), Kind)
+        || Kind != TEXT("stable_ref")
+        || !(*Ref)->TryGetArrayField(
+            TEXT("identityPath"),
+            IdentityPath)
+        || IdentityPath == nullptr
+        || IdentityPath->IsEmpty())
     {
-        (*Resolved)->TryGetStringField(Alias, Id);
+        return FString();
     }
-    return Id;
+    TArray<FString> Segments;
+    Segments.Reserve(IdentityPath->Num());
+    for (const TSharedPtr<FJsonValue>& SegmentValue :
+         *IdentityPath)
+    {
+        FString Segment;
+        if (!SegmentValue.IsValid()
+            || !SegmentValue->TryGetString(Segment)
+            || Segment.IsEmpty())
+        {
+            return FString();
+        }
+        Segments.Add(MoveTemp(Segment));
+    }
+    return FString::Join(Segments, TEXT("/"));
 }
 
 FSalPatch RobustGraphTerminalPatch()

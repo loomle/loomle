@@ -40,6 +40,10 @@ const scenarioTimeoutMs = 5_000;
  */
 export async function runPackagedRuntimeLifecycle(options = {}) {
   const projectRoot = nonEmpty(options.projectRoot, "projectRoot");
+  const protocolVersion = positive(
+    options.protocolVersion,
+    "protocolVersion",
+  );
   const platform = options.platform ?? process.platform;
   const cleanupTimeoutMs = positive(
     options.cleanupTimeoutMs ?? 15_000,
@@ -132,6 +136,7 @@ export async function runPackagedRuntimeLifecycle(options = {}) {
         projectId,
         projectRoot,
         platform,
+        protocolVersion,
         marker: "first-runtime",
       });
       runtimes.push(first);
@@ -158,6 +163,7 @@ export async function runPackagedRuntimeLifecycle(options = {}) {
         projectId,
         projectRoot,
         platform,
+        protocolVersion,
         marker: "second-runtime",
       });
       runtimes.push(second);
@@ -207,6 +213,7 @@ export async function runPackagedRuntimeLifecycle(options = {}) {
         projectId,
         projectRoot,
         platform,
+        protocolVersion,
         marker: "blocked-runtime",
         holdInvokes: true,
       });
@@ -244,6 +251,7 @@ export async function runPackagedRuntimeLifecycle(options = {}) {
         projectId,
         projectRoot,
         platform,
+        protocolVersion,
         marker: "replacement-runtime",
       });
       runtimes.push(replacement);
@@ -333,6 +341,7 @@ async function startRuntime({
   projectId,
   projectRoot,
   platform,
+  protocolVersion,
   marker,
   holdInvokes = false,
 }) {
@@ -380,7 +389,6 @@ async function startRuntime({
       socket.destroy();
       return;
     }
-    const protocolVersion = Number(request?.params?.protocolVersion ?? 2);
     if (request.method === "rpc.health") {
       respond(socket, request.id, {
         runtimeId,
@@ -416,6 +424,14 @@ async function startRuntime({
     respond(socket, request.id, {
       ok: true,
       payload: {
+        targetContext: "domain_root",
+        target: {
+          alias: "assets",
+          target: {
+            kind: "target",
+            domain: "asset",
+          },
+        },
         object: {
           statements: [{
             kind: "comment",
@@ -453,7 +469,7 @@ async function startRuntime({
       projectRoot,
       endpoint,
       pid: process.pid,
-      protocolVersion: 2,
+      protocolVersion,
       startedAt: new Date().toISOString(),
       lastSeenAt: new Date().toISOString(),
     })}\n`);

@@ -3,10 +3,10 @@
     {
       "from": {
         "kind": "member",
-        "object": { "kind": "node", "id": "producer" },
+        "object": { "kind": "stable_ref", "identityPath": ["producer"] },
         "path": ["Instance", "Targets", 2147483648]
       },
-      "to": { "kind": "node", "id": "consumer" }
+      "to": { "kind": "stable_ref", "identityPath": ["consumer"] }
     }
   ]
 }

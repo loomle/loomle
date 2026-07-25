@@ -27,7 +27,7 @@ const fixture = Object.freeze({
   assetSearchText: "BP_LoomleE2E",
   assetRoot: "/Game",
 });
-const blueprintId = "01234567-89AB-CDEF-0123-456789ABCDEF";
+const blueprintId = "01234567-89ab-cdef-0123-456789abcdef";
 const mutationDescription = "Loomle packaged E2E mutation";
 
 test("fixture locator is mandatory and SAL builders remain self-contained", () => {
@@ -53,7 +53,10 @@ test("fixture locator is mandatory and SAL builders remain self-contained", () =
     }).assetRoot,
     "/Game",
   );
-  assert.match(buildAssetQuery(fixture), /^query asset\nassets /);
+  assert.match(
+    buildAssetQuery(fixture),
+    /^assets = target \{ domain: asset \}\n\nquery assets\nassets /,
+  );
   assert.match(
     buildAssetQuery(fixture),
     /path = "\/Game\/LoomleTests\/BP_LoomleE2E\.BP_LoomleE2E"/,
@@ -61,7 +64,7 @@ test("fixture locator is mandatory and SAL builders remain self-contained", () =
   assert.match(buildBlueprintSummaryQuery(fixture), /\nquery fixtureBlueprint\nsummary$/);
   assert.match(
     buildBlueprintExactQuery(fixture, blueprintId),
-    new RegExp(`blueprint@${blueprintId}$`),
+    /\nquery fixtureBlueprint\ntarget$/,
   );
 
   const description = "quoted \"description\" with newline\nand slash \\\\";
@@ -115,7 +118,16 @@ test("tool text rejects tool errors and non-text result shapes", () => {
   );
   assert.throws(
     () => requireToolText({ content: [] }, "fixture query"),
-    /exactly one MCP text block/,
+    /at least one MCP text block/,
+  );
+  assert.match(
+    requireToolText({
+      content: [
+        { type: "text", text: "result unresolved_target\nno_objects" },
+        { type: "text", text: "# diagnostic" },
+      ],
+    }, "fixture query"),
+    /result unresolved_target[\s\S]*# diagnostic/,
   );
 });
 
@@ -476,7 +488,24 @@ class FakePackagedHarness {
           return harness.patch(args.text, requestSignal);
         }
         if (name === "editor_context") {
-          return textResult("# surface: unknown\n# selection: unavailable");
+          return {
+            ...textBlocks(
+              [
+                "result unresolved_target",
+                "objects",
+                "# surface: SLevelViewport",
+                "# selection: unavailable",
+              ].join("\n"),
+              [
+                "###",
+                "SAL diagnostics",
+                "ERROR resolution.unresolved_target: Editor Context has no exact supported Domain Target.",
+                "  domain: editor_context",
+                "###",
+              ].join("\n"),
+            ),
+            isError: true,
+          };
         }
         throw new Error(`unhandled fake tool ${name}`);
       },
@@ -492,20 +521,35 @@ class FakePackagedHarness {
   }
 
   query(text) {
-    if (/^query asset$/m.test(text)) {
-      return textResult(this.assetMissing
-        ? "# fixture asset search returned zero results"
-        : assetObjectText());
+    if (/^query assets$/m.test(text)) {
+      return textResult(resultEnvelope({
+        targetContext: "domain_root",
+        alias: "assets",
+        target: "target {domain: asset}",
+        objectText: this.assetMissing
+          ? "# fixture asset search returned zero results"
+          : assetObjectText(),
+      }));
     }
     if (/^summary$/m.test(text)) {
-      return textResult(blueprintObjectText(this.description, { complete: false }));
+      return textResult(resultEnvelope({
+        targetContext: "exact_target",
+        alias: "fixtureBlueprint",
+        target: blueprintTarget(),
+        objectText: blueprintObjectText(this.description, { complete: false }),
+      }));
     }
-    if (new RegExp(`^blueprint@${blueprintId}$`, "m").test(text)) {
+    if (/^target$/m.test(text)) {
       const description = this.corruptAppliedReadback
           && this.description === mutationDescription
         ? "corrupted readback"
         : this.description;
-      return textResult(blueprintObjectText(description, { complete: true }));
+      return textResult(resultEnvelope({
+        targetContext: "exact_target",
+        alias: "fixtureBlueprint",
+        target: blueprintTarget(),
+        objectText: blueprintObjectText(description, { complete: true }),
+      }));
     }
     return {
       ...textResult("# unknown query"),
@@ -534,16 +578,23 @@ class FakePackagedHarness {
         throw new Error("simulated transport failure after apply");
       }
     }
-    return textResult([
-      "# BlueprintDescription mutation",
-      "###",
-      "SAL result",
-      "operation: patch",
-      `dryRun: ${parsed.object.dryRun}`,
-      "valid: true",
-      `applied: ${!parsed.object.dryRun}`,
-      "###",
-    ].join("\n"));
+    return textBlocks(
+      resultEnvelope({
+        targetContext: "exact_target",
+        alias: "fixtureBlueprint",
+        target: blueprintTarget(),
+        objectText: "# BlueprintDescription mutation",
+      }),
+      [
+        "###",
+        "SAL result",
+        "operation: patch",
+        `dryRun: ${parsed.object.dryRun}`,
+        "valid: true",
+        `applied: ${!parsed.object.dryRun}`,
+        "###",
+      ].join("\n"),
+    );
   }
 }
 
@@ -561,38 +612,53 @@ function projectReport({ status, root }) {
 
 function assetObjectText() {
   return [
-    "fixtureAsset = asset(",
+    "fixtureAsset = {",
     `  path: ${JSON.stringify(fixture.blueprintAssetPath)},`,
     `  type: ${JSON.stringify(fixture.assetType)},`,
-    "  domains: [asset, blueprint],",
+    '  domains: ["asset", "blueprint"],',
     "  loaded: false,",
     "  score: 100",
-    ")",
+    "}",
   ].join("\n");
 }
 
 function blueprintObjectText(description, { complete }) {
   return [
-    "fixtureAsset = asset(",
-    `  path: ${JSON.stringify(fixture.blueprintAssetPath)},`,
-    `  type: ${JSON.stringify(fixture.assetType)}`,
-    ")",
-    "fixtureBlueprint = blueprint(",
-    "  asset: fixtureAsset,",
-    `  id: ${JSON.stringify(blueprintId)},`,
-    "  type: BPTYPE_Normal,",
-    "  Status: BS_UpToDate,",
-    `  ParentClass: "/Script/Engine.Actor"${complete ? "," : ""}`,
+    "fixtureBlueprint.type = BPTYPE_Normal",
+    "fixtureBlueprint.Status = BS_UpToDate",
+    'fixtureBlueprint.ParentClass = "/Script/Engine.Actor"',
     ...(complete
-      ? [`  BlueprintDescription: ${JSON.stringify(description)}`]
+      ? [`fixtureBlueprint.BlueprintDescription = ${JSON.stringify(description)}`]
       : []),
-    ")",
     ...(complete ? [] : ["# variables: 0", "# graphs: 1"]),
+  ].join("\n");
+}
+
+function blueprintTarget() {
+  return [
+    "target {",
+    "  domain: blueprint,",
+    `  asset: ${JSON.stringify(fixture.blueprintAssetPath)},`,
+    `  id: ${JSON.stringify(blueprintId)}`,
+    "}",
+  ].join("\n");
+}
+
+function resultEnvelope({ targetContext, alias, target, objectText }) {
+  return [
+    `result ${targetContext}`,
+    `target ${alias} = ${target}`,
+    "objects",
+    objectText,
   ].join("\n");
 }
 
 function textResult(text) {
   return { content: [{ type: "text", text }] };
+}
+
+function textBlocks(...texts) {
+  return { content: texts.map((text) => ({ type: "text", text })) };
 }
 
 function monotonicClock() {

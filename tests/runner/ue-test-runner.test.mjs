@@ -1319,7 +1319,7 @@ test("builds the durable result.json contract", () => {
     finishedAt,
     metadata: {
       productVersion: "0.7.0-dev.1",
-      protocolVersion: 2,
+      protocolVersion: 3,
       commit: "abc123",
       target: "darwin-arm64",
       archiveSha256: null,
@@ -1371,7 +1371,7 @@ test("builds the durable result.json contract", () => {
   assert.equal(result.status, "passed");
   assert.equal(result.durationMs, 4250);
   assert.equal(result.productVersion, "0.7.0-dev.1");
-  assert.equal(result.protocolVersion, 2);
+  assert.equal(result.protocolVersion, 3);
   assert.equal(result.editor.pid, 123);
   assert.equal(result.automation.total, 68);
   assert.deepEqual(result.crashes.newReports, []);

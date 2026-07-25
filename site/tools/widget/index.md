@@ -8,22 +8,21 @@ nav_order: 6
 # Widget
 
 Widget operates on authored `UWidget` objects inside one
-`UWidgetBlueprint::WidgetTree`. It composes the Blueprint interface on the same
-target; there is no separate document wrapper of this form:
+`UWidgetBlueprint::WidgetTree`. Widget and Blueprint are independent Domains
+even when they open the same asset.
 
 ```text
-widget(asset: ...)
-```
-
-```text
-menu = blueprint(
+menu = target {
+  domain: widget,
   asset: "/Game/UI/WBP_Menu.WBP_Menu",
-  id: "blueprint-guid"
-)
+  id: "11111111-1111-1111-1111-111111111111"
+}
 
 query menu
 tree depth 20
 ```
+
+The Widget `id` is a canonical lowercase, hyphenated, non-zero Guid.
 
 ## Query
 
@@ -33,12 +32,11 @@ Widget adds these queries:
 tree
 widgets
 widget <name>
-widget@id
+@widget-guid
 ```
 
-Summary and Palette are shared with the Blueprint target. Tree reads return
-authored hierarchy and Slot layout; collection search also finds detached
-Widgets.
+Summary and Palette belong to the Widget Target. Tree reads return authored
+hierarchy and Slot layout; collection search also finds detached Widgets.
 
 Panel Slot state is nested on the child Widget. Named Slot relationships are
 also native Widget relationships. Neither is an independent selector, object,
@@ -49,14 +47,15 @@ or Palette entry.
 Create from the combined target Palette, then use structural Widget operations:
 
 ```text
-menu = blueprint(
+menu = target {
+  domain: widget,
   asset: "/Game/UI/WBP_Menu.WBP_Menu",
-  id: "blueprint-guid"
-)
+  id: "11111111-1111-1111-1111-111111111111"
+}
 
 patch menu dry run
-label = widget(palette: "palette-entry-id")
-add label to widget@panel-guid
+label = { palette: "palette-entry-id" }
+add label to @panel-guid
 set label.Text = "Start"
 ```
 
@@ -77,14 +76,20 @@ Exact Widget schema is authoritative for Widget fields, Slot fields, placement
 constraints, and available operations.
 
 Widget events such as `OnClicked` are Graph Palette capabilities. Exact Widget
-schema returns the locator-complete Graph query to find the event Node. Widget
-Animation, Navigation, legacy Binding, and MVVM are outside the current
-interface.
+schema may return an independent canonical Graph Target and an explicit
+handoff; it never nests that Target in a Widget object. Widget Animation,
+Navigation, legacy Binding, and MVVM are outside the current interface.
 
-Finalize through a separate Blueprint Patch:
+Finalize through the related Blueprint Target returned by Widget results:
 
 ```text
-patch menu
+bp = target {
+  domain: blueprint,
+  asset: "/Game/UI/WBP_Menu.WBP_Menu",
+  id: "11111111-1111-1111-1111-111111111111"
+}
+
+patch bp
 compile
 save
 ```

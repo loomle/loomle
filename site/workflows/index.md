@@ -21,9 +21,10 @@ Loomle workflows follow one inspect-and-verify loop:
 8. Read back the affected state.
 9. Compile and save through the exact owning asset.
 
-The examples use placeholder ids because real ids and Palette capabilities must
-come from the current project. Copy returned owner bindings, typed references,
-constructors, and invocation templates; do not invent them.
+The examples use placeholder StableRef segments because real identities and
+Palette capabilities must come from the current project. Copy returned flat
+Targets, `@identityPath` references, brace object fields, and invocation
+templates; do not invent them.
 
 ## Available Workflows
 

@@ -4,6 +4,7 @@
 
 #include "Sal/Blueprint/SalBlueprintInterface.h"
 #include "Sal/Widget/SalWidgetInterface.h"
+#include "SalTestObjectModel.h"
 #include "Tests/LoomleTestEditorState.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -174,16 +175,15 @@ TArray<TSharedPtr<FJsonObject>> RobustWidgetCalls(
         const TSharedPtr<FJsonObject>* Statement = nullptr;
         const TSharedPtr<FJsonObject>* Call = nullptr;
         const TSharedPtr<FJsonObject>* CallArgs = nullptr;
-        FString Actual;
         if (Value.IsValid()
             && Value->TryGetObject(Statement)
             && Statement != nullptr
             && (*Statement)->TryGetObjectField(TEXT("value"), Call)
             && Call != nullptr
-            && (*Call)->TryGetStringField(TEXT("callee"), Actual)
-            && Actual == Callee
-            && (*Call)->TryGetObjectField(TEXT("args"), CallArgs)
-            && CallArgs != nullptr)
+            && Loomle::Tests::Sal::TryReadObjectExpr(
+                *Call,
+                Callee,
+                CallArgs))
         {
             Args.Add(*CallArgs);
         }
@@ -649,7 +649,7 @@ bool FSalWidgetRobustQueryPaletteTest::RunTest(
     TestFalse(TEXT("Shallow Widget tree succeeds"), RobustWidgetHasError(ShallowResult));
     TestTrue(
         TEXT("Shallow Widget tree reports its truncation boundary"),
-        RobustWidgetHasComment(ShallowResult, TEXT("truncated: widget@")));
+        RobustWidgetHasComment(ShallowResult, TEXT("truncated: @")));
 
     FSalQuery Widgets = RobustWidgetQuery(TEXT("widgets"));
     Widgets.Operation->SetStringField(TEXT("text"), TEXT("Detached"));

@@ -12,10 +12,11 @@ Compilation targets one complete Blueprint, never one Graph. Finalization is a
 separate terminal Patch so authored edits and their validation remain distinct:
 
 ```text
-door = blueprint(
+door = target {
+  domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid"
-)
+  id: "11111111-1111-1111-1111-111111111111"
+}
 
 patch door
 compile
@@ -38,6 +39,9 @@ save
 
 They cannot be mixed with bindings or source mutations in the same Patch.
 
-Compilation returns native Blueprint Status and ordered compiler diagnostics.
-Save persists only the exact owning Package. Graph and Widget edits therefore
-finish through their owning Blueprint after the authored Patch succeeds.
+Compilation returns native Blueprint Status and ordered compiler messages as
+factual comments in the first canonical Result Text block. Structured
+validation or execution diagnostics remain a later independent block. Save
+persists only the exact owning Package. Graph and Widget edits therefore finish
+through an independent related Blueprint Target and explicit handoff after the
+authored Patch succeeds.

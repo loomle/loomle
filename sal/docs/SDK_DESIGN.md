@@ -1,197 +1,163 @@
 # SAL SDK Design
 
-## Intent
+## Scope
 
-The SDK turns agent-facing SAL Text into a small normalized request contract,
-calls one configured executor, validates its response, and formats ordered SAL
-Object Text. It owns language mechanics; UE remains the source of truth for
-object meaning and edit legality.
+The TypeScript SDK owns:
 
-## Facade
+- normalized request and result types;
+- generated JSON Schema;
+- parser and canonical formatter;
+- static interface catalog;
+- explicitly opted-in legacy parsing for migration tools;
+- fixtures and schema/round-trip tests.
 
-```ts
-interface Sal {
-  query(text: SalText): Promise<TextResult>;
-  patch(text: SalText): Promise<TextResult>;
-  schema(module?: string): Promise<TextResult>;
-}
+It does not resolve UE objects, infer Domains, interpret native identity,
+choose Palette entries, validate UE capabilities, or execute mutations.
 
-interface CreateSalOptions {
-  executor: SalExecutor;
-  catalog: readonly SalInterface[];
-}
+## Structural Types
 
-interface SalInterface {
-  readonly name: string;
-  readonly description: string;
-  readonly text: string;
-}
-
-declare function createSal(options: CreateSalOptions): Sal;
-```
-
-`query` and `patch` accept self-contained SAL Text. Target locators, Query
-clauses, Patch order, and dry-run intent are in that Text, not side parameters.
-
-`schema()` returns the compact active-interface index. `schema(module)` returns
-one static interface card. Both are selected from the injected `catalog` using
-the names declared by `executor.interfaces`; neither form calls the executor or
-reads package files. Current-instance discovery remains a normal exact Query
-using `with schema`.
-
-SAL Core defines the catalog contract, but its schema discovery has no built-in
-interface catalog or domain Text. Loomle's UE interface package owns the
-resident guide and static Asset, Blueprint, Class, Graph, and Widget cards.
-Other products may inject a different catalog without changing the language or
-normalized schema.
-
-## Pipeline
-
-```txt
-SAL Text
-  -> parse and pure normalization
-  -> SalObject validation
-  -> executor
-  -> ObjectResult validation
-  -> ordered Object Text formatting
-  -> TextResult
-```
-
-The parser owns:
-
-- delimiter-aware statement boundaries and comments;
-- expressions, Calls, names, values, bindings, and references;
-- target locator expansion;
-- Query operations and clauses;
-- ordered Patch bindings and operations;
-- language diagnostics with source spans.
-
-The parser may perform only state-independent rewrites. It must not inspect UE
-objects, resolve Palette entries, infer types, validate Pins, or choose a domain
-implementation.
-
-The executor owns:
-
-- resolving generic target Calls against active interfaces;
-- selecting composed capabilities from the resolved native object;
-- Query capability and state validation;
-- exact-object `with schema` content;
-- Palette discovery and creation-entry resolution;
-- UE field, relationship, and operation semantics;
-- Patch preflight, dry run, apply, and verification;
-- capability, resolution, and validation diagnostics.
-
-## Normalized Requests
-
-All requests use one generic target:
+### ObjectExpr
 
 ```ts
-interface Target {
-  alias: string;
-  value: Call | Name;
+interface ObjectExpr<E> {
+  kind: "object";
+  fields: Record<string, E>;
+  semanticTag?: SemanticTag;
 }
 ```
 
-Leading locator bindings recursively expand into `Target.value`. `alias` is
-presentation context only. A collection root such as `query asset` becomes a
-`Name`; Patch requires a bound `Call`. There is no `RequestTarget`, public
-`domain`, or Asset/Blueprint/Graph/Widget target union.
+`fields` is the only ordinary object data. `semanticTag` is retained
+presentation metadata in the AST, but it is excluded from native identity,
+lookup, routing, validation, planning, and execution comparisons.
 
-Only `Target.alias` remains available to the request body. Intermediate locator
-aliases disappear during expansion. Other local references must resolve to an
-earlier binding or `invoke` output; executor results are rejected if their
-ordered Object Text violates the same rule. Result validation starts with an
-empty local-alias scope: an executor must declare a compact target or owner
-binding before any returned statement refers to that alias.
+The generated semantic-tag schema uses the identifier pattern and excludes the
+Core/Domain reserved-word set. Schema and parser copies are locked by an exact
+conformance test; Bridge and interface validation must enforce the same closed
+set.
+
+### Target
 
 ```ts
-interface Query {
+type Target =
+  | AssetTarget
+  | BlueprintTarget
+  | ClassTarget
+  | GraphTarget
+  | StateTreeTarget
+  | WidgetTarget;
+```
+
+Every branch has `kind: "target"` and a literal `domain`. Target branches are
+closed and flat. All address/verification fields are non-empty strings.
+
+```ts
+interface TargetBinding<T extends Target = Target> {
+  alias: LocalIdentifier;
+  target: T;
+}
+```
+
+Query accepts Domain discovery forms. Patch accepts only generated canonical
+Target profiles.
+
+### References
+
+```ts
+interface StableRef {
+  kind: "stable_ref";
+  identityPath: [NonEmptyString, ...NonEmptyString[]];
+  semanticTag?: SemanticTag;
+}
+
+interface ScopedStableRef {
+  kind: "scoped_stable_ref";
+  target: LocalRef;
+  reference: StableRef;
+}
+
+interface MemberRef<O> {
+  kind: "member";
+  object: O;
+  path: [string | number, ...(string | number)[]];
+}
+```
+
+Normalized request unions accept only unscoped StableRefs. Source request text
+may redundantly qualify a reference with its own active Target alias; parsing
+lowers that spelling to an unscoped StableRef. Foreign and unknown qualifiers
+are rejected. Result unions additionally accept ScopedStableRefs for related
+Target context.
+
+### Expression Unions
+
+```ts
+type RequestExpr =
+  | null
+  | boolean
+  | number
+  | string
+  | Name
+  | RequestRef
+  | ObjectExpr<RequestExpr>
+  | RequestExpr[];
+
+type ResultExpr =
+  | null
+  | boolean
+  | number
+  | string
+  | Name
+  | ResultRef
+  | ObjectExpr<ResultExpr>
+  | ResultExpr[];
+```
+
+Target is intentionally absent from both Expr unions. Target appears only in a
+Target binding or related Target table.
+
+## Requests
+
+```ts
+interface QueryRequest {
   kind: "query";
-  target: Target;
+  target: TargetBinding<QueryAcceptedTarget>;
   operation: QueryOperation;
   where?: Condition;
-  with?: string[];
-  orderBy?: OrderBy[];
+  with?: [Identifier, ...Identifier[]];
+  orderBy?: [OrderBy, ...OrderBy[]];
   page?: Page;
 }
 
-interface TargetOperation {
-  kind: "target";
-}
-
-interface Patch {
+interface PatchRequest {
   kind: "patch";
-  target: Target;
+  target: TargetBinding<CanonicalTarget>;
   dryRun: boolean;
-  statements: PatchStatement[];
+  statements: [PatchStatement, ...PatchStatement[]];
 }
-
-type PatchStatement = Binding | PatchOperation;
 ```
 
-Query has exactly one normalized operation. A bare exact-target Query uses the
-shared `target` operation. Plural operations enumerate or search, singular
-operations resolve exact current names, and kind-qualified stable references
-resolve exact IDs. Relationship reads such as `tree`, `context`, `exec flow`,
-`data flow`, and `references to` are direct operations rather than `find`
-variants.
+Domain operation unions remain closed. Cross-field capability checks run after
+structural schema validation and reject ignored clauses.
 
-The normalized factual-reference operation is:
+The exact Target Query uses `{kind: "target"}`. Contained-object exact lookup
+uses:
 
 ```ts
-interface ReferencesOperation {
-  kind: "references";
-  target: StableRef | StableMemberRef;
-  scope?: "project";
-}
-
-interface StableMemberRef {
-  kind: "member";
-  object: StableRef;
-  path: (string | number)[];
+interface ExactObjectOperation {
+  kind: "object";
+  target: StableRef;
 }
 ```
 
-`target` reuses the relationship-operation name already used by Context and
-Flow. It accepts either one kind-qualified stable object or an existing Member Reference
-rooted in such an object; Query-local aliases are deliberately excluded.
-Omitted `scope` means the bound target, while `scope: "project"` normalizes the
-literal `in project` modifier. Pagination remains the shared top-level
-`Query.page`; the operation adds no `where`, `with`, `orderBy`, or `depth`
-meaning.
+The Target relationship subject uses `{kind: "target_self"}` rather than a
+fabricated reference. This is structural request shape, not universal native
+capability: the current Bridge resolves bare Target-self only for callable
+Function/Macro Graph Targets and resolves the direct
+`target.InterfaceGuid` member for a valid Graph Interface declaration.
+Unsupported Domain or Graph roles return
+`capability.reference_unavailable`.
 
-Patch order is semantic. Bindings and operations remain in one `statements`
-array; no `bindings`/`ops` parallel arrays or wrapper statement are allowed.
-
-## Shared Expressions And References
-
-```ts
-type Expr =
-  | null | boolean | number | string
-  | Name | Ref | Call
-  | Expr[] | { [key: string]: Expr };
-
-interface LocalRef { kind: "local"; name: string; }
-interface StableRef { kind: string; id: string; }
-interface MemberRef {
-  kind: "member";
-  object: LocalRef | StableRef;
-  path: (string | number)[];
-}
-
-type Ref = LocalRef | StableRef | MemberRef;
-```
-
-Existing native objects use a kind-qualified stable reference when UE supplies
-a stable ID. Objects without one retain their native Path or scoped exact name. New
-objects use aliases until the executor returns native identity. Constructor
-names describe SAL structure; `type` and other native fields remain UE text.
-The literal generic kind `object` is available only when the resolved domain
-declares that closed object shape; it is not an SDK reflection fallback.
-
-## Results
-
-Query and Patch share one content model:
+## Ordered Object Text
 
 ```ts
 interface ObjectText {
@@ -199,122 +165,178 @@ interface ObjectText {
 }
 
 type Statement = Binding | Edge | Comment;
-
-interface Result {
-  object?: ObjectText;
-  diagnostics: Diagnostic[];
-  page?: { next: string };
-}
-
-interface MutationResult extends Result {
-  isError: boolean;
-  dryRun: boolean;
-  valid: boolean;
-  applied: boolean;
-  assetPath?: string;
-  operation: string;
-  resolvedRefs?: unknown;
-  planned?: unknown;
-  diff?: unknown;
-  previousRevision?: string;
-  newRevision?: string;
-}
-
-type ObjectResult = Result | MutationResult;
 ```
 
-Bindings, edges, and comments are serialized in reading order. The formatter
-must not regroup them into domain arrays. There are no `GraphResult`,
-`ClassResult`, `AssetResult`, `BlueprintResult`, `WidgetResult`, or
-`PaletteResult` payloads.
+The statements array is the only reading order. The SDK never regroups results
+into parallel object-kind arrays. A formatter walks the array once and
+preserves comment adjacency and reference dependencies.
 
-Mutation fields describe execution around ordinary Object Text. A dry run uses
-the real parse, resolve, validate, and plan path and stops before apply. Optional
-revision fields remain absent until the concrete executor enforces them.
+Creation values are ordinary ObjectExpr:
 
-Public formatting produces:
+```json
+{
+  "kind": "object",
+  "fields": {
+    "palette": "P_PrintString"
+  },
+  "semanticTag": "node"
+}
+```
+
+The tag may be absent with no normalized execution difference.
+
+## Results
 
 ```ts
-interface TextResult {
-  text?: SalText;
-  diagnostics: Diagnostic[];
-  page?: ResultPage;
-  isError?: boolean;
-  dryRun?: boolean;
-  valid?: boolean;
-  applied?: boolean;
-  assetPath?: string;
-  operation?: string;
-  resolvedRefs?: unknown;
-  planned?: unknown;
-  diff?: unknown;
-  previousRevision?: string;
-  newRevision?: string;
+interface TargetHandoff {
+  kind: "target_handoff";
+  purpose: NonEmptyString;
+  target: LocalRef;
+}
+
+interface ExactTargetResultContext {
+  targetContext: "exact_target";
+  target: TargetBinding<CanonicalTarget>;
+  relatedTargets?: TargetBinding<CanonicalTarget>[];
+  handoffs?: TargetHandoff[];
+}
+
+interface DomainRootResultContext {
+  targetContext: "domain_root";
+  target: TargetBinding<AssetRootTarget>;
+  relatedTargets?: TargetBinding<CanonicalTarget>[];
+  handoffs?: TargetHandoff[];
+}
+
+interface UnresolvedTargetResultContext {
+  targetContext: "unresolved_target";
 }
 ```
 
-## Executor Contract
+The public `ObjectResult` is a closed union of:
 
-```ts
-interface SalExecutor {
-  readonly interfaces: readonly string[];
-  query(object: Query): Promise<Result>;
-  patch?(object: Patch): Promise<MutationResult>;
-}
-```
+- exact Query;
+- exact Mutation;
+- Domain-root Query;
+- unresolved Query;
+- unresolved Mutation.
 
-The facade calls exactly one executor. `interfaces` contains active catalog
-names; `createSal` rejects a name absent from the injected catalog. It does not
-route by a public domain field. The executor may internally compose domain
-services after resolving the generic target against real object state.
+Generated schema expands those five leaves directly. It does not use
+intersections of independently closed objects.
 
-The generic in-memory executor is a deterministic contract fixture. Tests
-configure it with different interface names and documents to prove
-request/result, ordering, pagination, dry-run, and facade behavior; it does not
-claim UE-complete semantics.
+Both unresolved leaves require at least one error diagnostic. Domain-root
+Mutation is impossible.
 
-## Schema And RPC Boundary
+Related Targets are canonical, structurally deduplicated, and referenced by
+Object Text or handoffs. Handoffs point to related aliases and never embed
+Targets.
 
-`schema/sal-object.schema.json` is the source of truth for normalized requests,
-Object Text, results, mutation fields, and diagnostics. Generation produces:
+### MCP Content Boundary
 
-- `src/generated/sal-object-schema.ts` for TypeScript types;
-- `src/generated/sal-object-schema-data.ts` for the exact runtime Schema text.
+The normalized `ObjectResult` keeps structured diagnostics and, for mutations,
+execution metadata such as `dryRun`, `valid`, `applied`, `planned`, and
+revisions. Those fields do not become lines in canonical Result Text.
 
-The validator statically imports the generated text, parses it once, and
-compiles both request and result validators from it. Runtime code never reads a
-repository-relative or package-relative Schema file. The generated data module
-is internal and does not become a second public contract.
+The Client maps one result to ordered MCP text content blocks:
 
-The UE Bridge boundary carries schema-valid normalized JSON in both directions:
+1. `content[0]` is only the canonical, round-trippable Result Text produced
+   from result context, Target table, handoffs, and optional Object Text.
+2. A later independent text block may contain mutation metadata formatted as
+   SAL comments.
+3. A later independent text block may contain diagnostics formatted as SAL
+   comments.
 
-```txt
-TypeScript SDK -> normalized JSON RPC -> UE Bridge -> normalized JSON -> SDK
-```
+The Client never concatenates blocks 2 or 3 onto block 1. Only real
+`ObjectText.statements` may appear after the first block's `objects` marker.
+When normalized `object` is absent, block 1 ends with `no_objects`; that token
+is a strict terminator, and the Result Text parser rejects any following line
+in the same block.
 
-TypeScript keeps SAL parsing and formatting. C++ owns codecs and every operation
-that depends on UE state. A direct RPC caller must receive the same structural
-validation as an SDK caller. Loomle's UE 5.7 plugin exposes this executor as
-`sal.query` and `sal.patch`; an SDK host supplies the transport-specific
-`SalExecutor` wrapper around those two RPC calls.
+Metadata and diagnostics do not imply object presence. They cannot cause an
+absent `object` to format as `objects`, create an empty synthetic object, or
+make `no_objects` non-terminal. Consumers parse block 1 as Result Text and
+treat later blocks as transport annotations, not as more Result Text.
 
-## Diagnostics
+## Text Codec
 
-The SDK produces `language.*` diagnostics. Executors produce
-`capability.*`, `resolution.*`, and `validation.*` diagnostics. All public codes
-are registered in `diagnostics/catalog.json`; all results are validated before
-formatting.
+The canonical parser and formatter support:
 
-## Verification
+- brace ObjectExpr with quoted arbitrary keys;
+- optional semantic tags;
+- flat Target bindings;
+- Target-relative StableRefs with quoted identity segments;
+- result-only scoped references;
+- explicit result context, Target table, related Targets, and handoffs;
+- ordered Object Text;
+- Query and Patch operations.
 
-The default test gate checks:
+Canonical formatting is deterministic:
 
-- generated schema types and runtime Schema text are current;
-- embedded Schema text exactly matches the canonical JSON file;
-- valid and invalid normalized fixtures;
-- diagnostic registration;
-- invalid syntax and source spans;
-- Text -> Object -> Text round trips;
-- current example requests;
-- facade result validation and mutation-field preservation;
-- generic memory-executor loops configured with multiple interface fixtures.
+- safe keys and segments use identifiers/bare text;
+- everything else uses canonical JSON strings;
+- Target fields use Domain-defined order;
+- Guid strings use canonical lowercase hyphenated form after Bridge
+  canonicalization;
+- ordinary objects always use braces;
+- statement order never changes.
+
+## Validation Layers
+
+1. lexical and grammar validation;
+2. generated structural JSON Schema;
+3. shared cross-field language validation;
+4. Domain operation/Target capability validation;
+5. Bridge native resolution and UE validation.
+
+SDK validation can prove that a Graph Target has required strings. Only the
+Bridge can prove they identify the same native Blueprint and Graph.
+
+## Compatibility Reader
+
+The direct TypeScript parser has one protocol-version-pinned, explicitly
+opted-in reader that lowers legacy forms before new request validation. MCP
+tools and the default SDK facade remain strict:
+
+- object call values to ObjectExpr;
+- legacy Asset/Blueprint/Class/Graph Target calls to flat Target branches;
+- fused kind references to Target-relative StableRefs only when the active
+  Domain makes the complete native identity shape unambiguous;
+- old native-Class-based StateTree/Widget routing to one explicit Domain only
+  when the complete request is unambiguous.
+
+Compatibility nodes never enter canonical hashing, planning, storage, or
+formatting. Only `object(...)` may lower without a semantic tag; reserved
+constructor names fail rather than losing their callee. Mixed legacy Domains,
+explicit-v3/legacy Target mixtures, Target declarations outside the selected
+alias-dependency closure, target-self fused references, under-scoped owner
+identities, and any form requiring UE-assisted recovery fail explicitly. Asset
+and Class accept no fused references. Blueprint, Graph, StateTree, and Widget
+accept only the closed safe shapes specified in Language Core.
+
+The current formatter emits no legacy object calls, Target calls, or fused kind
+references.
+
+## Generation And Tests
+
+Generated artifacts include:
+
+- JSON Schema and its embedded TypeScript modules, including semantic-tag
+  exclusions;
+- protocol types;
+- static interface catalog;
+- protocol version.
+
+Tests cover:
+
+- JSON-compatible ObjectExpr round trip;
+- tag-erasure identity, lookup, validation, planning, and execution
+  equivalence while the AST may retain presentation metadata;
+- reserved tag rejection;
+- closed Target fields and completeness profiles;
+- Target nesting rejection;
+- StableRef owner paths and quoted segments;
+- request/result reference separation;
+- all five result leaves;
+- related Target and handoff invariants;
+- compatibility lowering and canonical reformatting;
+- parser, schema, formatter, and generated-artifact parity.

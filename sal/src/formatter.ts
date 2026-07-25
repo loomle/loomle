@@ -1,7 +1,6 @@
 import type {
   Add,
   Binding,
-  Expr,
   Move,
   ObjectText,
   Patch,
@@ -9,13 +8,15 @@ import type {
   Query,
   CollectionOperation,
   QueryOperation,
-  Ref,
+  RequestBinding,
+  RequestRef,
+  ResultRef,
   SalObject,
-  Target,
+  TargetBinding,
 } from "./index.js";
 import { formatBinding } from "./core/binding.js";
 import { formatCondition } from "./core/condition.js";
-import { formatArgList, formatExpr, formatRef } from "./core/expr.js";
+import { formatArgList, formatExpr, formatNumber, formatRef } from "./core/expr.js";
 
 export function formatSalObject(object: SalObject): string {
   if (isQuery(object)) return formatQuery(object);
@@ -23,7 +24,7 @@ export function formatSalObject(object: SalObject): string {
   return formatObjectText(object);
 }
 
-function formatObjectText(object: ObjectText): string {
+export function formatObjectText(object: ObjectText): string {
   return object.statements.map((statement) => {
     if ("target" in statement && "value" in statement) return formatBinding(statement);
     if ("from" in statement) return `${formatRef(statement.from)} -> ${formatRef(statement.to)}`;
@@ -54,7 +55,7 @@ function formatQuery(query: Query): string {
 function formatQueryOperation(operation: QueryOperation): string {
   if (operation.kind === "summary") return "summary";
   if (operation.kind === "references") {
-    return `references to ${formatRef(operation.target)}${operation.scope ? ` in ${operation.scope}` : ""}`;
+    return `references to ${formatReferencesTarget(operation.target)}${operation.scope ? ` in ${operation.scope}` : ""}`;
   }
   if (operation.kind === "exec_flow" || operation.kind === "data_flow") {
     return `${operation.kind === "exec_flow" ? "exec flow" : "data flow"} ${operation.direction} ${formatRef(operation.target)}${formatDepth(operation.depth)}`;
@@ -71,11 +72,11 @@ function formatQueryOperation(operation: QueryOperation): string {
   }
   if (isCollectionOperation(operation)) return `${operation.kind}${operation.text ? ` ${JSON.stringify(operation.text)}` : ""}`;
   if ("name" in operation) return `${operation.kind} ${formatExactName(operation.name)}`;
-  if ("id" in operation) {
-    if (operation.kind === "palette") {
-      return `palette @${operation.id}${"to" in operation ? ` to ${formatRef(operation.to)}` : ""}`;
-    }
-    return `${operation.kind}@${operation.id}`;
+  if (operation.kind === "object") {
+    return formatRef(operation.target);
+  }
+  if (operation.kind === "palette") {
+    return `palette @${operation.id}${"to" in operation ? ` to ${formatRef(operation.to)}` : ""}`;
   }
   throw new Error(`Unsupported Query operation ${operation.kind}.`);
 }
@@ -88,10 +89,30 @@ function formatPatch(patch: Patch): string {
   return lines.join("\n");
 }
 
-function formatTarget(target: Target): string[] {
-  return target.value.kind === "name" && target.value.name === target.alias
-    ? []
-    : [`${target.alias} = ${formatExpr(target.value)}`, ""];
+function formatTarget(binding: TargetBinding | Patch["target"]): string[] {
+  return [`${binding.alias} = ${formatTargetExpression(binding.target)}`, ""];
+}
+
+export function formatTargetExpression(target: TargetBinding["target"] | Patch["target"]["target"]): string {
+  const fieldOrder = target.domain === "asset"
+    ? ["domain", "path", "type"]
+    : target.domain === "blueprint"
+      ? ["domain", "asset", "id"]
+      : target.domain === "class"
+        ? ["domain", "path"]
+        : target.domain === "graph"
+          ? ["domain", "asset", "blueprintId", "id", "name"]
+          : target.domain === "state_tree"
+            ? ["domain", "asset", "type"]
+            : ["domain", "asset", "id"];
+  const fields = fieldOrder
+    .filter((key) => key === "domain" || key in target)
+    .map((key) => {
+      const value = target[key as keyof typeof target];
+      return `${key}: ${key === "domain" ? value : JSON.stringify(value)}`;
+    })
+    .join(", ");
+  return `target {${fields}}`;
 }
 
 function formatPatchOperation(operation: PatchOperation): string {
@@ -106,7 +127,7 @@ function formatPatchOperation(operation: PatchOperation): string {
     case "bind": return `bind ${formatRef(operation.from)} -> ${formatRef(operation.to)}`;
     case "unbind": return `unbind ${formatRef(operation.from)} -> ${formatRef(operation.to)}`;
     case "break": return `break ${formatRef(operation.target)}`;
-    case "insert": return `insert ${formatRef(operation.from)} -> ${formatRef(operation.input)}/${formatRef(operation.output)} -> ${formatRef(operation.to)}`;
+    case "insert": return `insert ${formatRef(operation.from)} -> ${formatRef(operation.input)} / ${formatRef(operation.output)} -> ${formatRef(operation.to)}`;
     case "wrap": {
       const targets = operation.targets.length === 1
         ? formatRef(operation.targets[0])
@@ -134,14 +155,16 @@ function formatAdd(operation: Add): string {
 function formatMove(operation: Move): string {
   const target = formatRef(operation.target);
   if (operation.to) return `move ${target} to ${formatDestination(operation.to)}`;
-  if (operation.by) return `move ${target} by (${operation.by.join(", ")})`;
+  if (operation.by) return `move ${target} by (${operation.by.map(formatNumber).join(", ")})`;
   if (operation.before) return `move ${target} before ${formatRef(operation.before)}`;
   if (operation.after) return `move ${target} after ${formatRef(operation.after)}`;
   throw new Error("Move has no destination.");
 }
 
-function formatDestination(value: Ref | [unknown, unknown]): string {
-  return Array.isArray(value) ? `(${value.join(", ")})` : formatRef(value);
+function formatDestination(value: RequestRef | ResultRef | [unknown, unknown]): string {
+  return Array.isArray(value)
+    ? `(${value.map((component) => formatNumber(component as number)).join(", ")})`
+    : formatRef(value);
 }
 
 function formatBindingTarget(target: Binding["target"]): string {
@@ -160,8 +183,16 @@ function isCollectionOperation(operation: QueryOperation): operation is Collecti
   return ["assets", "variables", "dispatchers", "graphs", "components", "nodes", "properties", "functions", "defaults", "widgets", "states", "parameters"].includes(operation.kind);
 }
 
-function isBinding(value: Patch["statements"][number]): value is Binding {
+function isBinding(value: Patch["statements"][number]): value is RequestBinding {
   return "target" in value && "value" in value && !("kind" in value);
+}
+
+function formatReferencesTarget(target: Extract<QueryOperation, { kind: "references" }>["target"]): string {
+  if (target.kind === "target_self") return "target";
+  if (target.kind === "member" && target.object.kind === "target_self") {
+    return `target${target.path.map((segment) => typeof segment === "number" ? `[${segment}]` : `.${segment}`).join("")}`;
+  }
+  return formatRef(target as RequestRef);
 }
 
 function isQuery(object: SalObject): object is Query {

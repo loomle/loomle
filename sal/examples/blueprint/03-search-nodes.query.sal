@@ -1,5 +1,4 @@
-bp = blueprint(asset: "/Game/Doors/BP_Door.BP_Door")
-eventGraph = graph(asset: bp, name: "EventGraph")
+eventGraph = target {domain: graph, asset: "/Game/Doors/BP_Door.BP_Door", blueprintId: "11111111-1111-1111-1111-111111111111", id: "22222222-2222-2222-2222-222222222222"}
 query eventGraph
 nodes "Print"
 where type = "/Script/BlueprintGraph.K2Node_CallFunction"
@@ -7,5 +6,7 @@ page limit 10
 
 ---
 
-eventGraph = graph(id: "graph-guid")
-print = node(graph: eventGraph, id: "N3", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "PrintString")
+result exact_target
+target eventGraph = target {domain: graph, asset: "/Game/Doors/BP_Door.BP_Door", blueprintId: "11111111-1111-1111-1111-111111111111", id: "22222222-2222-2222-2222-222222222222"}
+objects
+print = node {id: "cccccccc-cccc-cccc-cccc-cccccccccccc", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "PrintString"}

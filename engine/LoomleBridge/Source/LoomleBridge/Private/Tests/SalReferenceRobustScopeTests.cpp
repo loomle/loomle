@@ -3,6 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Sal/Reference/SalReferenceInterface.h"
+#include "SalTestObjectModel.h"
 
 #include "Components/SceneComponent.h"
 #include "Dom/JsonObject.h"
@@ -110,17 +111,16 @@ TArray<FString> RobustReferenceCallIds(
         const TSharedPtr<FJsonObject>* Statement = nullptr;
         const TSharedPtr<FJsonObject>* Call = nullptr;
         const TSharedPtr<FJsonObject>* Args = nullptr;
-        FString ActualCallee;
         FString Id;
         if (Value.IsValid()
             && Value->TryGetObject(Statement)
             && Statement != nullptr
             && (*Statement)->TryGetObjectField(TEXT("value"), Call)
             && Call != nullptr
-            && (*Call)->TryGetStringField(TEXT("callee"), ActualCallee)
-            && ActualCallee == Callee
-            && (*Call)->TryGetObjectField(TEXT("args"), Args)
-            && Args != nullptr
+            && Loomle::Tests::Sal::TryReadObjectExpr(
+                *Call,
+                Callee,
+                Args)
             && (*Args)->TryGetStringField(TEXT("id"), Id))
         {
             Ids.Add(Id);

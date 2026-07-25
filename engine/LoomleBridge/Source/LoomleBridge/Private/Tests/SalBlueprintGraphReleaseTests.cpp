@@ -4,6 +4,7 @@
 
 #include "Sal/Blueprint/SalBlueprintInterface.h"
 #include "Sal/Graph/SalGraphInterface.h"
+#include "SalTestObjectModel.h"
 #include "Tests/LoomleTestEditorState.h"
 
 #include "Dom/JsonObject.h"
@@ -94,21 +95,18 @@ TArray<TSharedPtr<FJsonObject>> CallArgs(
     {
         const TSharedPtr<FJsonObject>* Statement = nullptr;
         const TSharedPtr<FJsonObject>* Call = nullptr;
-        const TSharedPtr<FJsonObject>* Args = nullptr;
-        FString ActualCallee;
+        const TSharedPtr<FJsonObject>* Fields = nullptr;
         if (StatementValue.IsValid()
             && StatementValue->TryGetObject(Statement)
             && Statement != nullptr
             && (*Statement)->TryGetObjectField(TEXT("value"), Call)
             && Call != nullptr
-            && (*Call)->TryGetStringField(
-                TEXT("callee"),
-                ActualCallee)
-            && ActualCallee == Callee
-            && (*Call)->TryGetObjectField(TEXT("args"), Args)
-            && Args != nullptr)
+            && Loomle::Tests::Sal::TryReadObjectExpr(
+                *Call,
+                Callee,
+                Fields))
         {
-            Calls.Add(*Args);
+            Calls.Add(*Fields);
         }
     }
     return Calls;
@@ -156,9 +154,9 @@ bool HasMemberCall(
         const TSharedPtr<FJsonObject>* Statement = nullptr;
         const TSharedPtr<FJsonObject>* Target = nullptr;
         const TSharedPtr<FJsonObject>* Call = nullptr;
+        const TSharedPtr<FJsonObject>* Fields = nullptr;
         const TArray<TSharedPtr<FJsonValue>>* Path = nullptr;
         FString TargetKind;
-        FString ActualCallee;
         FString Member;
         if (StatementValue.IsValid()
             && StatementValue->TryGetObject(Statement)
@@ -179,10 +177,10 @@ bool HasMemberCall(
             && Member == ExpectedMember
             && (*Statement)->TryGetObjectField(TEXT("value"), Call)
             && Call != nullptr
-            && (*Call)->TryGetStringField(
-                TEXT("callee"),
-                ActualCallee)
-            && ActualCallee == Callee)
+            && Loomle::Tests::Sal::TryReadObjectExpr(
+                *Call,
+                Callee,
+                Fields))
         {
             return true;
         }

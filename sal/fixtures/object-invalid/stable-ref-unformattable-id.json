@@ -1,8 +1,8 @@
 {
   "statements": [
     {
-      "from": { "kind": "pin", "id": "pin.with.member.ambiguity" },
-      "to": { "kind": "pin", "id": "target" }
+      "from": { "kind": "stable_ref", "identityPath": ["pin", ""] },
+      "to": { "kind": "stable_ref", "identityPath": ["target"] }
     }
   ]
 }

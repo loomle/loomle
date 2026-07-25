@@ -6,6 +6,7 @@
 #include "Sal/StateTree/SalStateTreeInterface.h"
 #include "Sal/StateTree/SalStateTreeSchema.h"
 #include "SalStateTreeTestSchema.h"
+#include "SalTestObjectModel.h"
 
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
@@ -346,16 +347,15 @@ TArray<TSharedPtr<FJsonObject>> CallArgs(
         const TSharedPtr<FJsonObject>* Statement = nullptr;
         const TSharedPtr<FJsonObject>* Call = nullptr;
         const TSharedPtr<FJsonObject>* Args = nullptr;
-        FString ActualCallee;
         if (StatementValue.IsValid()
             && StatementValue->TryGetObject(Statement)
             && Statement != nullptr
             && (*Statement)->TryGetObjectField(TEXT("value"), Call)
             && Call != nullptr
-            && (*Call)->TryGetStringField(TEXT("callee"), ActualCallee)
-            && ActualCallee == Callee
-            && (*Call)->TryGetObjectField(TEXT("args"), Args)
-            && Args != nullptr)
+            && Loomle::Tests::Sal::TryReadObjectExpr(
+                *Call,
+                Callee,
+                Args))
         {
             Results.Add(*Args);
         }

@@ -35,14 +35,18 @@ apply logic.
 
 ## Result Shape
 
-The mutation result extends the ordinary SAL result. Query and mutation
-responses use the same optional
-`object: ObjectText`, the same diagnostics, and the same formatter; mutation
-adds execution fields around that object. The SAL executor must not return a
+The mutation result extends the ordinary contextual SAL result. Query and
+mutation responses use the same Target context, optional related Targets and
+handoffs, optional `object: ObjectText`, diagnostics, and formatter; mutation
+adds execution fields around that envelope. The SAL executor must not return a
 second mutation-only object or text model.
 
 Mutation results should use the same core fields where applicable:
 
+- `targetContext`
+- `target` after an exact Target has been opened and verified
+- `relatedTargets`
+- `handoffs`
 - `object` for SAL-backed mutation surfaces
 - `isError`
 - `dryRun`
@@ -59,6 +63,15 @@ Mutation results should use the same core fields where applicable:
 
 Rules:
 
+- `targetContext` is one of `exact_target` or `unresolved_target` for
+  mutations. `domain_root` is Query-only.
+- Once a Domain opens and verifies an exact Target, both success and later
+  validation/apply failures must retain its canonical `target`.
+- An unresolved mutation must omit `target`, set `isError=true`,
+  `valid=false`, and `applied=false`, and include at least one error
+  diagnostic.
+- Every handoff refers by alias to one canonical entry in `relatedTargets`;
+  it never embeds another Target.
 - `dryRun=true` must always return `applied=false`.
 - A successful dry run should return `isError=false`, `valid=true`, and a
   planned edit summary when the tool can produce one.

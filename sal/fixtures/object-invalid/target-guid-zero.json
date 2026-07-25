@@ -1,0 +1,13 @@
+{
+  "kind": "query",
+  "target": {
+    "alias": "g",
+    "target": {
+      "kind": "target",
+      "domain": "graph",
+      "asset": "/Game/BP.BP",
+      "id": "00000000-0000-0000-0000-000000000000"
+    }
+  },
+  "operation": { "kind": "target" }
+}

@@ -1,8 +1,8 @@
 {
   "statements": [
     {
-      "from": { "kind": "true", "id": "source" },
-      "to": { "kind": "pin", "id": "target" }
+      "from": { "kind": "stable_ref", "identityPath": ["source"], "semanticTag": "true" },
+      "to": { "kind": "stable_ref", "identityPath": ["target"] }
     }
   ]
 }

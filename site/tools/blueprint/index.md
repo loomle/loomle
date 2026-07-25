@@ -10,14 +10,18 @@ has_children: true
 
 The Blueprint interface owns Class Settings, Variables, Dispatchers, top-level
 Graph lifecycle, SCS Components, compile, and save. Graph bodies and Widget
-trees use their own modules while retaining the exact Blueprint owner.
+trees use independent Domain Targets. Cross-Domain navigation is returned as a
+related Target plus an explicit handoff.
 
 ## Target
 
 The first discovery query may use only the Asset Path:
 
 ```text
-door = blueprint(asset: "/Game/Blueprints/BP_Door.BP_Door")
+door = target {
+  domain: blueprint,
+  asset: "/Game/Blueprints/BP_Door.BP_Door"
+}
 
 query door
 summary
@@ -27,28 +31,33 @@ The result returns `BlueprintGuid`. Later exact queries and every Patch use the
 path and id together:
 
 ```text
-door = blueprint(
+door = target {
+  domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid"
-)
+  id: "11111111-1111-1111-1111-111111111111"
+}
 ```
 
-The path loads the asset; the Guid verifies its identity.
+The path loads the asset; the Guid verifies its identity. `id` must be a
+canonical lowercase, hyphenated, non-zero GUID.
 
 ## Query Directory
 
 ```text
+target
 summary
 variables ["text"]
 dispatchers ["text"]
 graphs ["text"]
 components ["text"]
-variable <name> | variable@id
-dispatcher <name> | dispatcher@id
-graph <name> | graph@id
-component <name> | component@id
-references to <typed-ref>[.<native-member-path>] [in project]
-palette entries ["text"] | palette @id
+variable <name>
+dispatcher <name>
+graph <name>
+component <name>
+@identity
+references to <exact-subject> [in project]
+palette entries ["text"]
+palette @id
 ```
 
 Collections are compact, cursor-paginated, and preserve UE authored order by
@@ -59,21 +68,23 @@ constraints, reset behavior, lifecycle, and UE operations.
 
 Blueprint declarations, Graph lifecycle, Class Settings, and SCS Components
 may share one ordered Blueprint Patch. Graph-body edits and Widget-tree edits
-belong to their respective planners and use following requests.
+belong to their respective Domains and use following requests.
 
-Creation constructors always come from the target's Palette. Existing objects
-use typed references:
+Creation values always come from the Target's Palette. Existing objects use
+Target-relative stable references; optional tags such as `variable` or
+`component` do not participate in lookup:
 
 ```text
-door = blueprint(
+door = target {
+  domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid"
-)
+  id: "11111111-1111-1111-1111-111111111111"
+}
 
 patch door dry run
 set door.BlueprintDescription = "Interactive door"
-set variable@variable-guid.NativeField = value
-move component@component-guid to component@parent-guid
+set @variable-guid.NativeField = value
+move @component-guid to @parent-guid
 ```
 
 See [Blueprint Objects and Components](members.html), [Palette](palette.html),
@@ -84,10 +95,11 @@ and the installed Blueprint interface card for exact forms.
 Compilation and save are a separate terminal Patch:
 
 ```text
-door = blueprint(
+door = target {
+  domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid"
-)
+  id: "11111111-1111-1111-1111-111111111111"
+}
 
 patch door
 compile

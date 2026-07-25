@@ -23,7 +23,7 @@ line-oriented text that both an agent and a person can inspect, copy, discuss,
 and patch.
 
 Loomle does not replace Unreal's object model. Asset Paths, Class Paths, native
-types, field names, Palette capabilities, compiler diagnostics, and editor
+types, field names, Palette capabilities, compiler messages, and editor
 semantics remain UE-native.
 
 {: .note }
@@ -75,11 +75,13 @@ make UE behavior reliable. SAL keeps the useful text workflow without creating
 a parallel Unreal model:
 
 - summaries and local traversal avoid downloading an entire asset;
-- typed stable references support precise follow-up requests;
-- query and mutation results share the same ordered Object Text;
+- flat Domain Targets make the active UE scope explicit;
+- Target-relative StableRefs support precise follow-up requests;
+- query and mutation results share canonical Result Text with an explicit
+  Target table and ordered Object Text;
 - Palette and dynamic schema discovery expose capabilities UE actually offers;
 - dry runs use the real parse, resolve, validate, and planning path; and
-- native health, validation, and compiler diagnostics remain beside the
+- native health, validation, and compiler messages remain beside the
   objects and operations that produced them.
 
 Read [Core Concepts](concepts/) for the language and identity model, or go

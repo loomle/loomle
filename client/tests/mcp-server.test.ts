@@ -107,7 +107,9 @@ test("forwards MCP request cancellation to the runtime invocation", async () => 
   try {
     const call = client.callTool({
       name: "sal_query",
-      arguments: { text: "query asset\nassets \"BP_Door\"" },
+      arguments: {
+        text: "assets = target { domain: asset }\n\nquery assets\nassets \"BP_Door\"",
+      },
     }, undefined, { signal: controller.signal });
     await rpc.started;
     controller.abort();

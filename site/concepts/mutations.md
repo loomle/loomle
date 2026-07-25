@@ -15,9 +15,16 @@ explicit.
 
 A Patch is one ordered unit:
 
-```text
+```sal
+eventGraph = target {
+  domain: graph,
+  asset: "/Game/BP_Door.BP_Door",
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
+
 patch eventGraph dry run
-print = node(palette: "palette-entry-id")
+print = { palette: "palette-entry-id" }
 add print
 move print to (640, 320)
 ```
@@ -68,9 +75,16 @@ Do not treat a successful tool call as a substitute for inspecting the result.
 ## Compile and Save Are Explicit
 
 Graph and Widget edits do not automatically compile or save their owning
-Blueprint:
+Blueprint. Copy the independent related Blueprint Target named by the returned
+compile handoff into a new request:
 
-```text
+```sal
+door = target {
+  domain: blueprint,
+  asset: "/Game/BP_Door.BP_Door",
+  id: "11111111-1111-1111-1111-111111111111"
+}
+
 patch door
 compile
 save
@@ -78,7 +92,13 @@ save
 
 StateTree uses its own terminal Patch on the asset target:
 
-```text
+```sal
+omle = target {
+  domain: state_tree,
+  asset: "/Game/AI/ST_Omle.ST_Omle",
+  type: "/Script/StateTreeModule.StateTree"
+}
+
 patch omle
 compile
 save

@@ -45,14 +45,27 @@ enum class ESalTargetKind : uint8
     Graph
 };
 
+enum class ESalDomain : uint8
+{
+    Asset,
+    Blueprint,
+    Class,
+    Graph,
+    StateTree,
+    Widget
+};
+
 struct FSalResolvedTarget
 {
     ESalTargetKind Kind = ESalTargetKind::AssetRoot;
+    ESalDomain Domain = ESalDomain::Asset;
+    bool bDomainRoot = false;
     FString Alias;
     FString AssetPath;
     FString Id;
     FString Name;
     TSharedPtr<FJsonObject> Locator;
+    TSharedPtr<FJsonObject> CanonicalTarget;
     UObject* Object = nullptr;
     UPackage* Package = nullptr;
     UBlueprint* Blueprint = nullptr;

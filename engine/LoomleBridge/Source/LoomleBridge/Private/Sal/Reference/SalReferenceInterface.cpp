@@ -1001,7 +1001,7 @@ EContainerProcessResult ProcessContainer(
         FReferenceRecord Record;
         // UE 5.7 FiB stores NodeGuid but only the Graph's schema-produced
         // display label. That label is not UEdGraph::GetName() and therefore
-        // cannot be emitted as a graph(...) locator without loading the
+        // cannot be emitted as a canonical Graph Target without loading the
         // Blueprint. Keep the zero-load project result at Blueprint scope and
         // retain the indexed node facts as navigation provenance.
         Record.Kind = EReferenceUseSiteKind::Blueprint;
@@ -1026,7 +1026,7 @@ EContainerProcessResult ProcessContainer(
         {
             Provenance += TEXT(", GraphDisplayName=") + Site.GraphDisplayName;
         }
-        Provenance += TEXT("; open this Blueprint and run the same local references query for an exact Graph/Node locator");
+        Provenance += TEXT("; open this Blueprint and run the same local references query for an exact Graph Target and Node StableRef");
         Record.MatchedPaths = {MoveTemp(Provenance)};
         Record.bCompound = true;
         Record.Key = Site.BlueprintPath + TEXT("|indexed-node|") + Site.NodeId;

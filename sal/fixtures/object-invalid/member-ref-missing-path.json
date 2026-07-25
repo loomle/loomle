@@ -1,4 +1,4 @@
 {
-  "from": { "kind": "member", "object": { "kind": "node", "id": "N1" } },
-  "to": { "kind": "pin", "id": "P1" }
+  "from": { "kind": "member", "object": { "kind": "stable_ref", "identityPath": ["N1"] } },
+  "to": { "kind": "stable_ref", "identityPath": ["P1"] }
 }

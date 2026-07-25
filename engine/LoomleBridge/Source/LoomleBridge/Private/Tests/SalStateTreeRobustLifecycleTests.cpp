@@ -4,6 +4,7 @@
 
 #include "Sal/StateTree/SalStateTreeInterface.h"
 #include "SalStateTreeRobustTestTypes.h"
+#include "SalTestObjectModel.h"
 #include "Tests/LoomleTestEditorState.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -204,16 +205,15 @@ TArray<TSharedPtr<FJsonObject>> RobustStateTreeCalls(
         const TSharedPtr<FJsonObject>* Statement = nullptr;
         const TSharedPtr<FJsonObject>* Call = nullptr;
         const TSharedPtr<FJsonObject>* CallArgs = nullptr;
-        FString Actual;
         if (Value.IsValid()
             && Value->TryGetObject(Statement)
             && Statement != nullptr
             && (*Statement)->TryGetObjectField(TEXT("value"), Call)
             && Call != nullptr
-            && (*Call)->TryGetStringField(TEXT("callee"), Actual)
-            && Actual == Callee
-            && (*Call)->TryGetObjectField(TEXT("args"), CallArgs)
-            && CallArgs != nullptr)
+            && Loomle::Tests::Sal::TryReadObjectExpr(
+                *Call,
+                Callee,
+                CallArgs))
         {
             Args.Add(*CallArgs);
         }

@@ -7,6 +7,7 @@
 #include "Sal/SalTargetResolver.h"
 #include "Sal/StateTree/SalStateTreeInterface.h"
 #include "SalStateTreeTestSchema.h"
+#include "SalTestObjectModel.h"
 
 #include "Blueprint/StateTreeTaskBlueprintBase.h"
 #include "Dom/JsonObject.h"
@@ -200,19 +201,18 @@ TArray<FString> CallIds(const TSharedPtr<FJsonObject>& Result, const FString& Ca
     {
         const TSharedPtr<FJsonObject>* Statement = nullptr;
         const TSharedPtr<FJsonObject>* Call = nullptr;
-        const TSharedPtr<FJsonObject>* Args = nullptr;
-        FString ActualCallee;
+        const TSharedPtr<FJsonObject>* Fields = nullptr;
         FString Id;
         if (StatementValue.IsValid()
             && StatementValue->TryGetObject(Statement)
             && Statement != nullptr
             && (*Statement)->TryGetObjectField(TEXT("value"), Call)
             && Call != nullptr
-            && (*Call)->TryGetStringField(TEXT("callee"), ActualCallee)
-            && ActualCallee == Callee
-            && (*Call)->TryGetObjectField(TEXT("args"), Args)
-            && Args != nullptr
-            && (*Args)->TryGetStringField(TEXT("id"), Id))
+            && Loomle::Tests::Sal::TryReadObjectExpr(
+                *Call,
+                Callee,
+                Fields)
+            && (*Fields)->TryGetStringField(TEXT("id"), Id))
         {
             Ids.Add(Id);
         }
@@ -240,20 +240,19 @@ TArray<FString> CallNativeNames(
     {
         const TSharedPtr<FJsonObject>* Statement = nullptr;
         const TSharedPtr<FJsonObject>* Call = nullptr;
-        const TSharedPtr<FJsonObject>* Args = nullptr;
+        const TSharedPtr<FJsonObject>* Fields = nullptr;
         const TSharedPtr<FJsonObject>* NativeName = nullptr;
-        FString ActualCallee;
         FString Name;
         if (StatementValue.IsValid()
             && StatementValue->TryGetObject(Statement)
             && Statement != nullptr
             && (*Statement)->TryGetObjectField(TEXT("value"), Call)
             && Call != nullptr
-            && (*Call)->TryGetStringField(TEXT("callee"), ActualCallee)
-            && ActualCallee == Callee
-            && (*Call)->TryGetObjectField(TEXT("args"), Args)
-            && Args != nullptr
-            && (*Args)->TryGetObjectField(Field, NativeName)
+            && Loomle::Tests::Sal::TryReadObjectExpr(
+                *Call,
+                Callee,
+                Fields)
+            && (*Fields)->TryGetObjectField(Field, NativeName)
             && NativeName != nullptr
             && (*NativeName)->TryGetStringField(TEXT("name"), Name))
         {
@@ -280,14 +279,16 @@ int32 CallCount(const TSharedPtr<FJsonObject>& Result, const FString& Callee)
     {
         const TSharedPtr<FJsonObject>* Statement = nullptr;
         const TSharedPtr<FJsonObject>* Call = nullptr;
-        FString ActualCallee;
+        const TSharedPtr<FJsonObject>* Fields = nullptr;
         if (StatementValue.IsValid()
             && StatementValue->TryGetObject(Statement)
             && Statement != nullptr
             && (*Statement)->TryGetObjectField(TEXT("value"), Call)
             && Call != nullptr
-            && (*Call)->TryGetStringField(TEXT("callee"), ActualCallee)
-            && ActualCallee == Callee)
+            && Loomle::Tests::Sal::TryReadObjectExpr(
+                *Call,
+                Callee,
+                Fields))
         {
             ++Count;
         }
@@ -376,6 +377,62 @@ bool HasDiagnosticCodeAndSeverity(
     return false;
 }
 
+bool ContainsSemanticTag(
+    const TSharedPtr<FJsonValue>& Value,
+    const FString& ExpectedTag)
+{
+    if (!Value.IsValid())
+    {
+        return false;
+    }
+    const TArray<TSharedPtr<FJsonValue>>* Array = nullptr;
+    if (Value->TryGetArray(Array) && Array != nullptr)
+    {
+        for (const TSharedPtr<FJsonValue>& Item : *Array)
+        {
+            if (ContainsSemanticTag(Item, ExpectedTag))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+    const TSharedPtr<FJsonObject>* Object = nullptr;
+    if (!Value->TryGetObject(Object)
+        || Object == nullptr
+        || !(*Object).IsValid())
+    {
+        return false;
+    }
+    FString SemanticTag;
+    if ((*Object)->TryGetStringField(
+            TEXT("semanticTag"),
+            SemanticTag)
+        && SemanticTag == ExpectedTag)
+    {
+        return true;
+    }
+    for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair :
+         (*Object)->Values)
+    {
+        if (ContainsSemanticTag(Pair.Value, ExpectedTag))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ContainsSemanticTag(
+    const TSharedPtr<FJsonObject>& Object,
+    const FString& ExpectedTag)
+{
+    return Object.IsValid()
+        && ContainsSemanticTag(
+            MakeShared<FJsonValueObject>(Object),
+            ExpectedTag);
+}
+
 FString NextCursor(const TSharedPtr<FJsonObject>& Result)
 {
     const TSharedPtr<FJsonObject>* Page = nullptr;
@@ -412,7 +469,9 @@ TArray<FString> CallCallees(const TSharedPtr<FJsonObject>& Result)
             && Statement != nullptr
             && (*Statement)->TryGetObjectField(TEXT("value"), Call)
             && Call != nullptr
-            && (*Call)->TryGetStringField(TEXT("callee"), Callee))
+            && Loomle::Tests::Sal::TryReadObjectExprTag(
+                *Call,
+                Callee))
         {
             Callees.Add(Callee);
         }
@@ -470,15 +529,39 @@ FString RefText(const TSharedPtr<FJsonObject>& Ref)
         return Result;
     }
 
+    if (Kind == TEXT("stable_ref"))
+    {
+        const TArray<TSharedPtr<FJsonValue>>* IdentityPath = nullptr;
+        if (!Ref->TryGetArrayField(TEXT("identityPath"), IdentityPath)
+            || IdentityPath == nullptr
+            || IdentityPath->IsEmpty())
+        {
+            return TEXT("<invalid>");
+        }
+        TArray<FString> Segments;
+        for (const TSharedPtr<FJsonValue>& SegmentValue : *IdentityPath)
+        {
+            FString Segment;
+            if (!SegmentValue.IsValid()
+                || !SegmentValue->TryGetString(Segment)
+                || Segment.IsEmpty())
+            {
+                return TEXT("<invalid>");
+            }
+            Segments.Add(Segment);
+        }
+        return TEXT("@") + FString::Join(Segments, TEXT("/"));
+    }
+
     FString Id;
     if (Ref->TryGetStringField(TEXT("id"), Id))
     {
-        return Kind + TEXT("@") + Id;
+        return TEXT("@") + Id;
     }
     FString Name;
     if (Ref->TryGetStringField(TEXT("name"), Name))
     {
-        return Kind + TEXT(":") + Name;
+        return Name;
     }
     return Kind;
 }
@@ -657,22 +740,69 @@ TSharedPtr<FJsonObject> FirstCallArgs(
     {
         const TSharedPtr<FJsonObject>* Statement = nullptr;
         const TSharedPtr<FJsonObject>* Call = nullptr;
-        const TSharedPtr<FJsonObject>* Args = nullptr;
-        FString ActualCallee;
+        const TSharedPtr<FJsonObject>* Fields = nullptr;
         if (StatementValue.IsValid()
             && StatementValue->TryGetObject(Statement)
             && Statement != nullptr
             && (*Statement)->TryGetObjectField(TEXT("value"), Call)
             && Call != nullptr
-            && (*Call)->TryGetStringField(TEXT("callee"), ActualCallee)
-            && ActualCallee == Callee
-            && (*Call)->TryGetObjectField(TEXT("args"), Args)
-            && Args != nullptr)
+            && Loomle::Tests::Sal::TryReadObjectExpr(
+                *Call,
+                Callee,
+                Fields))
         {
-            return *Args;
+            return *Fields;
         }
     }
     return nullptr;
+}
+
+TArray<TSharedPtr<FJsonObject>> ContextDataFields(
+    const TSharedPtr<FJsonObject>& Result)
+{
+    TArray<TSharedPtr<FJsonObject>> Matches;
+    const TSharedPtr<FJsonObject>* Object = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* Statements = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetObjectField(TEXT("object"), Object)
+        || Object == nullptr
+        || !(*Object)->TryGetArrayField(
+            TEXT("statements"),
+            Statements)
+        || Statements == nullptr)
+    {
+        return Matches;
+    }
+    for (const TSharedPtr<FJsonValue>& StatementValue :
+         *Statements)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        const TSharedPtr<FJsonObject>* Expression = nullptr;
+        const TSharedPtr<FJsonObject>* Fields = nullptr;
+        FString Type;
+        if (StatementValue.IsValid()
+            && StatementValue->TryGetObject(Statement)
+            && Statement != nullptr
+            && (*Statement)->TryGetObjectField(
+                TEXT("value"),
+                Expression)
+            && Expression != nullptr
+            && Loomle::Tests::Sal::TryReadObjectFields(
+                *Expression,
+                Fields)
+            && (*Fields)->TryGetStringField(
+                TEXT("type"),
+                Type)
+            && Type
+                == FStateTreeExternalDataDesc::StaticStruct()
+                    ->GetPathName()
+            && (*Fields)->HasField(TEXT("Name"))
+            && (*Fields)->HasField(TEXT("Requirement")))
+        {
+            Matches.Add(*Fields);
+        }
+    }
+    return Matches;
 }
 
 bool HasCommentContaining(const TSharedPtr<FJsonObject>& Result, const FString& Needle)
@@ -863,20 +993,22 @@ bool FSalStateTreeTargetResolutionTest::RunTest(const FString& Parameters)
     UStateTree* Asset = NewObject<UStateTree>(Package, AssetName, RF_Public | RF_Standalone | RF_Transient);
     Asset->EditorData = NewObject<UStateTreeEditorData>(Asset, NAME_None, RF_Transient);
 
-    TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
-    Args->SetStringField(TEXT("path"), Asset->GetPathName());
-    Args->SetStringField(TEXT("type"), Asset->GetClass()->GetPathName());
+    TSharedPtr<FJsonObject> Locator = MakeShared<FJsonObject>();
+    Locator->SetStringField(TEXT("kind"), TEXT("target"));
+    Locator->SetStringField(TEXT("domain"), TEXT("state_tree"));
+    Locator->SetStringField(TEXT("asset"), Asset->GetPathName());
+    Locator->SetStringField(TEXT("type"), Asset->GetClass()->GetPathName());
     FSalResolvedTarget Target;
     TSharedPtr<FJsonObject> Error;
     const bool bResolved = FSalTargetResolver().Resolve(
         TEXT("tree"),
-        Value::CallObject(TEXT("asset"), Args),
+        Locator,
         false,
         Target,
         Error);
     TestTrue(TEXT("Exact UStateTree resolves"), bResolved);
-    TestTrue(TEXT("Asset capability remains composed"), Target.HasInterface(FName(TEXT("asset"))));
-    TestTrue(TEXT("StateTree capability is composed"), Target.HasInterface(FName(TEXT("state_tree"))));
+    TestFalse(TEXT("StateTree Domain does not compose Asset capability"), Target.HasInterface(FName(TEXT("asset"))));
+    TestTrue(TEXT("StateTree capability is explicit"), Target.HasInterface(FName(TEXT("state_tree"))));
     TestTrue(TEXT("Resolved native object is exact"), Target.Object == Asset);
     return true;
 }
@@ -1485,7 +1617,7 @@ bool FSalStateTreeNodesCollectionAndExactReadTest::RunTest(const FString& Parame
     const TSharedPtr<FJsonObject> ExactSingleTaskResult = FSalStateTreeInterface::Query(
         ExactSingleTask,
         Target);
-    TestFalse(TEXT("SingleTask remains exact-readable as node@id"), HasError(ExactSingleTaskResult));
+    TestFalse(TEXT("SingleTask remains exact-readable by StableRef"), HasError(ExactSingleTaskResult));
     const TArray<FString> ExactSingleTaskIds = CallIds(ExactSingleTaskResult, TEXT("node"));
     TestEqual(TEXT("Exact SingleTask read returns one Node"), ExactSingleTaskIds.Num(), 1);
     if (ExactSingleTaskIds.Num() == 1)
@@ -1780,7 +1912,7 @@ bool FSalStateTreePropertyFunctionIdentityTest::RunTest(const FString& Parameter
         TEXT("id"),
         PropertyFunction->ID.ToString(EGuidFormats::DigitsWithHyphensLower));
     const TSharedPtr<FJsonObject> ExactResult = FSalStateTreeInterface::Query(ExactPropertyFunction, Target);
-    TestFalse(TEXT("Property Function remains exact-readable as node@id"), HasError(ExactResult));
+    TestFalse(TEXT("Property Function remains exact-readable by StableRef"), HasError(ExactResult));
     const TArray<FString> ExactIds = CallIds(ExactResult, TEXT("node"));
     TestEqual(TEXT("Exact Property Function read returns one Node"), ExactIds.Num(), 1);
     if (ExactIds.Num() == 1)
@@ -2265,6 +2397,9 @@ bool FSalStateTreeContextDataReadTest::RunTest(const FString& Parameters)
         Query(TEXT("summary")),
         Target);
     TestFalse(TEXT("Summary with malformed Context Data remains readable"), HasError(Summary));
+    TestFalse(
+        TEXT("Summary Context Data does not emit the reserved ObjectExpr keyword as a semantic tag"),
+        ContainsSemanticTag(Summary, TEXT("object")));
     const TArray<FString> ContextNames = CallNativeNames(Summary, TEXT("object"), TEXT("Name"));
     const TArray<FString> ExpectedNames = {
         TEXT("ActorContext"),
@@ -2312,8 +2447,19 @@ bool FSalStateTreeContextDataReadTest::RunTest(const FString& Parameters)
         ActorId.ToString(EGuidFormats::DigitsWithHyphensLower));
     const TSharedPtr<FJsonObject> ExactActorResult = FSalStateTreeInterface::Query(ExactActor, Target);
     TestFalse(TEXT("Exact Context Data read succeeds"), HasError(ExactActorResult));
-    TestEqual(TEXT("Exact Context Data read returns one object"), CallCount(ExactActorResult, TEXT("object")), 1);
-    const TSharedPtr<FJsonObject> ExactActorArgs = FirstCallArgs(ExactActorResult, TEXT("object"));
+    TestFalse(
+        TEXT("Exact Context Data objects and refs remain untagged"),
+        ContainsSemanticTag(ExactActorResult, TEXT("object")));
+    const TArray<TSharedPtr<FJsonObject>> ExactActorFields =
+        ContextDataFields(ExactActorResult);
+    TestEqual(
+        TEXT("Exact Context Data read returns one descriptor"),
+        ExactActorFields.Num(),
+        1);
+    const TSharedPtr<FJsonObject> ExactActorArgs =
+        ExactActorFields.IsEmpty()
+            ? nullptr
+            : ExactActorFields[0];
     FString ContextType;
     FString ContextStruct;
     TestTrue(
@@ -2336,9 +2482,15 @@ bool FSalStateTreeContextDataReadTest::RunTest(const FString& Parameters)
     ExactStruct.Operation->SetStringField(
         TEXT("id"),
         StructId.ToString(EGuidFormats::DigitsWithHyphensLower));
-    const TSharedPtr<FJsonObject> ExactStructArgs = FirstCallArgs(
-        FSalStateTreeInterface::Query(ExactStruct, Target),
-        TEXT("object"));
+    const TArray<TSharedPtr<FJsonObject>> ExactStructFields =
+        ContextDataFields(
+            FSalStateTreeInterface::Query(
+                ExactStruct,
+                Target));
+    const TSharedPtr<FJsonObject> ExactStructArgs =
+        ExactStructFields.IsEmpty()
+            ? nullptr
+            : ExactStructFields[0];
     FString StructType;
     TestTrue(
         TEXT("Exact struct Context Data preserves its UScriptStruct path"),
@@ -2355,7 +2507,12 @@ bool FSalStateTreeContextDataReadTest::RunTest(const FString& Parameters)
         NullStructId.ToString(EGuidFormats::DigitsWithHyphensLower));
     const TSharedPtr<FJsonObject> ExactNullResult = FSalStateTreeInterface::Query(ExactNullStruct, Target);
     TestFalse(TEXT("Context Data with null Struct remains exact-readable"), HasError(ExactNullResult));
-    const TSharedPtr<FJsonObject> ExactNullArgs = FirstCallArgs(ExactNullResult, TEXT("object"));
+    const TArray<TSharedPtr<FJsonObject>> ExactNullFields =
+        ContextDataFields(ExactNullResult);
+    const TSharedPtr<FJsonObject> ExactNullArgs =
+        ExactNullFields.IsEmpty()
+            ? nullptr
+            : ExactNullFields[0];
     TestTrue(TEXT("Null native Struct is not synthesized"), ExactNullArgs.IsValid() && !ExactNullArgs->HasField(TEXT("Struct")));
     TestTrue(TEXT("Exact null Struct is diagnosed"), HasDiagnosticContaining(ExactNullResult, TEXT("has no native Struct")));
 
@@ -2515,17 +2672,16 @@ bool FSalStateTreeExactRelationshipReadTest::RunTest(const FString& Parameters)
     const uint32 BeforeCompiledHash = Tree.Asset->LastCompiledEditorDataHash;
     const bool bBeforeDirty = Tree.Asset->GetOutermost()->IsDirty();
 
-    const auto GuidRef = [](const TCHAR* Kind, const FGuid& Id)
+    const auto GuidRef = [](const TCHAR*, const FGuid& Id)
     {
         return FString::Printf(
-            TEXT("%s@%s"),
-            Kind,
+            TEXT("@%s"),
             *Id.ToString(EGuidFormats::DigitsWithHyphensLower));
     };
-    const FString InputParameterRef = TEXT("parameter@") + ParameterId(RootContainerId, InputParameterId);
-    const FString EnabledParameterRef = TEXT("parameter@") + ParameterId(RootContainerId, EnabledParameterId);
-    const FString FunctionParameterRef = TEXT("parameter@") + ParameterId(RootContainerId, FunctionParameterId);
-    const FString ExplicitObjectParameterRef = TEXT("parameter@") + ParameterId(RootContainerId, ExplicitObjectParameterId);
+    const FString InputParameterRef = TEXT("@") + ParameterId(RootContainerId, InputParameterId);
+    const FString EnabledParameterRef = TEXT("@") + ParameterId(RootContainerId, EnabledParameterId);
+    const FString FunctionParameterRef = TEXT("@") + ParameterId(RootContainerId, FunctionParameterId);
+    const FString ExplicitObjectParameterRef = TEXT("@") + ParameterId(RootContainerId, ExplicitObjectParameterId);
     const FString NormalEdge = InputParameterRef + TEXT(" -> ")
         + GuidRef(TEXT("node"), ConsumerId) + TEXT(".Instance.InputValue");
     const FString NodeSurfaceEdge = EnabledParameterRef + TEXT(" -> ")
@@ -2813,7 +2969,7 @@ bool FSalStateTreeEffectiveOutputDirectionTest::RunTest(const FString& Parameter
     };
     const auto NodeRef = [](const FGuid& Id)
     {
-        return TEXT("node@") + Id.ToString(EGuidFormats::DigitsWithHyphensLower);
+        return TEXT("@") + Id.ToString(EGuidFormats::DigitsWithHyphensLower);
     };
     const FString EffectiveOutputEdge = NodeRef(StoredOrdinaryProducerId)
         + TEXT(".Instance.OutputValue -> ")
@@ -2967,13 +3123,13 @@ bool FSalStateTreeNativeTargetPathIdentityTest::RunTest(const FString& Parameter
     const TSharedPtr<FJsonObject> Result = FSalStateTreeInterface::Query(Exact, Target);
     TestFalse(TEXT("Native-distinct Target path read succeeds"), HasError(Result));
     const TArray<FString> Edges = EdgeTexts(Result);
-    const FString TargetRef = TEXT("node@")
+    const FString TargetRef = TEXT("@")
         + TargetId.ToString(EGuidFormats::DigitsWithHyphensLower)
         + TEXT(".Instance.InstancedInput.SharedValue");
-    const FString EdgeA = TEXT("node@")
+    const FString EdgeA = TEXT("@")
         + SourceAId.ToString(EGuidFormats::DigitsWithHyphensLower)
         + TEXT(".Instance.OutputValue -> ") + TargetRef;
-    const FString EdgeB = TEXT("node@")
+    const FString EdgeB = TEXT("@")
         + SourceBId.ToString(EGuidFormats::DigitsWithHyphensLower)
         + TEXT(".Instance.OutputValue -> ") + TargetRef;
     TestEqual(
@@ -3040,9 +3196,9 @@ bool FSalStateTreeBrokenExplicitContextOverrideTest::RunTest(const FString& Para
     TestTrue(
         TEXT("Damaged explicit Context override remains visible as a diagnostic"),
         HasDiagnosticCode(Result, TEXT("validation.invalid_target")));
-    const FString AutomaticEdge = TEXT("object@")
+    const FString AutomaticEdge = TEXT("@")
         + ContextId.ToString(EGuidFormats::DigitsWithHyphensLower)
-        + TEXT(" -> node@")
+        + TEXT(" -> @")
         + ContextTargetId.ToString(EGuidFormats::DigitsWithHyphensLower)
         + TEXT(".Instance.ContextObject");
     TestFalse(

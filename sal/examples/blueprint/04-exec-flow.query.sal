@@ -1,15 +1,16 @@
-bp = blueprint(asset: "/Game/Doors/BP_Door.BP_Door")
-eventGraph = graph(asset: bp, name: "EventGraph")
+eventGraph = target {domain: graph, asset: "/Game/Doors/BP_Door.BP_Door", blueprintId: "11111111-1111-1111-1111-111111111111", id: "22222222-2222-2222-2222-222222222222"}
 query eventGraph
-exec flow from pin@P1 depth 4
+exec flow from pin @aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaab depth 4
 
 ---
 
-eventGraph = graph(id: "graph-guid")
-begin = node(graph: eventGraph, id: "N1", type: "/Script/BlueprintGraph.K2Node_Event")
-begin.Then = pin(id: "P1", type: "(PinCategory=exec)", direction: out)
-delay = node(graph: eventGraph, id: "N2", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "Delay")
-delay.execute = pin(id: "P2", type: "(PinCategory=exec)", direction: in)
-delay.then = pin(id: "P3", type: "(PinCategory=exec)", direction: out)
-pin@P1 -> pin@P2
-# continuation: pin@P3
+result exact_target
+target eventGraph = target {domain: graph, asset: "/Game/Doors/BP_Door.BP_Door", blueprintId: "11111111-1111-1111-1111-111111111111", id: "22222222-2222-2222-2222-222222222222"}
+objects
+begin = node {id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", type: "/Script/BlueprintGraph.K2Node_Event"}
+begin.Then = pin {id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaab", type: "(PinCategory=exec)", direction: out}
+delay = node {id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "Delay"}
+delay.execute = pin {id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb01", type: "(PinCategory=exec)", direction: in}
+delay.then = pin {id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb02", type: "(PinCategory=exec)", direction: out}
+@aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaab -> @bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb01
+# continuation: @bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb02

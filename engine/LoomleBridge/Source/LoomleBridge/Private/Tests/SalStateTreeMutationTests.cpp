@@ -782,7 +782,7 @@ bool FSalStateTreeMutationBindingCallbackCascadeTest::RunTest(
         TEXT("Dry-run plan reports the native Binding callback cascade"),
         SalMutationHasPlannedEffect(
             DryBind,
-            TEXT("native Binding callback updated node@")
+            TEXT("native Binding callback updated @")
                 + SalMutationGuid(ConditionId)));
     TestFalse(
         TEXT("Dry-run callback diff excludes every explicit Binding effect"),
@@ -807,7 +807,7 @@ bool FSalStateTreeMutationBindingCallbackCascadeTest::RunTest(
         TEXT("Plan reports the native Binding callback authored cascade"),
         SalMutationHasPlannedEffect(
             Bound,
-            TEXT("native Binding callback updated node@")
+            TEXT("native Binding callback updated @")
                 + SalMutationGuid(ConditionId)));
     TestFalse(
         TEXT("Callback diff excludes every explicit Binding effect"),
@@ -840,7 +840,7 @@ bool FSalStateTreeMutationBindingCallbackCascadeTest::RunTest(
         TEXT("Dry-run unbind plans the native enum reset"),
         SalMutationHasPlannedEffect(
             DryUnbind,
-            TEXT("native Binding callback updated node@")
+            TEXT("native Binding callback updated @")
                 + SalMutationGuid(ConditionId)));
 
     const TSharedPtr<FJsonObject> Unbound = FSalStateTreeInterface::Patch(
@@ -861,7 +861,7 @@ bool FSalStateTreeMutationBindingCallbackCascadeTest::RunTest(
         TEXT("Unbind plan reports the native enum reset"),
         SalMutationHasPlannedEffect(
             Unbound,
-            TEXT("native Binding callback updated node@")
+            TEXT("native Binding callback updated @")
                 + SalMutationGuid(ConditionId)));
     TestFalse(
         TEXT("Unbind callback diff excludes every explicit Binding effect"),
@@ -910,7 +910,7 @@ bool FSalStateTreeMutationStateSemanticCascadeTest::RunTest(const FString& Param
         TestEqual(TEXT("Native Type cascade removes invalid Binding"), Fixture.Data->EditorBindings.GetBindings().Num(), 0);
         TestTrue(
             TEXT("Plan names removed Task"),
-            SalMutationHasPlannedEffect(Result, TEXT("node@") + SalMutationGuid(RemovedTaskId)));
+            SalMutationHasPlannedEffect(Result, TEXT("@") + SalMutationGuid(RemovedTaskId)));
         TestTrue(
             TEXT("Plan names removed Binding"),
             SalMutationHasPlannedEffect(Result, TEXT("removed native Binding source")));
@@ -1044,7 +1044,7 @@ bool FSalStateTreeMutationFixedParameterResetTest::RunTest(const FString& Parame
         0);
     TestTrue(
         TEXT("Plan records UE-owned Binding deletion"),
-        SalMutationHasPlannedEffect(Result, TEXT("removed native Binding source parameter@")));
+        SalMutationHasPlannedEffect(Result, TEXT("removed native Binding source @")));
     return true;
 }
 
@@ -1082,7 +1082,7 @@ bool FSalStateTreeMutationPostEditCascadeTest::RunTest(const FString& Parameters
         14);
     TestTrue(
         TEXT("Plan reports native Instance cascade"),
-        SalMutationHasPlannedEffect(Result, TEXT("native PostEdit cascade updated node@") + SalMutationGuid(NodeId) + TEXT(".Instance")));
+        SalMutationHasPlannedEffect(Result, TEXT("native PostEdit cascade updated @") + SalMutationGuid(NodeId) + TEXT(".Instance")));
     TestEqual(
         TEXT("Direct set remains one logical operation"),
         SalMutationPlannedOperationCount(Result),
@@ -1211,16 +1211,16 @@ bool FSalStateTreeMutationCompileCascadeTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Dry run preserves schema-rejected Task"), Fixture.First->Tasks.Num(), 1);
     TestTrue(
         TEXT("Compile plan enumerates removed Task"),
-        SalMutationHasPlannedEffect(DryRun, TEXT("compile validation removed node@") + SalMutationGuid(RemovedId)));
+        SalMutationHasPlannedEffect(DryRun, TEXT("compile validation removed @") + SalMutationGuid(RemovedId)));
     TestTrue(
         TEXT("Compile plan enumerates SingleTask update"),
-        SalMutationHasPlannedEffect(DryRun, TEXT("compile validation updated node@") + SalMutationGuid(SingleId)));
+        SalMutationHasPlannedEffect(DryRun, TEXT("compile validation updated @") + SalMutationGuid(SingleId)));
     TestTrue(
         TEXT("Compile plan enumerates invalid Binding"),
         SalMutationHasPlannedEffectContainingBoth(
             DryRun,
             TEXT("removed native Binding"),
-            TEXT("target node@") + SalMutationGuid(RemovedId)));
+            TEXT("target @") + SalMutationGuid(RemovedId)));
 
     const TSharedPtr<FJsonObject> Applied = FSalStateTreeInterface::Patch(
         SalMutationPatch({MakeShared<FJsonValueObject>(SalMutationKind(TEXT("compile")))}),

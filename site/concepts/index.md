@@ -14,21 +14,21 @@ replacing UE's own object model. Four ideas explain nearly every request.
 
 ## SAL Is the Shared Language
 
-`sal_query` and `sal_patch` accept self-contained SAL Text and return ordered
-SAL Object Text. Bindings, objects, fields, relationships, and diagnostics stay
-readable in one format.
+`sal_query` and `sal_patch` accept self-contained SAL Text and return canonical
+SAL Result Text. Its `objects` section is ordered Object Text, so bindings,
+fields, relationships, and factual comments remain readable in one format.
 
 [Learn the SAL working model](sal.html)
 
 ## Identity Is Scoped
 
-An Asset Path locates an asset. Typed ids select stable contained objects
-inside a complete owner chain:
+One flat Target selects a Domain and locates the UE owner. Native identity paths
+select stable contained objects inside that exact Target:
 
-```text
-graph@id
-node@id
-widget@id
+```sal
+@node-guid
+@node-guid/pin-guid
+@widget-guid
 ```
 
 Local aliases make one request readable but do not persist into another

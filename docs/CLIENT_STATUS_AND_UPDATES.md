@@ -38,7 +38,7 @@ session:
   status: ready
 bridge:
   version: 0.7.0-rc.1
-  protocolVersion: 2
+  protocolVersion: 3
   plugin: "C:/.../Engine/Plugins/Marketplace/LoomleBridge"
 ```
 

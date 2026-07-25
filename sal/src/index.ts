@@ -1,23 +1,40 @@
 import type {
   Diagnostic,
-  MutationResult,
+  DomainRootTargetBinding,
+  DomainRootQueryResult,
+  ExactMutationResult,
+  ExactQueryResult,
+  CanonicalTargetBinding,
   ObjectResult,
   Patch,
   Query,
-  Result,
   ResultPage,
   SalObject,
+  TargetHandoff,
+  UnresolvedMutationResult,
+  UnresolvedQueryResult,
 } from "./generated/sal-object-schema.js";
 
 export type {
   Add,
   AndCondition,
+  AssetPathTarget,
+  AssetRootTarget,
+  AssetTarget,
   Binding,
   BindingMemberRef,
   BindingTarget,
   Bind,
+  BlueprintTarget,
   Break,
-  Call,
+  CanonicalAssetTarget,
+  CanonicalBlueprintTarget,
+  CanonicalGraphTarget,
+  CanonicalStateTreeTarget,
+  CanonicalTarget,
+  CanonicalTargetBinding,
+  CanonicalWidgetTarget,
+  ClassTarget,
   CollectionOperation,
   Comment,
   CompareCondition,
@@ -28,24 +45,31 @@ export type {
   Diagnostic,
   DiagnosticPath,
   Disconnect,
+  DomainRootQueryResult,
+  DomainRootTargetBinding,
   Edge,
   EqCondition,
-  Expr,
+  ExactMutationResult,
+  ExactObjectOperation,
+  ExactQueryResult,
   FieldPath,
   FlowOperation,
-  IdOperation,
-  InlineObject,
+  GraphByIdTarget,
+  GraphByNameTarget,
+  GraphTarget,
+  GuidString,
   Insert,
   Invoke,
   InvokeOutput,
+  LocalIdentifier,
   LocalRef,
-  MemberRef,
   Move,
-  MutationResult,
   Name,
   NamedOperation,
   NeCondition,
   NotCondition,
+  NonEmptyString,
+  ObjectExpr,
   ObjectResult,
   ObjectText,
   OrderBy,
@@ -60,16 +84,24 @@ export type {
   Point,
   Query,
   QueryOperation,
-  Ref,
+  RequestBinding,
+  RequestExpr,
+  RequestMemberRef,
+  RequestRef,
   ReferencesOperation,
   Remove,
   Replace,
   Reset,
-  Result,
+  ResultExpr,
+  ResultMemberRef,
+  ResultObjectExpr,
   ResultPage,
+  ResultRef,
   SALNormalizedObjectSchema,
   SalObject,
   Save,
+  ScopedStableRef,
+  SemanticTag,
   Set,
   SourceSpan,
   StableRef,
@@ -80,10 +112,29 @@ export type {
   SummaryOperation,
   TargetOperation,
   Target,
+  TargetBinding,
+  TargetHandoff,
+  TargetSelfMemberRef,
+  TargetSelfRef,
   TreeOperation,
   Unbind,
+  UnresolvedMutationResult,
+  UnresolvedQueryResult,
+  WidgetTarget,
   Wrap,
 } from "./generated/sal-object-schema.js";
+
+export type QueryResult = ExactQueryResult | DomainRootQueryResult | UnresolvedQueryResult;
+export type PatchResult = ExactMutationResult | UnresolvedMutationResult;
+export type ExactTargetResultContext = Pick<
+  ExactQueryResult,
+  "targetContext" | "target" | "relatedTargets" | "handoffs"
+>;
+export type DomainRootResultContext = Pick<
+  DomainRootQueryResult,
+  "targetContext" | "target" | "relatedTargets" | "handoffs"
+>;
+export type UnresolvedTargetResultContext = Pick<UnresolvedQueryResult, "targetContext">;
 
 export type SalText = string;
 
@@ -99,6 +150,10 @@ export interface ParseResult {
 export interface TextResult {
   text?: SalText;
   diagnostics: Diagnostic[];
+  targetContext?: ObjectResult["targetContext"];
+  target?: CanonicalTargetBinding | DomainRootTargetBinding;
+  relatedTargets?: CanonicalTargetBinding[];
+  handoffs?: TargetHandoff[];
   page?: ResultPage;
   isError?: boolean;
   dryRun?: boolean;
@@ -132,11 +187,22 @@ export interface CreateSalOptions {
 
 export interface SalExecutor {
   readonly interfaces: readonly string[];
-  query(object: Query, options?: SalExecutionOptions): Promise<Result>;
-  patch?(object: Patch, options?: SalExecutionOptions): Promise<MutationResult>;
+  query(object: Query, options?: SalExecutionOptions): Promise<QueryResult>;
+  patch?(object: Patch, options?: SalExecutionOptions): Promise<PatchResult>;
 }
 
 export { formatSalObject } from "./formatter.js";
-export { parseSalObject } from "./parser.js";
+export {
+  parseSalObject,
+  parseSalResultText,
+  type ParsedResultText,
+  type ParseResultTextResult,
+  type ParseSalOptions,
+} from "./parser.js";
 export { createSal } from "./sdk.js";
-export { objectResultToTextResult } from "./result.js";
+export {
+  formatObjectResultText,
+  objectResultToTextResult,
+  unresolvedTextResult,
+} from "./result.js";
+export { validateObjectResult, validateSalObject } from "./schema-validator.js";

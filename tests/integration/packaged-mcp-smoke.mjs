@@ -3,7 +3,7 @@ import { access } from "node:fs/promises";
 import { normalize, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { parseSalObject } from "@loomle/sal";
+import { parseSalObject, parseSalResultText } from "@loomle/sal";
 
 export const PUBLIC_TOOL_NAMES = Object.freeze([
   "status",
@@ -34,6 +34,7 @@ const schemaModules = [
   "state_tree",
   "widget",
 ];
+const toolTextBlockSeparator = "\n\u001e\n";
 const defaults = {
   connectTimeoutMs: 15_000,
   requestTimeoutMs: 150_000,
@@ -246,13 +247,27 @@ export async function runPackagedMcpSmoke(options = {}) {
     ));
 
     await step(PACKAGED_SMOKE_STEP_NAMES[6], async () => {
-      const context = await textCall(
-        session,
+      publicTool("editor_context");
+      const response = await session.callTool("editor_context", {});
+      const context = requireToolText(
+        response,
         "editor_context",
-        {},
-        "editor_context",
+        { allowError: true },
       );
-      salObject(context, "editor_context");
+      const result = salResult(context, "editor_context");
+      assert(
+        result.object,
+        "editor_context omitted ordered Object Text",
+      );
+      assert(
+        (response?.isError === true
+          && result.targetContext === "unresolved_target"
+          && /ERROR resolution\.unresolved_target:/m.test(context))
+        || (response?.isError !== true
+          && (result.targetContext === "exact_target"
+            || result.targetContext === "domain_root")),
+        `editor_context returned an inconsistent context/error branch:\n${boundedText(context)}`,
+      );
       assert(
         /(^|\n)\s*(?:#\s*)?surface:/m.test(context)
           && /(^|\n)\s*(?:#\s*)?selection:/m.test(context),
@@ -356,7 +371,9 @@ export function normalizeFixtureLocator(fixture) {
 export function buildAssetQuery(fixture) {
   const f = normalizeFixtureLocator(fixture);
   return [
-    "query asset",
+    "assets = target { domain: asset }",
+    "",
+    "query assets",
     `assets ${quoted(f.assetSearchText)}`,
     `where root = ${quoted(f.assetRoot)} and type = ${quoted(f.assetType)} and path = ${quoted(f.blueprintAssetPath)}`,
     "page limit 10",
@@ -366,7 +383,10 @@ export function buildAssetQuery(fixture) {
 export function buildBlueprintSummaryQuery(fixture) {
   const f = normalizeFixtureLocator(fixture);
   return [
-    `fixtureBlueprint = blueprint(asset: ${quoted(f.blueprintAssetPath)})`,
+    "fixtureBlueprint = target {",
+    "  domain: blueprint,",
+    `  asset: ${quoted(f.blueprintAssetPath)}`,
+    "}",
     "",
     "query fixtureBlueprint",
     "summary",
@@ -377,13 +397,14 @@ export function buildBlueprintExactQuery(fixture, blueprintId) {
   const f = normalizeFixtureLocator(fixture);
   stableId(blueprintId, "blueprintId");
   return [
-    "fixtureBlueprint = blueprint(",
+    "fixtureBlueprint = target {",
+    "  domain: blueprint,",
     `  asset: ${quoted(f.blueprintAssetPath)},`,
     `  id: ${quoted(blueprintId)}`,
-    ")",
+    "}",
     "",
     "query fixtureBlueprint",
-    `blueprint@${blueprintId}`,
+    "target",
   ].join("\n");
 }
 
@@ -397,10 +418,11 @@ export function buildBlueprintDescriptionPatch(
   stableId(blueprintId, "blueprintId");
   nonEmpty(description, "BlueprintDescription");
   return [
-    "fixtureBlueprint = blueprint(",
+    "fixtureBlueprint = target {",
+    "  domain: blueprint,",
     `  asset: ${quoted(f.blueprintAssetPath)},`,
     `  id: ${quoted(blueprintId)}`,
-    ")",
+    "}",
     "",
     `patch fixtureBlueprint${dryRun ? " dry run" : ""}`,
     `set fixtureBlueprint.BlueprintDescription = ${quoted(description)}`,
@@ -433,17 +455,19 @@ export function parseProjectReport(text) {
   };
 }
 
-export function requireToolText(result, label) {
+export function requireToolText(result, label, { allowError = false } = {}) {
   const blocks = Array.isArray(result?.content)
     ? result.content.filter((item) => item?.type === "text")
     : [];
   const detail = blocks.map((item) => item.text).join("\n");
-  assert(result?.isError !== true, `${label} failed${detail ? `: ${detail}` : ""}`);
+  if (!allowError) {
+    assert(result?.isError !== true, `${label} failed${detail ? `: ${detail}` : ""}`);
+  }
   assert(
-    blocks.length === 1 && typeof blocks[0].text === "string",
-    `${label} must return exactly one MCP text block`,
+    blocks.length > 0 && blocks.every((block) => typeof block.text === "string"),
+    `${label} must return at least one MCP text block`,
   );
-  return blocks[0].text;
+  return blocks.map((block) => block.text).join(toolTextBlockSeparator);
 }
 
 export async function waitForProjectStatus(session, {
@@ -507,10 +531,9 @@ async function assertFixtureAsset(session, fixture) {
   }
   const object = salObject(text, "fixture asset query");
   const found = object.statements.some(
-    (statement) => statement?.value?.kind === "call"
-      && statement.value.callee === "asset"
-      && statement.value.args.path === fixture.blueprintAssetPath
-      && statement.value.args.type === fixture.assetType,
+    (statement) => statement?.value?.kind === "object"
+      && statement.value.fields.path === fixture.blueprintAssetPath
+      && statement.value.fields.type === fixture.assetType,
   );
   assert(
     found,
@@ -539,19 +562,16 @@ async function fixtureBlueprintId(session, fixture) {
       { cause },
     );
   }
-  const object = salObject(text, "fixture Blueprint summary");
-  const calls = callBindings(object);
-  const blueprint = [...calls.values()].find(
-    (call) => call.callee === "blueprint"
-      && blueprintPath(call, calls) === fixture.blueprintAssetPath,
+  const result = salResult(text, "fixture Blueprint summary");
+  const target = fixtureBlueprintTarget(
+    result,
+    fixture,
+    undefined,
+    "fixture Blueprint summary",
+    text,
   );
-  if (typeof blueprint?.args.id !== "string") {
-    throw new PackagedSmokeAssertionError(
-      `fixture Blueprint summary omitted a stable id: ${fixture.blueprintAssetPath}`,
-    );
-  }
-  stableId(blueprint.args.id, "fixture Blueprint id");
-  return blueprint.args.id;
+  stableId(target.id, "fixture Blueprint id");
+  return target.id;
 }
 
 async function blueprintDescription(
@@ -567,18 +587,36 @@ async function blueprintDescription(
     "fixture Blueprint exact read",
     requestSignal,
   );
-  const object = salObject(text, "fixture Blueprint exact read");
-  const calls = callBindings(object);
-  const blueprint = [...calls.values()].find(
-    (call) => call.callee === "blueprint"
-      && call.args.id === blueprintId
-      && blueprintPath(call, calls) === fixture.blueprintAssetPath,
+  const result = salResult(text, "fixture Blueprint exact read");
+  fixtureBlueprintTarget(
+    result,
+    fixture,
+    blueprintId,
+    "fixture Blueprint exact read",
+    text,
   );
   assert(
-    blueprint,
-    `exact read omitted fixture Blueprint ${fixture.blueprintAssetPath} id ${blueprintId}`,
+    result.object,
+    [
+      `exact read omitted ordered Object Text for ${fixture.blueprintAssetPath} id ${blueprintId}`,
+      `SAL response:\n${boundedText(text)}`,
+    ].join("\n"),
   );
-  return blueprint.args.BlueprintDescription;
+  const blueprintDescription = result.object.statements.find(
+    (statement) => statement?.target?.kind === "member"
+      && statement.target.object?.kind === "local"
+      && statement.target.object.name === result.target.alias
+      && statement.target.path?.length === 1
+      && statement.target.path[0] === "BlueprintDescription",
+  );
+  assert(
+    typeof blueprintDescription?.value === "string",
+    [
+      `exact read omitted BlueprintDescription for ${fixture.blueprintAssetPath} id ${blueprintId}`,
+      `SAL response:\n${boundedText(text)}`,
+    ].join("\n"),
+  );
+  return blueprintDescription.value;
 }
 
 async function mutationRoundTrip(
@@ -670,8 +708,18 @@ async function mutationRoundTrip(
 }
 
 function mutationMetadata(text, expected) {
-  const comments = salObject(text, "mutation result").statements
-    .filter((statement) => statement?.kind === "comment")
+  const blocks = toolTextBlocks(text);
+  const comments = [
+    ...salObject(blocks[0], "mutation result").statements,
+    ...blocks.slice(1).flatMap((block) => {
+      const parsed = parseSalObject(block);
+      assert(
+        parsed.object && parsed.diagnostics.length === 0,
+        `mutation metadata block is not valid SAL Object Text: ${JSON.stringify(parsed.diagnostics)}`,
+      );
+      return parsed.object.statements;
+    }),
+  ].filter((statement) => statement?.kind === "comment")
     .flatMap((statement) => String(statement.text).split(/\r?\n/));
   for (const [name, value] of Object.entries(expected)) {
     assert(comments.includes(`${name}: ${value}`), `mutation result omitted ${name}: ${value}`);
@@ -705,29 +753,43 @@ function boundProject(report, root, status) {
 }
 
 function salObject(text, label) {
-  const parsed = parseSalObject(text);
+  const result = salResult(text, label);
   assert(
-    parsed.object && parsed.diagnostics.length === 0,
-    `${label} did not return valid ordered SAL Object Text: ${JSON.stringify(parsed.diagnostics)}`,
+    result.object,
+    `${label} returned valid SAL Result Text without ordered Object Text`,
   );
-  return parsed.object;
+  return result.object;
 }
 
-function callBindings(object) {
-  const calls = new Map();
-  for (const statement of object.statements) {
-    if (statement?.target?.kind === "local" && statement?.value?.kind === "call") {
-      calls.set(statement.target.name, statement.value);
-    }
-  }
-  return calls;
+function salResult(text, label) {
+  const parsed = parseSalResultText(toolTextBlocks(text)[0]);
+  assert(
+    parsed.result && parsed.diagnostics.length === 0,
+    `${label} did not return valid SAL Result Text: ${JSON.stringify(parsed.diagnostics)}`,
+  );
+  return parsed.result;
 }
 
-function blueprintPath(blueprint, calls) {
-  const asset = blueprint.args.asset;
-  if (typeof asset === "string") return asset;
-  const call = asset?.kind === "local" ? calls.get(asset.name) : undefined;
-  return call?.callee === "asset" ? call.args.path : undefined;
+function toolTextBlocks(text) {
+  return String(text).split(toolTextBlockSeparator);
+}
+
+function fixtureBlueprintTarget(result, fixture, blueprintId, label, text) {
+  const target = result?.target?.target;
+  assert(
+    result?.targetContext === "exact_target"
+      && target?.kind === "target"
+      && target.domain === "blueprint"
+      && target.asset === fixture.blueprintAssetPath
+      && typeof target.id === "string"
+      && (blueprintId === undefined
+        || target.id.toLowerCase() === blueprintId.toLowerCase()),
+    [
+      `${label} did not return the canonical fixture Blueprint Target`,
+      `SAL response:\n${boundedText(text)}`,
+    ].join("\n"),
+  );
+  return target;
 }
 
 function boundedText(value, limit = 4096) {
@@ -864,7 +926,10 @@ function nonEmpty(value, name) {
 
 function stableId(value, name) {
   nonEmpty(value, name);
-  assert(/^[^\s.\[\]]+$/.test(value), `${name} is not a valid typed SAL id`);
+  assert(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value),
+    `${name} is not a valid Blueprint Guid`,
+  );
   return value;
 }
 

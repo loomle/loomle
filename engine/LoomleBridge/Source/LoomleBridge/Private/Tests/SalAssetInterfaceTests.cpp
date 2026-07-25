@@ -3,6 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Sal/Asset/SalAssetInterface.h"
+#include "SalTestObjectModel.h"
 
 #include "Algo/Reverse.h"
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -149,16 +150,15 @@ TArray<TSharedPtr<FJsonObject>> CallArgs(
         const TSharedPtr<FJsonObject>* Statement = nullptr;
         const TSharedPtr<FJsonObject>* Call = nullptr;
         const TSharedPtr<FJsonObject>* CallArgsObject = nullptr;
-        FString ActualCallee;
         if (StatementValue.IsValid()
             && StatementValue->TryGetObject(Statement)
             && Statement != nullptr
             && (*Statement)->TryGetObjectField(TEXT("value"), Call)
             && Call != nullptr
-            && (*Call)->TryGetStringField(TEXT("callee"), ActualCallee)
-            && ActualCallee == Callee
-            && (*Call)->TryGetObjectField(TEXT("args"), CallArgsObject)
-            && CallArgsObject != nullptr)
+            && Loomle::Tests::Sal::TryReadObjectExpr(
+                *Call,
+                Callee,
+                CallArgsObject))
         {
             Args.Add(*CallArgsObject);
         }

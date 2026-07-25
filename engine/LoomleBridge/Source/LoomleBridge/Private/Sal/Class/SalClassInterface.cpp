@@ -1087,7 +1087,7 @@ bool ValidateQuery(const FSalQuery& Query, const FSalResolvedTarget& Target, FSt
         TEXT("summary"), TEXT("properties"), TEXT("property"), TEXT("functions"), TEXT("function"), TEXT("defaults"), TEXT("default")};
     if (Target.Kind != ESalTargetKind::Class || Target.Class == nullptr)
     {
-        OutError = TEXT("Class Query requires one exact class(path: ...) target.");
+        OutError = TEXT("Class Query requires canonical target { domain: class, path: ... }.");
         return false;
     }
     if (!Query.Operation.IsValid() || !Query.Operation->TryGetStringField(TEXT("kind"), OutOperation) || !Supported.Contains(OutOperation))
@@ -1208,7 +1208,7 @@ FString PropertySource(const FProperty* Property)
                     TEXT("%s variable %s (VarGuid %s)"),
                     *Blueprint->GetPathName(),
                     *Variable.VarName.ToString(),
-                    *Variable.VarGuid.ToString(EGuidFormats::DigitsWithHyphens));
+                    *Variable.VarGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
             }
 #endif
             return Blueprint->GetPathName();
@@ -1456,13 +1456,15 @@ void AddFunctionNavigation(FSalObjectBuilder& Builder, const UFunction* Function
     if (SourceGraph != nullptr)
     {
         Builder.AddComment(FString::Printf(
-            TEXT("source graph: graph@%s, path: %s"),
-            *SourceGraph->GraphGuid.ToString(EGuidFormats::DigitsWithHyphens),
+            TEXT("source graphGuid: %s, path: %s"),
+            *SourceGraph->GraphGuid.ToString(EGuidFormats::DigitsWithHyphensLower),
             *SourceGraph->GetPathName()));
     }
     if (SourceNode != nullptr && SourceNode->NodeGuid.IsValid())
     {
-        Builder.AddComment(TEXT("source node: node@") + SourceNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens));
+        Builder.AddComment(
+            TEXT("source nodeGuid: ")
+            + SourceNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
     }
 }
 
@@ -1744,20 +1746,14 @@ TSharedPtr<FJsonObject> BuildDiff(const TArray<TSharedPtr<FPlannedEdit>>& Edits)
     return Diff;
 }
 
-TSharedPtr<FJsonObject> BuildResolvedRefs(const FSalResolvedTarget& Target, const TArray<TSharedPtr<FPlannedEdit>>& Edits)
+TSharedPtr<FJsonObject> BuildResolvedRefs(
+    const FSalResolvedTarget&,
+    const TArray<TSharedPtr<FPlannedEdit>>&)
 {
-    TSharedPtr<FJsonObject> Refs = MakeShared<FJsonObject>();
-    Refs->SetStringField(TEXT("class"), Target.Class != nullptr ? Target.Class->GetPathName() : FString());
-    Refs->SetStringField(TEXT("source"), Target.Class != nullptr && Target.Class->ClassGeneratedBy != nullptr
-        ? Target.Class->ClassGeneratedBy->GetPathName()
-        : FString());
-    TArray<TSharedPtr<FJsonValue>> Properties;
-    for (const TSharedPtr<FPlannedEdit>& Edit : Edits)
-    {
-        Properties.Add(MakeShared<FJsonValueString>(Edit->Property->GetPathName()));
-    }
-    Refs->SetArrayField(TEXT("properties"), Properties);
-    return Refs;
+    // Class and reflected Property paths have no StableRef identity
+    // environment. Their canonical Class Target and structured plan/diff
+    // already preserve the evidence, so resolvedRefs must be omitted.
+    return nullptr;
 }
 
 bool DecodeMemberTarget(
@@ -2327,7 +2323,7 @@ TSharedPtr<FJsonObject> FSalClassInterface::Patch(const FSalPatch& Patch, const 
     {
         return MakeMutationResult(
             nullptr,
-            {FSalDiagnostics::Error(TEXT("validation.exact_class_required"), TEXT("Class Patch requires one exact class(path: ...) target."))
+            {FSalDiagnostics::Error(TEXT("validation.exact_class_required"), TEXT("Class Patch requires canonical target { domain: class, path: ... }."))
                 .Interface(TEXT("class"))
                 .Build()},
             Patch.bDryRun,

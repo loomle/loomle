@@ -8,13 +8,13 @@ by Loomle Bridge.
   as the `sal_schema` MCP tool description. It also explains the separate
   session-level `project` binding that selects which UE project SAL operates on.
 - `asset.md`, `blueprint.md`, `class.md`, `graph.md`, `state_tree.md`, and
-  `widget.md` define the corresponding static Query and Patch interfaces.
+  `widget.md` define the six static Domain Query and Patch interfaces.
 - `src/generated/catalog.ts` embeds those documents for the standalone Client.
 
-The documents describe Loomle's UE-facing capabilities; they do not add SAL
-grammar or replace dynamic `with schema` information returned for a concrete UE
-object. Unavailable interfaces are omitted by the Client rather than reported
-with separate status metadata.
+The documents describe Loomle's UE-facing capabilities. Core grammar is owned
+by the resident guide; a card closes one Domain's Target, identity, Query,
+Patch, Palette, and handoff surface. Dynamic `with schema` remains
+authoritative for a concrete Target or object.
 
 Run `npm run generate` after editing the guide or an interface document. Run
 `npm test` to regenerate the catalog, compile the package, and verify that every

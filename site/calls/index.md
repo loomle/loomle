@@ -21,7 +21,7 @@ SAL.
 | `sal_query` | one `text` value | Parse, validate, execute, and format Query Text. |
 | `sal_patch` | one `text` value | Parse, validate, execute, and format ordered Patch Text. |
 | `sal_schema` | empty or one `module` | Return the active module index or one static interface card. |
-| `editor_context` | empty | Read the current UE interaction target as Object Text. |
+| `editor_context` | empty | Read the current UE interaction target as Result Text. |
 
 These are the complete public Client surface. New UE behavior belongs in SAL
 and its interface cards rather than in parallel compatibility tools.
@@ -36,9 +36,11 @@ the UE objects and operations carried through `sal_query` and `sal_patch`.
 
 ## Result Model
 
-Query, Patch, and Editor Context results share validated ordered SAL Object
-Text. Diagnostics, mutation state, compiler output, and navigation guidance
-appear as adjacent SAL comments rather than a second JSON result language.
+Query, Patch, and Editor Context share validated canonical SAL Result Text. Its
+`objects` section contains ordered Object Text when objects exist; otherwise it
+ends with `no_objects`. Diagnostics and mutation metadata appear as later
+independent MCP text blocks formatted as SAL comments, never appended to the
+canonical Result Text block.
 
 Start with [Status](status.html) and [Project Binding](project.html), then read
 [SAL Query and Patch](sal.html).

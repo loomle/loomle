@@ -65,4 +65,4 @@ without a bound or online project. `sal_query`, `sal_patch`, and
 runtime.
 
 Project binding selects where UE work runs. It does not create hidden SAL
-aliases or retarget the complete locators inside Query and Patch Text.
+aliases or retarget the explicit Domain Targets inside Query and Patch Text.

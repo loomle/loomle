@@ -12,14 +12,15 @@ Use exact reads when a flow traversal intentionally omitted nonessential Pins
 or when an operation depends on the current Node state:
 
 ```text
-door = blueprint(
+eventGraph = target {
+  domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid"
-)
-eventGraph = graph(asset: door, id: "graph-guid")
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
 
 query eventGraph
-node@node-guid
+@node-guid
 with schema
 ```
 
@@ -33,15 +34,16 @@ does not split those into artificial top-level objects. Exact dynamic schema
 returns the operations the resolved Node or Pin can execute now:
 
 ```text
-door = blueprint(
+eventGraph = target {
+  domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid"
-)
-eventGraph = graph(asset: door, id: "graph-guid")
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
 
 patch eventGraph dry run
 # Example only when exact schema advertises this operation.
-invoke node@node-guid AddExecutionPin() as addedPin
+invoke @node-guid AddExecutionPin() as addedPin
 ```
 
 Copy the returned invocation template. Do not infer an operation name from a

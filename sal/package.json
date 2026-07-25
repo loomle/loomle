@@ -20,12 +20,13 @@
     "generate:types": "json2ts -i schema/sal-object.schema.json -o src/generated/sal-object-schema.ts --cwd . --unreachableDefinitions --unknownAny false",
     "generate:schema-data": "node scripts/generate-schema-data.mjs",
     "generate": "npm run generate:types && npm run generate:schema-data && node scripts/normalize-generated.mjs",
-    "check:generated": "git ls-files --error-unmatch src/generated/sal-object-schema.ts src/generated/sal-object-schema-data.ts && npm run generate && git diff --exit-code -- src/generated/sal-object-schema.ts src/generated/sal-object-schema-data.ts",
+    "check:generated": "node scripts/check-generated.mjs",
     "build": "tsc -p tsconfig.json",
     "test:schema": "npm run build && node dist/tests/schema/embedded-schema.js && node dist/tests/schema/validate-fixtures.js",
     "test:diagnostics": "npm run build && node dist/tests/diagnostics/catalog.js",
     "test:invalid": "npm run build && node dist/tests/parser/invalid.js",
     "test:roundtrip": "npm run build && node dist/tests/parser/roundtrip.js",
+    "test:compatibility": "npm run build && node dist/tests/parser/legacy-compatibility.js",
     "test:examples": "npm run build && node dist/tests/parser/core-examples.js",
     "test:examples:extended": "npm run build && node dist/tests/parser/extended-examples.js",
     "test:examples:reference": "npm run build && node dist/tests/parser/reference-examples.js",
@@ -35,7 +36,7 @@
     "test:memory:asset": "npm run build && node dist/tests/sdk/memory-asset-executor.js",
     "test:memory:blueprint": "npm run build && node dist/tests/sdk/memory-blueprint-executor.js",
     "test:memory:widget": "npm run build && node dist/tests/sdk/memory-widget-executor.js",
-    "test": "npm run check:generated && npm run test:schema && npm run test:diagnostics && npm run test:invalid && npm run test:roundtrip && npm run test:examples && npm run test:examples:extended && npm run test:examples:reference && npm run test:facade && npm run test:result && npm run test:memory && npm run test:memory:asset && npm run test:memory:blueprint && npm run test:memory:widget"
+    "test": "npm run check:generated && npm run test:schema && npm run test:diagnostics && npm run test:invalid && npm run test:roundtrip && npm run test:compatibility && npm run test:examples && npm run test:examples:extended && npm run test:examples:reference && npm run test:facade && npm run test:result && npm run test:memory && npm run test:memory:asset && npm run test:memory:blueprint && npm run test:memory:widget"
   },
   "dependencies": {
     "ajv": "^8.20.0"

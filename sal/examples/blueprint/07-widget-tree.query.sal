@@ -1,10 +1,13 @@
-menu = blueprint(asset: "/Game/UI/WBP_Menu.WBP_Menu")
+menu = target {domain: widget, asset: "/Game/UI/WBP_Menu.WBP_Menu", id: "44444444-4444-4444-4444-444444444444"}
 query menu
 tree depth 20
 
 ---
 
-root = widget(id: "W1", type: "/Script/UMG.CanvasPanel")
-root.stack = widget(id: "W2", type: "/Script/UMG.VerticalBox")
-stack.title = widget(id: "W3", type: "/Script/UMG.TextBlock", Text: "Main Menu")
-stack.start = widget(id: "W4", type: "/Script/UMG.Button")
+result exact_target
+target menu = target {domain: widget, asset: "/Game/UI/WBP_Menu.WBP_Menu", id: "44444444-4444-4444-4444-444444444444"}
+objects
+root = widget_node {id: "88888888-8888-8888-8888-888888888881", type: "/Script/UMG.CanvasPanel"}
+root.stack = widget_node {id: "88888888-8888-8888-8888-888888888882", type: "/Script/UMG.VerticalBox"}
+root.stack.title = widget_node {id: "88888888-8888-8888-8888-888888888883", type: "/Script/UMG.TextBlock", Text: "Main Menu"}
+root.stack.start = widget_node {id: "88888888-8888-8888-8888-888888888884", type: "/Script/UMG.Button"}

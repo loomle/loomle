@@ -1,8 +1,9 @@
 # Blueprint SAL Examples
 
 This small corpus demonstrates the current normalized SAL contract. Query and
-Patch examples may place a possible Object Text response after `---`; the
-response is illustrative and is not part of the request.
+Patch examples place canonical Result Text after `---`; that response is
+illustrative and is not part of the request. The first example is a standalone
+Object Text fragment.
 
 ## Core
 
@@ -24,7 +25,12 @@ response is illustrative and is not part of the request.
 
 ## Maintenance
 
-- Use UE-native names and values inside constructors; do not invent SAL type mappings.
-- Existing objects use typed stable references such as `node@id` and `pin@id`.
+- Use UE-native names and values inside brace objects; do not invent SAL type
+  mappings.
+- Existing objects use Target-relative stable references such as `@node-guid`.
+  Graph Pins always use `@node-guid/pin-guid`; an optional semantic tag may be
+  written separately, for example `node @node-guid`.
 - New objects use local aliases until the executor returns their stable IDs.
 - Keep pins next to their owning node and preserve the returned statement order.
+- Graph Patch never compiles or saves its owning Blueprint; follow the returned
+  Blueprint Target handoff with a separate Blueprint Patch.

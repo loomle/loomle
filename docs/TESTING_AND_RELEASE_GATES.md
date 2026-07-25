@@ -23,7 +23,7 @@ The repository now provides:
 - one macOS Apple Silicon runner with `automation` and `packaged_e2e` profiles,
   isolated project copies, bounded process ownership, crash/log inspection, and
   durable results;
-- 128 in-module UE Automation tests covering the shared Bridge/RPC contracts
+- 135 in-module UE Automation tests covering the shared Bridge/RPC contracts
   and representative success, failure, lifecycle, and persistence paths across
   the active SAL interfaces;
 - an authored Blueprint fixture plus a real packaged Client-to-UE smoke
@@ -131,7 +131,7 @@ that may later be published. It copies the authored host project to a temporary
 directory, installs the archive, starts one Editor process, and exercises this
 compact vertical workflow:
 
-1. initialize MCP and verify the five public tools;
+1. initialize MCP and verify the six public tools;
 2. bind the copied project while it is offline;
 3. read local `sal_schema` and verify the six active interface modules;
 4. start the Editor and observe the same project identity become ready;
@@ -227,7 +227,7 @@ dry-run source isolation, real apply and undo, a cold generated Class, and a
 loaded descendant boundary. Graph, Pin, Variable/Dispatcher, SCS, Timeline, and
 Widget identities must survive the sandbox unchanged. A reconstructed
 `UK2Node_PromotableOperator` tolerance Pin is the canonical dynamic-Pin
-regression: dry-run must restore its source `pin@id`, while ambiguous structural
+regression: dry-run must restore its source `@NodeGuid/PinId`, while ambiguous structural
 matches must still fail.
 
 ## Fixture Contract
@@ -390,6 +390,20 @@ nor `Intermediate/`, and the run produced no runner-classified log hazard, new
 crash report, or orphaned Editor process. This validates the local source state
 and Windows QA gates; promotion still requires a committed same-SHA workflow
 run and the channel's signing policy.
+
+The 2026-07-25 local macOS arm64 SAL v3 migration audit used the pinned Node
+24.18.0 Client and a UE 5.7 Installed Build. The unrestricted repository test
+command passed; same-source test-bearing and stripped BuildPlugin candidates
+compiled; all 135 UE Automation tests passed; and the nine-step packaged
+end-to-end workflow passed against the exact pre-version-bump local QA ZIP.
+That ZIP's SHA-256 is
+`744fb3b910dac25b285cc89efb427489432c13c89e947a7c739f182d0b801d8e`.
+The archive excluded native tests and transient build state, both binaries
+were arm64, and the run produced no runner-classified log hazard, new crash
+report, or orphaned Editor process. Its hash is historical migration evidence,
+not a future release-asset identity. No artifact was published; promotion
+still requires a committed same-SHA workflow run and the channel's signing
+policy.
 
 Manual promotion takes successful `verify-fab-mac.yml` and
 `verify-fab-windows.yml` run IDs. It requires both runs to belong to the same

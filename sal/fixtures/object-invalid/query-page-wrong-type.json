@@ -1,8 +1,8 @@
 {
   "kind": "query",
   "target": {
-    "alias": "asset",
-    "value": { "kind": "name", "name": "asset" }
+    "alias": "catalog",
+    "target": { "kind": "target", "domain": "asset" }
   },
   "operation": { "kind": "assets" },
   "page": "offset:50"

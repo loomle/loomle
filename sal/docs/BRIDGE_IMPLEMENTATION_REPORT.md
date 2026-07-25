@@ -1,195 +1,238 @@
-# SAL Bridge Implementation Report
+# SAL Object And Target Migration Report
 
-## Result
+## Status
 
-Loomle Bridge now implements the normalized SAL executor contract for UE 5.7.
-The SAL executor RPC surface is `sal.query` and `sal.patch`; the separate
-read-only discovery RPC is `editor.context`. Static `sal.schema` text remains
-Client-side. The former LGL runtime, grouped result models, and `lgl.*` RPC
-methods have been removed.
+This report tracks the protocol migration from constructor-shaped objects,
+kind-prefixed references, and native-Class capability composition to:
 
-SAL Text remains entirely SDK-owned:
+- brace `ObjectExpr`;
+- erasable semantic tags;
+- explicit flat Domain Targets;
+- Target-relative native identity paths;
+- independent cross-Domain Target handoffs.
 
-```txt
-SAL Text
-  -> TypeScript parse and normalization
-  -> normalized JSON
-  -> UE-backed Bridge execution
-  -> ordered Object Text JSON
-  -> TypeScript formatting
+Protocol v3, the SAL Core, Client, Bridge source, all six Domain cards,
+generated artifacts, examples, and site implement this destination contract.
+The compatibility reader is confined to explicitly opted-in direct TypeScript
+parser calls; MCP tools and the default SDK facade are strict. The v3 Bridge
+accepts only the normalized model described below.
+
+## Required Runtime Shape
+
+The Bridge receives one normalized request containing:
+
+```text
+one TargetBinding
+one Target.domain
+one Domain operation
+ObjectExpr values
+Target-relative StableRefs
 ```
 
-The C++ Bridge does not introduce a second SAL parser or any new public syntax.
-It contains no parallel direct-tool runtime: the only Bridge tools are
-`sal.query`, `sal.patch`, and `editor.context`.
+The Bridge returns one of five closed result leaves:
 
-## Implemented Surface
+- exact Query;
+- exact Mutation;
+- Asset Domain-root Query;
+- unresolved Query;
+- unresolved Mutation.
 
-| Interface | Query | Patch |
-| --- | --- | --- |
-| Asset | Asset Registry collection and exact reads, filters, ordering, paging, tags, schema | Save |
-| Blueprint | Summary, structure collections, exact objects, inheritance, Palette, schema | Settings, variables, dispatchers, graphs, components, interfaces, function overrides, compile, save |
-| Class | Summary, properties, functions, metadata, inherited views, schema | Native property defaults, fixed arrays, sparse class data, metadata, set/reset |
-| Graph | Summary, nodes, exact Node/Pin, exec/data flow, context, Palette, schema | Palette creation, connect/disconnect/break, add/insert/remove/move/set/reset, invoke, dynamic Pins, Timeline tracks and keys |
-| Widget | Combined summary and Palette, tree, widgets, exact Widget, schema | Add/move/remove/wrap/replace/rename/duplicate, Widget and Slot fields, event creation |
-| References | Exact declaration resolution; local Blueprint/Graph/Widget authored use-sites; incremental project scan, cursor paging, and completeness diagnostics | Read-only |
-| Editor Context | Exact current surface, owner, and at most one selected target as ordinary Object Text | Read-only |
+An opened Target is always returned canonically. An unresolved result contains
+no Target and at least one error diagnostic.
 
-All Query and Patch readback uses the same ordered `ObjectText.statements`
-model. Patch adds the shared mutation envelope, ordered plan, resolved
-references, diff, and diagnostics.
+The first MCP content block is canonical Result Text and must round-trip
+through the result parser. A missing normalized object formats as terminal
+`no_objects`. Client mutation metadata and diagnostics are later independent
+SAL-comment text blocks; they never append to the first block or fabricate
+object presence.
 
-## Native UE Mapping
+## Domain Entry
 
-The implementation follows UE 5.7 source ownership rather than maintaining a
-parallel semantic model. The main native paths reviewed and used include:
+All six adapters enter through `Target.domain`:
 
-- Asset Registry and package save APIs;
-- `FBlueprintEditorUtils`, Blueprint compilation, compiler diagnostics, SCS,
-  Subobject Data, and loaded Blueprint hierarchy traversal;
-- `FBlueprintAssetHandler`, `GetAllAssets(false)`, `FMemberReference`, and
-  `FGraphReference` for exact Blueprint container and declaration identity;
-- `UEdGraphSchema_K2`, K2 Action Menu spawners, Graph utilities, dynamic K2
-  Nodes, Timeline Node/Template and curve APIs;
-- Reflection property import/export, metadata, inherited Class Defaults, sparse
-  class data, and UE transactions;
-- `UWidgetBlueprint`, `UWidgetTree`, Widget Blueprint editor utilities, Panel
-  Slots, Named Slots, navigation/reference maintenance, generated classes,
-  animations, extensions, and delegate Graph integration;
-- native Reference extractors for SCS Components, RepNotify functions, Widget
-  bindings and source paths, Component Bound Events, Create Delegate, Macro
-  instances, and Class Defaults.
+| Domain | Canonical Patch Target |
+| --- | --- |
+| Asset | `path + type` |
+| Blueprint | `asset + id` |
+| Class | `path` |
+| Graph | `asset + blueprintId + id` |
+| StateTree | `asset + type` |
+| Widget | `asset + id` |
 
-Constructors, types, property names, paths, enum values, and native value text
-remain UE-native. SAL supplies structure, identity, references, operations, and
-ordered readable text; it does not rename UE's type system.
+Native Class checks remain inside the selected Domain. Blueprint/Widget and
+Asset/StateTree no longer compose capability surfaces.
 
-## Decisions Made During Implementation
+## Object Migration
 
-No public SAL syntax was added. Implementation evidence did require the
-following contract clarifications and SDK hardening:
+All request, result, Palette, schema, fixture, and mutation object values use:
 
-1. A complete returned binding may be copied back as a Target. The resolver
-   consumes only the constructor's locator fields and ignores descriptive
-   readback state.
-2. Blueprint mutation requires the exact Asset Path plus BlueprintGuid. IDs for
-   Graphs, Nodes, Pins, Widgets, and other members remain owner-scoped.
-3. Query results and mutation results are distinct normalized envelopes;
-   `sal.query` cannot return mutation state, and `sal.patch` must return it.
-4. A composed target selects exactly one interface-owned Patch planner. The
-   Bridge rejects mixed Blueprint/Widget authored edits instead of splitting
-   one request into partially committed mutations.
-5. Dry run executes the same resolve, validation, provisional-state, and plan
-   path as apply. Graph, Blueprint, and Widget preflight use isolated transient
-   native object graphs; live apply uses one transaction and reports rollback
-   failure truthfully.
-6. Palette cursors are opaque and bound to their Target, operation, filters,
-   detail, ordering, and interface source.
-7. C++ identifier handling now exactly matches the SDK's ASCII grammar. UE
-   names outside that grammar remain lossless strings instead of becoming
-   invalid SAL names.
-8. Stable reference tokens reject whitespace and dot characters. If a future
-   UE identity requires punctuation, quoted stable IDs should be designed
-   explicitly rather than silently extending the grammar.
-9. Fixed native arrays are returned as one SAL array of UE-native value text.
-   This preserves the Reflection property's real shape without inventing index
-   objects.
-10. A Class default explicitly set equal to its inherited value is rejected
-    when UE 5.7 cannot preserve that distinction durably. The Bridge does not
-    claim an override that UE would later collapse.
-11. Reflected UE fields whose native names cannot be SAL member paths, or
-    collide with structural fields, are never renamed. Query and schema retain
-    their exact native name/value in Comments and Patch reports them
-    unavailable.
-12. Editor Context resolves ownership from exact tabs and native editor APIs.
-    It does not infer a world-centric Asset Editor from the Level Editor's
-    shared TabManager, and it revalidates recorded editor pointers before use.
-13. Reference queries preserve canonical UE declaration identity internally
-    and return existing authored objects through ordinary Object Text. Project
-    scans freeze their roots, Blueprint handler set, container snapshot, and
-    authored generation behind the shared cursor; unsupported or unresolved
-    native facts fail explicitly instead of producing a false complete zero.
-14. Embedded Blueprints remain addressed through their top-level asset
-    container plus Blueprint GUID. This lets the same Target and readback model
-    cover ordinary Blueprint assets, World Level Scripts, and other registered
-    Blueprint-bearing containers without adding public syntax.
+```sal
+{ field: value }
+```
 
-## Safety and Failure Semantics
+Formatters may emit a Domain-recommended tag:
 
-- Normalized requests are structurally validated again at the RPC boundary.
-- Target identity is verified before interface dispatch.
-- Exact schema discovery is produced from the same native constraints used by
-  execution.
-- Patch statements are resolved and planned in authored order.
-- Existing objects use stable typed references; provisional objects use only
-  request-local aliases.
-- Apply paths use UE transactions, notifications, reconstruction, propagation,
-  dirtying, and readback appropriate to their native owner.
-- A successful rollback restores the prior dirty state and reports
-  `applied=false`. A failed rollback reports the possible live mutation with
-  `applied=true` and keeps the asset dirty.
-- Every emitted diagnostic code is registered in the shared catalog.
+```sal
+node { id: "N", type: "/Script/..." }
+```
 
-## Verification
+Tests must prove that removing the tag leaves:
 
-The final verification for this implementation consists of:
+- normalized fields;
+- identity and lookup;
+- schema;
+- operation selection;
+- validation and plan;
+- mutation effects
 
-- generated TypeScript contract consistency;
-- JSON Schema valid/invalid fixtures;
-- diagnostic catalog/source consistency;
-- parser and formatter round trips;
-- examples and SDK facade behavior;
-- generic, Asset, Blueprint, and Widget memory-executor contract tests;
-- a clean UE 5.7 `BuildPlugin` build and package for Mac `arm64`.
+unchanged.
 
-The installed UE 5.7 distribution used for verification contains arm64-only
-Editor dylibs. A default `arm64+x64` BuildPlugin pass compiled every SAL source
-for both architectures and linked the arm64 plugin, but x64 cannot link against
-an Engine distribution whose Core, Engine, and editor dylibs have no x64
-slice. The final package therefore uses the distribution's supported
-`-Architecture_Mac=arm64` target. A universal package still requires a UE 5.7
-installation that includes x64 Engine binaries.
+Bridge producers distinguish normalized Name, reference, and ObjectExpr values
+from ordinary UE object data through an out-of-band C++ expression wrapper.
+That marker is process-local and never enters JSON. An unmarked JSON object is
+always wrapped as ObjectExpr, even when its fields exactly equal
+`{ kind: "name", ... }`, `{ kind: "local", ... }`, or another normalized SAL
+shape. Output conversion therefore never infers semantics from an ordinary
+object's field names.
 
-Per the requested scope, no live Unreal integration test was run.
+## Reference Migration
 
-The 0.7 Client and Editor Context increment was additionally verified on
-2026-07-18 with the complete SAL TypeScript test suite, all 28 Client unit
-tests, `git diff --check`, and an incremental UE 5.7 Editor module build that
-compiled and linked `UnrealEditor-LoomleBridge.dylib` successfully. This is a
-compile and contract audit, not a live Editor interaction test.
+The Bridge resolves:
 
-The factual Reference Query increment was verified on 2026-07-19 with the
-complete SAL TypeScript suite, all 32 Client unit tests, all five generated
-interface documents, and a clean UE 5.7 Mac arm64 `BuildPlugin` run that
-compiled and linked the full Unity build. No plugin was installed or replaced,
-and no live Editor integration test was run during this increment.
+```sal
+@native-id
+@native-owner-id/native-local-id
+```
 
-The 0.7 repository and Bridge cleanup was verified on 2026-07-21 with the
-complete root npm suite, all 40 Client tests, all five generated interface
-documents, `git diff --check`, and a UE 5.7 Mac Editor module build. The build
-compiled the reduced Bridge after removing the retired adapters, direct-tool
-RPC dispatch, Python/PCG plugin requirements, and their unused module
-dependencies. No package was produced or installed, and no live Editor
-integration test was run.
+Confirmed owner-relative paths are:
 
-## Deliberate Boundaries
+- Graph Pin: `@NodeGuid/PinId`;
+- StateTree Parameter: `@ContainerGuid/PropertyGuid`;
+- Blueprint function local: `@TopLevelFunctionGraphGuid/VarGuid` when the
+  Target does not already supply that owner.
 
-These are explicit current boundaries rather than hidden simulated support:
+Every Domain audits all categories that share a path shape as one lookup set.
+A semantic tag cannot disambiguate a collision.
 
-- Graph's implemented native backend is Blueprint K2. Material, PCG, and other
-  Graph families can compose the same SAL core through their own backends.
-- Compile dry run validates the request and target but cannot predict actual
-  compiler diagnostics; save dry run cannot predict source-control or
-  filesystem failure.
-- Class schema safely rejects complex private Details-panel `EditCondition`
-  expressions it cannot evaluate. Custom Details visibility/sorting is not
-  reproduced as a second UI model.
-- Widget Animation, Widget Navigation, legacy property binding, and MVVM are
-  not direct SAL authoring surfaces. Widget lifecycle operations still inspect
-  and maintain the native references they can affect.
-- Some cursor fingerprints serialize normalized fields in their stable SDK
-  order. A future arbitrary third-party normalized JSON producer should use a
-  canonical field-order-independent fingerprint.
+The exact Target itself has no StableRef. `references to target` uses the
+structural `target_self` subject only inside the References operation. The
+current native provider resolves bare callable Function/Macro Graph Targets
+and the direct Graph `target.InterfaceGuid` member when its Interface
+declaration exists. Unsupported Domain or Graph roles return
+`capability.reference_unavailable` with the already opened exact Target
+context.
 
-The next phase is live integration testing against representative UE assets,
-not another protocol redesign.
+## Cross-Domain Migration
+
+Graph and Widget finalization return a canonical Blueprint Target. Widget event
+guidance returns a canonical Graph Target. Other cross-Domain navigation uses
+the same result structure:
+
+The following is a Result Text fragment, not a standalone Result Text document.
+
+```sal
+related bp = target {
+  domain: blueprint,
+  asset: "/Game/BP_Door.BP_Door",
+  id: "11111111-1111-1111-1111-111111111111"
+}
+handoff compile to bp
+```
+
+No nested Target or hidden adapter composition remains.
+
+## Compatibility Boundary
+
+Only callers that explicitly enable compatibility on the direct TypeScript
+parser may submit the previous text syntax during protocol v3. MCP tools and
+the default SDK facade are strict. Lowering occurs before schema validation and
+Domain planning and accepts fused references only when their complete native
+identity shape is unambiguous in the already selected active Domain.
+Under-scoped owner identities, target-self fused references, and forms
+requiring UE-assisted recovery fail. The protocol v3 Bridge rejects legacy
+Call objects, fused kind references, and implicit Domain selection.
+
+Ambiguous legacy StateTree/Asset or Widget/Blueprint requests fail. Only
+`object(...)` can lower to an untagged ObjectExpr; a reserved constructor
+callee is never discarded. A mixed legacy Patch is never split into several
+new requests, and explicit-v3/legacy Target mixtures or declarations outside
+the selected Target's alias-dependency closure are rejected.
+
+The new formatter emits only the destination model. The compatibility reader
+is removed with protocol v4 unless a later release note explicitly extends the
+window.
+
+## Verification Matrix
+
+Required automated coverage:
+
+- every JSON-compatible object key/value round-trips through ObjectExpr,
+  including `-0`; non-finite runtime numbers are rejected;
+- ordinary objects that exactly resemble normalized Name, LocalRef,
+  StableRef, or ObjectExpr shapes remain ordinary data;
+- semantic-tag erasure is behaviorally identical;
+- reserved keywords cannot be tags;
+- every Target branch rejects unknown, nested, non-string, and empty fields;
+- Query discovery forms canonicalize to exact Targets;
+- Patch rejects incomplete Targets;
+- Graph child/collapsed Targets query, dry run, patch, save, and reload;
+- copied Graph Nodes regenerate NodeGuid and Pin refs retain owner scope;
+- Pin identity conflict is local to its owning Node;
+- Blueprint and StateTree one-segment cross-category collisions fail closed;
+- related Target aliases, ScopedStableRefs, and handoffs round-trip;
+- unresolved Query and Mutation require error diagnostics;
+- the first MCP block round-trips as Result Text and terminal `no_objects`
+  rejects any appended line;
+- mutation metadata and diagnostics occupy later independent comment blocks
+  without changing object presence;
+- old protocol lowers or fails with an explicit migration diagnostic;
+- schema, Client, Bridge, formatter, fixtures, and protocol version agree.
+
+## Acceptance
+
+Migration is complete only when:
+
+1. generated schemas and TypeScript types contain no object-kind Call union;
+2. Bridge Domain entry reads only `Target.domain`;
+3. every active result includes correct Target context;
+4. all current formatters emit braces, flat Targets, and Target-relative refs;
+5. old forms appear only inside compatibility tests and clearly marked legacy
+   documentation;
+6. all six interface cards and dynamic schema examples use the new model;
+7. repository-wide audits find no unmarked legacy syntax.
+
+## Verification Status
+
+Current source has passed:
+
+- generated SAL schema and interface-catalog consistency checks;
+- SAL parser, formatter, compatibility, fixture, SDK, and memory-executor
+  suites;
+- the complete unrestricted repository `npm test` gate, including the real
+  Client Unix-socket restart, stale-record, and in-flight disconnect lifecycle;
+- the pinned macOS arm64 Client executable build and isolated executable smoke
+  test;
+- source Fab assembly for `darwin-arm64`;
+- a same-source UE 5.7 macOS arm64 Development BuildPlugin compile and all 135
+  discovered UE Automation tests, with zero failure, timeout, missing test,
+  crash report, or runner-classified log hazard;
+- the stripped release BuildPlugin compile plus directory and ZIP boundary
+  audits, including native arm64 checks, exact Client/license/notice bytes,
+  executable permissions, descriptor shape, and exclusion of tests and build
+  state;
+- the nine-step packaged end-to-end workflow against that exact ZIP, including
+  canonical Blueprint Target discovery, dry run, live mutation, readback,
+  fixture restoration, Editor Context, Client reconnect, runtime lifecycle,
+  and final offline state; and
+- a production Jekyll build of the migrated site.
+
+The final packaged audit also locks two Result Text consequences into the test
+harness: canonical owner identity is read from the Result Target table rather
+than reconstructed from redundant ObjectExpr fields, and a recognized Editor
+surface without an exact supported Domain Target is accepted only as the
+documented `unresolved_target` plus `resolution.unresolved_target` branch.
+
+The audited pre-version-bump local QA ZIP has SHA-256
+`744fb3b910dac25b285cc89efb427489432c13c89e947a7c739f182d0b801d8e`.
+This is migration verification evidence, not a future release-asset identity.
+No artifact has been published, staged, or promoted.

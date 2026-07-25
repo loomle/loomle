@@ -1568,7 +1568,7 @@ public:
 
     FString PublicRef(const FString& Kind, const FString& Current) const
     {
-        return Kind + TEXT("@") + PublicId(Kind, Current);
+        return TEXT("@") + PublicId(Kind, Current);
     }
 
     bool AddDefinition(const TSharedPtr<FJsonObject>& Statement)
@@ -1599,7 +1599,7 @@ public:
         {
             return Fail(
                 TEXT("validation.creation_invalid"),
-                TEXT("StateTree creation bindings must be local Palette-backed constructor calls."),
+                TEXT("StateTree creation bindings must be local Palette-backed creation objects."),
                 TEXT("patch"));
         }
         if (!(Callee == TEXT("state")
@@ -1609,7 +1609,7 @@ public:
         {
             return Fail(
                 TEXT("capability.unsupported_constructor"),
-                FString::Printf(TEXT("Constructor %s is not owned by the StateTree interface."), *Callee),
+                FString::Printf(TEXT("Creation kind %s is not owned by the StateTree Domain."), *Callee),
                 TEXT("patch"),
                 Alias);
         }
@@ -1626,7 +1626,7 @@ public:
         {
             return Fail(
                 TEXT("validation.patch_state_invalid"),
-                TEXT("StateTree Patch did not allocate a shared preflight/apply identity for a constructor."),
+                TEXT("StateTree Patch did not allocate a shared preflight/apply identity for a creation binding."),
                 TEXT("patch"),
                 Alias);
         }
@@ -1684,7 +1684,7 @@ public:
             OutId = GuidText(Identities.ResolveTransition(Guid));
         }
         // Schema Context object ids are deterministic descriptors, not
-        // duplicated authored identities. Never remap object@id through a
+        // duplicated authored identities. Never remap @identity through a
         // State/Node/Transition map even when GUID values happen to collide.
         return true;
     }
@@ -1833,7 +1833,7 @@ bool SeedPlanIdentities(
             || !(*Target)->TryGetStringField(TEXT("name"), Alias)
             || Alias.IsEmpty())
         {
-            OutError = TEXT("StateTree Patch only accepts local constructor declarations as binding statements.");
+            OutError = TEXT("StateTree Patch only accepts local Palette-backed creation declarations as binding statements.");
             return false;
         }
         OutPlan.ByAlias.Add(Alias, FGuid::NewGuid());
@@ -2705,7 +2705,7 @@ bool MaterializeState(
     }
     else
     {
-        OutError = TEXT("State constructor cannot be used in this destination.");
+        OutError = TEXT("State creation is not valid at this destination.");
         return false;
     }
     int32 InsertIndex = StateAnchorIn(*Array, Anchor, Context, OutError);
@@ -2803,7 +2803,7 @@ bool ResolveNodeDestination(
         OutError = TEXT("Property Function Nodes are materialized only by their owning result Binding.");
         return false;
     default:
-        OutError = TEXT("Node constructor cannot be used in this destination.");
+        OutError = TEXT("Node creation is not valid at this destination.");
         return false;
     }
 }
@@ -2877,7 +2877,7 @@ bool MaterializeTransition(
 {
     if (Destination.Role != StateTreePalette::EDestinationRole::Transition)
     {
-        OutError = TEXT("Transition constructor cannot be used in this destination.");
+        OutError = TEXT("Transition creation is not valid at this destination.");
         return false;
     }
     FAuthoredIndex Index = Context.MakeIndex();
@@ -2958,7 +2958,7 @@ bool MaterializeParameter(
 {
     if (Destination.Role != StateTreePalette::EDestinationRole::Parameter)
     {
-        OutError = TEXT("Parameter constructor cannot be used in this destination.");
+        OutError = TEXT("Parameter creation is not valid at this destination.");
         return false;
     }
     FInstancedPropertyBag* Bag = nullptr;
@@ -3001,13 +3001,13 @@ bool MaterializeParameter(
     FName Name;
     if (!ReadNativeNameValue(Definition.Args->TryGetField(TEXT("Name")), Name))
     {
-        OutError = TEXT("Parameter constructor requires a non-empty native Name field.");
+        OutError = TEXT("Parameter creation requires a non-empty native Name field.");
         return false;
     }
     FString TypeText;
     if (!Definition.Args->TryGetStringField(TEXT("type"), TypeText))
     {
-        OutError = TEXT("Parameter constructor requires one NativePropertyTypeText type field.");
+        OutError = TEXT("Parameter creation requires one NativePropertyTypeText type field.");
         return false;
     }
     FParameterType Type;
@@ -3120,7 +3120,7 @@ bool HandleAdd(FPatchContext& Context, const TSharedPtr<FJsonObject>& Operation)
     {
         return Context.Fail(
             TEXT("validation.creation_invalid"),
-            TEXT("StateTree add consumes one local Palette-backed constructor alias."),
+            TEXT("StateTree add consumes one local Palette-backed creation alias."),
             TEXT("add"));
     }
     FConstructorDefinition* Definition = Context.Definitions.Find(Alias);
@@ -3128,7 +3128,7 @@ bool HandleAdd(FPatchContext& Context, const TSharedPtr<FJsonObject>& Operation)
     {
         return Context.Fail(
             TEXT("resolution.binding_not_found"),
-            TEXT("StateTree add references no declared constructor binding."),
+            TEXT("StateTree add references no declared creation binding."),
             TEXT("add"),
             Alias);
     }
@@ -3136,7 +3136,7 @@ bool HandleAdd(FPatchContext& Context, const TSharedPtr<FJsonObject>& Operation)
     {
         return Context.Fail(
             TEXT("resolution.binding_already_consumed"),
-            TEXT("A StateTree constructor binding can be materialized exactly once."),
+            TEXT("A StateTree creation binding can be materialized exactly once."),
             TEXT("add"),
             Alias);
     }
@@ -3183,7 +3183,7 @@ bool HandleAdd(FPatchContext& Context, const TSharedPtr<FJsonObject>& Operation)
     {
         return Context.Fail(
             TEXT("validation.creation_invalid"),
-            TEXT("Constructor callee does not match the exact Palette entry kind."),
+            TEXT("Creation kind does not match the exact Palette entry."),
             TEXT("add"),
             Alias);
     }
@@ -3195,7 +3195,7 @@ bool HandleAdd(FPatchContext& Context, const TSharedPtr<FJsonObject>& Operation)
         {
             return Context.Fail(
                 TEXT("validation.creation_invalid"),
-                TEXT("State constructor requires one explicit native Type."),
+                TEXT("State creation requires one explicit native Type."),
                 TEXT("add"),
                 Alias);
         }
@@ -3223,7 +3223,7 @@ bool HandleAdd(FPatchContext& Context, const TSharedPtr<FJsonObject>& Operation)
         {
             return Context.Fail(
                 TEXT("validation.creation_invalid"),
-                TEXT("State constructor requires one valid native Type from its exact Palette capability."),
+                TEXT("State creation requires one valid native Type from its exact Palette capability."),
                 TEXT("add"),
                 Alias);
         }
@@ -3275,7 +3275,7 @@ bool HandleAdd(FPatchContext& Context, const TSharedPtr<FJsonObject>& Operation)
             {
                 return Context.Fail(
                     TEXT("validation.creation_invalid"),
-                    TEXT("Linked State constructor must preserve the exact destination-bound LinkedSubtree Palette capability."),
+                    TEXT("Linked State creation must preserve the exact destination-bound LinkedSubtree Palette capability."),
                     TEXT("add"),
                     Alias);
             }
@@ -3320,13 +3320,19 @@ bool HandleAdd(FPatchContext& Context, const TSharedPtr<FJsonObject>& Operation)
         return false;
     }
     ++Context.ChangedOperations;
-    Context.ResolvedRefs->SetStringField(Alias, Created.Kind + TEXT("@") + Created.Id);
+    Context.ResolvedRefs->SetObjectField(
+        Alias,
+        Value::StableObject(Created.Kind, Created.Id));
     TSharedPtr<FJsonObject> Planned = MakeShared<FJsonObject>();
     Planned->SetStringField(TEXT("kind"), TEXT("add"));
-    Planned->SetStringField(TEXT("target"), Created.Kind + TEXT("@") + Created.Id);
+    Planned->SetStringField(
+        TEXT("target"),
+        Context.PublicRef(Created.Kind, Created.Id));
     Planned->SetStringField(TEXT("palette"), Definition->PaletteId);
     Context.PlannedOperations.Add(MakeShared<FJsonValueObject>(Planned));
-    Context.PlannedEffects.Add(MakeShared<FJsonValueString>(TEXT("created ") + Created.Kind + TEXT("@") + Created.Id));
+    Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
+        TEXT("created ")
+        + Context.PublicRef(Created.Kind, Created.Id)));
     return true;
 }
 
@@ -3400,11 +3406,25 @@ FString NativeExpressionText(
         OutError = TEXT("SAL value cannot be translated to one native UE property value.");
         return FString();
     }
+    TSharedPtr<FJsonObject> DecodedObject = *Object;
     FString Kind;
-    (*Object)->TryGetStringField(TEXT("kind"), Kind);
+    DecodedObject->TryGetStringField(TEXT("kind"), Kind);
+    if (Kind == TEXT("object"))
+    {
+        const TSharedPtr<FJsonObject>* Fields = nullptr;
+        if (!DecodedObject->TryGetObjectField(TEXT("fields"), Fields)
+            || Fields == nullptr
+            || !(*Fields).IsValid())
+        {
+            OutError = TEXT("ObjectExpr is missing its literal fields.");
+            return FString();
+        }
+        DecodedObject = *Fields;
+        Kind.Reset();
+    }
     if (Kind == TEXT("name"))
     {
-        if (!(*Object)->TryGetStringField(TEXT("name"), String))
+        if (!DecodedObject->TryGetStringField(TEXT("name"), String))
         {
             OutError = TEXT("Name expression is missing its native token.");
             return FString();
@@ -3414,10 +3434,9 @@ FString NativeExpressionText(
     if (Kind == TEXT("state")
         || Kind == TEXT("node")
         || Kind == TEXT("transition")
-        || Kind == TEXT("parameter")
-        || Kind == TEXT("object"))
+        || Kind == TEXT("parameter"))
     {
-        if (!(*Object)->TryGetStringField(TEXT("id"), String))
+        if (!DecodedObject->TryGetStringField(TEXT("id"), String))
         {
             OutError = TEXT("Stable reference value is missing its id.");
             return FString();
@@ -3427,7 +3446,7 @@ FString NativeExpressionText(
     if (Kind == TEXT("call"))
     {
         const TSharedPtr<FJsonObject>* Args = nullptr;
-        if ((*Object)->TryGetObjectField(TEXT("args"), Args) && Args != nullptr)
+        if (DecodedObject->TryGetObjectField(TEXT("args"), Args) && Args != nullptr)
         {
             for (const TCHAR* Field : {TEXT("path"), TEXT("type"), TEXT("name")})
             {
@@ -3448,7 +3467,7 @@ FString NativeExpressionText(
     const FStructProperty* StructProperty = CastField<FStructProperty>(Property);
     TArray<FString> Fields;
     TArray<FString> Keys;
-    (*Object)->Values.GetKeys(Keys);
+    DecodedObject->Values.GetKeys(Keys);
     Keys.Sort();
     for (const FString& Key : Keys)
     {
@@ -3456,7 +3475,10 @@ FString NativeExpressionText(
             ? StructProperty->Struct->FindPropertyByName(FName(*Key))
             : nullptr;
         FString ChildError;
-        const FString ChildText = NativeExpressionText((*Object)->TryGetField(Key), Child, ChildError);
+        const FString ChildText = NativeExpressionText(
+            DecodedObject->TryGetField(Key),
+            Child,
+            ChildError);
         if (!ChildError.IsEmpty())
         {
             OutError = Key + TEXT(": ") + ChildError;
@@ -3831,7 +3853,7 @@ bool ResolveStateValue(
     {
         if (OutError.IsEmpty())
         {
-            OutError = TEXT("StateTree link requires one exact state@id relationship.");
+            OutError = TEXT("StateTree link requires one exact @identity relationship.");
         }
         return false;
     }
@@ -3862,14 +3884,28 @@ bool ImportStateLinkValue(
     const TSharedPtr<FJsonObject>* Object = nullptr;
     if (!Value.IsValid() || !Value->TryGetObject(Object) || Object == nullptr || !(*Object).IsValid())
     {
-        OutError = TEXT("StateTree State Link requires a native link object or one exact state@id reference.");
+        OutError = TEXT("StateTree State Link requires a native link object or one exact @identity reference.");
         return false;
     }
+    TSharedPtr<FJsonObject> DecodedObject = *Object;
     FString Kind;
-    (*Object)->TryGetStringField(TEXT("kind"), Kind);
-    if (!Kind.IsEmpty())
+    DecodedObject->TryGetStringField(TEXT("kind"), Kind);
+    const bool bLiteralObject = Kind == TEXT("object");
+    if (bLiteralObject)
     {
-        if (!ResolveStateValue(Context, *Object, OutTargetState, OutError))
+        const TSharedPtr<FJsonObject>* Fields = nullptr;
+        if (!DecodedObject->TryGetObjectField(TEXT("fields"), Fields)
+            || Fields == nullptr
+            || !(*Fields).IsValid())
+        {
+            OutError = TEXT("ObjectExpr is missing its literal fields.");
+            return false;
+        }
+        DecodedObject = *Fields;
+    }
+    else if (!Kind.IsEmpty())
+    {
+        if (!ResolveStateValue(Context, DecodedObject, OutTargetState, OutError))
         {
             return false;
         }
@@ -3878,7 +3914,7 @@ bool ImportStateLinkValue(
     }
 
     TSharedPtr<FJsonObject> NativeObject = MakeShared<FJsonObject>();
-    NativeObject->Values = (*Object)->Values;
+    NativeObject->Values = DecodedObject->Values;
     if (const TSharedPtr<FJsonValue>* IdValue = NativeObject->Values.Find(TEXT("ID")))
     {
         const TSharedPtr<FJsonObject>* IdRef = nullptr;
@@ -3889,7 +3925,7 @@ bool ImportStateLinkValue(
         {
             if (OutError.IsEmpty())
             {
-                OutError = TEXT("StateTree State Link ID must be one exact state@id relationship.");
+                OutError = TEXT("StateTree State Link ID must be one exact @identity relationship.");
             }
             return false;
         }
@@ -3936,7 +3972,7 @@ bool ImportStateLinkValue(
     {
         if (OutLink.LinkType != EStateTreeTransitionType::GotoState)
         {
-            OutError = TEXT("A concrete state@id relationship requires native LinkType GotoState.");
+            OutError = TEXT("A concrete @identity relationship requires native LinkType GotoState.");
             return false;
         }
         OutLink.ID = OutTargetState->ID;
@@ -4000,7 +4036,7 @@ ESemanticSetResult ApplyStateTreeSemanticSet(
         {
             if (OutError.IsEmpty())
             {
-                OutError = TEXT("LinkedSubtree requires one concrete state@id relationship.");
+                OutError = TEXT("LinkedSubtree requires one concrete @identity relationship.");
             }
             return ESemanticSetResult::Failed;
         }
@@ -4460,7 +4496,7 @@ bool ApplySetReset(
             TEXT("capability.operation_unavailable"),
             TEXT("The exact StateTree schema marks this member read-only for the requested operation."),
             OperationName,
-            Resolved.OwnerKind + TEXT("@") + Resolved.OwnerId);
+            Context.PublicRef(Resolved.OwnerKind, Resolved.OwnerId));
     }
     if (!ValidateSchemaMemberEdit(Context, Resolved, Value, bReset, Error))
     {
@@ -4468,7 +4504,7 @@ bool ApplySetReset(
             TEXT("validation.operation_arguments_invalid"),
             Error,
             OperationName,
-            Resolved.OwnerKind + TEXT("@") + Resolved.OwnerId);
+            Context.PublicRef(Resolved.OwnerKind, Resolved.OwnerId));
     }
     if (Resolved.Surface == StateTreeSchema::EMemberSurface::ParameterName
         || Resolved.Surface == StateTreeSchema::EMemberSurface::ParameterType
@@ -4480,7 +4516,7 @@ bool ApplySetReset(
                 TEXT("capability.operation_unavailable"),
                 TEXT("Parameter descriptor fields have no implicit reset default."),
                 OperationName,
-                Resolved.OwnerKind + TEXT("@") + Resolved.OwnerId);
+                Context.PublicRef(Resolved.OwnerKind, Resolved.OwnerId));
         }
         Context.Tree.Modify();
         Context.Data.Modify();
@@ -4567,7 +4603,7 @@ bool ApplySetReset(
             TEXT("validation.patch_state_invalid"),
             Error,
             OperationName,
-            Resolved.OwnerKind + TEXT("@") + Resolved.OwnerId);
+            Context.PublicRef(Resolved.OwnerKind, Resolved.OwnerId));
     }
     if (!FinishSetSemanticTracking(Context, Resolved, SemanticTracker, Error))
     {
@@ -4575,7 +4611,7 @@ bool ApplySetReset(
             TEXT("validation.patch_state_invalid"),
             Error,
             OperationName,
-            Resolved.OwnerKind + TEXT("@") + Resolved.OwnerId);
+            Context.PublicRef(Resolved.OwnerKind, Resolved.OwnerId));
     }
 
     if (bRecordOperation)
@@ -4787,7 +4823,7 @@ TArray<FBindingSnapshot> CaptureBindingSnapshot(FPatchContext& Context)
             Function != nullptr && Function->ID.IsValid())
         {
             Item.PropertyFunctionId = Context.Identities.RestoreNode(Function->ID);
-            Item.Evidence += TEXT("; owning Property Function node@")
+            Item.Evidence += TEXT("; owning Property Function identity: @")
                 + GuidText(Item.PropertyFunctionId);
         }
     }
@@ -4956,9 +4992,20 @@ struct FCompileManifestEntry
     FString Content;
 };
 
+FString PublicManifestToken(const FString& Token)
+{
+    FString FirstSegment = Token;
+    FString Ignored;
+    Token.Split(TEXT("/"), &FirstSegment, &Ignored);
+    FGuid Guid;
+    return ParseGuid(FirstSegment, Guid)
+        ? TEXT("@") + Token
+        : Token;
+}
+
 FString ManifestLocation(const FCompileManifestEntry& Entry)
 {
-    FString Result = Entry.Owner;
+    FString Result = PublicManifestToken(Entry.Owner);
     if (!Entry.Role.IsEmpty())
     {
         Result += TEXT(".") + Entry.Role;
@@ -5282,8 +5329,9 @@ bool CompletePostEditNotification(
                 return false;
             }
             bClassifiedCascade = true;
-            const FString RemovedRef = TEXT("node@") + GuidText(Previous.StableId);
-            DetailedRemovalKeys.Add(RemovedRef);
+            const FString RemovedId = GuidText(Previous.StableId);
+            const FString RemovedRef = TEXT("@") + RemovedId;
+            DetailedRemovalKeys.Add(RemovedId);
             if (bRemovedFunction)
             {
                 Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
@@ -5315,8 +5363,9 @@ bool CompletePostEditNotification(
                 return false;
             }
             bClassifiedCascade = true;
-            const FString RemovedRef = TEXT("node@") + GuidText(Previous.StableId);
-            DetailedRemovalKeys.Add(RemovedRef);
+            const FString RemovedId = GuidText(Previous.StableId);
+            const FString RemovedRef = TEXT("@") + RemovedId;
+            DetailedRemovalKeys.Add(RemovedId);
             if (bRemovedFunction)
             {
                 Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
@@ -5339,25 +5388,26 @@ bool CompletePostEditNotification(
             OutError = TEXT("A native PostEdit callback added or changed an authored Node identity unexpectedly.");
             return false;
         }
-        const FString NodeRef = TEXT("node@") + GuidText(Current.StableId);
+        const FString NodeId = GuidText(Current.StableId);
+        const FString NodeRef = TEXT("@") + NodeId;
         if (Previous.Node != Current.Node)
         {
             bClassifiedCascade = true;
-            DetailedContentKeys.Add(NodeRef);
+            DetailedContentKeys.Add(NodeId);
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
                 TEXT("native PostEdit cascade updated ") + NodeRef + TEXT(".Node")));
         }
         if (Previous.Instance != Current.Instance)
         {
             bClassifiedCascade = true;
-            DetailedContentKeys.Add(NodeRef);
+            DetailedContentKeys.Add(NodeId);
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
                 TEXT("native PostEdit cascade updated ") + NodeRef + TEXT(".Instance")));
         }
         if (Previous.ExecutionRuntimeData != Current.ExecutionRuntimeData)
         {
             bClassifiedCascade = true;
-            DetailedContentKeys.Add(NodeRef);
+            DetailedContentKeys.Add(NodeId);
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
                 TEXT("native PostEdit cascade updated ")
                 + NodeRef
@@ -5384,7 +5434,7 @@ bool CompletePostEditNotification(
         {
             bClassifiedCascade = true;
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
-                TEXT("native PostEdit cascade updated transition@")
+                TEXT("native PostEdit cascade updated @")
                 + GuidText(Before.TransitionId)
                 + TEXT(".bDelayTransition")));
         }
@@ -5643,7 +5693,7 @@ bool FinishSetSemanticTracking(
                 if (!CurrentTaskIds.Contains(Id))
                 {
                     Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
-                        TEXT("native State cascade removed node@")
+                        TEXT("native State cascade removed @")
                         + GuidText(Id)));
                 }
             }
@@ -5654,7 +5704,7 @@ bool FinishSetSemanticTracking(
                 if (!CurrentParameterIds.Contains(Id))
                 {
                     Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
-                        TEXT("native State cascade removed parameter@") + Id));
+                        TEXT("native State cascade removed @") + Id));
                 }
             }
             for (const FString& Id : CurrentParameterIds)
@@ -5662,7 +5712,7 @@ bool FinishSetSemanticTracking(
                 if (!Tracker->ParameterIds.Contains(Id))
                 {
                     Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
-                        TEXT("native State cascade synchronized parameter@") + Id));
+                        TEXT("native State cascade synchronized @") + Id));
                 }
             }
             if (Tracker->SelectionBehavior != State.SelectionBehavior)
@@ -5754,7 +5804,7 @@ bool FinishSetSemanticTracking(
         if (!CurrentNodeIds.Contains(Id) && !Tracker->TaskIds.Contains(Id))
         {
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
-                TEXT("native cascade removed node@")
+                TEXT("native cascade removed @")
                 + GuidText(Id)
                 + TEXT(" with its owning Property Function Binding")));
         }
@@ -6188,7 +6238,11 @@ bool HandleMove(FPatchContext& Context, const TSharedPtr<FJsonObject>& Operation
     bool bAfter = false;
     if (!ReadPlacement(Context, Operation, DestinationRef, Anchor, bBefore, bAfter, Error))
     {
-        return Context.Fail(TEXT("resolution.invalid_anchor"), Error, TEXT("move"), Kind + TEXT("@") + Id);
+        return Context.Fail(
+            TEXT("resolution.invalid_anchor"),
+            Error,
+            TEXT("move"),
+            Context.PublicRef(Kind, Id));
     }
     FAuthoredIndex Index = Context.MakeIndex();
     if (!Index.IsValid())
@@ -6206,7 +6260,11 @@ bool HandleMove(FPatchContext& Context, const TSharedPtr<FJsonObject>& Operation
         StateTreePalette::FDestination Destination;
         if (!StateTreePalette::ResolveDestination(Context.Tree, Context.Data, DestinationRef, Destination, Error))
         {
-            return Context.Fail(TEXT("resolution.invalid_anchor"), Error, TEXT("move"), Kind + TEXT("@") + Id);
+            return Context.Fail(
+                TEXT("resolution.invalid_anchor"),
+                Error,
+                TEXT("move"),
+                Context.PublicRef(Kind, Id));
         }
         FGuid Guid;
         if (!ParseGuid(Id, Guid))
@@ -6239,7 +6297,11 @@ bool HandleMove(FPatchContext& Context, const TSharedPtr<FJsonObject>& Operation
         {
             Error = TEXT("StateTree move source is missing or ambiguous.");
         }
-        return Context.Fail(TEXT("capability.operation_unavailable"), Error, TEXT("move"), Kind + TEXT("@") + Id);
+        return Context.Fail(
+            TEXT("capability.operation_unavailable"),
+            Error,
+            TEXT("move"),
+            Context.PublicRef(Kind, Id));
     }
     if (!ValidateBindingExecutionVisibility(Context, Error))
     {
@@ -6397,7 +6459,11 @@ bool HandleRemove(FPatchContext& Context, const TSharedPtr<FJsonObject>& Operati
                     RemovedStateIds,
                     Error))
             {
-                return Context.Fail(TEXT("validation.patch_state_invalid"), Error, TEXT("remove"), Kind + TEXT("@") + Id);
+                return Context.Fail(
+                    TEXT("validation.patch_state_invalid"),
+                    Error,
+                    TEXT("remove"),
+                    Context.PublicRef(Kind, Id));
             }
             Source->State->Modify();
             ModifyStateArrayOwner(Context, Source->Parent);
@@ -6490,7 +6556,7 @@ bool HandleRemove(FPatchContext& Context, const TSharedPtr<FJsonObject>& Operati
             TEXT("capability.operation_unavailable"),
             Error.IsEmpty() ? TEXT("StateTree remove target is missing, ambiguous, or read-only.") : Error,
             TEXT("remove"),
-            Kind + TEXT("@") + Id);
+            Context.PublicRef(Kind, Id));
     }
     Context.Tree.Modify();
     Context.Data.Modify();
@@ -6695,7 +6761,7 @@ bool MaterializePropertyFunction(
     FConstructorDefinition* Definition = Context.Definitions.Find(OutAlias);
     if (Definition == nullptr || Definition->Callee != TEXT("node") || Definition->bConsumed)
     {
-        OutError = TEXT("Property Function result Binding requires one preceding unconsumed local node constructor.");
+        OutError = TEXT("Property Function result Binding requires one preceding unconsumed local node creation binding.");
         return false;
     }
     const TSharedPtr<FJsonObject> ReboundTarget = Context.RebindRef(To, OutError);
@@ -6715,7 +6781,7 @@ bool MaterializePropertyFunction(
     {
         if (OutError.IsEmpty())
         {
-            OutError = TEXT("Property Function constructor is not valid for this exact Binding target.");
+            OutError = TEXT("Property Function creation is not valid for this exact Binding target.");
         }
         return false;
     }
@@ -6808,11 +6874,15 @@ bool MaterializePropertyFunction(
     }
     AddRemovedBindingEffects(Context, RemovedFunctionInputs);
     Context.CreatedRefs.Add(OutAlias, {TEXT("node"), GuidText(Definition->PlannedId)});
-    Context.ResolvedRefs->SetStringField(OutAlias, TEXT("node@") + GuidText(Definition->PlannedId));
+    Context.ResolvedRefs->SetObjectField(
+        OutAlias,
+        Value::StableObject(
+            TEXT("node"),
+            GuidText(Definition->PlannedId)));
     Definition->bConsumed = true;
     if (!ApplyConstructorFields(Context, *Definition, Context.CreatedRefs.FindChecked(OutAlias)))
     {
-        OutError = TEXT("Property Function constructor fields could not be applied.");
+        OutError = TEXT("Property Function creation fields could not be applied.");
         return false;
     }
     return true;
@@ -6926,7 +6996,7 @@ FString AutomaticContextEdge(
     {
         return FString();
     }
-    return TEXT("object@") + GuidText(Canonical->ID)
+    return TEXT("@") + GuidText(Canonical->ID)
         + TEXT(" -> ")
         + PublicResolvedMember(Context, Target);
 }
@@ -7331,7 +7401,7 @@ bool CaptureCompileManifest(
          ++ExtensionIndex)
     {
         if (!AddInstancedObject(
-                FString::Printf(TEXT("editor_extension@%d"), ExtensionIndex),
+                FString::Printf(TEXT("editor_extension[%d]"), ExtensionIndex),
                 TEXT("Extensions"),
                 ExtensionIndex,
                 Data.Extensions[ExtensionIndex].Get()))
@@ -7455,10 +7525,10 @@ bool CaptureCompileManifest(
         }
         const FGuid StableId = Identities.RestoreState(Ref->State->ID);
         const FString Owner = Ref->Parent != nullptr
-            ? TEXT("state@") + GuidText(Identities.RestoreState(Ref->Parent->ID))
+            ? GuidText(Identities.RestoreState(Ref->Parent->ID))
             : TEXT("target");
         if (!Add({
-                TEXT("state@") + GuidText(StableId),
+                GuidText(StableId),
                 Owner,
                 Ref->Parent != nullptr ? TEXT("Children") : TEXT("SubTrees"),
                 Ref->Index,
@@ -7486,10 +7556,8 @@ bool CaptureCompileManifest(
                 OutError,
                 &Excluded)
             || !Add({
-                TEXT("transition@")
-                    + GuidText(Identities.RestoreTransition(Ref->Transition->ID)),
-                TEXT("state@")
-                    + GuidText(Identities.RestoreState(Ref->OwnerState->ID)),
+                GuidText(Identities.RestoreTransition(Ref->Transition->ID)),
+                GuidText(Identities.RestoreState(Ref->OwnerState->ID)),
                 TEXT("Transitions"),
                 Ref->Index,
                 MoveTemp(Content)}))
@@ -7528,13 +7596,13 @@ bool CaptureCompileManifest(
         FString Owner = TEXT("target");
         if (Ref->OwnerTransition != nullptr)
         {
-            Owner = TEXT("transition@")
-                + GuidText(Identities.RestoreTransition(Ref->OwnerTransition->ID));
+            Owner = GuidText(
+                Identities.RestoreTransition(Ref->OwnerTransition->ID));
         }
         else if (Ref->OwnerState != nullptr)
         {
-            Owner = TEXT("state@")
-                + GuidText(Identities.RestoreState(Ref->OwnerState->ID));
+            Owner = GuidText(
+                Identities.RestoreState(Ref->OwnerState->ID));
         }
         else if (Ref->bPropertyFunction)
         {
@@ -7546,7 +7614,7 @@ bool CaptureCompileManifest(
         NodeFingerprint.Add(TEXT("instance"), InstanceContent);
         NodeFingerprint.Add(TEXT("execution_runtime_data"), RuntimeContent);
         if (!Add({
-                TEXT("node@") + GuidText(Identities.RestoreNode(Ref->Node->ID)),
+                GuidText(Identities.RestoreNode(Ref->Node->ID)),
                 Owner,
                 FString(NodeRoleMember(Ref->Role)),
                 Order,
@@ -7638,10 +7706,10 @@ bool CaptureCompileManifest(
         const FString StableId = Identities.RestoreParameter(
             GuidText(Ref->ContainerId) + TEXT("/") + GuidText(Ref->Desc.ID));
         const FString Owner = Ref->OwnerState != nullptr
-            ? TEXT("state@") + GuidText(Identities.RestoreState(Ref->OwnerState->ID))
+            ? GuidText(Identities.RestoreState(Ref->OwnerState->ID))
             : TEXT("target");
         if (!Add({
-                TEXT("parameter@") + StableId,
+                StableId,
                 Owner,
                 Ref->bRoot ? TEXT("RootParameters") : TEXT("Parameters"),
                 Ref->Index,
@@ -7680,7 +7748,7 @@ void AddNativeCallbackManifestEffects(
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
                 EffectPrefix
                 + TEXT(" created ")
-                + Entry.Key
+                + PublicManifestToken(Entry.Key)
                 + TEXT(" at ")
                 + ManifestLocation(Entry)));
             continue;
@@ -7694,7 +7762,7 @@ void AddNativeCallbackManifestEffects(
                 Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
                     EffectPrefix
                     + TEXT(" removed ")
-                    + Entry.Key
+                    + PublicManifestToken(Entry.Key)
                     + TEXT(" from ")
                     + ManifestLocation(Entry)));
             }
@@ -7710,7 +7778,7 @@ void AddNativeCallbackManifestEffects(
                 Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
                     EffectPrefix
                     + TEXT(" removed ")
-                    + Previous.Key
+                    + PublicManifestToken(Previous.Key)
                     + TEXT(" from ")
                     + ManifestLocation(Previous)));
             }
@@ -7723,7 +7791,7 @@ void AddNativeCallbackManifestEffects(
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
                 EffectPrefix
                 + TEXT(" created ")
-                + Current.Key
+                + PublicManifestToken(Current.Key)
                 + TEXT(" at ")
                 + ManifestLocation(Current)));
             ++AfterIndex;
@@ -7737,7 +7805,7 @@ void AddNativeCallbackManifestEffects(
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
                 EffectPrefix
                 + TEXT(" moved ")
-                + Current.Key
+                + PublicManifestToken(Current.Key)
                 + TEXT(" from ")
                 + ManifestLocation(Previous)
                 + TEXT(" to ")
@@ -7749,7 +7817,9 @@ void AddNativeCallbackManifestEffects(
             if (!DetailedContentKeys.Contains(Current.Key))
             {
                 Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
-                    EffectPrefix + TEXT(" updated ") + Current.Key));
+                    EffectPrefix
+                    + TEXT(" updated ")
+                    + PublicManifestToken(Current.Key)));
             }
         }
         ++BeforeIndex;
@@ -7775,7 +7845,6 @@ bool AddCompileManifestEffects(
             const FCompileManifestEntry& Entry = After[AfterIndex++];
             bOutChanged = true;
             if (bIgnoreNativeRootCreation
-                && Entry.Key.StartsWith(TEXT("state@"))
                 && Entry.Owner == TEXT("target")
                 && Entry.Role == TEXT("SubTrees"))
             {
@@ -7783,7 +7852,7 @@ bool AddCompileManifestEffects(
             }
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
                 TEXT("compile validation created ")
-                + Entry.Key
+                + PublicManifestToken(Entry.Key)
                 + TEXT(" at ")
                 + ManifestLocation(Entry)));
             continue;
@@ -7794,7 +7863,7 @@ bool AddCompileManifestEffects(
             bOutChanged = true;
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
                 TEXT("compile validation removed ")
-                + Entry.Key
+                + PublicManifestToken(Entry.Key)
                 + TEXT(" from ")
                 + ManifestLocation(Entry)));
             continue;
@@ -7806,7 +7875,7 @@ bool AddCompileManifestEffects(
             bOutChanged = true;
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
                 TEXT("compile validation removed ")
-                + Previous.Key
+                + PublicManifestToken(Previous.Key)
                 + TEXT(" from ")
                 + ManifestLocation(Previous)));
             ++BeforeIndex;
@@ -7816,7 +7885,6 @@ bool AddCompileManifestEffects(
         {
             bOutChanged = true;
             if (bIgnoreNativeRootCreation
-                && Current.Key.StartsWith(TEXT("state@"))
                 && Current.Owner == TEXT("target")
                 && Current.Role == TEXT("SubTrees"))
             {
@@ -7825,7 +7893,7 @@ bool AddCompileManifestEffects(
             }
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
                 TEXT("compile validation created ")
-                + Current.Key
+                + PublicManifestToken(Current.Key)
                 + TEXT(" at ")
                 + ManifestLocation(Current)));
             ++AfterIndex;
@@ -7838,7 +7906,7 @@ bool AddCompileManifestEffects(
             bOutChanged = true;
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
                 TEXT("compile validation moved ")
-                + Current.Key
+                + PublicManifestToken(Current.Key)
                 + TEXT(" from ")
                 + ManifestLocation(Previous)
                 + TEXT(" to ")
@@ -7848,7 +7916,8 @@ bool AddCompileManifestEffects(
         {
             bOutChanged = true;
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
-                TEXT("compile validation updated ") + Current.Key));
+                TEXT("compile validation updated ")
+                + PublicManifestToken(Current.Key)));
         }
         ++BeforeIndex;
         ++AfterIndex;
@@ -7909,7 +7978,7 @@ bool AddCompileRepairEffects(
         if (Before.LinkedSubtreeName != Current->State->LinkedSubtree.Name)
         {
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
-                TEXT("compile validation updated state@")
+                TEXT("compile validation updated @")
                 + GuidText(Before.StableId)
                 + TEXT(".LinkedSubtree.Name")));
         }
@@ -7920,7 +7989,7 @@ bool AddCompileRepairEffects(
                 PPF_None))
         {
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
-                TEXT("compile validation synchronized state@")
+                TEXT("compile validation synchronized @")
                 + GuidText(Before.StableId)
                 + TEXT(".Parameters")));
         }
@@ -7936,7 +8005,7 @@ bool AddCompileRepairEffects(
         if (Before.StateName != Current->Transition->State.Name)
         {
             Context.PlannedEffects.Add(MakeShared<FJsonValueString>(
-                TEXT("compile validation updated transition@")
+                TEXT("compile validation updated @")
                 + GuidText(Before.StableId)
                 + TEXT(".State.Name")));
         }
@@ -7984,14 +8053,14 @@ void AddCompilerMessages(
         TArray<FString> Refs;
         if (Message.State != nullptr && Message.State->ID.IsValid())
         {
-            Refs.Add(TEXT("state@") + GuidText(CurrentIdentities.RestoreState(Message.State->ID)));
+            Refs.Add(TEXT("@") + GuidText(CurrentIdentities.RestoreState(Message.State->ID)));
         }
         if (Message.Item.ID.IsValid())
         {
             FAuthoredIndex Index(Context.Tree, CurrentData, CurrentIdentities);
             if (FNodeRef* Node = Index.IsValid() ? Index.FindNodeByNativeStructId(Message.Item.ID) : nullptr)
             {
-                Refs.AddUnique(TEXT("node@") + GuidText(CurrentIdentities.RestoreNode(Node->Node->ID)));
+                Refs.AddUnique(TEXT("@") + GuidText(CurrentIdentities.RestoreNode(Node->Node->ID)));
             }
             else
             {
@@ -7999,11 +8068,11 @@ void AddCompilerMessages(
                 const FGuid TransitionId = CurrentIdentities.RestoreTransition(Message.Item.ID);
                 if (StateId != Message.Item.ID || Index.FindState(Message.Item.ID) != nullptr)
                 {
-                    Refs.AddUnique(TEXT("state@") + GuidText(StateId));
+                    Refs.AddUnique(TEXT("@") + GuidText(StateId));
                 }
                 else if (TransitionId != Message.Item.ID || Index.FindTransition(Message.Item.ID) != nullptr)
                 {
-                    Refs.AddUnique(TEXT("transition@") + GuidText(TransitionId));
+                    Refs.AddUnique(TEXT("@") + GuidText(TransitionId));
                 }
             }
         }
@@ -8353,7 +8422,7 @@ bool RunAuthoredPatch(FPatchContext& Context, const FSalPatch& Patch)
         {
             return Context.Fail(
                 TEXT("validation.unused_binding"),
-                TEXT("Every StateTree constructor binding must be consumed exactly once by add or its owning bind."),
+                TEXT("Every StateTree creation binding must be consumed exactly once by add or its owning bind."),
                 TEXT("patch"),
                 Pair.Key);
         }

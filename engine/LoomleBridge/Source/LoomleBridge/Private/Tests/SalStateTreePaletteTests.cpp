@@ -4,6 +4,7 @@
 
 #include "Sal/StateTree/SalStateTreePalette.h"
 #include "SalStateTreePaletteTestSchema.h"
+#include "SalTestObjectModel.h"
 
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
@@ -53,17 +54,21 @@ FPropertyBagPropertyDesc FloatParameter(const FName Name)
 TSharedPtr<FJsonObject> ConstructorArgs(const FEntry& Entry)
 {
     const TSharedPtr<FJsonValue> Value = MakeConstructor(Entry);
-    const TSharedPtr<FJsonObject>* Call = nullptr;
-    const TSharedPtr<FJsonObject>* Args = nullptr;
+    const TSharedPtr<FJsonObject>* Expression = nullptr;
+    const TSharedPtr<FJsonObject>* Fields = nullptr;
+    FString SemanticTag;
     if (!Value.IsValid()
-        || !Value->TryGetObject(Call)
-        || Call == nullptr
-        || !(*Call)->TryGetObjectField(TEXT("args"), Args)
-        || Args == nullptr)
+        || !Value->TryGetObject(Expression)
+        || Expression == nullptr
+        || !Loomle::Tests::Sal::TryReadObjectExprTag(
+            *Expression,
+            SemanticTag)
+        || !(*Expression)->TryGetObjectField(TEXT("fields"), Fields)
+        || Fields == nullptr)
     {
         return nullptr;
     }
-    return *Args;
+    return *Fields;
 }
 }
 
@@ -187,15 +192,20 @@ bool FSalStateTreePaletteConstructorTest::RunTest(const FString& Parameters)
         const TSharedPtr<FJsonObject> Args = ConstructorArgs(*LinkedEntry);
         const TSharedPtr<FJsonObject>* Link = nullptr;
         FString LinkKind;
+        const TArray<TSharedPtr<FJsonValue>>* IdentityPath = nullptr;
         FString LinkId;
         TestTrue(
-            TEXT("Copyable Linked State constructor contains a typed state@id"),
+            TEXT("Copyable Linked State creation object contains a StableRef identityPath"),
             Args.IsValid()
                 && Args->TryGetObjectField(TEXT("LinkedSubtree"), Link)
                 && Link != nullptr
                 && (*Link)->TryGetStringField(TEXT("kind"), LinkKind)
-                && LinkKind == TEXT("state")
-                && (*Link)->TryGetStringField(TEXT("id"), LinkId)
+                && LinkKind == TEXT("stable_ref")
+                && (*Link)->TryGetArrayField(TEXT("identityPath"), IdentityPath)
+                && IdentityPath != nullptr
+                && IdentityPath->Num() == 1
+                && (*IdentityPath)[0].IsValid()
+                && (*IdentityPath)[0]->TryGetString(LinkId)
                 && LinkId == ValidTarget.ID.ToString(EGuidFormats::DigitsWithHyphensLower));
 
         FEntry ExactState;

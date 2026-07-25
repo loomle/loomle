@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -16,6 +17,9 @@ const fixture = Object.freeze({
   assetSearchText: "BP_LoomleE2E",
   assetRoot: "/Game",
 });
+const protocolVersion = JSON.parse(
+  readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+).loomle.protocolVersion;
 
 test("stable project identity matches normalized platform path semantics", () => {
   assert.equal(
@@ -40,6 +44,7 @@ test("real Client process survives restart, stale record, and in-flight disconne
   const result = await runPackagedRuntimeLifecycle({
     projectRoot: resolve("tests", "fixtures", "ue", "LoomleTestHost"),
     fixture,
+    protocolVersion,
     stateRoot,
     clientExecutable: process.execPath,
     clientArguments: [

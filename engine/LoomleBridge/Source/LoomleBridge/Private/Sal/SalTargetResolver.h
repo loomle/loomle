@@ -20,6 +20,13 @@ public:
         TSharedPtr<FJsonObject>& OutError) const;
 
 private:
+    bool ResolveTarget(
+        const FString& Alias,
+        const TSharedPtr<FJsonObject>& Target,
+        bool bForPatch,
+        FSalResolvedTarget& OutTarget,
+        TSharedPtr<FJsonObject>& OutError) const;
+
     bool ResolveValue(
         const FString& Alias,
         const TSharedPtr<FJsonObject>& Value,

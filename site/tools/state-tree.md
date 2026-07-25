@@ -17,38 +17,30 @@ The StateTree interface reads and edits the authored contents of one UE
 Bind the exact Asset Path and native Class Path:
 
 ```text
-omle = asset(
-  path: "/Game/AI/ST_Omle.ST_Omle",
+omle = target {
+  domain: state_tree,
+  asset: "/Game/AI/ST_Omle.ST_Omle",
   type: "/Script/StateTreeModule.StateTree"
-)
+}
 ```
 
-The Asset Path is the complete target identity. StateTree has no asset-level
-Guid and no constructor of this form:
-
-```text
-state_tree(...)
-```
-
-Typed ids are scoped inside this target.
+Asset Path plus verified native Class is the complete StateTree Target.
+`target`, `domain`, and `state_tree` are structural SAL keywords, not an object
+expression or semantic tag. Contained identities are scoped inside this Target.
 
 ## Query
 
-StateTree supports:
+After the Target binding, a StateTree Query selects one of:
 
 ```text
 query omle
 
 summary
-tree [state@id] [depth N]
+tree [@state-guid] [depth N]
 states ["text"]
 nodes ["text"]
 parameters ["text"]
-state@id
-node@id
-transition@id
-parameter@container-id/property-id
-object@context-id
+@identity
 references to <exact-object-or-member>
 palette entries ["text"] to <exact-destination>
 palette @id to <same-exact-destination>
@@ -85,28 +77,40 @@ independent top-level lifecycle objects.
 Palette search always names the exact destination:
 
 ```text
+omle = target {
+  domain: state_tree,
+  asset: "/Game/AI/ST_Omle.ST_Omle",
+  type: "/Script/StateTreeModule.StateTree"
+}
+
 query omle
-palette entries "Follow" to state@companion-guid.Tasks
+palette entries "Follow" to @companion-guid.Tasks
 ```
 
 Inspect the selected entry against the same destination:
 
 ```text
+omle = target {
+  domain: state_tree,
+  asset: "/Game/AI/ST_Omle.ST_Omle",
+  type: "/Script/StateTreeModule.StateTree"
+}
+
 query omle
-palette @P_OmleFollowTask to state@companion-guid.Tasks
+palette @P_OmleFollowTask to @companion-guid.Tasks
 with schema
 ```
 
-Copy one of the returned constructor forms:
+The returned `objects` section contains ordinary ObjectExpr fragments such as:
 
 ```text
-state(...)
-node(...)
-transition(...)
-parameter(...)
+{ palette: "P_State", Name: Patrol }
+{ palette: "P_OmleFollowTask" }
 ```
 
-Do not guess Palette ids, destinations, fields, or member paths.
+An allowed formatter may add an erasable tag such as `state {...}` or
+`node {...}`. The tag does not choose lifecycle or type. Do not guess Palette
+ids, destinations, fields, or member paths.
 
 ## Patch
 
@@ -125,15 +129,21 @@ unbind
 For example:
 
 ```text
+omle = target {
+  domain: state_tree,
+  asset: "/Game/AI/ST_Omle.ST_Omle",
+  type: "/Script/StateTreeModule.StateTree"
+}
+
 patch omle dry run
 
-patrol = state(palette: "P_State", Name: Patrol)
-add patrol to state@root-guid.Children
-move state@idle-guid before patrol
+patrol = { palette: "P_State", Name: Patrol }
+add patrol to @root-guid.Children
+move @idle-guid before patrol
 
-follow = node(palette: "P_OmleFollowTask")
+follow = { palette: "P_OmleFollowTask" }
 add follow to patrol.Tasks
-bind parameter@container-guid/speed-guid -> follow.Instance.Speed
+bind @container-guid/speed-guid -> follow.Instance.Speed
 ```
 
 Every direct creation requires a Palette-backed local binding and an exact
@@ -151,6 +161,12 @@ by one live UE transaction.
 Finalization is a separate terminal Patch:
 
 ```text
+omle = target {
+  domain: state_tree,
+  asset: "/Game/AI/ST_Omle.ST_Omle",
+  type: "/Script/StateTreeModule.StateTree"
+}
+
 patch omle
 compile
 save

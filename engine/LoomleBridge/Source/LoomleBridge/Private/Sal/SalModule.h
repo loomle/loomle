@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 
 class FJsonObject;
+class FJsonValue;
 
 namespace Loomle::Sal
 {
@@ -14,5 +15,9 @@ class FSalModule
 public:
     static TSharedPtr<FJsonObject> BuildQueryResult(const TSharedPtr<FJsonObject>& Arguments);
     static TSharedPtr<FJsonObject> BuildPatchResult(const TSharedPtr<FJsonObject>& Arguments);
+#if WITH_DEV_AUTOMATION_TESTS
+    static bool NormalizeOutputExpressionForTesting(
+        const TSharedPtr<FJsonValue>& Value);
+#endif
 };
 }

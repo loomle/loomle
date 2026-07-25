@@ -12,7 +12,7 @@ import {
 } from "./product-version.mjs";
 
 const VERSION = "0.7.0-dev.1";
-const PROTOCOL_VERSION = 2;
+const PROTOCOL_VERSION = 3;
 
 async function writeJson(root, relativePath, value) {
   const path = join(root, relativePath);

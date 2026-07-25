@@ -14,8 +14,8 @@ the current decision.
 ## 1. Resident Guide
 
 The `sal_schema` MCP tool description carries the compact resident SAL guide.
-It explains bindings, Query and Patch shapes, Object Text, references,
-creation, and diagnostics once.
+It explains bindings, Query, Patch, and Result Text shapes, Object Text,
+references, creation, and diagnostics once.
 
 An agent does not need to request this guide before ordinary work.
 
@@ -37,7 +37,7 @@ A static card describes:
 
 - target and identity rules;
 - query operations and clauses;
-- Object Text relationships;
+- Result Text and Object Text relationships;
 - Palette and creation rules;
 - Patch operations;
 - compile, save, and handoff boundaries; and
@@ -50,15 +50,29 @@ one concrete asset.
 
 Append the dynamic-schema clause to an exact subject:
 
-```text
+```sal
+eventGraph = target {
+  domain: graph,
+  asset: "/Game/BP_Door.BP_Door",
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
+
 query eventGraph
-node@node-guid
+@node-guid
 with schema
 ```
 
 Or inspect an exact Palette capability:
 
-```text
+```sal
+eventGraph = target {
+  domain: graph,
+  asset: "/Game/BP_Door.BP_Door",
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
+
 query eventGraph
 palette @palette-entry-id
 with schema
@@ -78,7 +92,7 @@ collections. First resolve an exact object or Palette entry.
 | How does SAL generally work? | Resident guide |
 | Which operations does Graph support? | Static Graph card |
 | Can this exact Node add a dynamic Pin now? | Exact Node schema |
-| Which constructor creates this capability here? | Exact Palette entry |
+| Which Palette fields create this capability here? | Exact Palette entry |
 | Which field or destination is writable? | Exact object schema |
 
 ## Diagnostics Close the Loop

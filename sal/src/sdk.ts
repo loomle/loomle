@@ -1,6 +1,6 @@
 import { loadInterfaceSchema, selectActiveInterfaces } from "./interface-schema.js";
 import { parseSalObject } from "./parser.js";
-import { formatValidatedObjectResult } from "./result.js";
+import { formatValidatedObjectResult, unresolvedTextResult } from "./result.js";
 import { validateSalObject, validateObjectResult } from "./schema-validator.js";
 import type {
   CreateSalOptions,
@@ -8,6 +8,8 @@ import type {
   Sal,
   SalExecutionOptions,
   SalExecutor,
+  CanonicalTargetBinding,
+  ExactQueryResult,
   ObjectText,
   ObjectResult,
   Patch,
@@ -40,37 +42,33 @@ async function run(
 ): Promise<TextResult> {
   const parsed = parseSalObject(text);
   if (!parsed.object) {
-    return { diagnostics: parsed.diagnostics };
+    return unresolvedTextResult(parsed.diagnostics);
   }
 
   const objectDiagnostic = await validateSalObject(parsed.object);
   if (objectDiagnostic) {
-    return { diagnostics: [objectDiagnostic] };
+    return unresolvedTextResult([objectDiagnostic]);
   }
 
   if (!("kind" in parsed.object) || parsed.object.kind !== expectedKind) {
-    return {
-      diagnostics: [
+    return unresolvedTextResult([
         {
           severity: "error",
           code: "language.wrong_document_kind",
           message: `Expected ${expectedKind} Text but received ${"kind" in parsed.object ? parsed.object.kind : "Object"} Text.`,
         },
-      ],
-    };
+      ]);
   }
 
   const patchExecutor = executor.patch;
   if (expectedKind === "patch" && !patchExecutor) {
-    return {
-      diagnostics: [
+    return unresolvedTextResult([
         {
           severity: "error",
           code: "capability.patch_unavailable",
           message: "The configured SAL executor does not support Patch requests.",
         },
-      ],
-    };
+      ]);
   }
 
   const result = expectedKind === "query"
@@ -79,20 +77,18 @@ async function run(
 
   const resultDiagnostic = await validateObjectResult(result);
   if (resultDiagnostic) {
-    return { diagnostics: [resultDiagnostic] };
+    return unresolvedTextResult([resultDiagnostic]);
   }
   const isMutationResult = "isError" in result;
   if ((expectedKind === "patch") !== isMutationResult) {
-    return {
-      diagnostics: [
+    return unresolvedTextResult([
         diagnostic(
           "language.invalid_result_shape",
           expectedKind === "patch"
             ? "Patch executor must return MutationResult execution fields."
             : "Query executor must return Result without mutation execution fields.",
         ),
-      ],
-    };
+      ]);
   }
 
   return formatValidatedObjectResult(result);
@@ -106,6 +102,9 @@ export function diagnostic(
   return { severity, code, message };
 }
 
-export function echoObjectResult(object: ObjectText): ObjectResult {
-  return { object, diagnostics: [] };
+export function echoObjectResult(
+  target: CanonicalTargetBinding,
+  object: ObjectText,
+): ExactQueryResult {
+  return { targetContext: "exact_target", target, object, diagnostics: [] };
 }

@@ -33,7 +33,10 @@
 #include "Engine/TimelineTemplate.h"
 #include "GameFramework/Actor.h"
 #include "K2Node_AddPinInterface.h"
+#include "K2Node_BaseMCDelegate.h"
+#include "K2Node_CallFunction.h"
 #include "K2Node_CommutativeAssociativeBinaryOperator.h"
+#include "K2Node_Composite.h"
 #include "K2Node_CustomEvent.h"
 #include "K2Node_DoOnceMultiInput.h"
 #include "K2Node_EditablePinBase.h"
@@ -45,6 +48,7 @@
 #include "K2Node_MakeContainer.h"
 #include "K2Node_MakeMap.h"
 #include "K2Node_MakeSet.h"
+#include "K2Node_MacroInstance.h"
 #include "K2Node_PromotableOperator.h"
 #include "K2Node_Select.h"
 #include "K2Node_Switch.h"
@@ -61,6 +65,7 @@
 #include "Sal/SalDiagnostics.h"
 #include "Sal/SalModel.h"
 #include "Sal/SalObjectBuilder.h"
+#include "Sal/SalResultTargets.h"
 #include "Sal/SalRuntime.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
@@ -76,6 +81,7 @@ namespace
 {
 FString NodeId(const UEdGraphNode* Node);
 FString PinId(const UEdGraphPin* Pin);
+FString PinIdentityPath(const UEdGraphPin* Pin);
 UEdGraphNode* FindNode(const UEdGraph* Graph, const FString& Id);
 UEdGraphPin* FindPin(const UEdGraph* Graph, const FString& Id, bool* OutAmbiguous = nullptr);
 FString SanitizeIdentifier(const FString& Source, const FString& Fallback);
@@ -94,6 +100,10 @@ bool ImportPinType(const FString& Text, FEdGraphPinType& OutType);
 bool IsExecPin(const UEdGraphPin* Pin);
 struct FPatchState;
 bool SetObjectField(FPatchState& State, UObject* Object, const FString& Field, const TSharedPtr<FJsonValue>& Value, bool bReset, FString& OutError);
+void AddGraphNavigationHandoff(
+    const TSharedPtr<FJsonObject>& Result,
+    const FSalResolvedTarget& Target,
+    const UEdGraphNode* Node);
 
 struct FGraphObjectRef
 {
@@ -161,19 +171,38 @@ FString ExprNativeText(const TSharedPtr<FJsonValue>& Value)
     }
     const TSharedPtr<FJsonObject>* Object = nullptr;
     if (!Value->TryGetObject(Object) || Object == nullptr || !(*Object).IsValid()) return FString();
+    TSharedPtr<FJsonObject> DecodedObject = *Object;
     FString Kind;
-    (*Object)->TryGetStringField(TEXT("kind"), Kind);
+    DecodedObject->TryGetStringField(TEXT("kind"), Kind);
+    if (Kind == TEXT("object"))
+    {
+        const TSharedPtr<FJsonObject>* Fields = nullptr;
+        if (!DecodedObject->TryGetObjectField(TEXT("fields"), Fields)
+            || Fields == nullptr
+            || !(*Fields).IsValid())
+        {
+            return FString();
+        }
+        DecodedObject = *Fields;
+        Kind.Reset();
+    }
     if (Kind == TEXT("name") || Kind == TEXT("local"))
     {
-        (*Object)->TryGetStringField(TEXT("name"), String);
+        DecodedObject->TryGetStringField(TEXT("name"), String);
         return String;
     }
-    if ((*Object)->TryGetStringField(TEXT("id"), String)) return String;
+    if (DecodedObject->TryGetStringField(TEXT("id"), String)) return String;
     TArray<FString> Keys;
-    (*Object)->Values.GetKeys(Keys);
+    DecodedObject->Values.GetKeys(Keys);
     Keys.Sort();
     TArray<FString> Fields;
-    for (const FString& Key : Keys) Fields.Add(Key + TEXT("=") + ExprNativeText((*Object)->TryGetField(Key)));
+    for (const FString& Key : Keys)
+    {
+        Fields.Add(
+            Key
+            + TEXT("=")
+            + ExprNativeText(DecodedObject->TryGetField(Key)));
+    }
     return TEXT("(") + FString::Join(Fields, TEXT(",")) + TEXT(")");
 }
 
@@ -486,7 +515,7 @@ bool RegisterDefinition(FPatchState& State, const TSharedPtr<FJsonObject>& Bindi
         || !Binding->TryGetObjectField(TEXT("value"), Call)
         || Call == nullptr)
     {
-        AddPatchError(State, TEXT("capability.unsupported_constructor"), TEXT("Graph creation binding must bind one local alias to node(palette: ...)."), TEXT("binding"));
+        AddPatchError(State, TEXT("capability.unsupported_constructor"), TEXT("Graph creation binding must bind one local alias to { palette: ... }; an optional node tag is presentation only."), TEXT("binding"));
         return false;
     }
     if (State.Definitions.Contains(Alias) || State.LocalNodes.Contains(Alias) || State.LocalPins.Contains(Alias))
@@ -501,7 +530,7 @@ bool RegisterDefinition(FPatchState& State, const TSharedPtr<FJsonObject>& Bindi
     (*Call)->TryGetStringField(TEXT("callee"), Callee);
     if (Kind != TEXT("call") || Callee != TEXT("node") || !(*Call)->TryGetObjectField(TEXT("args"), Args) || Args == nullptr)
     {
-        AddPatchError(State, TEXT("capability.unsupported_constructor"), TEXT("Graph creation accepts only the Palette-returned node(...) constructor."), TEXT("binding"), Alias);
+        AddPatchError(State, TEXT("capability.unsupported_constructor"), TEXT("Graph creation accepts only an ObjectExpr carrying a current Palette identity."), TEXT("binding"), Alias);
         return false;
     }
     FString Palette;
@@ -550,7 +579,7 @@ bool RegisterDefinition(FPatchState& State, const TSharedPtr<FJsonObject>& Bindi
         {
             if (!TimelineFields.Contains(Pair.Key))
             {
-                AddPatchError(State, TEXT("validation.creation_invalid"), TEXT("Timeline constructor field is unavailable; Tracks are edited through invoke."), TEXT("binding"), Pair.Key);
+                AddPatchError(State, TEXT("validation.creation_invalid"), TEXT("Timeline creation field is unavailable; Tracks are edited through invoke."), TEXT("binding"), Pair.Key);
                 return false;
             }
         }
@@ -561,7 +590,7 @@ bool RegisterDefinition(FPatchState& State, const TSharedPtr<FJsonObject>& Bindi
         {
             if (Pair.Key != TEXT("palette") && Pair.Key != TEXT("type"))
             {
-                AddPatchError(State, TEXT("validation.creation_invalid"), TEXT("This Palette entry does not advertise writable constructor fields."), TEXT("binding"), Pair.Key);
+                AddPatchError(State, TEXT("validation.creation_invalid"), TEXT("This Palette entry does not advertise writable creation fields."), TEXT("binding"), Pair.Key);
                 return false;
             }
         }
@@ -622,7 +651,9 @@ UEdGraphNode* MaterializeDefinition(FPatchState& State, const FString& Alias, co
     }
     State.LocalNodes.Add(Alias, NewNode);
     State.TouchedNodes.Add(NewNode);
-    State.ResolvedRefs->SetStringField(Alias, NodeId(NewNode));
+    State.ResolvedRefs->SetObjectField(
+        Alias,
+        Value::StableObject(TEXT("node"), NodeId(NewNode)));
     ++State.ChangedOps;
     if (Cast<UK2Node_Timeline>(NewNode) != nullptr && Definition->ConstructorArgs.IsValid())
     {
@@ -637,7 +668,7 @@ UEdGraphNode* MaterializeDefinition(FPatchState& State, const FString& Alias, co
             FString Error;
             if (!SetObjectField(State, NewNode, Field, Value, false, Error))
             {
-                AddPatchError(State, TEXT("validation.creation_invalid"), Error.IsEmpty() ? TEXT("Timeline constructor field was rejected by UE.") : Error, Operation, Field);
+                AddPatchError(State, TEXT("validation.creation_invalid"), Error.IsEmpty() ? TEXT("Timeline creation field was rejected by UE.") : Error, Operation, Field);
                 return nullptr;
             }
         }
@@ -1326,7 +1357,7 @@ bool HandleSetReset(FPatchState& State, const TSharedPtr<FJsonObject>& Operation
     bool bOk = false;
     if (Object.Pin != nullptr) bOk = SetPinField(State, Object.Pin, Field, Value, bReset, Error);
     else if (Object.Node != nullptr) bOk = SetObjectField(State, Object.Node, Field, Value, bReset, Error);
-    else if (Object.Graph != nullptr) Error = TEXT("Graph identity and native Graph fields are read-only in the Graph interface.");
+    else if (Object.Graph != nullptr) Error = TEXT("Graph identity and native Graph fields are read-only in the Graph Domain.");
     if (!bOk) AddPatchError(State, TEXT("validation.field_write_failed"), Error.IsEmpty() ? TEXT("Field write failed.") : Error, Name, Field);
     return bOk;
 }
@@ -1510,7 +1541,12 @@ bool BindInvokeOutputs(
         if (NodeOutput != nullptr && (Selector == TEXT("result") || (Selector.IsEmpty() && Pins.IsEmpty())))
         {
             State.LocalNodes.Add(Alias, NodeOutput);
-            if (State.bApply) State.ResolvedRefs->SetStringField(Alias, NodeId(NodeOutput));
+            if (State.bApply)
+            {
+                State.ResolvedRefs->SetObjectField(
+                    Alias,
+                    Value::StableObject(TEXT("node"), NodeId(NodeOutput)));
+            }
             continue;
         }
 
@@ -1550,7 +1586,12 @@ bool BindInvokeOutputs(
         }
         UsedPins.Add(Match);
         State.LocalPins.Add(Alias, Match);
-        if (State.bApply) State.ResolvedRefs->SetStringField(Alias, PinId(Match));
+        if (State.bApply)
+        {
+            State.ResolvedRefs->SetObjectField(
+                Alias,
+                Value::StableObject(TEXT("pin"), PinIdentityPath(Match)));
+        }
     }
     return true;
 }
@@ -2546,7 +2587,9 @@ bool HandleInvoke(FPatchState& State, const TSharedPtr<FJsonObject>& Operation)
     return false;
 }
 
-TSharedPtr<FJsonObject> BuildTouchedObject(const FPatchState& State);
+TSharedPtr<FJsonObject> BuildTouchedObject(
+    const FPatchState& State,
+    TSet<const UEdGraphNode*>* OutEncodedNodes = nullptr);
 
 bool RunPatch(FPatchState& State, const FSalPatch& Patch)
 {
@@ -2913,7 +2956,7 @@ FString GraphPlanRef(const TSharedPtr<FJsonObject>& Ref)
     {
         FString Id;
         Ref->TryGetStringField(TEXT("id"), Id);
-        return Id.IsEmpty() ? FString() : Kind + TEXT("@") + Id;
+        return Id.IsEmpty() ? FString() : TEXT("@") + Id;
     }
     if (Kind == TEXT("member"))
     {
@@ -3034,7 +3077,7 @@ TSharedPtr<FJsonObject> BuildGraphPlan(
             UEdGraphNode* SandboxNode = FindNode(Preflight.Target.Graph, NodeId(LiveNode));
             if (SandboxNode != nullptr && Preflight.TouchedNodes.Contains(SandboxNode))
             {
-                Effects.Add(MakeShared<FJsonValueString>(TEXT("touched node@") + NodeId(LiveNode)));
+                Effects.Add(MakeShared<FJsonValueString>(TEXT("touched @") + NodeId(LiveNode)));
             }
             for (UEdGraphPin* LivePin : LiveNode->Pins)
             {
@@ -3047,7 +3090,7 @@ TSharedPtr<FJsonObject> BuildGraphPlan(
                     : nullptr;
                 if (SandboxPin != nullptr && Preflight.TouchedPins.Contains(SandboxPin))
                 {
-                    Effects.Add(MakeShared<FJsonValueString>(TEXT("touched pin@") + PinId(LivePin)));
+                    Effects.Add(MakeShared<FJsonValueString>(TEXT("touched @") + PinIdentityPath(LivePin)));
                 }
             }
         }
@@ -3118,7 +3161,22 @@ TSharedPtr<FJsonObject> FSalGraphInterface::Patch(const FSalPatch& Patch, const 
         {
             if (UEdGraphNode* Live = FindNode(Target.Graph, NodeId(Node))) Current.TouchedNodes.Add(Live);
         }
-        return MakeMutationResult(BuildTouchedObject(Current), {}, true, true, false, Target.AssetPath, TEXT("patch"), Planned, nullptr);
+        TSet<const UEdGraphNode*> EncodedNodes;
+        TSharedPtr<FJsonObject> Result = MakeMutationResult(
+            BuildTouchedObject(Current, &EncodedNodes),
+            {},
+            true,
+            true,
+            false,
+            Target.AssetPath,
+            TEXT("patch"),
+            Planned,
+            nullptr);
+        for (const UEdGraphNode* Node : EncodedNodes)
+        {
+            AddGraphNavigationHandoff(Result, Target, Node);
+        }
+        return Result;
     }
 
     if (GEditor == nullptr || !GEditor->CanTransact() || GEditor->IsTransactionActive())
@@ -3193,8 +3251,9 @@ TSharedPtr<FJsonObject> FSalGraphInterface::Patch(const FSalPatch& Patch, const 
     }
     TSharedPtr<FJsonObject> Diff = MakeShared<FJsonObject>();
     Diff->SetNumberField(TEXT("changedOperations"), Apply.ChangedOps);
-    return MakeMutationResult(
-        BuildTouchedObject(Apply),
+    TSet<const UEdGraphNode*> EncodedNodes;
+    TSharedPtr<FJsonObject> Result = MakeMutationResult(
+        BuildTouchedObject(Apply, &EncodedNodes),
         Apply.Diagnostics,
         false,
         true,
@@ -3204,6 +3263,11 @@ TSharedPtr<FJsonObject> FSalGraphInterface::Patch(const FSalPatch& Patch, const 
         Planned,
         Apply.ResolvedRefs,
         Diff);
+    for (const UEdGraphNode* Node : EncodedNodes)
+    {
+        AddGraphNavigationHandoff(Result, Target, Node);
+    }
+    return Result;
 }
 
 namespace
@@ -3238,6 +3302,15 @@ FString NodeId(const UEdGraphNode* Node)
 FString PinId(const UEdGraphPin* Pin)
 {
     return Pin != nullptr ? GuidText(Pin->PinId) : FString();
+}
+
+FString PinIdentityPath(const UEdGraphPin* Pin)
+{
+    const UEdGraphNode* Owner =
+        Pin != nullptr ? Pin->GetOwningNodeUnchecked() : nullptr;
+    return Owner != nullptr
+        ? NodeId(Owner) + TEXT("/") + PinId(Pin)
+        : FString();
 }
 
 FString NodeType(const UEdGraphNode* Node)
@@ -3311,6 +3384,34 @@ UEdGraphPin* FindPin(const UEdGraph* Graph, const FString& Id, bool* OutAmbiguou
     {
         return nullptr;
     }
+    TArray<FString> IdentityPath;
+    Id.ParseIntoArray(IdentityPath, TEXT("/"), false);
+    if (IdentityPath.Num() == 2)
+    {
+        UEdGraphNode* Owner = FindNode(Graph, IdentityPath[0]);
+        if (Owner == nullptr)
+        {
+            return nullptr;
+        }
+        UEdGraphPin* OwnerMatch = nullptr;
+        for (UEdGraphPin* Pin : Owner->Pins)
+        {
+            if (Pin != nullptr
+                && PinId(Pin).Equals(IdentityPath[1], ESearchCase::IgnoreCase))
+            {
+                if (OwnerMatch != nullptr)
+                {
+                    if (OutAmbiguous != nullptr)
+                    {
+                        *OutAmbiguous = true;
+                    }
+                    return nullptr;
+                }
+                OwnerMatch = Pin;
+            }
+        }
+        return OwnerMatch;
+    }
     UEdGraphPin* Match = nullptr;
     for (UEdGraphNode* Node : Graph->Nodes)
     {
@@ -3335,6 +3436,165 @@ UEdGraphPin* FindPin(const UEdGraph* Graph, const FString& Id, bool* OutAmbiguou
         }
     }
     return Match;
+}
+
+UEdGraph* FindBlueprintGraphByGuid(
+    UBlueprint* Blueprint,
+    const FGuid& GraphGuid)
+{
+    if (Blueprint == nullptr || !GraphGuid.IsValid())
+    {
+        return nullptr;
+    }
+    UEdGraph* Match = nullptr;
+    TArray<UEdGraph*> Graphs;
+    Blueprint->GetAllGraphs(Graphs);
+    for (UEdGraph* Graph : Graphs)
+    {
+        if (Graph != nullptr && Graph->GraphGuid == GraphGuid)
+        {
+            if (Match != nullptr)
+            {
+                return nullptr;
+            }
+            Match = Graph;
+        }
+    }
+    return Match;
+}
+
+UBlueprint* BlueprintForMemberReference(
+    const FMemberReference& Reference,
+    UBlueprint* Fallback)
+{
+    UClass* ParentClass = Reference.GetMemberParentClass();
+    if (ParentClass == nullptr && Fallback != nullptr)
+    {
+        ParentClass = Fallback->GeneratedClass;
+    }
+    if (const UBlueprintGeneratedClass* GeneratedClass =
+            Cast<UBlueprintGeneratedClass>(ParentClass))
+    {
+        if (UBlueprint* Blueprint =
+                Cast<UBlueprint>(GeneratedClass->ClassGeneratedBy))
+        {
+            return Blueprint;
+        }
+    }
+    return Fallback;
+}
+
+UEdGraph* ReferencedGraph(
+    const UEdGraphNode* Node,
+    UBlueprint* FallbackBlueprint,
+    UBlueprint*& OutOwner)
+{
+    OutOwner = FallbackBlueprint;
+    if (const UK2Node_Composite* Composite =
+            Cast<UK2Node_Composite>(Node))
+    {
+        UEdGraph* Graph = Composite->BoundGraph;
+        if (Graph != nullptr)
+        {
+            OutOwner = FBlueprintEditorUtils::FindBlueprintForGraph(Graph);
+        }
+        return Graph;
+    }
+    if (const UK2Node_MacroInstance* Macro =
+            Cast<UK2Node_MacroInstance>(Node))
+    {
+        UEdGraph* Graph = Macro->GetMacroGraph();
+        OutOwner = Graph != nullptr
+            ? FBlueprintEditorUtils::FindBlueprintForGraph(Graph)
+            : nullptr;
+        return Graph;
+    }
+    if (const UK2Node_CallFunction* Call =
+            Cast<UK2Node_CallFunction>(Node))
+    {
+        const FGuid Guid = Call->FunctionReference.GetMemberGuid();
+        if (!Guid.IsValid())
+        {
+            return nullptr;
+        }
+        OutOwner = BlueprintForMemberReference(
+            Call->FunctionReference,
+            FallbackBlueprint);
+        return FindBlueprintGraphByGuid(OutOwner, Guid);
+    }
+    if (const UK2Node_BaseMCDelegate* Delegate =
+            Cast<UK2Node_BaseMCDelegate>(Node))
+    {
+        const FGuid Guid =
+            Delegate->DelegateReference.GetMemberGuid();
+        OutOwner = BlueprintForMemberReference(
+            Delegate->DelegateReference,
+            FallbackBlueprint);
+        if (!Guid.IsValid() || OutOwner == nullptr)
+        {
+            return nullptr;
+        }
+        FName DispatcherName = NAME_None;
+        for (const FBPVariableDescription& Variable :
+             OutOwner->NewVariables)
+        {
+            if (Variable.VarGuid == Guid)
+            {
+                DispatcherName = Variable.VarName;
+                break;
+            }
+        }
+        if (DispatcherName.IsNone())
+        {
+            return nullptr;
+        }
+        UEdGraph* Match = nullptr;
+        TArray<UEdGraph*> Graphs;
+        OutOwner->GetAllGraphs(Graphs);
+        for (UEdGraph* Graph : Graphs)
+        {
+            if (Graph != nullptr
+                && Graph->GetFName() == DispatcherName)
+            {
+                if (Match != nullptr)
+                {
+                    return nullptr;
+                }
+                Match = Graph;
+            }
+        }
+        return Match;
+    }
+    return nullptr;
+}
+
+void AddGraphNavigationHandoff(
+    const TSharedPtr<FJsonObject>& Result,
+    const FSalResolvedTarget& Target,
+    const UEdGraphNode* Node)
+{
+    UBlueprint* Owner = nullptr;
+    UEdGraph* Graph =
+        ReferencedGraph(Node, Target.Blueprint, Owner);
+    if (!Result.IsValid()
+        || Graph == nullptr
+        || Graph == Target.Graph
+        || Owner == nullptr
+        || !Owner->GetBlueprintGuid().IsValid()
+        || !Graph->GraphGuid.IsValid())
+    {
+        return;
+    }
+    ResultTargets::AddHandoff(
+        Result,
+        ResultTargets::Graph(
+            Owner == Target.Blueprint
+                ? Target.AssetPath
+                : Owner->GetPathName(),
+            GuidText(Owner->GetBlueprintGuid()),
+            GuidText(Graph->GraphGuid)),
+        Graph->GetName() + TEXT("_graph_target"),
+        TEXT("navigate_graph"));
 }
 
 FString SanitizeIdentifier(const FString& Source, const FString& Fallback)
@@ -3396,7 +3656,7 @@ bool IsSalIdentifier(const FString& Text)
 
 TSharedPtr<FJsonValue> NativeNameValue(const FString& Text)
 {
-    return IsSalIdentifier(Text) ? Value::Name(Text) : Value::String(Text);
+    return Value::NameOrString(Text);
 }
 
 FString UniqueMemberAlias(const FString& Preferred, TSet<FString>& Used)
@@ -3539,7 +3799,7 @@ bool ValidatePaletteCondition(
     {
         if (Kind != TEXT("eq") || !IsPaletteObjectExpr(Value, Field))
         {
-            OutMessage = FString::Printf(TEXT("%s accepts only = with an exact Name or %s@id."), *Field, *Field);
+            OutMessage = FString::Printf(TEXT("%s accepts only = with an exact Name or Target-relative @identity."), *Field);
             return false;
         }
         OutObjectFields.Add(Field);
@@ -3576,6 +3836,13 @@ TSharedPtr<FJsonObject> ValidateGraphQuery(const FSalQuery& Query, const FString
     {
         Details.Add(TEXT("schema"));
         Details.Add(TEXT("layout"));
+    }
+    else if (Kind == TEXT("owner_variable")
+        || Kind == TEXT("owner_dispatcher")
+        || Kind == TEXT("owner_component")
+        || Kind == TEXT("owner_local_variable"))
+    {
+        Details.Add(TEXT("schema"));
     }
     else if (Kind == TEXT("context") || Kind == TEXT("exec_flow") || Kind == TEXT("data_flow"))
     {
@@ -3694,7 +3961,7 @@ TSharedPtr<FJsonValue> GraphValue(const FSalResolvedTarget& Target, const bool b
     if (bFull)
     {
         Args->SetField(TEXT("name"), NativeNameValue(Target.Name));
-        Args->SetField(TEXT("type"), Value::Name(GraphTypeText(Target.Graph)));
+        Args->SetField(TEXT("type"), Value::NameOrString(GraphTypeText(Target.Graph)));
     }
     return Value::Call(TEXT("graph"), Args);
 }
@@ -3708,9 +3975,9 @@ TSharedPtr<FJsonObject> RichCurveValue(const FRichCurve& Curve)
         TSharedPtr<FJsonObject> Item = MakeShared<FJsonObject>();
         Item->SetNumberField(TEXT("Time"), Key.Time);
         Item->SetNumberField(TEXT("Value"), Key.Value);
-        Item->SetField(TEXT("InterpMode"), Value::Name(StaticEnum<ERichCurveInterpMode>()->GetNameStringByValue(Key.InterpMode)));
-        Item->SetField(TEXT("TangentMode"), Value::Name(StaticEnum<ERichCurveTangentMode>()->GetNameStringByValue(Key.TangentMode)));
-        Item->SetField(TEXT("TangentWeightMode"), Value::Name(StaticEnum<ERichCurveTangentWeightMode>()->GetNameStringByValue(Key.TangentWeightMode)));
+        Item->SetField(TEXT("InterpMode"), Value::NameOrString(StaticEnum<ERichCurveInterpMode>()->GetNameStringByValue(Key.InterpMode)));
+        Item->SetField(TEXT("TangentMode"), Value::NameOrString(StaticEnum<ERichCurveTangentMode>()->GetNameStringByValue(Key.TangentMode)));
+        Item->SetField(TEXT("TangentWeightMode"), Value::NameOrString(StaticEnum<ERichCurveTangentWeightMode>()->GetNameStringByValue(Key.TangentWeightMode)));
         if (!FMath::IsNearlyZero(Key.ArriveTangent)) Item->SetNumberField(TEXT("ArriveTangent"), Key.ArriveTangent);
         if (!FMath::IsNearlyZero(Key.ArriveTangentWeight)) Item->SetNumberField(TEXT("ArriveTangentWeight"), Key.ArriveTangentWeight);
         if (!FMath::IsNearlyZero(Key.LeaveTangent)) Item->SetNumberField(TEXT("LeaveTangent"), Key.LeaveTangent);
@@ -3883,10 +4150,10 @@ TSharedPtr<FJsonValue> PinValue(const UEdGraphPin* Pin, const bool bFuture = fal
     if (Pin->bOrphanedPin) Args->SetBoolField(TEXT("bOrphanedPin"), true);
     if (!Pin->PinFriendlyName.IsEmpty()) Args->SetStringField(TEXT("PinFriendlyName"), Pin->PinFriendlyName.ToString());
     if (Pin->PersistentGuid.IsValid()) Args->SetStringField(TEXT("PersistentGuid"), GuidText(Pin->PersistentGuid));
-    if (Pin->ParentPin != nullptr) Args->SetField(TEXT("ParentPin"), Value::Stable(TEXT("pin"), PinId(Pin->ParentPin)));
+    if (Pin->ParentPin != nullptr) Args->SetField(TEXT("ParentPin"), Value::Stable(TEXT("pin"), PinIdentityPath(Pin->ParentPin)));
     if (Pin->ReferencePassThroughConnection != nullptr)
     {
-        Args->SetField(TEXT("ReferencePassThroughConnection"), Value::Stable(TEXT("pin"), PinId(Pin->ReferencePassThroughConnection)));
+        Args->SetField(TEXT("ReferencePassThroughConnection"), Value::Stable(TEXT("pin"), PinIdentityPath(Pin->ReferencePassThroughConnection)));
     }
     return Value::Call(TEXT("pin"), Args);
 }
@@ -4030,12 +4297,14 @@ struct FEncodedGraph
     bool bIncludeHealthComments = true;
     TMap<const UEdGraphNode*, FString> NodeAliases;
     TMap<const UEdGraphPin*, TSharedPtr<FJsonObject>> PinRefs;
+    FSalResolvedTarget Target;
 
     explicit FEncodedGraph(
         const FSalResolvedTarget& Target,
         const bool bFullGraph = false,
         const bool bInIncludeHealthComments = true)
     {
+        this->Target = Target;
         Blueprint = Target.Blueprint;
         bIncludeHealthComments = bInIncludeHealthComments;
         GraphAlias = Builder.UniqueAlias(TEXT("g"));
@@ -4073,6 +4342,22 @@ struct FEncodedGraph
         return Alias;
     }
 
+    TSharedPtr<FJsonObject> BuildResult(
+        const TArray<TSharedPtr<FJsonObject>>& Diagnostics = {}) const
+    {
+        TSharedPtr<FJsonObject> Result =
+            Builder.BuildResult(Diagnostics);
+        for (const TPair<const UEdGraphNode*, FString>& Pair :
+             NodeAliases)
+        {
+            AddGraphNavigationHandoff(
+                Result,
+                Target,
+                Pair.Key);
+        }
+        return Result;
+    }
+
     TSharedPtr<FJsonObject> AddPin(const UEdGraphPin* Pin, const FString& NodeAlias, TSet<FString>& UsedMembers, const bool bFuture = false)
     {
         if (const TSharedPtr<FJsonObject>* Existing = PinRefs.Find(Pin))
@@ -4085,7 +4370,7 @@ struct FEncodedGraph
         const TSharedPtr<FJsonObject>* EncodedObject = nullptr;
         if (Encoded->TryGetObject(EncodedObject) && EncodedObject != nullptr && (*EncodedObject).IsValid() && Member != NativeName)
         {
-            (*EncodedObject)->GetObjectField(TEXT("args"))->SetStringField(TEXT("PinName"), NativeName);
+            (*EncodedObject)->GetObjectField(TEXT("fields"))->SetStringField(TEXT("PinName"), NativeName);
         }
         Builder.AddMemberBinding(NodeAlias, {Member}, Encoded);
         if (!bFuture && bIncludeHealthComments) AddPinComments(Builder, Pin);
@@ -4816,13 +5101,39 @@ const UK2Node_Event* ExistingBoundEvent(
 FString BoundEventNavigation(const FSalResolvedTarget& Target, const UK2Node_Event* Event, const FString& Label)
 {
     const UEdGraph* Graph = Event != nullptr ? Event->GetGraph() : nullptr;
-    return FString::Printf(
-        TEXT("%s already exists\ninspect with:\n  existingBlueprint = blueprint(asset: \"%s\", id: \"%s\")\n  existingGraph = graph(asset: existingBlueprint, id: \"%s\")\n  query existingGraph\n  node@%s"),
-        *Label,
-        *Target.AssetPath,
-        Target.Blueprint != nullptr ? *GuidText(Target.Blueprint->GetBlueprintGuid()) : TEXT(""),
-        Graph != nullptr ? *GuidText(Graph->GraphGuid) : TEXT(""),
-        Event != nullptr ? *NodeId(Event) : TEXT(""));
+    return Graph != nullptr && Graph != Target.Graph
+        ? FString::Printf(
+            TEXT("%s already exists; follow the navigate_graph handoff, then inspect @%s."),
+            *Label,
+            Event != nullptr ? *NodeId(Event) : TEXT(""))
+        : FString::Printf(
+            TEXT("%s already exists in the active Graph; inspect @%s."),
+            *Label,
+            Event != nullptr ? *NodeId(Event) : TEXT(""));
+}
+
+void AddBoundEventHandoff(
+    const TSharedPtr<FJsonObject>& Result,
+    const FSalResolvedTarget& Target,
+    const UEdGraph* Graph)
+{
+    if (!Result.IsValid()
+        || Graph == nullptr
+        || Graph == Target.Graph
+        || Target.Blueprint == nullptr
+        || !Target.Blueprint->GetBlueprintGuid().IsValid()
+        || !Graph->GraphGuid.IsValid())
+    {
+        return;
+    }
+    ResultTargets::AddHandoff(
+        Result,
+        ResultTargets::Graph(
+            Target.AssetPath,
+            GuidText(Target.Blueprint->GetBlueprintGuid()),
+            GuidText(Graph->GraphGuid)),
+        Graph->GetName() + TEXT("_graph_target"),
+        TEXT("navigate_graph"));
 }
 
 TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedTarget& Target, const bool bExact)
@@ -4869,6 +5180,7 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
     };
     TArray<FMatch> Matches;
     TArray<FString> ExistingNavigation;
+    TSet<const UEdGraph*> ExistingGraphs;
     for (int32 Index = 0; Index < Menu.GetNumActions(); ++Index)
     {
         TSharedPtr<FEdGraphSchemaAction> Action = Menu.GetSchemaAction(Index);
@@ -4888,14 +5200,23 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
             const FString Navigation = BoundEventNavigation(Target, Existing, Label);
             if (bExact)
             {
-                return GraphErrorResult(
+                TSharedPtr<FJsonObject> Result = GraphErrorResult(
                     TEXT("resolution.palette_not_found"),
                     TEXT("Bound Event Palette entry is no longer available because the event already exists."),
                     TEXT("palette"),
                     ExactId,
                     Navigation);
+                AddBoundEventHandoff(
+                    Result,
+                    Target,
+                    Existing->GetGraph());
+                return Result;
             }
             ExistingNavigation.AddUnique(Navigation);
+            if (Existing->GetGraph() != nullptr)
+            {
+                ExistingGraphs.Add(Existing->GetGraph());
+            }
             continue;
         }
         const float Weight = FilterTerms.IsEmpty() || ActionSchema == nullptr
@@ -4994,7 +5315,7 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
                     const TSharedPtr<FJsonObject>* EncodedObject = nullptr;
                     if (Encoded->TryGetObject(EncodedObject) && EncodedObject != nullptr && Member != NativeName)
                     {
-                        (*EncodedObject)->GetObjectField(TEXT("args"))->SetStringField(TEXT("PinName"), NativeName);
+                        (*EncodedObject)->GetObjectField(TEXT("fields"))->SetStringField(TEXT("PinName"), NativeName);
                     }
                     Out.AddMemberBinding(Alias, {Member}, Encoded);
                 }
@@ -5004,11 +5325,11 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
                 TArray<FString> Fields = {TEXT("palette, type, future pins: read only")};
                 if (Cast<UK2Node_Timeline>(TemplateForAction(Match.Action, Target.Graph)) != nullptr)
                 {
-                    Fields.Add(TEXT("TimelineName: required constructor field"));
-                    Fields.Add(TEXT("TimelineLength, LengthMode, bAutoPlay, bLoop, bReplicated, bIgnoreTimeDilation, MetaDataArray, TimelineTickGroup: optional constructor fields"));
-                    Fields.Add(TEXT("Track arrays and TrackDisplayOrder: unavailable in constructor; use invoke after add"));
+                    Fields.Add(TEXT("TimelineName: required creation field"));
+                    Fields.Add(TEXT("TimelineLength, LengthMode, bAutoPlay, bLoop, bReplicated, bIgnoreTimeDilation, MetaDataArray, TimelineTickGroup: optional creation fields"));
+                    Fields.Add(TEXT("Track arrays and TrackDisplayOrder: unavailable during creation; use invoke after add"));
                 }
-                AddSchemaComment(Out, TEXT("palette entry"), Fields, {TEXT("bind node(palette: ...) then add or insert")});
+                AddSchemaComment(Out, TEXT("palette entry"), Fields, {TEXT("bind { palette: ... } then add or insert")});
             }
         }
         ++Added;
@@ -5016,6 +5337,13 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
     }
     for (const FString& Navigation : ExistingNavigation) Out.AddComment(Navigation);
     TSharedPtr<FJsonObject> Result = Out.BuildResult();
+    for (const UEdGraph* ExistingGraph : ExistingGraphs)
+    {
+        AddBoundEventHandoff(
+            Result,
+            Target,
+            ExistingGraph);
+    }
     if (!bExact)
     {
         SetGraphPage(Result, Query, Target, Page.Offset + Added, Page.Offset + Added < Matches.Num());
@@ -5060,7 +5388,7 @@ TSharedPtr<FJsonObject> QueryNodes(const FSalQuery& Query, const FSalResolvedTar
     {
         Out.AddNode(Nodes[Index], false, HasDetail(Query, TEXT("layout")));
     }
-    TSharedPtr<FJsonObject> Result = Out.Builder.BuildResult();
+    TSharedPtr<FJsonObject> Result = Out.BuildResult();
     SetGraphPage(Result, Query, Target, Page.Offset + Added, Page.Offset + Added < Nodes.Num());
     return Result;
 }
@@ -5259,6 +5587,221 @@ void AddExactNode(FEncodedGraph& Out, UEdGraphNode* Node, const bool bLayout, co
     }
 }
 
+bool IsDispatcherDeclaration(const FBPVariableDescription& Variable)
+{
+    return Variable.VarType.PinCategory == UEdGraphSchema_K2::PC_MCDelegate;
+}
+
+FString DeclarationTypeText(const FEdGraphPinType& Type)
+{
+    FString Text;
+    FEdGraphPinType::StaticStruct()->ExportText(
+        Text,
+        &Type,
+        nullptr,
+        nullptr,
+        PPF_None,
+        nullptr);
+    return Text;
+}
+
+TSharedPtr<FJsonObject> QueryOwnerDeclaration(
+    const FSalQuery& Query,
+    const FSalResolvedTarget& Target,
+    const FString& Kind)
+{
+    FString Id;
+    Query.Operation->TryGetStringField(TEXT("id"), Id);
+    UBlueprint* Blueprint = Target.Blueprint;
+    if (Blueprint == nullptr)
+    {
+        return GraphErrorResult(
+            TEXT("resolution.blueprint_not_found"),
+            TEXT("The bound Graph has no owning Blueprint declaration environment."),
+            Kind,
+            Id);
+    }
+
+    FEncodedGraph Out(Target);
+    TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
+    FString Alias;
+    FString SemanticTag;
+    if (Kind == TEXT("owner_variable") || Kind == TEXT("owner_dispatcher"))
+    {
+        const bool bDispatcher = Kind == TEXT("owner_dispatcher");
+        FBPVariableDescription* Match = nullptr;
+        for (FBPVariableDescription& Variable : Blueprint->NewVariables)
+        {
+            if (GuidText(Variable.VarGuid).Equals(Id, ESearchCase::IgnoreCase)
+                && IsDispatcherDeclaration(Variable) == bDispatcher)
+            {
+                if (Match != nullptr)
+                {
+                    return GraphErrorResult(
+                        TEXT("resolution.identity_conflict"),
+                        TEXT("Owning Blueprint declaration identity is duplicated."),
+                        Kind,
+                        Id);
+                }
+                Match = &Variable;
+            }
+        }
+        if (Match == nullptr)
+        {
+            return GraphErrorResult(
+                TEXT("resolution.object_not_found"),
+                TEXT("Owning Blueprint declaration was not found."),
+                Kind,
+                Id);
+        }
+        Alias = Match->VarName.ToString();
+        SemanticTag = bDispatcher ? TEXT("dispatcher") : TEXT("variable");
+        Args->SetStringField(TEXT("id"), GuidText(Match->VarGuid));
+        Args->SetStringField(TEXT("name"), Alias);
+        Args->SetStringField(TEXT("type"), DeclarationTypeText(Match->VarType));
+    }
+    else if (Kind == TEXT("owner_component"))
+    {
+        USCS_Node* Match = nullptr;
+        if (Blueprint->SimpleConstructionScript != nullptr)
+        {
+            for (USCS_Node* Component : Blueprint->SimpleConstructionScript->GetAllNodes())
+            {
+                if (Component != nullptr
+                    && GuidText(Component->VariableGuid).Equals(Id, ESearchCase::IgnoreCase))
+                {
+                    if (Match != nullptr)
+                    {
+                        return GraphErrorResult(
+                            TEXT("resolution.identity_conflict"),
+                            TEXT("Owning Blueprint Component identity is duplicated."),
+                            Kind,
+                            Id);
+                    }
+                    Match = Component;
+                }
+            }
+        }
+        if (Match == nullptr)
+        {
+            return GraphErrorResult(
+                TEXT("resolution.object_not_found"),
+                TEXT("Owning Blueprint Component was not found."),
+                Kind,
+                Id);
+        }
+        Alias = Match->GetVariableName().ToString();
+        SemanticTag = TEXT("component");
+        Args->SetStringField(TEXT("id"), GuidText(Match->VariableGuid));
+        Args->SetStringField(TEXT("name"), Alias);
+        if (Match->ComponentClass != nullptr)
+        {
+            Args->SetStringField(TEXT("type"), Match->ComponentClass->GetPathName());
+        }
+    }
+    else
+    {
+        TArray<FString> Segments;
+        Id.ParseIntoArray(Segments, TEXT("/"), false);
+        FGuid GraphGuid;
+        FGuid VariableGuid;
+        if (Segments.Num() != 2
+            || !FGuid::Parse(Segments[0], GraphGuid)
+            || !GraphGuid.IsValid()
+            || !FGuid::Parse(Segments[1], VariableGuid)
+            || !VariableGuid.IsValid())
+        {
+            return GraphErrorResult(
+                TEXT("validation.invalid_reference"),
+                TEXT("Function-local Variable identity must be GraphGuid/VarGuid."),
+                Kind,
+                Id);
+        }
+        TArray<UEdGraph*> OwnerGraphs;
+        for (UEdGraph* Graph : Blueprint->FunctionGraphs)
+        {
+            if (Graph != nullptr && Graph->GraphGuid == GraphGuid)
+            {
+                OwnerGraphs.Add(Graph);
+            }
+        }
+        if (OwnerGraphs.Num() != 1)
+        {
+            return GraphErrorResult(
+                OwnerGraphs.Num() > 1
+                    ? TEXT("resolution.identity_conflict")
+                    : TEXT("resolution.object_not_found"),
+                OwnerGraphs.Num() > 1
+                    ? TEXT("Function-local Variable owner Graph identity is duplicated.")
+                    : TEXT("Function-local Variable owner Graph was not found."),
+                Kind,
+                Id);
+        }
+        if (OwnerGraphs[0]
+            != FBlueprintEditorUtils::GetTopLevelGraph(Target.Graph))
+        {
+            return GraphErrorResult(
+                TEXT("resolution.insufficient_scope"),
+                TEXT("Function-local Variable is outside the bound Graph's top-level Function scope."),
+                Kind,
+                Id);
+        }
+        FBPVariableDescription* Match = nullptr;
+        for (UEdGraphNode* Node : OwnerGraphs[0]->Nodes)
+        {
+            UK2Node_FunctionEntry* Entry = Cast<UK2Node_FunctionEntry>(Node);
+            if (Entry == nullptr)
+            {
+                continue;
+            }
+            for (FBPVariableDescription& Variable : Entry->LocalVariables)
+            {
+                if (Variable.VarGuid == VariableGuid)
+                {
+                    if (Match != nullptr)
+                    {
+                        return GraphErrorResult(
+                            TEXT("resolution.identity_conflict"),
+                            TEXT("Function-local Variable identity is duplicated."),
+                            Kind,
+                            Id);
+                    }
+                    Match = &Variable;
+                }
+            }
+        }
+        if (Match == nullptr)
+        {
+            return GraphErrorResult(
+                TEXT("resolution.object_not_found"),
+                TEXT("Function-local Variable was not found."),
+                Kind,
+                Id);
+        }
+        Alias = Match->VarName.ToString();
+        SemanticTag = TEXT("variable");
+        Args->SetStringField(
+            TEXT("id"),
+            GuidText(GraphGuid) + TEXT("/") + GuidText(Match->VarGuid));
+        Args->SetStringField(TEXT("name"), Alias);
+        Args->SetStringField(TEXT("type"), DeclarationTypeText(Match->VarType));
+    }
+
+    Out.Builder.AddLocalBinding(
+        Out.Builder.UniqueAlias(Alias.IsEmpty() ? SemanticTag : Alias),
+        Value::Call(SemanticTag, Args));
+    Out.Builder.AddComment(TEXT("read-only owning Blueprint declaration"));
+    if (HasDetail(Query, TEXT("schema")))
+    {
+        AddSchemaComment(
+            Out.Builder,
+            SemanticTag,
+            {TEXT("id: read only"), TEXT("name: read only"), TEXT("type: read only")},
+            {});
+    }
+    return Out.BuildResult();
+}
+
 TSharedPtr<FJsonObject> QueryExact(const FSalQuery& Query, const FSalResolvedTarget& Target, const FString& Kind)
 {
     FString Id;
@@ -5272,7 +5815,7 @@ TSharedPtr<FJsonObject> QueryExact(const FSalQuery& Query, const FSalResolvedTar
         }
         if (HasDetail(Query, TEXT("schema")))
         {
-            TArray<FString> Operations = {TEXT("summary"), TEXT("nodes"), TEXT("node@id"), TEXT("pin@id"), TEXT("context"), TEXT("exec flow"), TEXT("data flow"), TEXT("palette entries"), TEXT("palette @id")};
+            TArray<FString> Operations = {TEXT("summary"), TEXT("nodes"), TEXT("@NodeGuid"), TEXT("@NodeGuid/PinId"), TEXT("context"), TEXT("exec flow"), TEXT("data flow"), TEXT("palette entries"), TEXT("Palette identity: @id")};
             AddGraphSignatureSchema(Target, Operations);
             AddSchemaComment(
                 Out.Builder,
@@ -5280,7 +5823,7 @@ TSharedPtr<FJsonObject> QueryExact(const FSalQuery& Query, const FSalResolvedTar
                 {TEXT("id: read only"), TEXT("name: read only"), TEXT("type: read only")},
                 Operations);
         }
-        return Out.Builder.BuildResult();
+        return Out.BuildResult();
     }
     if (Kind == TEXT("node"))
     {
@@ -5300,7 +5843,7 @@ TSharedPtr<FJsonObject> QueryExact(const FSalQuery& Query, const FSalResolvedTar
             }
         }
         AddExactNode(Out, Node, HasDetail(Query, TEXT("layout")), HasDetail(Query, TEXT("schema")));
-        return Out.Builder.BuildResult();
+        return Out.BuildResult();
     }
     bool bAmbiguous = false;
     UEdGraphPin* Pin = FindPin(Target.Graph, Id, &bAmbiguous);
@@ -5325,7 +5868,7 @@ TSharedPtr<FJsonObject> QueryExact(const FSalQuery& Query, const FSalResolvedTar
         AddExactPinSchema(Pin, Fields, Operations);
         AddSchemaComment(Out.Builder, TEXT("pin"), Fields, Operations);
     }
-    return Out.Builder.BuildResult();
+    return Out.BuildResult();
 }
 
 struct FTraversal
@@ -5504,7 +6047,7 @@ TSharedPtr<FJsonObject> EncodeTraversal(const FSalQuery& Query, const FSalResolv
         Query.Operation->TryGetStringField(TEXT("direction"), Direction);
         if (Direction == TEXT("from")) Out.Builder.AddComment(TEXT("Data flow from is conservative node-level impact analysis across wired outputs."));
     }
-    return Out.Builder.BuildResult();
+    return Out.BuildResult();
 }
 
 void AddGraphHealthIndex(FEncodedGraph& Out, const UEdGraph* Graph)
@@ -5519,7 +6062,7 @@ void AddGraphHealthIndex(FEncodedGraph& Out, const UEdGraph* Graph)
         if (Labels.IsEmpty()) continue;
         const FString Id = NodeId(Node);
         if (Id.IsEmpty()) continue;
-        Lines.Add(TEXT("node@") + Id + TEXT(": ") + FString::Join(Labels, TEXT(", ")));
+        Lines.Add(TEXT("@") + Id + TEXT(": ") + FString::Join(Labels, TEXT(", ")));
         bHasCompilerMessage |= bNodeHasCompilerMessage;
     }
     if (Lines.Num() == 1) return;
@@ -5604,10 +6147,12 @@ TSharedPtr<FJsonObject> QuerySummary(const FSalResolvedTarget& Target)
         EdgeCount,
         Entries.Num(),
         DisconnectedRegions));
-    return Out.Builder.BuildResult();
+    return Out.BuildResult();
 }
 
-TSharedPtr<FJsonObject> BuildTouchedObject(const FPatchState& State)
+TSharedPtr<FJsonObject> BuildTouchedObject(
+    const FPatchState& State,
+    TSet<const UEdGraphNode*>* OutEncodedNodes)
 {
     FEncodedGraph Out(State.Target);
     TMap<UEdGraphNode*, TSet<FString>> UsedMembers;
@@ -5645,6 +6190,14 @@ TSharedPtr<FJsonObject> BuildTouchedObject(const FPatchState& State)
             }
         }
     }
+    if (OutEncodedNodes != nullptr)
+    {
+        for (const TPair<const UEdGraphNode*, FString>& Pair :
+             Out.NodeAliases)
+        {
+            OutEncodedNodes->Add(Pair.Key);
+        }
+    }
     return Out.Builder.BuildObject();
 }
 }
@@ -5661,6 +6214,13 @@ TSharedPtr<FJsonObject> FSalGraphInterface::Query(const FSalQuery& Query, const 
     if (Kind == TEXT("summary")) return QuerySummary(Target);
     if (Kind == TEXT("nodes")) return QueryNodes(Query, Target);
     if (Kind == TEXT("graph") || Kind == TEXT("node") || Kind == TEXT("pin")) return QueryExact(Query, Target, Kind);
+    if (Kind == TEXT("owner_variable")
+        || Kind == TEXT("owner_dispatcher")
+        || Kind == TEXT("owner_component")
+        || Kind == TEXT("owner_local_variable"))
+    {
+        return QueryOwnerDeclaration(Query, Target, Kind);
+    }
     if (Kind == TEXT("context") || Kind == TEXT("exec_flow") || Kind == TEXT("data_flow")) return EncodeTraversal(Query, Target, Kind);
     if (Kind == TEXT("palette_entries")) return QueryPalette(Query, Target, false);
     if (Kind == TEXT("palette")) return QueryPalette(Query, Target, true);
@@ -5669,7 +6229,183 @@ TSharedPtr<FJsonObject> FSalGraphInterface::Query(const FSalQuery& Query, const 
         FString::Printf(TEXT("Graph does not support query operation %s."), *Kind),
         Kind,
         FString(),
-        TEXT("Use graph@id with schema or sal_schema({ module: \"graph\" }) to inspect supported operations."));
+        TEXT("Use query target or @identity with schema to inspect supported operations."));
+}
+
+bool FSalGraphInterface::LowerStableReference(
+    const FSalResolvedTarget& Target,
+    const TArray<FString>& IdentityPath,
+    FString& OutLegacyKind,
+    FString& OutLegacyId,
+    FString& OutCode,
+    FString& OutMessage)
+{
+    OutLegacyKind.Reset();
+    OutLegacyId.Reset();
+    OutCode = TEXT("resolution.object_not_found");
+    OutMessage = TEXT("Stable reference was not found in the bound Graph identity environment.");
+    if (Target.Graph == nullptr || !(IdentityPath.Num() == 1 || IdentityPath.Num() == 2))
+    {
+        return false;
+    }
+
+    FGuid FirstGuid;
+    if (!FGuid::Parse(IdentityPath[0], FirstGuid) || !FirstGuid.IsValid())
+    {
+        OutMessage = TEXT("Graph identity component must be a valid non-zero Guid.");
+        return false;
+    }
+
+    struct FCandidate
+    {
+        FString Kind;
+        FString Id;
+    };
+    TArray<FCandidate> Candidates;
+    bool bAmbiguousOwner = false;
+
+    if (IdentityPath.Num() == 1)
+    {
+        for (UEdGraphNode* Node : Target.Graph->Nodes)
+        {
+            if (Node != nullptr && Node->NodeGuid == FirstGuid)
+            {
+                Candidates.Add({TEXT("node"), GuidText(FirstGuid)});
+            }
+        }
+        if (Target.Blueprint != nullptr)
+        {
+            for (const FBPVariableDescription& Variable : Target.Blueprint->NewVariables)
+            {
+                if (Variable.VarGuid == FirstGuid)
+                {
+                    Candidates.Add({
+                        IsDispatcherDeclaration(Variable)
+                            ? TEXT("owner_dispatcher")
+                            : TEXT("owner_variable"),
+                        GuidText(FirstGuid)});
+                }
+            }
+            if (Target.Blueprint->SimpleConstructionScript != nullptr)
+            {
+                for (USCS_Node* Component : Target.Blueprint->SimpleConstructionScript->GetAllNodes())
+                {
+                    if (Component != nullptr && Component->VariableGuid == FirstGuid)
+                    {
+                        Candidates.Add({TEXT("owner_component"), GuidText(FirstGuid)});
+                    }
+                }
+            }
+            if (Target.Blueprint->FunctionGraphs.Contains(Target.Graph))
+            {
+                for (UEdGraphNode* Node : Target.Graph->Nodes)
+                {
+                    UK2Node_FunctionEntry* Entry = Cast<UK2Node_FunctionEntry>(Node);
+                    if (Entry == nullptr)
+                    {
+                        continue;
+                    }
+                    for (const FBPVariableDescription& Variable : Entry->LocalVariables)
+                    {
+                        if (Variable.VarGuid == FirstGuid)
+                        {
+                            Candidates.Add({
+                                TEXT("owner_local_variable"),
+                                GuidText(Target.Graph->GraphGuid)
+                                    + TEXT("/")
+                                    + GuidText(FirstGuid)});
+                        }
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        FGuid SecondGuid;
+        if (!FGuid::Parse(IdentityPath[1], SecondGuid) || !SecondGuid.IsValid())
+        {
+            OutMessage = TEXT("Graph identity component must be a valid non-zero Guid.");
+            return false;
+        }
+        TArray<UEdGraphNode*> NodeOwners;
+        for (UEdGraphNode* Node : Target.Graph->Nodes)
+        {
+            if (Node != nullptr && Node->NodeGuid == FirstGuid)
+            {
+                NodeOwners.Add(Node);
+            }
+        }
+        if (NodeOwners.Num() > 1)
+        {
+            bAmbiguousOwner = true;
+        }
+        else if (NodeOwners.Num() == 1)
+        {
+            for (UEdGraphPin* Pin : NodeOwners[0]->Pins)
+            {
+                if (Pin != nullptr && Pin->PinId == SecondGuid)
+                {
+                    Candidates.Add({
+                        TEXT("pin"),
+                        GuidText(FirstGuid) + TEXT("/") + GuidText(SecondGuid)});
+                }
+            }
+        }
+
+        if (Target.Blueprint != nullptr)
+        {
+            UEdGraph* ScopeOwner =
+                FBlueprintEditorUtils::GetTopLevelGraph(Target.Graph);
+            TArray<UEdGraph*> FunctionOwners;
+            for (UEdGraph* Graph : Target.Blueprint->FunctionGraphs)
+            {
+                if (Graph != nullptr && Graph->GraphGuid == FirstGuid)
+                {
+                    FunctionOwners.Add(Graph);
+                }
+            }
+            if (FunctionOwners.Num() > 1)
+            {
+                bAmbiguousOwner = true;
+            }
+            else if (FunctionOwners.Num() == 1
+                && FunctionOwners[0] == ScopeOwner)
+            {
+                for (UEdGraphNode* Node : FunctionOwners[0]->Nodes)
+                {
+                    UK2Node_FunctionEntry* Entry = Cast<UK2Node_FunctionEntry>(Node);
+                    if (Entry == nullptr)
+                    {
+                        continue;
+                    }
+                    for (const FBPVariableDescription& Variable : Entry->LocalVariables)
+                    {
+                        if (Variable.VarGuid == SecondGuid)
+                        {
+                            Candidates.Add({
+                                TEXT("owner_local_variable"),
+                                GuidText(FirstGuid) + TEXT("/") + GuidText(SecondGuid)});
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (bAmbiguousOwner || Candidates.Num() != 1)
+    {
+        OutCode = bAmbiguousOwner || Candidates.Num() > 1
+            ? TEXT("resolution.identity_conflict")
+            : TEXT("resolution.object_not_found");
+        OutMessage = bAmbiguousOwner || Candidates.Num() > 1
+            ? TEXT("Stable reference identity is ambiguous in the bound Graph environment.")
+            : TEXT("Stable reference was not found in the bound Graph environment.");
+        return false;
+    }
+    OutLegacyKind = Candidates[0].Kind;
+    OutLegacyId = Candidates[0].Id;
+    return true;
 }
 
 // Patch implementation follows the query implementation so the same live

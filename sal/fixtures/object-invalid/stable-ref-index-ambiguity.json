@@ -1,8 +1,8 @@
 {
   "statements": [
     {
-      "from": { "kind": "state", "id": "root[0]" },
-      "to": { "kind": "node", "id": "task" }
+      "from": { "kind": "stable_ref", "identityPath": [] },
+      "to": { "kind": "stable_ref", "identityPath": ["task"] }
     }
   ]
 }

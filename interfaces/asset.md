@@ -1,14 +1,33 @@
 # asset
 
-Search UE Asset Registry and obtain exact Asset Paths without loading assets.
-This interface assumes the resident SAL Core guide.
+Search UE Asset Registry data and obtain exact Asset Targets without loading
+assets by default.
+
+## Target
+
+The collection root is Query-only:
+
+```sal
+assets = target { domain: asset }
+```
+
+An exact Asset uses Path and verified native Class:
+
+```sal
+door = target {
+  domain: asset,
+  path: "/Game/Blueprints/BP_Door.BP_Door",
+  type: "/Script/Engine.Blueprint"
+}
+```
+
+Asset Path is Target identity. Asset Domain has no contained StableRef for the
+Target itself.
 
 ## Query
 
-The Asset collection root has one primary operation:
-
 ```sal
-query asset
+query assets
 assets ["text"]
 [where condition]
 [with registryTags]
@@ -17,8 +36,8 @@ assets ["text"]
 [page after "cursor"]
 ```
 
-The optional search text matches Asset name, object path, native Asset Class
-Path, and selected Registry Tags. Structured filters are:
+Search covers Asset name, object path, native Asset Class Path, and selected
+Registry Tags. Structured filters are:
 
 | Field | Operators |
 | --- | --- |
@@ -26,34 +45,14 @@ Path, and selected Registry Tags. Structured filters are:
 | `type` | `=`, `!=` |
 | `name` | `=`, `!=`, `~=` |
 | `path` | `=`, `!=`, `~=` |
-| `registryTag.<key>` | `=`, `!=`, `~=`; `<key>` must be expressible as a SAL field path |
+| `registryTag.<key>` | `=`, `!=`, `~=` |
 | `loaded` | `=`, `!=`, `loaded`, `not loaded` |
 
-Conditions may use `not`, `and`, `or`, and parentheses. Ordered comparisons are
-unsupported. Ordering keys are `score`, `name`, `path`, and `type`. Cursor
-pagination defaults to 50 results and is capped at 200. `with registryTags`
-adds Registry Tags whose keys can be represented as SAL inline fields. Any
-remaining safe native key/value pairs follow that Asset binding in a lossless
-Comment instead of being renamed or dropped.
-
-UE's opaque `FiBData` and legacy `FiB` Blueprint-search indexes are never
-materialized. Other Registry Tag values whose UE resource size exceeds 8 KiB
-are protected the same way. They are absent from inline tags, fallback JSON,
-and free-text search. Explicit `where registryTag.FiBData` and legacy `FiB`
-conditions are rejected; other explicitly named Tag conditions stay exact,
-including values above the output threshold. A bounded Comment adjacent to the
-Asset reports the omitted native key, `ue_internal_index` or `value_too_large`
-reason, and `resourceSizeBytes`; it never substitutes a fake tag value. Query
-results over 128 KiB of condensed UTF-8 JSON fail atomically
-with `validation.result_too_large` instead of returning truncated data. Narrow
-the Query with search, filters, pagination, depth, or an exact reference. A
-serialization failure during measurement fails closed with
-`language.invalid_result_shape`.
-
-Example:
+Ordering keys are `score`, `name`, `path`, and `type`. Cursor pagination
+defaults to 50 and is capped at 200.
 
 ```sal
-query asset
+query assets
 assets "door"
 where root = "/Game" and type = "/Script/Engine.Blueprint" and not loaded
 with registryTags
@@ -61,69 +60,51 @@ order by score desc, path asc
 page limit 10
 ```
 
-Results are ordered Asset bindings:
+Each result object carries ordinary data:
 
 ```sal
-door = asset(
+{
   path: "/Game/Blueprints/BP_Door.BP_Door",
   type: "/Script/Engine.Blueprint",
-  domains: [asset, blueprint],
+  domains: ["asset", "blueprint"],
   loaded: false,
   score: 98,
-  registryTags: {ParentClass: "/Script/Engine.Actor"}
-)
-###
-registryTags omitted
-FiBData: reason=ue_internal_index, resourceSizeBytes=842391
-###
-###
-registryTags not representable as SAL inline fields; exact native key/value JSON:
-{"Display Name":"Door"}
-###
+  registryTags: { ParentClass: "/Script/Engine.Actor" }
+}
 ```
 
-`path` is the global locator and `type` is the exact native
-`FAssetData::AssetClassPath`. `domains` contains interface-discovery hints; it
-does not route the target or override the loaded UE Class. Search does not load
-assets by default.
+`domains` is a list of discovery hints, not routing data. Opening another
+Domain requires an explicit independent Target.
 
-## Exact Asset And Handoff
+Opaque `FiBData` and legacy `FiB` indexes are never materialized. Registry Tag
+values larger than 8 KiB are likewise omitted and reported adjacently.
+Unrepresentable native keys are preserved as exact JSON in comments. Results
+larger than 128 KiB fail atomically with `validation.result_too_large`.
 
-UE Assets do not share a Registry-resolvable persistent Guid, so there is no
-`asset@id`. When the exact Path is known, bind it directly:
+## Exact Read And Handoff
 
-```sal
-door = asset(path: "/Game/Blueprints/BP_Door.BP_Door")
-```
-
-Enter a more specific interface with the same Path. The first Blueprint Query
-may omit `BlueprintGuid` and returns it for later exact access:
+An exact Asset Query uses the canonical Target and the structural Target
+operation:
 
 ```sal
-door = blueprint(asset: "/Game/Blueprints/BP_Door.BP_Door")
-
 query door
-summary
+target
 ```
+
+Asset discovery may return related canonical Targets such as Blueprint,
+StateTree, or Widget, with explicit handoffs. Those Targets are flat and
+independent; the Asset object never embeds them.
 
 ## Save
 
-Asset defines no domain-specific Patch operations. An exact Asset binding may
-use the Core terminal `save` operation:
+Asset defines no authored field or lifecycle Patch. An exact Asset Target may
+use the Core terminal `save`:
 
 ```sal
-door = asset(path: "/Game/Blueprints/BP_Door.BP_Door")
-
 patch door
 save
 ```
 
-`patch asset` is invalid because the collection root does not identify one
-Package. Asset create, rename, move, duplicate, delete, metadata editing,
-redirector cleanup, and bulk Package operations are outside the current
-interface.
-
-Asset has no `summary`, Palette, singular Asset query, or Asset-object
-`with schema`. Use `with registryTags` only when Registry metadata is needed.
-SAL does not invent aliases for native Registry Tag names: a key that cannot be
-written as a SAL field path is not available to `where registryTag.<key>` yet.
+The collection root cannot be patched. Asset create, rename, move, duplicate,
+delete, metadata editing, redirector cleanup, and bulk Package operations are
+outside the current interface.

@@ -263,7 +263,7 @@ bool FSalReferenceIndexExternalOwnerTest::RunTest(
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FSalReferenceIndexAmbiguousNodeTest,
-    "Loomle.Sal.ReferenceIndex.AmbiguousNodeLocator",
+    "Loomle.Sal.ReferenceIndex.AmbiguousNodeIdentity",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FSalReferenceIndexAmbiguousNodeTest::RunTest(const FString& Parameters)

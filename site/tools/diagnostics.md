@@ -26,9 +26,12 @@ upgrade messages, visual warnings, orphaned Pins, and Pin deprecation state.
 Graph summary keeps representatives compact and returns a comment index of
 Nodes carrying health state so an agent can follow exact Node references.
 
-Blueprint compilation returns native Status and ordered compiler diagnostics.
-Mutation responses include validation state, ordered planned operations and
-effects, apply state, and failures in the same Object Text envelope.
+Blueprint compilation returns native Status and ordered compiler messages as
+factual comments inside the first canonical Result Text block, next to any
+source identities they describe. Mutation plans, effects, and apply state use a
+later independent metadata block; structured validation or execution
+diagnostics use another independent SAL-comment block. Neither later block is
+appended after `no_objects` or fabricated as Object Text.
 
 Stored compiler annotations can be stale when the owning Blueprint is dirty or
 unknown. Loomle reports that condition; run a separate Blueprint terminal

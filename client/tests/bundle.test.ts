@@ -101,7 +101,9 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
     // handshake-only smoke test cannot see.
     const query = await client.callTool({
       name: "sal_query",
-      arguments: { text: "query asset\nassets \"door\"" },
+      arguments: {
+        text: "assets = target { domain: asset }\n\nquery assets\nassets \"door\"",
+      },
     });
     assert.equal(query.isError, true);
     assert.match(JSON.stringify(query), /project\.selection_required/);

@@ -8,15 +8,20 @@ has_children: true
 
 # Graph
 
-Graph reads and edits are always scoped by an exact asset-backed owner:
+Graph reads and edits use one flat, exact Graph Target. The owning Blueprint is
+verified by fields on that Target rather than embedded as another Domain:
 
 ```text
-door = blueprint(
+eventGraph = target {
+  domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid"
-)
-eventGraph = graph(asset: door, id: "graph-guid")
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
 ```
+
+Both `blueprintId` and `id` must be canonical lowercase, hyphenated, non-zero
+GUIDs.
 
 ## Query
 
@@ -25,18 +30,18 @@ Graph primary operations include:
 ```text
 summary
 nodes ["text"]
-graph@id
-node@id
-pin@id
-context node@id|pin@id [depth N]
-exec flow from|to node@id|pin@id [depth N]
-data flow from|to node@id|pin@id [depth N]
-references to <typed-ref>[.<native-member-path>] [in project]
-palette entries ["text"] [from|to pin@id]
+target
+@node-guid
+@node-guid/pin-guid
+context @identity [depth N]
+exec flow from|to @identity [depth N]
+data flow from|to @identity [depth N]
+references to <exact-subject> [in project]
+palette entries ["text"] [from|to @node-guid/pin-guid]
 palette @id
 ```
 
-Traversal defaults to depth 1 and stays inside the target Graph. Add layout
+Traversal defaults to depth 1 and stays inside the Target Graph. Add layout
 detail where stored position matters:
 
 ```text
@@ -59,16 +64,21 @@ Graph, and Palette Entry reads may request dynamic schema.
 Palette creates the Node's native base Pins:
 
 ```text
-door = blueprint(
+eventGraph = target {
+  domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid"
-)
-eventGraph = graph(asset: door, id: "graph-guid")
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
 
 patch eventGraph dry run
-delay = node(palette: "palette-entry-id")
+delay = { palette: "palette-entry-id" }
 add delay
 ```
+
+A formatter may add an erasable presentation tag, for example
+`delay = node { palette: "palette-entry-id" }`; removing `node` cannot change
+creation or validation.
 
 Graph adds these operations to the Core Patch surface:
 
@@ -82,15 +92,43 @@ insert
 It also supports explicit Node movement and current UE operations:
 
 ```text
-connect pin@source-id -> pin@target-id
-break pin@id
-move node@id to (640, 320)
-invoke node@id <Operation>(<name>: <value>) [as <alias>]
+connect @source-node-guid/source-pin-guid ->
+  @target-node-guid/target-pin-guid
+break @node-guid/pin-guid
+move @node-guid to (640, 320)
+invoke @node-guid <Operation>(<name>: <value>) [as <alias>]
 ```
 
 Do not declare raw Pins. A normal addition may connect at most one side of a
-new Node; use the insert operation for two-sided replacement. Exact dynamic
-schema is authoritative for operation names and parameters.
+new Node; use the insert operation for two-sided replacement. Its middle
+separator names the new Node's input and output references with spaces around
+`/`:
+
+```text
+insert @source-node-guid/source-pin-guid ->
+  delay.input / delay.output ->
+  @target-node-guid/target-pin-guid
+```
+
+Exact dynamic schema is authoritative for operation names and parameters.
 
 Graph Patch does not compile or save its owning Blueprint. Finalize through a
-separate exact Blueprint Patch.
+separate exact Blueprint Patch. A Graph result exposes that transition through
+an independent related Target and handoff:
+
+```text
+result exact_target
+target eventGraph = target {
+  domain: graph,
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
+related door = target {
+  domain: blueprint,
+  asset: "/Game/Blueprints/BP_Door.BP_Door",
+  id: "11111111-1111-1111-1111-111111111111"
+}
+handoff compile to door
+no_objects
+```

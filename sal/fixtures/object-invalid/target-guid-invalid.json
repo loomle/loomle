@@ -1,0 +1,13 @@
+{
+  "kind": "query",
+  "target": {
+    "alias": "bp",
+    "target": {
+      "kind": "target",
+      "domain": "blueprint",
+      "asset": "/Game/BP_Test.BP_Test",
+      "id": "not-a-guid"
+    }
+  },
+  "operation": { "kind": "target" }
+}

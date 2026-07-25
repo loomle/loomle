@@ -87,6 +87,10 @@ struct FContextOutput
 {
     FSalObjectBuilder Builder;
     TArray<TSharedPtr<FJsonObject>> Diagnostics;
+    TSharedPtr<FJsonObject> Target;
+    FString TargetAlias;
+    bool bDomainRoot = false;
+    bool bHasError = false;
 
     void Error(const FString& Code, const FString& Message, const FString& Ref = FString())
     {
@@ -96,11 +100,97 @@ struct FContextOutput
             Diagnostic.Ref(Ref);
         }
         Diagnostics.Add(Diagnostic.Build());
+        bHasError = true;
+    }
+
+    void ExactTarget(
+        const FString& PreferredAlias,
+        const TSharedPtr<FJsonObject>& InTarget)
+    {
+        if (!InTarget.IsValid())
+        {
+            return;
+        }
+        Target = InTarget;
+        TargetAlias = Builder.UniqueAlias(
+            PreferredAlias.IsEmpty()
+                ? TEXT("context_target")
+                : PreferredAlias + TEXT("_target"));
+        bDomainRoot = false;
+    }
+
+    void DomainRoot()
+    {
+        if (Target.IsValid())
+        {
+            return;
+        }
+        bDomainRoot = true;
+        if (TargetAlias.IsEmpty())
+        {
+            TargetAlias = Builder.UniqueAlias(TEXT("asset_root"));
+        }
     }
 
     TSharedPtr<FJsonObject> Finish() const
     {
-        return Builder.BuildResult(Diagnostics);
+        TArray<TSharedPtr<FJsonObject>> EffectiveDiagnostics = Diagnostics;
+        if (!Target.IsValid() && !bDomainRoot && !bHasError)
+        {
+            EffectiveDiagnostics.Add(
+                FSalDiagnostics::Error(
+                    TEXT("resolution.unresolved_target"),
+                    TEXT("Editor Context has no exact supported Domain Target."))
+                    .Interface(TEXT("editor_context"))
+                    .Build());
+        }
+
+        TSharedPtr<FJsonObject> Result =
+            Builder.BuildResult(EffectiveDiagnostics);
+        if (Target.IsValid())
+        {
+            Result->SetStringField(
+                TEXT("targetContext"),
+                TEXT("exact_target"));
+        }
+        else if (bDomainRoot)
+        {
+            Result->SetStringField(
+                TEXT("targetContext"),
+                TEXT("domain_root"));
+            TSharedPtr<FJsonObject> Root =
+                MakeShared<FJsonObject>();
+            Root->SetStringField(TEXT("kind"), TEXT("target"));
+            Root->SetStringField(TEXT("domain"), TEXT("asset"));
+            Result->SetObjectField(
+                TEXT("target"),
+                TargetBinding(TargetAlias, Root));
+            return Result;
+        }
+        else
+        {
+            Result->SetStringField(
+                TEXT("targetContext"),
+                TEXT("unresolved_target"));
+            return Result;
+        }
+
+        Result->SetObjectField(
+            TEXT("target"),
+            TargetBinding(TargetAlias, Target));
+        return Result;
+    }
+
+private:
+    static TSharedPtr<FJsonObject> TargetBinding(
+        const FString& Alias,
+        const TSharedPtr<FJsonObject>& InTarget)
+    {
+        TSharedPtr<FJsonObject> Binding =
+            MakeShared<FJsonObject>();
+        Binding->SetStringField(TEXT("alias"), Alias);
+        Binding->SetObjectField(TEXT("target"), InTarget);
+        return Binding;
     }
 };
 
@@ -118,8 +208,14 @@ FString EmitAsset(FContextOutput& Out, const FString& PreferredAlias, const FStr
 FString EmitAsset(FContextOutput& Out, const FAssetData& Asset);
 FString EmitAsset(FContextOutput& Out, UObject* Asset);
 FString EmitBlueprint(FContextOutput& Out, UBlueprint* Blueprint);
+FString EmitWidgetBlueprint(FContextOutput& Out, UWidgetBlueprint* Blueprint);
 FString EmitClass(FContextOutput& Out, UClass* Class, const FString& PreferredAlias = FString());
-FString EmitGraph(FContextOutput& Out, UEdGraph* Graph, const FString& BlueprintAlias, bool bIncludeRecognition = true);
+FString EmitGraph(
+    FContextOutput& Out,
+    UEdGraph* Graph,
+    const FString& BlueprintAlias,
+    bool bIncludeRecognition = true,
+    bool bUseAsTarget = true);
 void EmitNode(FContextOutput& Out, UEdGraphNode* Node, const FString& GraphAlias);
 UObject* FindNearestAsset(UObject* Object);
 bool IsOpenAssetEditor(IAssetEditorInstance* Editor);
@@ -222,7 +318,8 @@ void EmitComponentChain(FContextOutput& Out, UBlueprint* Blueprint, USCS_Node* S
     {
         return;
     }
-    const FString BlueprintAlias = EmitBlueprint(Out, Blueprint);
+    const FString BlueprintAlias =
+        EmitBlueprint(Out, Blueprint);
     TArray<USCS_Node*> Chain;
     TSet<USCS_Node*> Seen;
     USCS_Node* Current = Selected;
@@ -630,7 +727,12 @@ private:
             UEdGraph* Graph = GraphAction->EdGraph;
             if (Graph != nullptr && FBlueprintEditorUtils::FindBlueprintForGraph(Graph) == Blueprint)
             {
-                EmitGraph(Out, Graph, BlueprintAlias);
+                EmitGraph(
+                    Out,
+                    Graph,
+                    BlueprintAlias,
+                    true,
+                    false);
             }
             else
             {
@@ -892,7 +994,8 @@ bool EmitWidgetChain(
     {
         return false;
     }
-    const FString BlueprintAlias = EmitBlueprint(Out, Blueprint);
+    const FString BlueprintAlias =
+        EmitWidgetBlueprint(Out, Blueprint);
     TArray<UWidget*> Chain;
     TSet<UWidget*> Seen;
     UWidget* Current = Selected;
@@ -1044,28 +1147,28 @@ public:
                 if (IsSalPathSegment(SlotName))
                 {
                     Out.Builder.AddComment(FString::Printf(
-                        TEXT("selected: widget@%s.NamedSlots.%s"),
+                        TEXT("selected: @%s.NamedSlots.%s"),
                         *HostId,
                         *SlotName));
                 }
                 else
                 {
                     Out.Builder.AddComment(FString::Printf(
-                        TEXT("selected: named slot\nhost: widget@%s\nmember path: unavailable in SAL identifier syntax\nnative name: %s"),
+                        TEXT("selected: named slot\nhost: @%s\nmember path: unavailable in SAL identifier syntax\nnative name: %s"),
                         *HostId,
                         *CommentScalar(SlotName)));
                 }
             }
             else if (Host == nullptr && !NamedSlot->NamedSlotHostWidget.GetWidgetEditor().IsValid())
             {
-                EmitBlueprint(Out, Blueprint);
+                EmitWidgetBlueprint(Out, Blueprint);
                 Out.Builder.AddComment(FString::Printf(
                     TEXT("selected: inherited named slot\nname: %s\ninterface: unavailable"),
                     *CommentScalar(NamedSlot->SlotName.ToString())));
             }
             else if (Host == nullptr)
             {
-                EmitBlueprint(Out, Blueprint);
+                EmitWidgetBlueprint(Out, Blueprint);
                 Out.Error(
                     TEXT("context.owner_invalid"),
                     TEXT("The selected Named Slot host was reconstructed before Context was read."),
@@ -1077,7 +1180,7 @@ public:
         const TSet<FWidgetReference>& Selected = Editor->GetSelectedWidgets();
         if (Selected.IsEmpty())
         {
-            EmitBlueprint(Out, Blueprint);
+            EmitWidgetBlueprint(Out, Blueprint);
             const TSet<TWeakObjectPtr<UObject>>& SelectedObjects = Editor->GetSelectedObjects();
             if (SelectedObjects.Num() > 1)
             {
@@ -1111,7 +1214,7 @@ public:
         }
         if (Selected.Num() > 1)
         {
-            EmitBlueprint(Out, Blueprint);
+            EmitWidgetBlueprint(Out, Blueprint);
             AddMultipleSelection(Out, Selected.Num());
             return Out.Finish();
         }
@@ -1120,7 +1223,7 @@ public:
         UWidget* Widget = Reference.GetTemplate();
         if (Widget == nullptr)
         {
-            EmitBlueprint(Out, Blueprint);
+            EmitWidgetBlueprint(Out, Blueprint);
             Out.Error(
                 TEXT("context.owner_invalid"),
                 TEXT("The selected source Widget was reconstructed before Context was read."));
@@ -1161,6 +1264,7 @@ public:
     virtual TSharedPtr<FJsonObject> Build(const FInteractionRecord& Record) const override
     {
         FContextOutput Out;
+        Out.DomainRoot();
         AddSurface(Out, TEXT("Content Browser"));
         const TSharedPtr<SWidget> SurfaceWidget = Record.SurfaceWidget.Pin();
         if (Record.bHadSurfaceWidget && !SurfaceWidget.IsValid())
@@ -1347,7 +1451,6 @@ void EmitActorDescription(FContextOutput& Out, AActor* Actor, const bool bOwnerS
     }
     if (bLevelScopedRef)
     {
-        Lines.Add(FString::Printf(TEXT("ref: actor@%s"), *GuidText(ActorGuid)));
         Lines.Add(TEXT("scope: owning Level only"));
     }
     Lines.Add(FString::Printf(TEXT("label: %s"), *CommentScalar(Actor->GetActorLabel())));
@@ -1377,7 +1480,9 @@ void EmitActorComponentDescription(
         && Owner->GetActorGuid().IsValid()
         && CountActorGuidInLevel(Owner) == 1)
     {
-        Lines.Add(FString::Printf(TEXT("owner: actor@%s"), *GuidText(Owner->GetActorGuid())));
+        Lines.Add(FString::Printf(
+            TEXT("ownerActorGuid: %s"),
+            *GuidText(Owner->GetActorGuid())));
     }
     else if (Owner != nullptr)
     {
@@ -1521,6 +1626,12 @@ bool EmitSupportedObject(FContextOutput& Out, UObject* Object)
     if (Object == nullptr)
     {
         return false;
+    }
+    if (UWidgetBlueprint* WidgetBlueprint =
+            Cast<UWidgetBlueprint>(Object))
+    {
+        EmitWidgetBlueprint(Out, WidgetBlueprint);
+        return true;
     }
     if (UBlueprint* Blueprint = Cast<UBlueprint>(Object))
     {
@@ -1831,6 +1942,78 @@ TSharedPtr<FJsonObject> Args()
     return MakeShared<FJsonObject>();
 }
 
+TSharedPtr<FJsonObject> AssetTarget(
+    const FString& Path,
+    const FString& Type)
+{
+    if (Path.IsEmpty() || Type.IsEmpty())
+    {
+        return nullptr;
+    }
+    TSharedPtr<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("target"));
+    Target->SetStringField(TEXT("domain"), TEXT("asset"));
+    Target->SetStringField(TEXT("path"), Path);
+    Target->SetStringField(TEXT("type"), Type);
+    return Target;
+}
+
+TSharedPtr<FJsonObject> BlueprintTarget(
+    UBlueprint* Blueprint,
+    const TCHAR* Domain = TEXT("blueprint"))
+{
+    if (Blueprint == nullptr
+        || !Blueprint->GetBlueprintGuid().IsValid())
+    {
+        return nullptr;
+    }
+    TSharedPtr<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("target"));
+    Target->SetStringField(TEXT("domain"), Domain);
+    Target->SetStringField(TEXT("asset"), Blueprint->GetPathName());
+    Target->SetStringField(
+        TEXT("id"),
+        GuidText(Blueprint->GetBlueprintGuid()));
+    return Target;
+}
+
+TSharedPtr<FJsonObject> ClassTarget(UClass* Class)
+{
+    if (Class == nullptr)
+    {
+        return nullptr;
+    }
+    TSharedPtr<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("target"));
+    Target->SetStringField(TEXT("domain"), TEXT("class"));
+    Target->SetStringField(TEXT("path"), Class->GetPathName());
+    return Target;
+}
+
+TSharedPtr<FJsonObject> GraphTarget(
+    UBlueprint* Blueprint,
+    UEdGraph* Graph)
+{
+    if (Blueprint == nullptr
+        || Graph == nullptr
+        || !Blueprint->GetBlueprintGuid().IsValid()
+        || !Graph->GraphGuid.IsValid())
+    {
+        return nullptr;
+    }
+    TSharedPtr<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("target"));
+    Target->SetStringField(TEXT("domain"), TEXT("graph"));
+    Target->SetStringField(TEXT("asset"), Blueprint->GetPathName());
+    Target->SetStringField(
+        TEXT("blueprintId"),
+        GuidText(Blueprint->GetBlueprintGuid()));
+    Target->SetStringField(
+        TEXT("id"),
+        GuidText(Graph->GraphGuid));
+    return Target;
+}
+
 void AddSurface(FContextOutput& Out, const FString& Surface)
 {
     Out.Builder.AddComment(Surface);
@@ -1879,6 +2062,7 @@ FString EmitAsset(
         ValueArgs->SetStringField(TEXT("type"), Type);
     }
     Out.Builder.AddLocalBinding(Alias, Value::Call(TEXT("asset"), ValueArgs));
+    Out.ExactTarget(Alias, AssetTarget(Path, Type));
     return Alias;
 }
 
@@ -1920,6 +2104,26 @@ FString EmitBlueprint(FContextOutput& Out, UBlueprint* Blueprint)
             Blueprint->GetPathName());
     }
     Out.Builder.AddLocalBinding(Alias, Value::Call(TEXT("blueprint"), ValueArgs));
+    const TSharedPtr<FJsonObject> ExactBlueprint =
+        BlueprintTarget(Blueprint);
+    Out.ExactTarget(
+        Alias,
+        ExactBlueprint.IsValid()
+            ? ExactBlueprint
+            : AssetTarget(
+                Blueprint->GetPathName(),
+                Blueprint->GetClass()->GetPathName()));
+    return Alias;
+}
+
+FString EmitWidgetBlueprint(
+    FContextOutput& Out,
+    UWidgetBlueprint* Blueprint)
+{
+    const FString Alias = EmitBlueprint(Out, Blueprint);
+    Out.ExactTarget(
+        Alias,
+        BlueprintTarget(Blueprint, TEXT("widget")));
     return Alias;
 }
 
@@ -1933,6 +2137,7 @@ FString EmitClass(FContextOutput& Out, UClass* Class, const FString& PreferredAl
     TSharedPtr<FJsonObject> ValueArgs = Args();
     ValueArgs->SetStringField(TEXT("path"), Class->GetPathName());
     Out.Builder.AddLocalBinding(Alias, Value::Call(TEXT("class"), ValueArgs));
+    Out.ExactTarget(Alias, ClassTarget(Class));
     return Alias;
 }
 
@@ -1940,7 +2145,8 @@ FString EmitGraph(
     FContextOutput& Out,
     UEdGraph* Graph,
     const FString& BlueprintAlias,
-    const bool bIncludeRecognition)
+    const bool bIncludeRecognition,
+    const bool bUseAsTarget)
 {
     if (Graph == nullptr || BlueprintAlias.IsEmpty())
     {
@@ -2005,6 +2211,10 @@ FString EmitGraph(
         }
     }
     Out.Builder.AddLocalBinding(Alias, Value::Call(TEXT("graph"), ValueArgs));
+    if (bUseAsTarget)
+    {
+        Out.ExactTarget(Alias, GraphTarget(Blueprint, Graph));
+    }
     return Alias;
 }
 

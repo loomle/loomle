@@ -44,7 +44,7 @@ const alphaRuntime: RuntimeRecord = {
   name: "Alpha",
   projectRoot: alphaProject.projectRoot,
   endpoint: "/tmp/alpha.sock",
-  protocolVersion: 2,
+  protocolVersion: 3,
   pluginPath: "/UE/Engine/Plugins/Marketplace/LoomleBridge",
   pluginInstallScope: "engine",
   pluginManagedBy: "fab",

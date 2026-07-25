@@ -1,10 +1,10 @@
-# Compact readback of one execution chain.
-begin = node(id: "N1", type: "/Script/BlueprintGraph.K2Node_Event", EventReference: "ReceiveBeginPlay")
-begin.Then = pin(id: "P1", direction: out)
-delay = node(id: "N2", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "Delay", Duration: 1.0)
-delay.execute = pin(id: "P2", direction: in)
-delay.then = pin(id: "P3", direction: out)
-print = node(id: "N3", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "PrintString")
-print.execute = pin(id: "P4", direction: in)
-pin@P1 -> pin@P2
-pin@P3 -> pin@P4
+# Standalone Object Text fragment from one exact Graph result.
+begin = node {id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", type: "/Script/BlueprintGraph.K2Node_Event", EventReference: "ReceiveBeginPlay"}
+begin.Then = pin {id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaab", direction: out}
+delay = node {id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "Delay", Duration: 1.0}
+delay.execute = pin {id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb01", direction: in}
+delay.then = pin {id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb02", direction: out}
+print = node {id: "cccccccc-cccc-cccc-cccc-cccccccccccc", type: "/Script/BlueprintGraph.K2Node_CallFunction", FunctionReference: "PrintString"}
+print.execute = pin {id: "cccccccc-cccc-cccc-cccc-cccccccccc01", direction: in}
+@aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaab -> @bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb01
+@bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb02 -> @cccccccc-cccc-cccc-cccc-cccccccccccc/cccccccc-cccc-cccc-cccc-cccccccccc01

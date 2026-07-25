@@ -1,15 +1,11 @@
 {
   "kind": "query",
   "target": {
-    "alias": "graph",
-    "value": {
-      "kind": "call",
-      "callee": "graph",
-      "args": { "id": "graph-guid" }
-    }
+    "alias": "g",
+    "target": { "kind": "target", "domain": "graph", "asset": "/Game/BP_Test.BP_Test", "name": "EventGraph" }
   },
   "operation": {
     "kind": "palette_entries",
-    "pinContext": "pin@pin-guid"
+    "pinContext": "@pin-guid"
   }
 }

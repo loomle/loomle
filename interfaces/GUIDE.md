@@ -1,203 +1,164 @@
 # SAL
 
-SAL is Loomle's agent-facing, line-oriented text language for reading and
-modifying Unreal Engine objects.
+SAL is Loomle's line-oriented language for reading and changing Unreal Engine
+objects. It keeps UE names, native paths, enum values, property types, and
+editor behavior intact.
 
-SAL makes UE objects and editor operations readable without replacing UE's
-object model. UE field names, enum values, Class Paths, property types, and
-native values remain unchanged. Existing objects use native Paths or typed
-stable references inside their owner scopes. Objects created directly through
-`add` use aliases and constructors returned by Palette.
+## MCP Calls
 
-Each Query or Patch is one self-contained SAL Text. Both return ordered,
-self-contained SAL Object Text. Result Text does not inherit aliases from its
-request. When returned statements refer to the target or another owner, the
-result first declares a compact binding for that object. The binding carries
-only the identity or state needed by this result; later requests still supply
-their own complete locator chains.
+- `status({})` reports Client, session, and Bridge health.
+- `project({})` reports project binding and candidates.
+- `project({ projectId: "<id>" })` binds the session to one project.
+- `sal_query({ text })` executes one Query Text.
+- `sal_patch({ text })` executes one ordered Patch Text.
+- `sal_schema({})` lists the six active Domain interface cards.
+- `sal_schema({ module: "graph" })` returns one static card.
+- `editor_context({})` returns the user's current UE context as SAL result
+  text.
 
-## Calls
-
-- `status({})` reports the Client version, update availability, and bound
-  session and Bridge health. Call it once before the first Loomle operation in
-  a task.
-- `project({})` reports this MCP session's current project binding and known
-  project candidates.
-- `project({ projectId: "<id>" })` or
-  `project({ projectRoot: "/path/to/project" })` binds this session to one
-  project.
-- `sal_query({ text })` executes one self-contained Query Text.
-- `sal_patch({ text })` executes one self-contained ordered Patch Text.
-- `sal_schema({})` returns only the active interface-module index.
-- `sal_schema({ module: "<module>" })` returns one static Query and Patch
-  interface.
-- `editor_context({})` returns the user's current UE interaction target as
-  ordinary ordered Object Text.
-
-These are MCP tool calls. The `text` value contains the SAL shown in the code
-blocks below; the tool-call wrapper is not part of SAL syntax.
-Mutation execution state and diagnostics are appended as ordinary SAL comments,
-so the complete MCP text remains valid ordered Object Text rather than a second
-result language.
+The tool-call wrapper is not SAL syntax.
 
 ## Project Binding
 
 One Loomle MCP session operates on one UE project. Start with `status({})`. If
-it reports an unbound session, call `project({})` to inspect candidates and
-bind one. The binding is sticky: once
-selected, Loomle never falls through to another online project when the bound
-project is offline or its Editor restarts. Call `project({})` when no project is
-bound, when several projects are available, or after a `project.*` diagnostic;
-then copy one returned `projectId` into `project({ projectId: "<id>" })`.
-Automatic binding considers, in order, a deployment project root, MCP Roots,
-the Client working directory only when the host lacks Roots, then the sole
-known project. If no step identifies one project, the session stays unbound and
-the agent calls `project({})`; every UE-backed tool uses the resulting binding.
-Binding an offline project is valid and later UE-backed calls become available
-when its Editor is ready. `sal_schema` is local and remains available without a
-bound or online project.
+the session is unbound, call `project({})`, copy one returned `projectId`, and
+bind it with `project({ projectId: "<id>" })`. The binding is sticky: Loomle
+does not fall through to another online project merely because the selected
+project is offline or its Editor restarts. `sal_schema` remains available
+without an online project because the resident guide and Domain cards are
+local.
 
-## Blueprint Query
+## Four Separate Concepts
+
+```text
+object data       = fields in {...}
+semantic tag      = optional, erasable presentation metadata
+Domain Target     = target { domain: ..., ... }
+stable reference  = native identity path inside one exact Target
+```
+
+An ordinary object is always a brace expression:
 
 ```sal
-door = blueprint(asset: "/Game/Blueprints/BP_Door.BP_Door")
+{ id: "node-guid", type: "/Script/BlueprintGraph.K2Node_Event" }
+node { id: "node-guid", type: "/Script/BlueprintGraph.K2Node_Event" }
+```
 
-query door
+`node` is an optional semantic tag. Removing it cannot change identity, type,
+Domain, validation, creation, or execution. Object fields and context carry
+the information that matters.
+
+JSON literals, the retired generic label `object`, `target`, `domain`, the six
+Domain names, and `tree`, `context`, and `palette` are reserved and cannot be
+semantic tags or aliases.
+
+Parentheses are reserved for true calls or explicitly defined non-object
+syntax, such as an invoked operation:
+
+```sal
+invoke @node-guid Rename(displayName: "New Name")
+```
+
+## Domain Targets
+
+Every Query or Patch declares exactly one active Target:
+
+```sal
+g = target {
+  domain: graph,
+  asset: "/Game/BP_Door.BP_Door",
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
+
+query g
 summary
 ```
 
-Possible result:
+`target`, `domain`, and the Domain value are structural SAL keywords, not
+semantic tags. A Target is flat: every non-`domain` field is a non-empty JSON
+string, and a Target cannot contain another Target or alias.
+
+The six Domains and their Target fields are:
+
+| Domain | Discovery Query | Canonical exact Target and Patch |
+| --- | --- | --- |
+| `asset` | `domain` only, or `path` with optional `type` | `path + type` |
+| `blueprint` | `asset`, optional `id` | `asset + id` |
+| `class` | `path` | `path` |
+| `graph` | `asset + id` or `asset + name`; optional `blueprintId` | `asset + blueprintId + id` |
+| `state_tree` | `asset`, optional `type` | `asset + type` |
+| `widget` | `asset`, optional `id` | `asset + id` |
+
+`type` is a native-Class assertion inside a selected Domain. It never selects
+or adds a Domain. The same `UWidgetBlueprint`, for example, has separate
+Blueprint and Widget Targets.
+
+Every Target Guid is non-zero canonical lowercase text with hyphens, matching
+UE `FGuid::IsValid()`.
+
+## Stable References
+
+Contained-object references are interpreted only inside the active exact
+Target:
 
 ```sal
-door = blueprint(
-  asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid",
-  type: BPTYPE_Normal,
-  Status: BS_UpToDate,
-  ParentClass: "/Script/Engine.Actor"
-)
-
-# variables: 3
-# dispatchers: 1
-# graphs: 4
-# components: 2
+@node-guid
+@node-guid/pin-guid
+@container-guid/property-guid
 ```
 
-## Blueprint Patch
-
-Use `dry run` to resolve, validate, and plan without changing UE state:
+The path contains native identity components, not kind words, collection
+names, display names, or array positions. A Graph Pin includes its owning
+NodeGuid even when its PinId happens to be unique. A semantic tag may decorate
+the same reference:
 
 ```sal
-door = blueprint(
-  asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid"
-)
-
-patch door dry run
-set door.BlueprintDescription = "Interactive door"
+node @node-guid
+pin @node-guid/pin-guid
 ```
 
-Possible result:
+The tag is ignored for identity equality and native lookup. `@id`, `node @id`,
+and another allowed tag on the same identity address the same native object;
+their parsed ASTs may still retain different presentation metadata.
+
+Member paths follow identity:
 
 ```sal
-# dry run: valid
-# would set door.BlueprintDescription = "Interactive door"
+@node-guid/pin-guid.DefaultValue
 ```
 
-## Graph Execution Flow
-
-Start from a Graph identity returned by Blueprint `graphs` or `graph <name>`:
+The exact Target itself is structural:
 
 ```sal
-door = blueprint(
-  asset: "/Game/BP_Door.BP_Door",
-  id: "blueprint-guid"
-)
-eventGraph = graph(
-  asset: door,
-  id: "graph-guid"
-)
-
-query eventGraph
-exec flow from node@begin-node-guid depth 1
+query g
+target
+with schema
 ```
 
-Possible result:
+A Target may also be a relationship subject, but only where the Domain exposes
+confirmed native declaration identity:
 
 ```sal
-eventGraph = graph(id: "graph-guid")
+query functionGraph
+references to target
 
-beginPlay = node(
-  graph: eventGraph,
-  id: "begin-node-guid",
-  type: "/Script/BlueprintGraph.K2Node_Event"
-)
-# Event BeginPlay
-
-beginPlay.then = pin(
-  id: "then-pin-guid",
-  type: "<native FEdGraphPinType text>",
-  direction: out
-)
-
-sequence = node(
-  graph: eventGraph,
-  id: "sequence-node-guid",
-  type: "/Script/BlueprintGraph.K2Node_ExecutionSequence"
-)
-# Sequence
-
-sequence.execute = pin(
-  id: "execute-pin-guid",
-  type: "<native FEdGraphPinType text>",
-  direction: in
-)
-
-beginPlay.then -> sequence.execute
+query interfaceFunctionGraph
+references to target.InterfaceGuid
 ```
 
-Angle-bracketed placeholders stand for complete native UE text in real results.
+It has no synthetic StableRef. Bare Target-self currently resolves only for
+callable Function/Macro Graph Targets; the direct `target.InterfaceGuid`
+member resolves for a valid Graph Interface declaration. Other Domain or Graph
+roles return `capability.reference_unavailable`.
 
-## Object Text
-
-```sal
-alias = constructor(namedArgument: value)
-owner.name = constructor(namedArgument: value)
-alias = constructor(RelatedObject: object@stable-id)
-sourcePin -> targetPin
-```
-
-- `id` and `type` are common SAL fields; other fields keep their UE names.
-- Existing objects with native stable ids use typed references such as
-  `node@id`, `pin@id`, and `graph@id`. Bare `@id` is invalid.
-- Typed ids are scoped selectors, not complete request targets. A request first
-  binds the full owner locator chain, then uses the typed id inside that scope.
-- Objects without native stable ids keep their exact UE Path or an exact name
-  inside an already resolved owner.
-- Local aliases and member paths are readable handles inside one SAL Text.
-- Values may be null, booleans, numbers, strings, native UE names, arrays,
-  inline objects, typed references, or constructor calls.
-- An Edge describes state. A Patch requires an explicit operation such as
-  `connect` or `disconnect`.
-
-Comments carry titles, counts, schema guidance, navigation, and diagnostics:
+## Query
 
 ```sal
-# single-line comment
+<alias> = target { domain: <domain>, ... }
 
-###
-multi-line comment
-###
-```
-
-Long statements may wrap inside `()`, `[]`, or `{}`. Wrapped and single-line
-forms are equivalent.
-
-## Query Text
-
-```sal
-query <target>
-[<primary operation>]
+query <alias>
+[<one primary operation>]
 [where <condition>]
 [with <detail>, ...]
 [order by <field> [asc|desc], ...]
@@ -205,44 +166,34 @@ query <target>
 [page after "<cursor>"]
 ```
 
-The operation-less form is the shared exact-target read. Use it when the
-active interface card lists exact-target read; interfaces still being migrated
-may require one of their listed primary operations. Otherwise the Query has
-exactly one primary operation:
+The operation-less form is the shared exact-target read and normalizes to
+`target`. Contained exact reads use one StableRef:
 
 ```sal
-summary
-<objects> ["text"]
-<object> <name>
-<object>@<id>
-references to <typed-ref>[.<native-member-path>] [in project]
-palette entries ["text"]
-palette @<id>
+query g
+@node-guid
+with schema
 ```
 
-Plural operations enumerate or search. Singular operations resolve a current
-name. Typed references resolve stable identity. `references` finds factual
-authored use-sites, accepts only cursor `page` clauses, and returns ordinary
-Object Text rather than a new result object; its local scope is defined by the
-bound domain, while `in project` selects project-owned authored content.
-Domains may add operations such as `context`, `exec flow`, and `data flow`.
+Plural operations enumerate or search. Singular names are discovery only;
+copy the returned stable identity for later exact access. `references` finds
+factual authored use-sites. Each Domain card closes the allowed operations,
+clauses, fields, expansions, and pagination rules.
 
-Conditions support `=`, `!=`, `~=`, `>`, `>=`, `<`, `<=`, `not`, `and`, `or`,
-and parentheses. `sal_schema({ module: "<module>" })` lists the operations, fields,
-expansions, ordering, pagination, depth, and clauses supported by that domain.
-
-## Patch Text
+## Patch
 
 ```sal
-patch <target> [dry run]
+<alias> = target { domain: <domain>, ... }
+
+patch <alias> [dry run]
 <binding or operation>
 <binding or operation>
 ```
 
-Core operations:
+Core operations are:
 
 ```sal
-add <binding>
+add <binding> [to <destination>|before <anchor>|after <anchor>]
 remove <object>
 set <object>.<field> = <value>
 reset <object>.<field>
@@ -251,64 +202,113 @@ invoke <object> <Operation>(namedArguments) [as <alias>]
 save
 ```
 
-Patch statements execute in written order. The complete Patch is resolved and
-validated before mutation. Domain operations such as Graph `connect`, Widget
-`wrap`, or Blueprint `compile` come from
-`sal_schema({ module: "<module>" })`.
+Domain cards add operations such as Graph `connect`, Widget `wrap`, StateTree
+`bind`, and Blueprint or StateTree `compile`.
 
-Every object created directly through `add` starts from Palette:
+Every directly created object starts with a Palette result:
 
 ```sal
-query <target>
-palette entries "search text"
+query g
+palette entries "Print String"
 ```
 
-Copy the returned constructor into Patch Text:
+Copy its object fields into the Patch:
 
 ```sal
-patch eventGraph
-print = node(palette: "P_PrintString")
+patch g
+print = { palette: "P_PrintString" }
 add print
 ```
 
-Do not guess constructor names, UE Classes, Pins, fields, Palette ids, or
-operation parameters.
+A formatter may emit `node { palette: "P_PrintString" }`, but the tag is
+erasable. The active Domain, operation, Palette identity, and destination
+provide the creation semantics. Never guess a Palette id, Class, field, Pin,
+or operation parameter.
+
+Patch statements execute in written order. Dry run follows the same parse,
+resolve, validate, and plan path, then stops before live application.
+
+## Results And Handoffs
+
+Result text begins with its Target context and an explicit Target table:
+
+```sal
+result exact_target
+target g = target {
+  domain: graph,
+  asset: "/Game/BP_Door.BP_Door",
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
+objects
+beginPlay = node {
+  id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  type: "/Script/BlueprintGraph.K2Node_Event"
+}
+```
+
+The three result contexts are `exact_target`, `domain_root`, and
+`unresolved_target`. Exact results always return the canonical Target after it
+opens, including later operation failures. Unresolved results contain no
+Target and at least one error diagnostic.
+
+The first MCP text block is always the canonical, round-trippable Result Text.
+If no Object Text exists, it ends with `no_objects`, which is a strict
+terminator. Mutation metadata and diagnostics use later independent text
+blocks formatted as SAL comments; they are not appended to Result Text and
+cannot fabricate an `objects` section.
+
+Cross-Domain navigation adds an independent related Target and explicit
+handoff:
+
+The following is a Result Text fragment, not a standalone Result Text document.
+
+```sal
+related bp = target {
+  domain: blueprint,
+  asset: "/Game/BP_Door.BP_Door",
+  id: "11111111-1111-1111-1111-111111111111"
+}
+handoff compile to bp
+```
+
+A related Target is never nested in an object. A reference relative to it is
+qualified as `bp::@identity`; unqualified references remain relative to the
+main exact Target. That scoped form belongs to results. Request text may use
+only its own active Target alias as a redundant qualifier, which the parser
+lowers away; a foreign or unknown qualifier is rejected.
 
 ## Schema Discovery
 
-Schema discovery has three layers:
+Schema has three layers:
 
-1. This resident guide provides the minimum SAL mental model.
-2. Static interface discovery uses `sal_schema({})` to list active modules and
-   `sal_schema({ module: "<module>" })` to return one compact interface card.
-3. Dynamic discovery uses an exact object, exact object-backed value surface,
-   or exact Palette Entry with `with schema`.
-
-A static card explains locators, queries, Object Text, Palette, Patch, and
-handoffs. It does not load UE objects or inspect one concrete instance.
-
-Dynamic discovery example:
+1. this resident guide;
+2. one static Domain card from `sal_schema`;
+3. exact, live `with schema` output for a Target, object, or Palette entry.
 
 ```sal
-query eventGraph
-graph@graph-guid
+query g
+target
+with schema
+
+query g
+@node-guid
 with schema
 ```
 
-The same exact-subject rule applies to Blueprint objects, Nodes, Pins, Widgets,
-Properties, Functions, Defaults, and Palette Entries through each module's
-singular syntax. The result remains ordinary Object Text followed by a schema
-comment containing the Query surface, fields, constraints, direct Patch
-statements, and Operations available in that UE context. Summary, collections,
-and ambiguous Palette searches do not accept `with schema`.
+Exact schema is authoritative for fields, constraints, direct Patch
+statements, instance availability, operations, parameters, outputs, and
+copyable templates. Diagnostics should point back to static schema, an exact
+schema query, a fresh collection/tree query, or an explicit Target handoff.
 
-Diagnostics should close the same discovery loop:
+## Compatibility Window
 
-- unknown syntax points to `sal_schema({ module: "<module>" })`;
-- unknown fields or Operations point to exact `with schema`;
-- stale ids point to the relevant summary, collection, or tree;
-- unavailable capabilities give a reason and copyable next query when possible.
-
-The initial Loomle interface modules are `asset`, `blueprint`, `class`, `graph`,
-`state_tree`, and `widget` when enabled by the Client. Module names organize
-documentation; they are not target-routing fields.
+Only callers that opt into the direct TypeScript parser's protocol-v3
+compatibility mode may submit legacy object constructors, Domain Target
+constructors, or fused kind references. MCP tools and the default SDK facade do
+not enable it. The reader lowers only forms that are unambiguous in the active
+Domain. Under-scoped owner identities, target-self fused references, ambiguous
+or mixed Domains, and any form that would require UE-assisted recovery are
+rejected. The protocol v3 Bridge rejects normalized legacy shapes, current
+formatters never emit them, and the compatibility reader is removed with
+protocol v4 unless a later release note explicitly extends the window.

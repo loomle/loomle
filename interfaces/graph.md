@@ -1,237 +1,150 @@
 # graph
 
-Inspect and edit one resolved UE Graph and its Nodes, Pins, and Edges. This
-interface assumes the resident SAL core guide and does not repeat Core syntax.
+Inspect and edit one resolved UE Graph and its Nodes, Pins, and Edges.
 
 ## Target
 
-A Graph request includes its exact asset-backed owner:
+A discovery Query may use exact Graph name or GraphGuid and may omit
+`blueprintId`. Canonical exact Queries and every Patch use:
 
 ```sal
-door = blueprint(
+eventGraph = target {
+  domain: graph,
   asset: "/Game/BP_Door.BP_Door",
-  id: "blueprint-guid"
-)
-
-eventGraph = graph(asset: door, id: "graph-guid")
-
-query eventGraph
-summary
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
 ```
 
-`graph@id`, `node@id`, and `pin@id` are scoped selectors. They cannot replace
-the complete request target.
+The same flat Target covers top-level and child/collapsed Graphs.
 
-## Queries
-
-Every Query has one primary operation:
+## Identity
 
 ```sal
-query eventGraph
+@node-guid
+@node-guid/pin-guid
+```
+
+A Pin always includes its owning NodeGuid. Optional tags are presentation only:
+
+```sal
+node @node-guid
+pin @node-guid/pin-guid
+```
+
+Graph Domain may also expose declared owning-Blueprint identities for reads and
+references, but resolving them does not grant Blueprint mutation authority.
+
+## Query
+
+```sal
+target
 summary
-
-query eventGraph
 nodes ["text"]
-
-query eventGraph
-graph@id
-
-query eventGraph
-node@id
-
-query eventGraph
-pin@id
-
-query eventGraph
-context node@id|pin@id [depth N]
-
-query eventGraph
-exec flow from|to node@id|pin@id [depth N]
-
-query eventGraph
-data flow from|to node@id|pin@id [depth N]
-
-query eventGraph
-references to <typed-ref>[.<native-member-path>] [in project]
-
-query eventGraph
-palette entries ["text"] [from|to pin@id]
-
-query eventGraph
+@identity
+context @identity [depth N]
+exec flow from|to @identity [depth N]
+data flow from|to @identity [depth N]
+references to <exact-subject> [in project]
+palette entries ["text"] [from|to @node-guid/pin-guid]
 palette @id
 ```
 
-Traversal stays inside the target Graph and depth defaults to 1. `with layout`
-adds stored Node position and size to `nodes`, exact Node or Pin reads,
-`context`, `exec flow`, and `data flow`. `with schema` is valid on an exact
-Graph, Node, Pin, or Palette Entry. Graph defines no `with pins` or
-`with defaults`: exact Nodes return all current Pins, exact Palette Entries
-return all determinable future Pins, and traversal returns only necessary Pins.
-`nodes` supports `=` and `!=` on `type`, `id`, and `NodeComment`, plus `~=` on
-`NodeComment`; ordering keys are `type` and `id`. `palette entries` supports Pin
-context; `widget`, `component`, and `actor` accept only `=` and are mutually
-exclusive, while Boolean `contextSensitive` accepts `=` and `!=` and defaults
-to true. Palette ordering keys are `name`, `category`, and `id`. Both
-collections use cursor pagination with a default limit of 50. Ordered
-comparisons are unsupported.
-
-Graph Summary returns semantic entry Nodes, disconnected-region
-representatives, compact counts, and a compact Comment index of every Node in
-the complete Graph that currently carries UE health state. The index includes
-`node@id` for exact follow-up without expanding the whole Graph.
-`node@id` returns the complete Node and its Pins; `pin@id` returns its compact
-owner and the complete Pin without traversing links.
-`pin@id` is resolved only inside the bound Graph and must match exactly one Pin.
-If several Nodes in that Graph contain the same PinId, Loomle reports
-`resolution.pin_ambiguous` rather than choosing the first match. Reuse of the
-same PinId in another Graph does not affect this request.
-
-Context and flow results remain ordinary ordered Object Text: compact Nodes and
-only the complete target, Edge-endpoint, boundary, or dependency-leaf Pins
-appear before the Edges that reference them.
-
-`references` accepts only cursor `page` clauses, with a default limit of 50: no
-`where`, `order by`, `with`, or `depth`. Without `in project`, its complete
-local scope is exactly the bound Graph; it never silently ascends to the owning
-Blueprint or another Graph. Results exclude the declaration itself and remain
-ordinary ordered Object Text containing compact matching use-site objects.
-Project pages add the compact owner bindings required to read each page
-independently. An unavailable or incomplete native extractor must report a
-diagnostic rather than guess or claim a complete zero result.
-
-Outside Summary, every Graph Query automatically places current UE health
-comments beside each returned existing Node or Pin. Summary keeps its returned
-representatives compact and reports all Graph health only through its index.
-Node health includes compiler messages with their `ErrorType` severity,
-`NodeUpgradeMessage`, and visual warnings from `ShowVisualWarning()` /
-`GetVisualWarningTooltipText()`; Pin health includes `DeprecationMessage`.
-These are existing Comments, not fields, objects, operations, or execution
-diagnostics, and require no `with` clause.
-
-Graph Query does not compile or refresh its owner. For a Blueprint-owned Graph
-whose native Status is `BS_Dirty` or `BS_Unknown`, a result that returns or
-indexes stored Node compiler annotations warns once that they may be stale. Use
-a separate exact Blueprint Patch containing `compile` to obtain fresh complete
-ordered compiler diagnostics.
-
-## Dynamic Schema
-
-Inspect the current Graph's actual Query and Graph-level Operations:
+Use the structural operation `target` to read Graph Target state and schema:
 
 ```sal
 query eventGraph
-graph@graph-guid
+target
 with schema
 ```
 
-Inspect one existing object:
+Traversal stays inside the exact Graph and defaults to depth 1. `with layout`
+adds stored Node position and size. Exact Node reads include current Pins;
+exact Pin reads include its compact owner. Exact objects and Palette entries
+may use `with schema`.
+
+`nodes` filters on `type`, `id`, and `NodeComment`; Palette filters and ordering
+are closed by the static and exact schema. Collections use cursor pagination.
+
+Every Graph Query outside Summary places current UE health comments beside
+returned existing Nodes and Pins. Summary instead returns one complete compact
+health index.
+
+## Object Text
 
 ```sal
-query eventGraph
-node@node-guid
-with schema
+beginPlay = node {
+  id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  type: "/Script/BlueprintGraph.K2Node_Event"
+}
+
+beginPlay.then = pin {
+  id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+  type: "<FEdGraphPinType native text>",
+  direction: out
+}
 ```
 
-Inspect one creation capability:
+The `node` and `pin` tags are erasable. The exact Graph Target, native fields,
+and references supply the meaning.
+
+Edges connect Pins:
 
 ```sal
-query eventGraph
-palette @palette-entry-id
-with schema
+beginPlay.then -> sequence.execute
 ```
 
-The schema comment gives exact fields, constraints, available Operations,
-parameters, outputs, and copyable `invoke` templates for the resolved UE
-context. It advertises only Operations that the resolved Node or Pin can
-execute now; for example, a non-removable dynamic Pin does not advertise its
-remove Operation.
-
-Timeline remains one compound Graph Node. An exact Timeline Node read flattens
-its paired `UTimelineTemplate` fields, ordered Tracks, internal Curve Keys, and
-external Curve references onto `node(...)`. `with schema` exposes its
-constructor fields and target-local Track, Key, Curve-ownership, duplication,
-and deletion Operations; there is no separate Timeline selector or object.
+There is no Edge UObject or Edge identity.
 
 ## Patch
-
-New Nodes use bindings returned by Palette. UE creates their base Pins:
 
 ```sal
 patch eventGraph [dry run]
 
-delay = node(palette: "palette-entry-id")
+delay = { palette: "palette-entry-id" }
 add delay
+
+connect @source-node-guid/source-pin-guid ->
+  @target-node-guid/target-pin-guid
+disconnect @source-node-guid/source-pin-guid ->
+  @target-node-guid/target-pin-guid
+break @node-guid/pin-guid
+
+insert @source-node-guid/source-pin-guid ->
+  delay.execute / delay.then ->
+  @target-node-guid/target-pin-guid
+
+set @node-guid.NodeComment = "Wait briefly"
+set @node-guid/pin-guid.DefaultValue = "1.0"
+reset @node-guid/pin-guid.DefaultValue
+move @node-guid to (640, 0)
+remove @node-guid
+
+invoke @node-guid Operation(namedArguments) [as alias]
+invoke @node-guid/pin-guid Operation(namedArguments) [as alias]
 ```
 
-Graph Patch operations are:
+Palette creates each base Node and its Pins through UE. Raw Pin creation is
+invalid. `insert` atomically replaces one existing Edge. Exact schema is
+authoritative for fields, operations, arguments, outputs, and availability.
+
+Dry run executes the same ordered native edit path against an isolated
+transient owner and returns only stable live identities or creation aliases.
+
+## Finalization Handoff
+
+Graph Domain does not compile or save its owning Blueprint. A Graph result
+supplies a related Blueprint Target:
+
+The following is a Result Text fragment, not a standalone Result Text document.
 
 ```sal
-add delay
-add delay pin@source-id -> delay.execute
-add delay delay.then -> pin@target-id
-
-connect pin@source-id -> pin@target-id
-disconnect pin@source-id -> pin@target-id
-break pin@id
-
-insert pin@source-id -> delay.execute/then -> pin@target-id
-
-set node@id.NativeField = value
-set pin@id.NativeField = value
-reset node@id.NativeField
-reset pin@id.NativeField
-move node@id to (x, y)
-move node@id by (dx, dy)
-remove node@id
-
-invoke eventGraph Operation(namedArguments) [as alias]
-invoke node@id Operation(namedArguments) [as alias]
-invoke pin@id Operation(namedArguments) [as alias]
-```
-
-`add` may connect one side of a new Node. Two-sided replacement uses `insert`.
-`disconnect` removes one exact Edge; `break` performs UE Break All Pin Links.
-Do not declare raw Pins or guess constructor names, Classes, Palette ids,
-fields, Pins, or Operation parameters.
-
-Dry run executes the same ordered Patch against an isolated transient duplicate
-of the entire owning Blueprint, including generated Class state, Timeline
-Templates, and detached internal Curves. It returns current live Object Text,
-not transient object ids. Its transient top-level transaction is canceled after
-planning so no undo record survives. Graph Patch requires one available
-top-level UE Editor transaction. Any live apply failure ends that transaction
-and immediately undoes it; live transaction cancellation is used only for a
-successful all-no-op Patch.
-
-Both dry run and apply return the same structured `planned` data: ordered
-operations with source indexes, bindings/references/invoke names, followed by
-safe effects. Created transient objects are represented only by their source
-aliases; only touched ids that resolve back to the live Graph may appear.
-
-## Palette
-
-```sal
-query eventGraph
-palette entries "Print String"
-```
-
-Copy the returned `node(palette: ...)` binding into Patch. Patch re-resolves
-and validates the Palette id in the current Graph context before creation.
-
-## Finalize
-
-Graph Patch does not finalize its owning asset. For a Blueprint Graph, compile
-and save through a separate exact Blueprint request:
-
-```sal
-door = blueprint(
+related bp = target {
+  domain: blueprint,
   asset: "/Game/BP_Door.BP_Door",
-  id: "blueprint-guid"
-)
-
-patch door
-compile
-save
+  id: "11111111-1111-1111-1111-111111111111"
+}
+handoff compile to bp
 ```
 
-Graphs owned by another asset type follow that owner's interface card.
+Compile and save in a following Blueprint request.

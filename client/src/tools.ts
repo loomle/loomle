@@ -1,10 +1,11 @@
 import {
   createSal,
   objectResultToTextResult,
+  unresolvedTextResult,
   type Diagnostic,
-  type MutationResult,
+  type PatchResult,
   type Query,
-  type Result,
+  type QueryResult,
   type Sal,
   type SalExecutionOptions,
   type TextResult,
@@ -85,13 +86,13 @@ export const toolDefinitions: readonly ToolDefinition[] = [
   },
   {
     name: "sal_query",
-    description: "Read Unreal Engine objects with one self-contained SAL Query Text. Returns ordered SAL Object Text.",
+    description: "Read Unreal Engine objects with one self-contained SAL Query Text. The first text block is canonical SAL Result Text; diagnostics use later text blocks.",
     inputSchema: textInputSchema("Self-contained SAL Query Text."),
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
   {
     name: "sal_patch",
-    description: "Validate or modify Unreal Engine objects with one ordered SAL Patch Text. Use 'dry run' before risky edits.",
+    description: "Validate or modify Unreal Engine objects with one ordered SAL Patch Text. The first result block is canonical SAL Result Text; metadata and diagnostics use later blocks. Use 'dry run' before risky edits.",
     inputSchema: textInputSchema("Self-contained SAL Patch Text."),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
   },
@@ -113,7 +114,7 @@ export const toolDefinitions: readonly ToolDefinition[] = [
   },
   {
     name: "editor_context",
-    description: "Return the user's current Unreal Editor interaction target as compact, ordered SAL Object Text.",
+    description: "Return the user's current Unreal Editor interaction target. The first text block is canonical SAL Result Text with exact Target context when available.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
@@ -133,10 +134,10 @@ export class SalToolService {
       executor: {
         interfaces: interfaceNames,
         query: async (object: Query, options?: SalExecutionOptions) => (
-          this.rpc.invoke("sal.query", { object }, options?.signal) as Promise<Result>
+          this.rpc.invoke("sal.query", { object }, options?.signal) as Promise<QueryResult>
         ),
         patch: async (object, options?: SalExecutionOptions) => (
-          this.rpc.invoke("sal.patch", { object }, options?.signal) as Promise<MutationResult>
+          this.rpc.invoke("sal.patch", { object }, options?.signal) as Promise<PatchResult>
         ),
       },
     });
@@ -184,7 +185,10 @@ export class SalToolService {
           return toolFailure("tool.unknown", `Unknown Loomle tool: ${name}.`);
       }
     } catch (error) {
-      return name === "project" ? projectFailureFromError(error) : toolFailureFromError(error);
+      if (name === "project") return projectFailureFromError(error);
+      return isResultTool(name)
+        ? resultToolFailureFromError(error)
+        : toolFailureFromError(error);
     }
   }
 
@@ -279,20 +283,24 @@ function projectFailureFromError(error: unknown): McpToolResult {
 }
 
 export function toMcpResult(result: TextResult): McpToolResult {
-  const sections: string[] = [];
-  if (result.text !== undefined && result.text.length > 0) sections.push(result.text);
+  const sections: McpTextContent[] = [];
+  if (result.text !== undefined && result.text.length > 0) {
+    sections.push({ type: "text", text: result.text });
+  }
 
   const metadata = formatMetadata(result);
-  if (metadata) sections.push(metadata);
+  if (metadata) sections.push({ type: "text", text: metadata });
   if (result.diagnostics.length > 0) {
-    sections.push(formatDiagnostics(result.diagnostics));
+    sections.push({ type: "text", text: formatDiagnostics(result.diagnostics) });
   }
-  if (sections.length === 0) sections.push(salComment("SAL returned no Object Text."));
+  if (sections.length === 0) {
+    sections.push({ type: "text", text: salComment("SAL returned no Object Text.") });
+  }
 
   const isError = result.isError === true
     || result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
   return {
-    content: [{ type: "text", text: sections.join("\n\n") }],
+    content: sections,
     ...(isError ? { isError: true } : {}),
   };
 }
@@ -419,6 +427,37 @@ function toolFailureFromError(error: unknown): McpToolResult {
     } : {}),
   };
   return toMcpResult({ diagnostics: [diagnostic] });
+}
+
+function resultToolFailureFromError(error: unknown): McpToolResult {
+  const message = error instanceof Error ? error.message : String(error);
+  if (!(error instanceof RuntimeRpcError)) {
+    const diagnostic: Diagnostic = {
+      severity: "error",
+      code: errorCode(error),
+      message,
+    };
+    return toMcpResult(unresolvedTextResult([diagnostic]));
+  }
+
+  const lines = [message];
+  if (error.detail !== undefined) lines.push(`  detail: ${error.detail}`);
+  lines.push(`  retryable: ${error.retryable}`);
+  const diagnostic: Diagnostic = {
+    severity: "error",
+    code: String(error.code),
+    message: lines.join("\n"),
+    ...(error.retryable ? {
+      suggestion: "Re-check the current Editor and object state before retrying. Never blindly replay a Patch after a lost response.",
+    } : {}),
+  };
+  return toMcpResult(unresolvedTextResult([diagnostic]));
+}
+
+function isResultTool(name: string): boolean {
+  return name === "sal_query"
+    || name === "sal_patch"
+    || name === "editor_context";
 }
 
 function errorCode(error: unknown): string {

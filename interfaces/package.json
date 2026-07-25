@@ -24,7 +24,7 @@
   ],
   "scripts": {
     "generate": "node scripts/generate-catalog.mjs",
-    "check:generated": "npm run generate && git diff --exit-code -- src/generated/catalog.ts",
+    "check:generated": "node scripts/check-generated.mjs",
     "build:sal": "npm run build --workspace @loomle/sal",
     "build": "npm run generate && npm run build:sal && tsc -p tsconfig.json",
     "test": "npm run check:generated && npm run build && node dist/tests/catalog.js"

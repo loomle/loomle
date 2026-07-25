@@ -1,44 +1,65 @@
 import type { Condition, OrderBy, Page } from "../index.js";
-import { formatExpr, parseExpr } from "./expr.js";
+import { type ExpressionParseOptions, formatExpr, parseExpr } from "./expr.js";
 import { ParseError, type ParsedLine, spanForLine, splitTopLevel } from "./text.js";
 
 export function parseCondition(
   text: string,
   line: ParsedLine,
   aliases: ReadonlySet<string> = new Set(),
+  options: ExpressionParseOptions = {},
 ): Condition {
-  return parseOrCondition(text.trim(), line, aliases);
+  return parseOrCondition(text.trim(), line, aliases, options);
 }
 
-function parseOrCondition(text: string, line: ParsedLine, aliases: ReadonlySet<string>): Condition {
+function parseOrCondition(
+  text: string,
+  line: ParsedLine,
+  aliases: ReadonlySet<string>,
+  options: ExpressionParseOptions,
+): Condition {
   const parts = splitByKeyword(text, "or");
   if (parts.length > 1) {
-    return { kind: "or", conditions: parts.map((part) => parseAndCondition(part, line, aliases)) as [Condition, Condition, ...Condition[]] };
+    return { kind: "or", conditions: parts.map((part) => parseAndCondition(part, line, aliases, options)) as [Condition, Condition, ...Condition[]] };
   }
-  return parseAndCondition(text, line, aliases);
+  return parseAndCondition(text, line, aliases, options);
 }
 
-function parseAndCondition(text: string, line: ParsedLine, aliases: ReadonlySet<string>): Condition {
+function parseAndCondition(
+  text: string,
+  line: ParsedLine,
+  aliases: ReadonlySet<string>,
+  options: ExpressionParseOptions,
+): Condition {
   const parts = splitByKeyword(text, "and");
   if (parts.length > 1) {
-    return { kind: "and", conditions: parts.map((part) => parseNotCondition(part, line, aliases)) as [Condition, Condition, ...Condition[]] };
+    return { kind: "and", conditions: parts.map((part) => parseNotCondition(part, line, aliases, options)) as [Condition, Condition, ...Condition[]] };
   }
-  return parseNotCondition(text, line, aliases);
+  return parseNotCondition(text, line, aliases, options);
 }
 
-function parseNotCondition(text: string, line: ParsedLine, aliases: ReadonlySet<string>): Condition {
+function parseNotCondition(
+  text: string,
+  line: ParsedLine,
+  aliases: ReadonlySet<string>,
+  options: ExpressionParseOptions,
+): Condition {
   const trimmed = text.trim();
   const grouped = unwrapOuterParens(trimmed);
   if (grouped !== undefined) {
-    return parseCondition(grouped, line, aliases);
+    return parseCondition(grouped, line, aliases, options);
   }
   if (trimmed.startsWith("not ")) {
-    return { kind: "not", condition: parseCondition(trimmed.slice(4), line, aliases) };
+    return { kind: "not", condition: parseCondition(trimmed.slice(4), line, aliases, options) };
   }
-  return parseComparisonCondition(trimmed, line, aliases);
+  return parseComparisonCondition(trimmed, line, aliases, options);
 }
 
-function parseComparisonCondition(text: string, line: ParsedLine, aliases: ReadonlySet<string>): Condition {
+function parseComparisonCondition(
+  text: string,
+  line: ParsedLine,
+  aliases: ReadonlySet<string>,
+  options: ExpressionParseOptions,
+): Condition {
   const match = /^([A-Za-z_][A-Za-z0-9_.]*)\s*(~=|!=|>=|<=|>|<|=)\s*(.+)$/.exec(text);
   if (!match) {
     if (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(text)) {
@@ -47,7 +68,7 @@ function parseComparisonCondition(text: string, line: ParsedLine, aliases: Reado
     throw new ParseError("language.unsupported_condition", "Unsupported condition.", spanForLine(line));
   }
   const field = { path: match[1].split(".") as [string, ...string[]] };
-  const value = parseExpr(match[3], line, aliases);
+  const value = parseExpr(match[3], line, aliases, options);
   switch (match[2]) {
     case "=": return { kind: "eq", field, value };
     case "!=": return { kind: "ne", field, value };

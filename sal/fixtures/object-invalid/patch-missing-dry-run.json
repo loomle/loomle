@@ -1,5 +1,13 @@
 {
   "kind": "patch",
-  "target": { "alias": "bp", "value": { "kind": "call", "callee": "blueprint", "args": { "asset": "/Game/BP_Test" } } },
-  "statements": []
+  "target": {
+    "alias": "bp",
+    "target": {
+      "kind": "target",
+      "domain": "blueprint",
+      "asset": "/Game/BP_Test.BP_Test",
+      "id": "11111111-1111-1111-1111-111111111111"
+    }
+  },
+  "statements": [{ "kind": "save" }]
 }

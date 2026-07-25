@@ -38,10 +38,11 @@ descriptions stay short and specific to their boundary. Calling `sal_schema` sti
 returns only the active interface index or the requested static interface; it
 does not repeat the resident guide.
 
-Query, Patch, and Editor Context results share the same validated ordered Object
-Text. Mutation execution fields and diagnostics follow that Object Text inside
-ordinary SAL comments, so the complete MCP text remains directly readable and
-copyable without a parallel JSON payload.
+Query, Patch, and Editor Context return the same validated canonical Result
+Text in the first MCP text block. That block declares result context and
+Targets, then contains ordered Object Text or ends with `no_objects`. Mutation
+metadata and diagnostics use later independent SAL-comment text blocks; they
+are not appended to or parsed as part of the first Result Text block.
 
 ## Project Binding And Runtime Liveness
 

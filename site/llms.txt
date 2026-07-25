@@ -43,8 +43,8 @@ Six public MCP tools:
 - `sal_patch({ text })`: dry-run or apply one ordered SAL Patch Text.
 - `sal_schema({})`: return the active interface-module index.
 - `sal_schema({ module })`: return one static interface card.
-- `editor_context({})`: return the current UE interaction target as ordered SAL
-  Object Text.
+- `editor_context({})`: return the current UE interaction target as canonical
+  SAL Result Text.
 
 Six active SAL interfaces:
 
@@ -59,13 +59,22 @@ Recommended workflow:
 
 1. Call `status({})` once.
 2. Bind one project when the session is unbound.
-3. Locate the exact target.
+3. Locate the exact flat Domain Target.
 4. Query a compact view.
 5. Discover static or dynamic schema only when needed.
 6. Use a UE Palette capability before creation.
 7. Dry-run the complete Patch.
 8. Apply the same authored Patch and read back.
 9. Compile and save through the owning asset.
+
+Every Query or Patch declares one flat
+`target { domain: asset|blueprint|class|graph|state_tree|widget, ... }`.
+Contained objects use Target-relative `@identity/path` references; kind words
+never form part of identity. Ordinary objects use `{...}`. Optional semantic
+tags are erasable presentation metadata and never select a Domain or type.
+Public results begin with `result exact_target`, `result domain_root`, or
+`result unresolved_target`; mutation metadata and diagnostics are later,
+independent MCP text blocks.
 
 Do not guess UE Classes, fields, Pins, object ids, destinations, Palette
 entries, or operation names. The Client's `sal_schema` interface cards and

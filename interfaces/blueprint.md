@@ -1,38 +1,50 @@
 # blueprint
 
 Inspect and edit one Blueprint's Class Settings, Variables, Dispatchers,
-top-level Graph lifecycle, and owned SCS Components. This interface assumes the
-resident SAL Core guide.
+top-level Graph lifecycle, and owned SCS Components.
 
 ## Target
 
-The first Query may resolve by exact Asset Path and returns `BlueprintGuid`:
+The first Query may discover `BlueprintGuid` from an exact Asset Path:
 
 ```sal
-door = blueprint(asset: "/Game/BP_Door.BP_Door")
+door = target {
+  domain: blueprint,
+  asset: "/Game/BP_Door.BP_Door"
+}
 
 query door
 summary
 ```
 
-Later exact Queries and every Patch use both fields:
+Canonical exact Queries and every Patch use both fields:
 
 ```sal
-door = blueprint(
+door = target {
+  domain: blueprint,
   asset: "/Game/BP_Door.BP_Door",
-  id: "blueprint-guid"
-)
+  id: "11111111-1111-1111-1111-111111111111"
+}
 ```
 
-The Path loads the asset and the Guid verifies it. Typed ids below are scoped
-to this Blueprint and cannot replace the complete target.
+The Path loads; `id` verifies persisted `BlueprintGuid`.
+
+## Identity
+
+References are relative to the exact Blueprint Target:
+
+| Object | StableRef |
+| --- | --- |
+| Variable, Dispatcher, top-level Graph, SCS Component, referenceable Node | `@Guid` |
+| Function-local Variable | `@TopLevelFunctionGraphGuid/VarGuid` |
+
+All one-segment categories share one identity environment. A collision across
+categories is an identity conflict; a semantic tag does not disambiguate it.
 
 ## Query
 
-Every Query starts with `query door` and chooses exactly one primary operation
-from this surface:
-
 ```sal
+target
 summary
 variables ["text"]
 dispatchers ["text"]
@@ -42,124 +54,87 @@ variable <name>
 dispatcher <name>
 graph <name>
 component <name>
-blueprint@id
-variable@id
-dispatcher@id
-graph@id
-component@id
-references to <typed-ref>[.<native-member-path>] [in project]
+@identity
+references to <exact-subject> [in project]
 palette entries ["text"]
 palette @id
 ```
 
-`summary` returns the compact Blueprint and counts naming the four collection
-operations. Collections return compact identities, preserve UE authored order
-by default, and use cursor pagination with a default limit of 50. They support
-exact `=` and `!=` predicates on `name`, `id`, and `type`, plus ordering by
-those same keys. Fuzzy matching belongs to the optional primary search text.
-
-Exact-name queries discover the current object and id. Both exact-name and
-exact-id reads return complete compact state and may use `with schema`. Exact
-reads do not accept `where`, ordering, or pagination.
-
-`references` is the shared factual use-site query. It accepts only cursor
-`page` clauses, with a default limit of 50: no `where`, `order by`, `with`, or
-`depth`. Without `in project`, it searches exactly the bound Blueprint's
-authored state and does not expand to another asset. Its results exclude the
-declaration itself and remain ordinary ordered Object Text containing the
-matching use-site objects; project pages include the compact owner bindings
-needed to read each page independently. An unavailable or incomplete native
-extractor must report a diagnostic instead of guessing or returning a false
-complete zero result.
+Collections preserve authored order and use cursor pagination. Exact `name`
+operations discover current identity; exact StableRef reads may use
+`with schema`.
 
 ```sal
 query door
-variable@variable-guid
+@variable-guid
 with schema
 ```
 
-When `query door` selects `graph@id`, schema describes Blueprint-owned Graph
-lifecycle. Bind that Graph as its own target and use
-`sal_schema({ module: "graph" })` for
-Node, Pin, Edge, flow, and Graph-body operations.
+`references` searches this Blueprint by default. `in project` uses the bounded
+project index and returns independently locatable pages.
 
-## Palette And Creation
+## Objects And Creation
 
-The target exposes one combined Palette of its valid direct creation
-capabilities. Inspect an exact entry before creation when parameters or current
-constraints are needed:
+Results use ordinary brace objects. A Domain may recommend an erasable tag for
+presentation, but tags do not choose an object kind:
+
+```sal
+door.Health = {
+  id: "33333333-3333-3333-3333-333333333333",
+  type: "<FEdGraphPinType native text>",
+  Category: "Stats"
+}
+```
+
+Palette returns copyable object fields:
 
 ```sal
 query door
 palette entries "Variable"
-
-query door
-palette @palette-entry-id
-with schema
 ```
-
-Palette search accepts optional text and cursor pagination with a default limit
-of 50. It does not accept `where`, `order by`, or collection expansions.
-
-Copy returned constructors into one ordered Patch:
 
 ```sal
-patch door [dry run]
-
-door.Health = variable(
+patch door
+door.Health = {
   palette: "variable-palette-id",
   type: "<FEdGraphPinType native text>"
-)
+}
 add door.Health
 
-door.OnOpened = dispatcher(palette: "dispatcher-palette-id")
+door.OnOpened = { palette: "dispatcher-palette-id" }
 add door.OnOpened
 
-OpenDoor = graph(palette: "graph-palette-id")
+OpenDoor = { palette: "graph-palette-id" }
 add OpenDoor
 
-Mesh = component(palette: "component-palette-id")
-add Mesh to component@root-guid
+Mesh = { palette: "component-palette-id" }
+add Mesh to @root-component-guid
 ```
 
-On a composed target such as `UWidgetBlueprint`, one authored Patch is owned
-atomically by exactly one interface planner. Blueprint declarations, Graph
-lifecycle, Class Settings, and SCS Components may share one Blueprint Patch;
-they cannot be mixed with Widget-tree lifecycle in that same request. Run the
-Widget-authored batch as a following request. Queries remain freely composable.
-
-Palette and exact schema determine which constructors and arguments are valid
-for the concrete Blueprint subclass. Timeline Nodes come from their target
-Graph Palette, not the Blueprint Palette.
+The active Blueprint Domain, Palette identity, binding path, and `add`
+destination provide creation meaning. No object tag or native Class selects the
+Domain or lifecycle.
 
 ## Existing Objects
-
-Class Settings use the target alias. Existing contained objects use typed ids:
 
 ```sal
 set door.BlueprintDescription = "Interactive door"
 reset door.BlueprintDescription
 set door.ParentClass = "/Script/Engine.Actor"
 
-set variable@id.NativeField = value
-reset variable@id.NativeField
-move variable@id before variable@anchor-id
-move dispatcher@id after dispatcher@anchor-id
-move graph@id before graph@anchor-id
+set @variable-guid.Category = Stats
+move @variable-guid before @anchor-variable-guid
+remove @variable-guid
 
-set component@id.NativeField = value
-move component@id to component@parent-id
-
-remove variable@id
-remove dispatcher@id
-remove graph@id
-remove component@id
+set @component-guid.StaticMesh = "/Game/Meshes/SM_Door.SM_Door"
+move @component-guid to @parent-component-guid
+remove @component-guid
 ```
 
-Exact `with schema` is authoritative for writable fields, reset behavior,
-lifecycle availability, constraints, and effects.
+Exact schema is authoritative for field access, reset behavior, lifecycle
+availability, constraints, operations, and native effects.
 
-Schema-discovered compound Operations include:
+Compound operations include:
 
 ```sal
 invoke door ImplementInterface(Interface: "<Interface Class Path>")
@@ -169,22 +144,13 @@ invoke door RemoveInterface(
 )
 invoke door ImplementFunction(function: "<Function Path>")
 
-invoke component@id MakeNewSceneRoot()
-invoke component@id Duplicate() as copy
+invoke @component-guid MakeNewSceneRoot()
+invoke @component-guid Duplicate() as copy
 ```
-
-Dry run resolves and applies the ordered authored batch to a transient
-Blueprint/SCS copy. Its mutation envelope returns ordered
-`planned.operations` and `planned.effects`; it never returns transiently
-generated ids as durable state. Real success returns the final Blueprint plus
-the same ordinary Variable, Dispatcher, Graph, and Component objects touched
-or created by the batch, together with any Graph, Node, and Pin navigation
-objects produced by compound operations. A later apply failure undoes the
-complete private UE transaction before the error is returned.
 
 ## Compile And Save
 
-Explicit finalization is a separate terminal Patch:
+Finalization is a separate terminal Patch:
 
 ```sal
 patch door [dry run]
@@ -192,16 +158,15 @@ compile
 save
 ```
 
-Valid terminal forms are `compile`, `save`, or `compile` followed by `save`.
-They cannot be mixed with bindings or authored source mutations. `compile`
-targets the whole Blueprint, never an individual Graph, and returns native
-Status and ordered compiler diagnostics. `save` persists only the exact owning
-Package.
+Valid forms are `compile`, `save`, or `compile` followed by `save`. They cannot
+be mixed with authored edits. Compile targets the whole Blueprint and returns
+native Status plus ordered compiler diagnostics.
 
 ## Handoffs
 
-- Graph bodies, Dispatcher signatures, and Timeline Nodes use `graph`.
-- A `UWidgetBlueprint` target composes this module with `widget`.
-- Generated Class Reflection and effective Defaults use `class` after compile.
-- Interface implementation is a Blueprint Operation, not a created Interface
-  object or Palette Entry.
+- Graph bodies and signatures use an independent Graph Target.
+- A `UWidgetBlueprint` WidgetTree uses an independent Widget Target.
+- Generated Class Reflection and effective Defaults use a Class Target.
+
+Results retain each destination in `relatedTargets` and name it with an
+explicit handoff. Blueprint never composes another Domain implicitly.

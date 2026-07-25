@@ -13,14 +13,15 @@ second artificial Case object or ask the agent to manipulate raw Pins.
 Read the exact switch Node and its current capabilities:
 
 ```text
-door = blueprint(
+eventGraph = target {
+  domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid"
-)
-eventGraph = graph(asset: door, id: "graph-guid")
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
 
 query eventGraph
-node@switch-node-guid
+@switch-node-guid
 with schema
 ```
 
@@ -29,18 +30,20 @@ including their exact parameters and a copyable invocation template. Use that
 template in a dry run:
 
 ```text
-door = blueprint(
+eventGraph = target {
+  domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "blueprint-guid"
-)
-eventGraph = graph(asset: door, id: "graph-guid")
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
 
 patch eventGraph dry run
-invoke node@switch-node-guid AddExecutionPin() as addedPin
+invoke @switch-node-guid AddExecutionPin() as addedPin
 ```
 
-Review the returned Pins and planned effects, then apply. Finish by compiling
-and saving the owning Blueprint in a separate terminal Patch. Never infer an
-operation from the display title of a similar switch Node. The example applies
-only when exact schema advertises the operation shown above; otherwise copy the
-operation template it actually returns.
+Review the returned Pins and planned effects, then apply. The Graph result
+supplies an independent related Blueprint Target and explicit compile handoff;
+copy that returned Target into a separate terminal Patch to compile and save.
+Never infer an operation from the display title of a similar switch Node. The
+example applies only when exact schema advertises the operation shown above;
+otherwise copy the operation template it actually returns.

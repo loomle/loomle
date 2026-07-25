@@ -2,7 +2,7 @@
   "kind": "query",
   "target": {
     "alias": "eventGraph",
-    "value": { "kind": "name", "name": "eventGraph" }
+    "target": { "kind": "target", "domain": "graph", "asset": "/Game/BP_Test.BP_Test", "name": "EventGraph" }
   },
   "operation": {
     "kind": "references",

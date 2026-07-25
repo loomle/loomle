@@ -2,7 +2,7 @@
 layout: default
 title: SAL Query and Patch
 parent: MCP Calls
-nav_order: 2
+nav_order: 3
 description: Execute self-contained SAL Query Text and ordered Patch Text.
 ---
 
@@ -16,12 +16,12 @@ Pass one self-contained Query Text:
 
 ```text
 sal_query({
-  text: "door = blueprint(asset: \"/Game/BP_Door.BP_Door\")\n\nquery door\nsummary"
+  text: "door = target {\n  domain: blueprint,\n  asset: \"/Game/BP_Door.BP_Door\"\n}\n\nquery door\nsummary"
 })
 ```
 
 The Client parses and validates the text, sends its normalized form to the
-bound Bridge, validates the result, and formats ordered SAL Object Text.
+bound Bridge, validates the result, and formats canonical SAL Result Text.
 
 A Query reads. It must not repair, compile, dirty, or save the selected object
 unless an interface explicitly documents a read with different native
@@ -33,7 +33,7 @@ Pass one self-contained Patch Text:
 
 ```text
 sal_patch({
-  text: "door = blueprint(asset: \"/Game/BP_Door.BP_Door\", id: \"blueprint-guid\")\n\npatch door dry run\nset door.BlueprintDescription = \"Interactive door\""
+  text: "door = target {\n  domain: blueprint,\n  asset: \"/Game/BP_Door.BP_Door\",\n  id: \"11111111-1111-1111-1111-111111111111\"\n}\n\npatch door dry run\nset door.BlueprintDescription = \"Interactive door\""
 })
 ```
 
@@ -44,23 +44,24 @@ A Patch is ordered. Bindings and operations execute in their written order
 after the complete request passes parsing, resolution, validation, and
 planning.
 
-## One Request, One Planner
+## One Request, One Domain
 
-Composed targets can expose several query interfaces, but one authored Patch is
-owned atomically by one interface planner. For example, Blueprint declarations
-and Widget-tree edits use following requests rather than one mixed Patch.
+Every request binds one active flat Target and therefore operates in one
+Domain. Cross-Domain work uses a returned independent related Target and an
+explicit handoff, followed by a new request. For example, Blueprint
+declarations and Widget-tree edits cannot be mixed into one Patch.
 
 ## Text Results
 
-Both calls return ordinary Object Text with adjacent comments for:
+Both calls return a first MCP text block containing only canonical Result Text:
 
-- diagnostics;
-- pagination;
-- resolved identities;
-- dry-run and apply state;
-- planned operations and effects;
-- diffs; and
-- compiler or object health.
+- `result exact_target` with a canonical Target after the Target opens;
+- `result domain_root` for the Asset collection root; or
+- `result unresolved_target` when no Target opens.
+
+An `objects` marker begins ordered Object Text. When no Object Text exists,
+`no_objects` is the final line. Mutation metadata and diagnostics appear only
+in later independent MCP text blocks formatted as SAL comments.
 
 See [SAL Working Model](../concepts/sal.html) and
 [Mutations and Finalization](../concepts/mutations.html).

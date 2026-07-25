@@ -16,10 +16,12 @@ TSharedPtr<FJsonValue> Bool(bool InValue);
 TSharedPtr<FJsonValue> Number(double InValue);
 TSharedPtr<FJsonValue> String(const FString& InValue);
 TSharedPtr<FJsonValue> Name(const FString& InName);
+TSharedPtr<FJsonValue> NameOrString(const FString& InName);
 TSharedPtr<FJsonValue> Local(const FString& InName);
 TSharedPtr<FJsonValue> Stable(const FString& InKind, const FString& InId);
 TSharedPtr<FJsonValue> Member(const TSharedPtr<FJsonObject>& ObjectRef, const TArray<FString>& Path);
 TSharedPtr<FJsonValue> Call(const FString& Callee, const TSharedPtr<FJsonObject>& Args);
+bool IsExplicitExpression(const TSharedPtr<FJsonValue>& InValue);
 TSharedPtr<FJsonObject> LocalObject(const FString& InName);
 TSharedPtr<FJsonObject> StableObject(const FString& InKind, const FString& InId);
 TSharedPtr<FJsonObject> MemberObject(const TSharedPtr<FJsonObject>& ObjectRef, const TArray<FString>& Path);
@@ -30,6 +32,7 @@ class FSalObjectBuilder
 {
 public:
     static bool IsIdentifier(const FString& Text);
+    static bool IsLocalIdentifier(const FString& Text);
     static FString SanitizeIdentifier(const FString& Text, const FString& Fallback = TEXT("item"));
 
     FString UniqueAlias(const FString& Preferred);

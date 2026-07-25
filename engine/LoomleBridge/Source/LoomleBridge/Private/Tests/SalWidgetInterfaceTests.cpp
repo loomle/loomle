@@ -3,6 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Sal/Widget/SalWidgetInterface.h"
+#include "SalTestObjectModel.h"
 #include "Tests/LoomleTestEditorState.h"
 
 #include "Blueprint/UserWidget.h"
@@ -90,16 +91,15 @@ TArray<TSharedPtr<FJsonObject>> CallArgs(
         const TSharedPtr<FJsonObject>* Statement = nullptr;
         const TSharedPtr<FJsonObject>* Call = nullptr;
         const TSharedPtr<FJsonObject>* CallArgsObject = nullptr;
-        FString ActualCallee;
         if (StatementValue.IsValid()
             && StatementValue->TryGetObject(Statement)
             && Statement != nullptr
             && (*Statement)->TryGetObjectField(TEXT("value"), Call)
             && Call != nullptr
-            && (*Call)->TryGetStringField(TEXT("callee"), ActualCallee)
-            && ActualCallee == Callee
-            && (*Call)->TryGetObjectField(TEXT("args"), CallArgsObject)
-            && CallArgsObject != nullptr)
+            && Loomle::Tests::Sal::TryReadObjectExpr(
+                *Call,
+                Callee,
+                CallArgsObject))
         {
             Args.Add(*CallArgsObject);
         }
@@ -197,7 +197,6 @@ bool HasWidgetMemberBinding(
         const TSharedPtr<FJsonObject>* Args = nullptr;
         const TArray<TSharedPtr<FJsonValue>>* Path = nullptr;
         FString TargetKind;
-        FString Callee;
         FString ActualId;
         if (!StatementValue.IsValid()
             || !StatementValue->TryGetObject(Statement)
@@ -210,10 +209,10 @@ bool HasWidgetMemberBinding(
             || Path == nullptr
             || !(*Statement)->TryGetObjectField(TEXT("value"), Call)
             || Call == nullptr
-            || !(*Call)->TryGetStringField(TEXT("callee"), Callee)
-            || Callee != TEXT("widget")
-            || !(*Call)->TryGetObjectField(TEXT("args"), Args)
-            || Args == nullptr
+            || !Loomle::Tests::Sal::TryReadObjectExpr(
+                *Call,
+                TEXT("widget"),
+                Args)
             || !(*Args)->TryGetStringField(TEXT("id"), ActualId)
             || ActualId != WidgetId
             || Path->Num() != ExpectedPath.Num())
@@ -542,9 +541,10 @@ bool FSalWidgetQueryCoverageTest::RunTest(
         {
             const TSharedPtr<FJsonObject>* RootRef = nullptr;
             FString RootKind;
+            const TArray<TSharedPtr<FJsonValue>>* RootIdentityPath = nullptr;
             FString ActualRootId;
             TestTrue(
-                TEXT("Widget summary exposes the exact root Widget"),
+                TEXT("Widget summary exposes the exact root Widget as an untagged StableRef"),
                 SummaryArgs->TryGetObjectField(
                     TEXT("Root"),
                     RootRef)
@@ -552,9 +552,15 @@ bool FSalWidgetQueryCoverageTest::RunTest(
                     && (*RootRef)->TryGetStringField(
                         TEXT("kind"),
                         RootKind)
-                    && RootKind == TEXT("widget")
-                    && (*RootRef)->TryGetStringField(
-                        TEXT("id"),
+                    && RootKind == TEXT("stable_ref")
+                    && !(*RootRef)->HasField(TEXT("semanticTag"))
+                    && (*RootRef)->TryGetArrayField(
+                        TEXT("identityPath"),
+                        RootIdentityPath)
+                    && RootIdentityPath != nullptr
+                    && RootIdentityPath->Num() == 1
+                    && (*RootIdentityPath)[0].IsValid()
+                    && (*RootIdentityPath)[0]->TryGetString(
                         ActualRootId)
                     && ActualRootId == RootId);
         }

@@ -1,11 +1,15 @@
-bp = blueprint(asset: "/Game/Doors/BP_Door.BP_Door")
-eventGraph = graph(asset: bp, name: "EventGraph")
+eventGraph = target {domain: graph, asset: "/Game/Doors/BP_Door.BP_Door", blueprintId: "11111111-1111-1111-1111-111111111111", id: "22222222-2222-2222-2222-222222222222"}
 
 query eventGraph
-references to node@CALL.FunctionReference in project
+references to node @aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.FunctionReference in project
 page limit 50
+
 ---
-owner = blueprint(asset: "/Game/Doors/BP_Door.BP_Door", id: "BP1")
-g = graph(asset: owner, id: "G1")
-call = node(graph: g, id: "CALL2", type: "/Script/BlueprintGraph.K2Node_CallFunction")
+
+result exact_target
+target eventGraph = target {domain: graph, asset: "/Game/Doors/BP_Door.BP_Door", blueprintId: "11111111-1111-1111-1111-111111111111", id: "22222222-2222-2222-2222-222222222222"}
+related useGraph = target {domain: graph, asset: "/Game/Doors/BP_Lever.BP_Lever", blueprintId: "55555555-5555-5555-5555-555555555555", id: "66666666-6666-6666-6666-666666666666"}
+handoff inspect_reference to useGraph
+objects
+match = {location: useGraph::@77777777-7777-7777-7777-777777777777.FunctionReference}
 # matched through FunctionReference

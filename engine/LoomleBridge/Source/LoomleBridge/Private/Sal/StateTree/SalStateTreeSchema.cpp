@@ -1147,7 +1147,7 @@ bool ResolveMember(
         const FStateTreeEditorNode* Node = ParseGuid(OwnerId, NodeId) ? FindUniqueNode(EditorData, NodeId) : nullptr;
         if (Node == nullptr || SalPath.Num() < 2)
         {
-            OutMessage = TEXT("Node member requires one exact node@id.Instance or node@id.Node field path.");
+            OutMessage = TEXT("Node member requires one exact @id.Instance or @id.Node field path.");
             return false;
         }
         NativeSegments = SalPath;
@@ -1178,7 +1178,7 @@ bool ResolveMember(
         FGuid ContextId;
         if (!ParseGuid(OwnerId, ContextId) || SalPath.IsEmpty())
         {
-            OutMessage = TEXT("Context member requires one exact object@id field path.");
+            OutMessage = TEXT("Context member requires one exact Target-relative @identity field path.");
             return false;
         }
         StructId = ContextId;

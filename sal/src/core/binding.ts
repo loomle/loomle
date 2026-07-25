@@ -1,10 +1,36 @@
-import type { Binding, BindingTarget } from "../index.js";
-import { formatExpr, formatRef, parseExpr, tryParseRef } from "./expr.js";
+import type { Binding, BindingTarget, RequestBinding } from "../index.js";
+import {
+  type ExpressionParseOptions,
+  formatExpr,
+  formatRef,
+  parseExpr,
+  parseResultExpr,
+  tryParseRef,
+} from "./expr.js";
 import { findTopLevel, ParseError, type ParsedLine, spanForLine } from "./text.js";
 
 export function tryParseBinding(
   line: ParsedLine,
   aliases: ReadonlySet<string> = new Set(),
+  options: ExpressionParseOptions = {},
+): RequestBinding | undefined {
+  if (line.kind !== "code" || line.text.startsWith("set ")) {
+    return undefined;
+  }
+  const eq = findTopLevel(line.text, "=");
+  if (eq < 0) {
+    return undefined;
+  }
+  return {
+    target: parseBindingTarget(line.text.slice(0, eq).trim(), line),
+    value: parseExpr(line.text.slice(eq + 1), line, aliases, options),
+  };
+}
+
+export function tryParseResultBinding(
+  line: ParsedLine,
+  aliases: ReadonlySet<string> = new Set(),
+  options: ExpressionParseOptions = {},
 ): Binding | undefined {
   if (line.kind !== "code" || line.text.startsWith("set ")) {
     return undefined;
@@ -15,7 +41,7 @@ export function tryParseBinding(
   }
   return {
     target: parseBindingTarget(line.text.slice(0, eq).trim(), line),
-    value: parseExpr(line.text.slice(eq + 1), line, aliases),
+    value: parseResultExpr(line.text.slice(eq + 1), line, aliases, options),
   };
 }
 
@@ -30,7 +56,7 @@ export function parseBindingTarget(text: string, line: ParsedLine): BindingTarge
   throw new ParseError("language.invalid_binding_target", "Expected a local name or local member path.", spanForLine(line));
 }
 
-export function formatBinding(binding: Binding): string {
+export function formatBinding(binding: Binding | RequestBinding): string {
   return `${formatBindingTarget(binding.target)} = ${formatExpr(binding.value)}`;
 }
 

@@ -1,154 +1,124 @@
 # state_tree
 
-Inspect and edit the authored hierarchy of one UE `UStateTree` asset. This
-interface reads `UStateTree::EditorData` directly and assumes the resident SAL
-Core guide.
+Inspect and edit the authored hierarchy of one UE `UStateTree` asset.
 
 ## Target
 
-Bind the exact Asset Path and native Class Path:
+Discovery may omit `type`; canonical exact Queries and every Patch use:
 
 ```sal
-omle = asset(
-  path: "/Game/AI/ST_Omle.ST_Omle",
+behavior = target {
+  domain: state_tree,
+  asset: "/Game/AI/ST_Behavior.ST_Behavior",
   type: "/Script/StateTreeModule.StateTree"
-)
+}
 ```
 
-The Asset Path is the complete target identity. StateTree has no asset-level
-Guid and no `state_tree(...)` constructor. Every typed id is scoped inside this
-target and cannot replace it.
+Asset Path plus verified native Class is complete StateTree Target identity.
+
+## Identity
+
+| Object | StableRef |
+| --- | --- |
+| State, Editor Node, Transition, valid unique Context descriptor | `@Guid` |
+| Parameter | `@ContainerGuid/PropertyGuid` |
+
+All one-segment categories share one Target-relative identity environment.
+Names and semantic tags do not disambiguate collisions.
 
 ## Query
 
-Every Query starts with `query omle` and chooses at most one primary operation:
-
 ```sal
-# Exact target read.
-query omle
+# Exact Target read.
+query behavior
+target
 
 summary
-tree [state@id] [depth N]
+tree [@state-guid] [depth N]
 states ["text"]
 nodes ["text"]
 parameters ["text"]
-state@id
-node@id
-transition@id
-parameter@container-id/property-id
-object@context-id
+@identity
 references to <exact-object-or-member>
 palette entries ["text"] to <exact-destination>
 palette @id to <same-exact-destination>
 ```
 
-`summary` returns orientation: native Schema, Context Data, global Nodes,
-top-level States, counts, compile status, and structural diagnostics. `tree`
-preserves authored hierarchy and owned-object order, defaults to depth 20, and
-keeps a boundary State when deeper children are truncated.
+`summary` returns Schema, Context Data, global Nodes, top-level States, counts,
+compile status, and structural diagnostics. `tree` preserves hierarchy and
+owned-object order and defaults to depth 20.
 
-The three collections preserve authored order and use cursor pagination with a
-default limit of 50 and maximum of 200. They accept optional search text and
-`page`, but no `where`, `order by`, `with schema`, or `depth`. Context Data have
-no collection; discover them in `summary`. Property Functions are
-Binding-owned, so they are absent from `nodes`, but a known function `node@id`
-is exact-readable.
+Collections preserve authored order and use cursor pagination. Exact reads may
+use `with schema` and return only directly incident explicit Property Bindings
+and derived automatic Context relationships. StateTree references are local;
+`in project` is not supported.
 
-Exact reads return meaningful authored fields, compact owner navigation, and
-only the Property Binding arrows directly incident to the selected object.
-They may append `with schema`; `summary`, `tree`, collections, and references
-may not. Schema is derived from UE Reflection, the current StateTree Schema,
-Property Binding rules, and the exact object or Palette destination. Context
-Data are read-only.
+## Objects And Palette
 
-`references` is local to the bound StateTree, accepts only cursor `page`
-clauses, and returns each factual use-site once with exact member-path evidence.
-It covers State links and explicit or derived Property Binding relationships.
-It never loads other assets and does not support `in project`.
-
-Query preserves malformed authored facts as diagnostics and never validates,
-repairs, compiles, dirties, or saves the asset. Names are navigation text, not
-identity; copy returned `state@id`, `node@id`, `transition@id`, composite
-`parameter@container-id/property-id`, and `object@context-id` references.
-
-## Palette And Object Relationships
-
-Palette is always destination-bound. Search first, then read the exact entry
-against the same destination when its schema is needed:
+All returned state is ordinary object data. Tags such as `state` or `node`, when
+allowed and emitted, are optional presentation:
 
 ```sal
-query omle
-palette entries "Follow" to state@companion-guid.Tasks
+follow = {
+  id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+  type: "/Script/MyGame.FollowTask"
+}
+```
 
-query omle
-palette @P_OmleFollowTask to state@companion-guid.Tasks
+Palette is destination-bound:
+
+```sal
+query behavior
+palette entries "Follow" to @companion-guid.Tasks
+
+query behavior
+palette @P_FollowTask to @companion-guid.Tasks
 with schema
 ```
 
-Copy the returned `state(...)`, `node(...)`, `transition(...)`, or
-`parameter(...)` constructor into Patch Text. Do not guess Palette ids,
-destinations, native fields, or member paths. Property Function candidates are
-materialized by their first owning `bind`, not by `add`. Linked State entries
-already contain their exact valid `LinkedSubtree`; LinkedAsset uses a separate
-fixed-type entry without scanning assets. Parameter names are chosen against
-the exact destination. Patch revalidates these capabilities.
-
-Arrows use real data-flow direction. Explicit Bindings preserve UE authored
-order. Automatic Context arrows are marked by adjacent comments and have no
-authored record; they can be queried but not independently removed.
+Copy the returned fields into an ordinary object binding. The active Domain,
+Palette id, and exact destination provide creation meaning.
 
 ## Patch
 
-Authored Patch supports Palette-backed `add`, plus `set`, `reset`, `move`,
-`remove`, `bind`, and `unbind`:
-
 ```sal
-patch omle
+patch behavior [dry run]
 
-patrol = state(palette: "P_State", Name: Patrol)
-add patrol to state@root-guid.Children
-move state@idle-guid before patrol
-set patrol.Weight = 1.5
+patrol = { palette: "P_State", Name: Patrol }
+add patrol to @root-guid.Children
 
-follow = node(palette: "P_OmleFollowTask")
+follow = { palette: "P_FollowTask" }
 add follow to patrol.Tasks
-bind parameter@container-guid/speed-guid -> follow.Instance.Speed
+
+move @idle-guid before patrol
+set patrol.Weight = 1.5
+remove @transition-guid
+
+bind @container-guid/speed-guid ->
+  @follow-task-guid.Instance.Speed
+unbind @container-guid/old-guid ->
+  @guard-guid.Instance.Threshold
 ```
 
-Every direct creation requires a Palette-backed local binding and an exact
-destination. Exact `with schema` is authoritative for writable native fields,
-ordered destinations, Parameter layout and overrides, Binding direction and
-compatibility, and cascade behavior. A Property Function has Binding-owned
-lifecycle: its owning result `bind` creates it, and removing that Binding
-removes its complete owned subtree. StateTree currently advertises no
-`invoke` operation.
+Creation always requires a Palette-backed binding and exact native
+destination. Exact schema controls writable fields, lifecycle, Parameter
+layout and overrides, Binding direction and compatibility, and cascade
+behavior.
 
-Patch is ordered and atomic through transient native preflight followed by one
-live UE transaction. `dry run` uses the same parse, resolution, validation, and
-planning path without changing live authored or compiled state. Results use
-ordinary Object Text plus the shared mutation plan, resolved references, diff,
-and registered diagnostics.
+A Property Function has Binding-owned lifecycle. Its result `bind` creates it;
+removing that outer Binding removes the complete owned function subtree.
+Context Data are read-only. StateTree currently exposes no `invoke`.
 
 ## Compile And Save
 
-Finalization is an independent Patch containing only `compile`, only `save`, or
-`compile` followed by `save`:
+Finalization is an independent terminal Patch:
 
 ```sal
-patch omle
+patch behavior
 compile
 save
 ```
 
-Do not mix authored edits with finalization and do not place `compile` after
-`save`. `save` never implies compile; save-only may persist stale compiled
-data. Compile uses UE's native StateTree validation and compiler, is rejected
-during PIE, and may mutate compiled state even when compiler diagnostics report
-failure. A completed compile can therefore continue to an explicit `save`.
-
-Save is external package I/O after the in-memory transaction. If it fails,
-already completed edits or compile state remain in memory and dirty but
-unsaved; save failure does not roll them back.
-
-Live execution, debugger traces, breakpoints, project-wide references, and
-StateTree asset creation or deletion are outside this interface.
+Valid terminal forms are `compile`, `save`, or `compile` followed by `save`.
+Do not mix authored edits with finalization. Save never implies compile. Save
+failure does not roll back already completed in-memory edits or compile state.

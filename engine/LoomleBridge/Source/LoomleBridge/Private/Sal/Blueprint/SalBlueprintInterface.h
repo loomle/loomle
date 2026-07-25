@@ -22,6 +22,19 @@ public:
         const FSalPatch& Patch,
         const FSalResolvedTarget& Target);
 
+    static bool LowerStableReference(
+        const FSalResolvedTarget& Target,
+        const TArray<FString>& IdentityPath,
+        FString& OutLegacyKind,
+        FString& OutLegacyId,
+        FString& OutCode,
+        FString& OutMessage);
+
+    /** Map one current Blueprint Palette identity to its private executor kind. */
+    static bool ResolveCreationKind(
+        const FString& Palette,
+        FString& OutLegacyKind);
+
 #if WITH_DEV_AUTOMATION_TESTS
     static TStrongObjectPtr<UBlueprint> MakeTransientPlanForTesting(
         UBlueprint* Source,

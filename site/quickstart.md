@@ -12,8 +12,10 @@ Loomle 0.7 plugin is installed, `LoomleBridge` is enabled, the MCP host launches
 the bundled Client, and the target Unreal project is open.
 
 {: .note }
-> Paths and ids below are examples. Always copy Asset Paths, typed ids, Palette
-> entries, and invocation templates returned by the current project.
+> Paths and identities below are examples. Always copy flat Targets,
+> Target-relative StableRefs, Palette entries, and invocation templates
+> returned by the current project. Target Guid fields are canonical lowercase,
+> hyphenated, and non-zero.
 
 ## 1. Check Status
 
@@ -54,9 +56,10 @@ Open or select the asset you want to discuss, then call:
 editor_context({})
 ```
 
-The result is ordered SAL Object Text. It may identify an active asset, Graph,
-selected Node, Widget, Actor, or the focused editor surface. Use the returned
-locator instead of guessing from the visible UI.
+The first result block is canonical SAL Result Text. It declares
+`exact_target`, `domain_root`, or `unresolved_target`, includes an explicit
+Target table when resolved, and then carries `objects` or terminates with
+`no_objects`. Use the returned Target instead of guessing from the visible UI.
 
 ## 4. Discover the Interface
 
@@ -81,7 +84,10 @@ prerequisite before every request.
 Send one self-contained Query Text to `sal_query`:
 
 ```text
-door = blueprint(asset: "/Game/Blueprints/BP_Door.BP_Door")
+door = target {
+  domain: blueprint,
+  asset: "/Game/Blueprints/BP_Door.BP_Door"
+}
 
 query door
 summary
@@ -94,31 +100,34 @@ complete Blueprint.
 Use the returned id in later exact requests:
 
 ```text
-door = blueprint(
+door = target {
+  domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "returned-blueprint-guid"
-)
+  id: "11111111-1111-1111-1111-111111111111"
+}
 
 query door
 graphs "Event"
 ```
 
-Every Query and Patch supplies its own complete target binding. A typed id is a
-stable selector inside that owner scope, not a global target.
+Every Query and Patch supplies exactly one flat Target binding. The Target Guid
+verifies the object opened by the Asset Path; it is separate from contained
+StableRefs.
 
 ## 6. Follow the Graph Locally
 
 Bind the exact Graph returned by the Blueprint query:
 
 ```text
-door = blueprint(
+eventGraph = target {
+  domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "returned-blueprint-guid"
-)
-eventGraph = graph(asset: door, id: "returned-graph-guid")
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
 
 query eventGraph
-exec flow from node@returned-node-guid depth 2
+exec flow from @returned-node-guid depth 2
 ```
 
 Flow queries return compact Nodes and only the Pins needed to express the
@@ -127,14 +136,15 @@ or dynamic schema.
 
 ## 7. Discover Before Creating
 
-Never guess a Node constructor. Search the target Graph Palette:
+Never guess Node creation fields. Search the target Graph Palette:
 
 ```text
-door = blueprint(
+eventGraph = target {
+  domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "returned-blueprint-guid"
-)
-eventGraph = graph(asset: door, id: "returned-graph-guid")
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
 
 query eventGraph
 palette entries "Print String"
@@ -143,18 +153,20 @@ palette entries "Print String"
 Inspect the selected entry with exact schema:
 
 ```text
-door = blueprint(
+eventGraph = target {
+  domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "returned-blueprint-guid"
-)
-eventGraph = graph(asset: door, id: "returned-graph-guid")
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
 
 query eventGraph
 palette @returned-palette-entry-id
 with schema
 ```
 
-Then copy its returned constructor into a Patch.
+Then copy its returned brace object fields into a Patch. A displayed tag such
+as `node` is erasable and does not select creation behavior.
 
 ## 8. Dry Run
 
@@ -162,14 +174,15 @@ Send the complete Patch Text to `sal_patch` with dry-run state on the Patch
 header:
 
 ```text
-door = blueprint(
+eventGraph = target {
+  domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "returned-blueprint-guid"
-)
-eventGraph = graph(asset: door, id: "returned-graph-guid")
+  blueprintId: "11111111-1111-1111-1111-111111111111",
+  id: "22222222-2222-2222-2222-222222222222"
+}
 
 patch eventGraph dry run
-print = node(palette: "returned-palette-entry-id")
+print = { palette: "returned-palette-entry-id" }
 add print
 ```
 
@@ -186,21 +199,26 @@ again rather than assuming that the intended result was applied.
 ## 10. Finalize Through the Owner
 
 Graph edits do not compile or save their owning Blueprint automatically.
-Finalize in a separate terminal Patch:
+The Graph result returns an independent related Blueprint Target and names it
+with an explicit compile handoff. Copy that returned Target into a separate
+terminal Patch:
 
 ```text
-door = blueprint(
+door = target {
+  domain: blueprint,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "returned-blueprint-guid"
-)
+  id: "11111111-1111-1111-1111-111111111111"
+}
 
 patch door
 compile
 save
 ```
 
-Compiler messages and mutation diagnostics return as SAL comments beside the
-relevant Object Text.
+The first response block remains canonical Result Text. Native UE compiler
+messages remain factual comments in that Result Text. Mutation metadata and
+structured validation or execution diagnostics use later independent
+SAL-comment blocks.
 
 You have now completed the standard Loomle loop:
 

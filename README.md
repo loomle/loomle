@@ -18,8 +18,8 @@ the editor and UE APIs as the source of truth.
 - Compact SAL Object Text uses fewer tokens than large generic JSON payloads.
 - Queries start with summaries and local views instead of downloading an
   entire graph.
-- Stable typed references make returned Nodes, Pins, Graphs, Widgets, and
-  Blueprint objects safe to follow up.
+- Target-relative stable identity paths make returned Nodes, Pins, Graphs,
+  Widgets, and Blueprint objects safe to follow up without kind namespaces.
 - Palette and dynamic schema discovery let agents use capabilities that UE
   actually exposes instead of guessing constructors or fields.
 - Dry runs share the real parse, resolve, validate, and plan path before any
@@ -39,7 +39,7 @@ The standalone Client exposes six MCP tools:
 - `sal_patch`: execute one ordered SAL Patch Text.
 - `sal_schema`: discover the resident SAL guide and the active interface cards.
 - `editor_context`: read the user's current Unreal interaction target as SAL
-  Object Text.
+  Result Text.
 
 The current public SAL modules are Asset, Blueprint, Class, Graph, StateTree,
 and Widget. They cover Asset Registry discovery, Blueprint declarations and
@@ -50,7 +50,10 @@ compilation, save, and editor context.
 Example:
 
 ```sal
-door = blueprint(asset: "/Game/Blueprints/BP_Door.BP_Door")
+door = target {
+  domain: blueprint,
+  asset: "/Game/Blueprints/BP_Door.BP_Door"
+}
 
 query door
 summary

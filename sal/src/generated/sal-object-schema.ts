@@ -10,14 +10,18 @@
  */
 export type SALNormalizedObjectSchema = SalObject | ObjectResult;
 export type SalObject = Query | Patch | ObjectText;
-export type Expr = null | boolean | number | string | Name | Ref | Call | Expr[] | InlineObject;
-export type Ref = LocalRef | StableRef | MemberRef;
+export type LocalIdentifier = string;
+export type Target = AssetTarget | BlueprintTarget | ClassTarget | GraphTarget | StateTreeTarget | WidgetTarget;
+export type AssetTarget = AssetRootTarget | AssetPathTarget;
+export type NonEmptyString = string;
+export type GuidString = string;
+export type GraphTarget = GraphByIdTarget | GraphByNameTarget;
 export type QueryOperation =
   | TargetOperation
   | SummaryOperation
   | CollectionOperation
   | NamedOperation
-  | IdOperation
+  | ExactObjectOperation
   | PaletteIdOperation
   | TreeOperation
   | ContextOperation
@@ -26,9 +30,19 @@ export type QueryOperation =
   | PaletteEntriesOperation
   | StateTreePaletteEntriesOperation
   | StateTreePaletteIdOperation;
+export type SemanticTag = string;
+export type RequestRef = LocalRef | StableRef | RequestMemberRef;
 export type Condition =
   EqCondition | NeCondition | ContainsCondition | CompareCondition | NotCondition | AndCondition | OrCondition;
-export type PatchStatement = Binding | PatchOperation;
+export type RequestExpr = null | boolean | number | string | Name | RequestRef | ObjectExpr | RequestExpr[];
+export type CanonicalTarget =
+  | CanonicalAssetTarget
+  | CanonicalBlueprintTarget
+  | ClassTarget
+  | CanonicalGraphTarget
+  | CanonicalStateTreeTarget
+  | CanonicalWidgetTarget;
+export type PatchStatement = RequestBinding | PatchOperation;
 export type BindingTarget = LocalRef | BindingMemberRef;
 export type PatchOperation =
   | Add
@@ -53,30 +67,15 @@ export type PatchOperation =
  */
 export type Point = [number, number];
 export type Statement = Binding | Edge | Comment;
-export type ObjectResult = Result | MutationResult;
+export type ResultExpr = null | boolean | number | string | Name | ResultRef | ResultObjectExpr | ResultExpr[];
+export type ResultRef = LocalRef | StableRef | ScopedStableRef | ResultMemberRef;
+export type ObjectResult =
+  ExactQueryResult | ExactMutationResult | DomainRootQueryResult | UnresolvedQueryResult | UnresolvedMutationResult;
 export type DiagnosticPath = (string | number)[];
-export type MutationResult = {
-  [k: string]: any;
-} & {
-  object?: ObjectText;
-  diagnostics: Diagnostic[];
-  page?: ResultPage;
-  isError: boolean;
-  dryRun: boolean;
-  valid: boolean;
-  applied: boolean;
-  assetPath?: string;
-  operation: string;
-  resolvedRefs?: any;
-  planned?: any;
-  diff?: any;
-  previousRevision?: string;
-  newRevision?: string;
-};
 
 export interface Query {
   kind: "query";
-  target: Target;
+  target: TargetBinding;
   operation: QueryOperation;
   where?: Condition;
   /**
@@ -89,39 +88,57 @@ export interface Query {
   orderBy?: [OrderBy, ...OrderBy[]];
   page?: Page;
 }
-export interface Target {
-  alias: string;
-  value: Call | Name;
+export interface TargetBinding {
+  alias: LocalIdentifier;
+  target: Target;
 }
-export interface Call {
-  kind: "call";
-  callee: string;
-  args: {
-    [k: string]: Expr;
-  };
+export interface AssetRootTarget {
+  kind: "target";
+  domain: "asset";
 }
-export interface Name {
-  kind: "name";
-  name: string;
+export interface AssetPathTarget {
+  kind: "target";
+  domain: "asset";
+  path: NonEmptyString;
+  type?: NonEmptyString;
 }
-export interface LocalRef {
-  kind: "local";
-  name: string;
+export interface BlueprintTarget {
+  kind: "target";
+  domain: "blueprint";
+  asset: NonEmptyString;
+  id?: GuidString;
 }
-export interface StableRef {
-  kind: string;
-  id: string;
+export interface ClassTarget {
+  kind: "target";
+  domain: "class";
+  path: NonEmptyString;
 }
-export interface MemberRef {
-  kind: "member";
-  object: LocalRef | StableRef;
-  /**
-   * @minItems 1
-   */
-  path: [string | number, ...(string | number)[]];
+export interface GraphByIdTarget {
+  kind: "target";
+  domain: "graph";
+  asset: NonEmptyString;
+  blueprintId?: GuidString;
+  id: GuidString;
+  name?: NonEmptyString;
 }
-export interface InlineObject {
-  [k: string]: Expr;
+export interface GraphByNameTarget {
+  kind: "target";
+  domain: "graph";
+  asset: NonEmptyString;
+  blueprintId?: GuidString;
+  name: NonEmptyString;
+}
+export interface StateTreeTarget {
+  kind: "target";
+  domain: "state_tree";
+  asset: NonEmptyString;
+  type?: NonEmptyString;
+}
+export interface WidgetTarget {
+  kind: "target";
+  domain: "widget";
+  asset: NonEmptyString;
+  id?: GuidString;
 }
 export interface TargetOperation {
   kind: "target";
@@ -149,21 +166,17 @@ export interface NamedOperation {
   kind: "variable" | "dispatcher" | "graph" | "component" | "property" | "function" | "default" | "widget";
   name: string;
 }
-export interface IdOperation {
-  kind:
-    | "blueprint"
-    | "variable"
-    | "dispatcher"
-    | "graph"
-    | "component"
-    | "node"
-    | "pin"
-    | "widget"
-    | "state"
-    | "transition"
-    | "parameter"
-    | "object";
-  id: string;
+export interface ExactObjectOperation {
+  kind: "object";
+  target: StableRef;
+}
+export interface StableRef {
+  kind: "stable_ref";
+  /**
+   * @minItems 1
+   */
+  identityPath: [NonEmptyString, ...NonEmptyString[]];
+  semanticTag?: SemanticTag;
 }
 export interface PaletteIdOperation {
   kind: "palette";
@@ -187,8 +200,19 @@ export interface FlowOperation {
 }
 export interface ReferencesOperation {
   kind: "references";
-  target: StableRef | StableMemberRef;
+  target: TargetSelfRef | TargetSelfMemberRef | StableRef | StableMemberRef;
   scope?: "project";
+}
+export interface TargetSelfRef {
+  kind: "target_self";
+}
+export interface TargetSelfMemberRef {
+  kind: "member";
+  object: TargetSelfRef;
+  /**
+   * @minItems 1
+   */
+  path: [string | number, ...(string | number)[]];
 }
 export interface StableMemberRef {
   kind: "member";
@@ -210,17 +234,29 @@ export interface PalettePinContext {
 export interface StateTreePaletteEntriesOperation {
   kind: "palette_entries";
   text?: string;
-  to: Ref;
+  to: RequestRef;
+}
+export interface LocalRef {
+  kind: "local";
+  name: LocalIdentifier;
+}
+export interface RequestMemberRef {
+  kind: "member";
+  object: LocalRef | StableRef;
+  /**
+   * @minItems 1
+   */
+  path: [string | number, ...(string | number)[]];
 }
 export interface StateTreePaletteIdOperation {
   kind: "palette";
   id: string;
-  to: Ref;
+  to: RequestRef;
 }
 export interface EqCondition {
   kind: "eq";
   field: FieldPath;
-  value: Expr;
+  value: RequestExpr;
 }
 export interface FieldPath {
   /**
@@ -228,21 +264,32 @@ export interface FieldPath {
    */
   path: [string, ...string[]];
 }
+export interface Name {
+  kind: "name";
+  name: LocalIdentifier;
+}
+export interface ObjectExpr {
+  kind: "object";
+  fields: {
+    [k: string]: RequestExpr;
+  };
+  semanticTag?: SemanticTag;
+}
 export interface NeCondition {
   kind: "ne";
   field: FieldPath;
-  value: Expr;
+  value: RequestExpr;
 }
 export interface ContainsCondition {
   kind: "contains";
   field: FieldPath;
-  value: Expr;
+  value: RequestExpr;
 }
 export interface CompareCondition {
   kind: "compare";
   op: "gt" | "gte" | "lt" | "lte";
   field: FieldPath;
-  value: Expr;
+  value: RequestExpr;
 }
 export interface NotCondition {
   kind: "not";
@@ -272,16 +319,51 @@ export interface Page {
 }
 export interface Patch {
   kind: "patch";
-  target: Target;
+  target: CanonicalTargetBinding;
   dryRun: boolean;
   /**
    * @minItems 1
    */
   statements: [PatchStatement, ...PatchStatement[]];
 }
-export interface Binding {
+export interface CanonicalTargetBinding {
+  alias: LocalIdentifier;
+  target: CanonicalTarget;
+}
+export interface CanonicalAssetTarget {
+  kind: "target";
+  domain: "asset";
+  path: NonEmptyString;
+  type: NonEmptyString;
+}
+export interface CanonicalBlueprintTarget {
+  kind: "target";
+  domain: "blueprint";
+  asset: NonEmptyString;
+  id: GuidString;
+}
+export interface CanonicalGraphTarget {
+  kind: "target";
+  domain: "graph";
+  asset: NonEmptyString;
+  blueprintId: GuidString;
+  id: GuidString;
+}
+export interface CanonicalStateTreeTarget {
+  kind: "target";
+  domain: "state_tree";
+  asset: NonEmptyString;
+  type: NonEmptyString;
+}
+export interface CanonicalWidgetTarget {
+  kind: "target";
+  domain: "widget";
+  asset: NonEmptyString;
+  id: GuidString;
+}
+export interface RequestBinding {
   target: BindingTarget;
-  value: Expr;
+  value: RequestExpr;
 }
 export interface BindingMemberRef {
   kind: "member";
@@ -294,87 +376,87 @@ export interface BindingMemberRef {
 export interface Add {
   kind: "add";
   target: BindingTarget;
-  to?: Ref;
-  before?: Ref;
-  after?: Ref;
+  to?: RequestRef;
+  before?: RequestRef;
+  after?: RequestRef;
 }
 export interface Remove {
   kind: "remove";
-  target: Ref;
+  target: RequestRef;
 }
 export interface Set {
   kind: "set";
-  target: MemberRef;
-  value: Expr;
+  target: RequestMemberRef;
+  value: RequestExpr;
 }
 export interface Reset {
   kind: "reset";
-  target: MemberRef;
+  target: RequestMemberRef;
 }
 export interface Move {
   kind: "move";
-  target: Ref;
-  to?: Ref | Point;
+  target: RequestRef;
+  to?: RequestRef | Point;
   by?: Point;
-  before?: Ref;
-  after?: Ref;
+  before?: RequestRef;
+  after?: RequestRef;
 }
 export interface Connect {
   kind: "connect";
-  from: Ref;
-  to: Ref;
+  from: RequestRef;
+  to: RequestRef;
 }
 export interface Disconnect {
   kind: "disconnect";
-  from: Ref;
-  to: Ref;
+  from: RequestRef;
+  to: RequestRef;
 }
 export interface Bind {
   kind: "bind";
-  from: Ref;
-  to: Ref;
+  from: RequestRef;
+  to: RequestRef;
 }
 export interface Unbind {
   kind: "unbind";
-  from: Ref;
-  to: Ref;
+  from: RequestRef;
+  to: RequestRef;
 }
 export interface Break {
   kind: "break";
-  target: Ref;
+  target: RequestRef;
 }
 export interface Insert {
   kind: "insert";
-  from: Ref;
-  input: Ref;
-  output: Ref;
-  to: Ref;
+  from: RequestRef;
+  input: RequestRef;
+  output: RequestRef;
+  to: RequestRef;
 }
 export interface Wrap {
   kind: "wrap";
   /**
    * @minItems 1
    */
-  targets: [Ref, ...Ref[]];
+  targets: [RequestRef, ...RequestRef[]];
   with: LocalRef;
 }
 export interface Replace {
   kind: "replace";
-  target: Ref;
-  with: Ref;
+  target: RequestRef;
+  with: RequestRef;
 }
 export interface Invoke {
   kind: "invoke";
-  target: Ref;
+  target: RequestRef;
   operation: string;
   args: {
-    [k: string]: Expr;
+    [k: string]: RequestExpr;
   };
   outputs: InvokeOutput[];
 }
 export interface InvokeOutput {
   selector?: string;
-  alias: string;
+  alias: LocalIdentifier;
 }
 export interface Compile {
   kind: "compile";
@@ -385,18 +467,57 @@ export interface Save {
 export interface ObjectText {
   statements: Statement[];
 }
+export interface Binding {
+  target: BindingTarget;
+  value: ResultExpr;
+}
+export interface ScopedStableRef {
+  kind: "scoped_stable_ref";
+  target: LocalRef;
+  reference: StableRef;
+}
+export interface ResultMemberRef {
+  kind: "member";
+  object: LocalRef | StableRef | ScopedStableRef;
+  /**
+   * @minItems 1
+   */
+  path: [string | number, ...(string | number)[]];
+}
+export interface ResultObjectExpr {
+  kind: "object";
+  fields: {
+    [k: string]: ResultExpr;
+  };
+  semanticTag?: SemanticTag;
+}
 export interface Edge {
-  from: Ref;
-  to: Ref;
+  from: ResultRef;
+  to: ResultRef;
 }
 export interface Comment {
   kind: "comment";
   text: "###" | string;
 }
-export interface Result {
+export interface ExactQueryResult {
+  targetContext: "exact_target";
+  target: CanonicalTargetBinding;
+  /**
+   * @minItems 1
+   */
+  relatedTargets?: [CanonicalTargetBinding, ...CanonicalTargetBinding[]];
+  /**
+   * @minItems 1
+   */
+  handoffs?: [TargetHandoff, ...TargetHandoff[]];
   object?: ObjectText;
   diagnostics: Diagnostic[];
   page?: ResultPage;
+}
+export interface TargetHandoff {
+  kind: "target_handoff";
+  purpose: NonEmptyString;
+  target: LocalRef;
 }
 export interface Diagnostic {
   severity: "error" | "warning" | "info";
@@ -420,4 +541,78 @@ export interface SourceSpan {
 }
 export interface ResultPage {
   next: string;
+}
+export interface ExactMutationResult {
+  targetContext: "exact_target";
+  target: CanonicalTargetBinding;
+  /**
+   * @minItems 1
+   */
+  relatedTargets?: [CanonicalTargetBinding, ...CanonicalTargetBinding[]];
+  /**
+   * @minItems 1
+   */
+  handoffs?: [TargetHandoff, ...TargetHandoff[]];
+  object?: ObjectText;
+  diagnostics: Diagnostic[];
+  page?: ResultPage;
+  isError: boolean;
+  dryRun: boolean;
+  valid: boolean;
+  applied: boolean;
+  assetPath?: string;
+  operation: string;
+  resolvedRefs?: any;
+  planned?: any;
+  diff?: any;
+  previousRevision?: string;
+  newRevision?: string;
+}
+export interface DomainRootQueryResult {
+  targetContext: "domain_root";
+  target: DomainRootTargetBinding;
+  /**
+   * @minItems 1
+   */
+  relatedTargets?: [CanonicalTargetBinding, ...CanonicalTargetBinding[]];
+  /**
+   * @minItems 1
+   */
+  handoffs?: [TargetHandoff, ...TargetHandoff[]];
+  object?: ObjectText;
+  diagnostics: Diagnostic[];
+  page?: ResultPage;
+}
+export interface DomainRootTargetBinding {
+  alias: LocalIdentifier;
+  target: AssetRootTarget;
+}
+export interface UnresolvedQueryResult {
+  targetContext: "unresolved_target";
+  object?: ObjectText;
+  /**
+   * @minItems 1
+   */
+  diagnostics: [Diagnostic, ...Diagnostic[]];
+  page?: ResultPage;
+}
+export interface UnresolvedMutationResult {
+  targetContext: "unresolved_target";
+  object?: ObjectText;
+  /**
+   * @minItems 1
+   */
+  diagnostics: [Diagnostic, ...Diagnostic[]];
+  page?: ResultPage;
+  isError: true;
+  dryRun: boolean;
+  valid: false;
+  applied: false;
+  assetPath?: string;
+  operation: string;
+  resolvedRefs?: any;
+  planned?: any;
+  diff?: any;
+  previousRevision?: string;
+  newRevision?: string;
 }

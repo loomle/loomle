@@ -658,7 +658,7 @@ public:
     {
         if (IsCanonicalState(State))
         {
-            return FString::Printf(TEXT("state@%s"), *GuidText(State.ID));
+            return FString::Printf(TEXT("@%s"), *GuidText(State.ID));
         }
         return FString::Printf(
             TEXT("State '%s' (native id %s; not canonical)"),
@@ -1386,7 +1386,7 @@ FString ParameterIdentityText(const FGuid& ContainerId, const FGuid& PropertyId)
 TSharedPtr<FJsonValue> NativeNameValue(const FName Name)
 {
     const FString Text = Name.IsNone() ? TEXT("None") : Name.ToString();
-    return FSalObjectBuilder::IsIdentifier(Text) ? Value::Name(Text) : Value::String(Text);
+    return Value::NameOrString(Text);
 }
 
 template <typename T>
@@ -1396,7 +1396,7 @@ TSharedPtr<FJsonValue> EnumValue(const T ValueToEncode)
     const FString Name = Enum != nullptr
         ? Enum->GetNameStringByValue(static_cast<int64>(ValueToEncode))
         : FString::Printf(TEXT("%lld"), static_cast<long long>(ValueToEncode));
-    return FSalObjectBuilder::IsIdentifier(Name) ? Value::Name(Name) : Value::String(Name);
+    return Value::NameOrString(Name);
 }
 
 FString StateTreePropertyFlagsText(const uint64 Flags)
@@ -1483,8 +1483,10 @@ TSharedPtr<FJsonObject> StateTreeAssetArgs(
     Args->SetStringField(TEXT("path"), Target.AssetPath);
     Args->SetStringField(TEXT("type"), StateTree->GetClass()->GetPathName());
     TArray<TSharedPtr<FJsonValue>> Domains;
-    Domains.Add(Value::Name(TEXT("asset")));
-    Domains.Add(Value::Name(InterfaceName));
+    // Domain names are structural SAL keywords and therefore ordinary string
+    // data here, never Name expressions or semantic tags.
+    Domains.Add(Value::String(TEXT("asset")));
+    Domains.Add(Value::String(InterfaceName));
     Args->SetArrayField(TEXT("domains"), Domains);
     Args->SetBoolField(TEXT("loaded"), true);
     if (EditorData != nullptr && EditorData->Schema != nullptr)
@@ -1700,12 +1702,12 @@ TSharedPtr<FJsonValue> NodeSurfacePropertyValue(const FProperty* Property, const
         const void* Address = Enum->ContainerPtrToValuePtr<void>(Container);
         const int64 Raw = Enum->GetUnderlyingProperty()->GetSignedIntPropertyValue(Address);
         const FString Name = Enum->GetEnum()->GetNameStringByValue(Raw);
-        return FSalObjectBuilder::IsIdentifier(Name) ? Value::Name(Name) : Value::String(Name);
+        return Value::NameOrString(Name);
     }
     if (const FByteProperty* Byte = CastField<FByteProperty>(Property); Byte != nullptr && Byte->Enum != nullptr)
     {
         const FString Name = Byte->Enum->GetNameStringByValue(Byte->GetPropertyValue_InContainer(Container));
-        return FSalObjectBuilder::IsIdentifier(Name) ? Value::Name(Name) : Value::String(Name);
+        return Value::NameOrString(Name);
     }
     if (const FNumericProperty* Numeric = CastField<FNumericProperty>(Property))
     {
@@ -1936,7 +1938,7 @@ TSharedPtr<FJsonValue> ParameterNativeValue(const FProperty* Property, const voi
             : FString();
         if (!Name.IsEmpty())
         {
-            return FSalObjectBuilder::IsIdentifier(Name) ? Value::Name(Name) : Value::String(Name);
+            return Value::NameOrString(Name);
         }
         return NativeValue(ExportPropertyValue(Property, Container));
     }
@@ -1945,7 +1947,7 @@ TSharedPtr<FJsonValue> ParameterNativeValue(const FProperty* Property, const voi
         const FString Name = Byte->Enum->GetNameStringByValue(Byte->GetPropertyValue_InContainer(Container));
         if (!Name.IsEmpty())
         {
-            return FSalObjectBuilder::IsIdentifier(Name) ? Value::Name(Name) : Value::String(Name);
+            return Value::NameOrString(Name);
         }
         return NativeValue(ExportPropertyValue(Property, Container));
     }
@@ -2886,7 +2888,7 @@ private:
             const FAuthoredNodeEntry* Entry = StateIndex.GetNodeEntry(NativeOwner.EntryIndex);
             if (Entry == nullptr || Entry->Node == nullptr || !StateIndex.IsCanonicalNode(*Entry->Node))
             {
-                OutError = TEXT("Node endpoint has no canonical node@id owner");
+                OutError = TEXT("Node endpoint has no canonical @identity owner");
                 return false;
             }
             OutEndpoint.OwnerKind = ERelationshipOwnerKind::Node;
@@ -2915,7 +2917,7 @@ private:
             const FAuthoredContextEntry* Entry = StateIndex.GetContextEntry(NativeOwner.EntryIndex);
             if (Entry == nullptr || Entry->Desc == nullptr || !StateIndex.IsCanonicalContextSurface(*Entry))
             {
-                OutError = TEXT("Context endpoint has no canonical object@id owner");
+                OutError = TEXT("Context endpoint has no canonical @identity owner");
                 return false;
             }
             OutEndpoint.OwnerKind = ERelationshipOwnerKind::Context;
@@ -2930,7 +2932,7 @@ private:
             const FAuthoredStateEntry* Entry = StateIndex.GetEntry(NativeOwner.EntryIndex);
             if (Entry == nullptr || Entry->State == nullptr || !StateIndex.IsCanonicalState(*Entry->State))
             {
-                OutError = TEXT("State Event endpoint has no canonical state@id owner");
+                OutError = TEXT("State Event endpoint has no canonical @identity owner");
                 return false;
             }
             OutEndpoint.OwnerKind = ERelationshipOwnerKind::State;
@@ -2954,7 +2956,7 @@ private:
             const FAuthoredTransitionEntry* Entry = StateIndex.GetTransitionEntry(NativeOwner.EntryIndex);
             if (Entry == nullptr || Entry->Transition == nullptr || !StateIndex.IsCanonicalTransition(*Entry->Transition))
             {
-                OutError = TEXT("Transition Event endpoint has no canonical transition@id owner");
+                OutError = TEXT("Transition Event endpoint has no canonical @identity owner");
                 return false;
             }
             OutEndpoint.OwnerKind = ERelationshipOwnerKind::Transition;
@@ -2978,7 +2980,7 @@ private:
             const FAuthoredTransitionEntry* Entry = StateIndex.GetTransitionEntry(NativeOwner.EntryIndex);
             if (Entry == nullptr || Entry->Transition == nullptr || !StateIndex.IsCanonicalTransition(*Entry->Transition))
             {
-                OutError = TEXT("Transition endpoint has no canonical transition@id owner");
+                OutError = TEXT("Transition endpoint has no canonical @identity owner");
                 return false;
             }
             OutEndpoint.OwnerKind = ERelationshipOwnerKind::Transition;
@@ -3388,7 +3390,7 @@ private:
                         FString::Printf(
                             TEXT("Node-struct Binding eligibility scan exceeded %d reflected values; automatic Context on its Node surface was suppressed."),
                             MaxNodeEligibilityValues),
-                        FString::Printf(TEXT("node@%s.Node"), *GuidText(Node.ID)),
+                        FString::Printf(TEXT("@%s.Node"), *GuidText(Node.ID)),
                         {{ERelationshipOwnerKind::Node, NodeEntryIndex}});
                     return false;
                 }
@@ -3427,7 +3429,7 @@ private:
                         FString::Printf(
                             TEXT("Node-struct Binding eligibility scan exceeded %d instanced objects; automatic Context on its Node surface was suppressed."),
                             MaxNodeEligibilityObjects),
-                        FString::Printf(TEXT("node@%s.Node"), *GuidText(Node.ID)),
+                        FString::Printf(TEXT("@%s.Node"), *GuidText(Node.ID)),
                         {{ERelationshipOwnerKind::Node, NodeEntryIndex}});
                     return false;
                 }
@@ -4144,7 +4146,7 @@ TSharedPtr<FJsonObject> QueryTree(
         {
             return QueryError(
                 TEXT("resolution.invalid_traversal_target"),
-                TEXT("StateTree tree root must be one valid state@id reference."),
+                TEXT("StateTree tree root must be one valid @identity reference."),
                 TEXT("tree"),
                 IdText);
         }
@@ -4152,9 +4154,9 @@ TSharedPtr<FJsonObject> QueryTree(
         {
             return QueryError(
                 TEXT("validation.reference_scan_incomplete"),
-                TEXT("The authored State hierarchy exceeded a hard traversal limit, so this state@id cannot be resolved exactly."),
+                TEXT("The authored State hierarchy exceeded a hard traversal limit, so this @identity cannot be resolved exactly."),
                 TEXT("tree"),
-                FString::Printf(TEXT("state@%s"), *IdText));
+                FString::Printf(TEXT("@%s"), *IdText));
         }
         const TArray<int32> Matches = Index.FindById(Id);
         if (Matches.Num() != 1 || !Index.IsCanonicalStateId(Id))
@@ -4165,7 +4167,7 @@ TSharedPtr<FJsonObject> QueryTree(
                     ? TEXT("StateTree tree root State was not found in the bound asset.")
                     : TEXT("StateTree tree root State does not have one unambiguous authored ownership."),
                 TEXT("tree"),
-                FString::Printf(TEXT("state@%s"), *IdText));
+                FString::Printf(TEXT("@%s"), *IdText));
         }
         FSalObjectBuilder Builder;
         Builder.AddLocalBinding(Query.Alias, StateTreeAssetIdentityValue(Target, StateTree));
@@ -4176,7 +4178,7 @@ TSharedPtr<FJsonObject> QueryTree(
                 TEXT("resolution.object_not_found"),
                 TEXT("Indexed StateTree root is unavailable."),
                 TEXT("tree"),
-                FString::Printf(TEXT("state@%s"), *IdText));
+                FString::Printf(TEXT("@%s"), *IdText));
         }
         FUniqueNameAllocator Aliases;
         Aliases.Reserve(Query.Alias);
@@ -4254,9 +4256,9 @@ TSharedPtr<FJsonObject> QueryState(
     {
         return QueryError(
             TEXT("validation.reference_scan_incomplete"),
-            TEXT("The authored State hierarchy exceeded a hard traversal limit, so this state@id cannot be resolved exactly."),
+            TEXT("The authored State hierarchy exceeded a hard traversal limit, so this @identity cannot be resolved exactly."),
             TEXT("state"),
-            FString::Printf(TEXT("state@%s"), *IdText));
+            FString::Printf(TEXT("@%s"), *IdText));
     }
     const TArray<int32> Matches = Index.FindById(Id);
     if (Matches.Num() != 1 || !Index.IsCanonicalStateId(Id))
@@ -4267,7 +4269,7 @@ TSharedPtr<FJsonObject> QueryState(
                 ? TEXT("State was not found in the bound StateTree asset.")
                 : TEXT("State does not have one unambiguous authored ownership in the bound StateTree asset."),
             TEXT("state"),
-            FString::Printf(TEXT("state@%s"), *IdText));
+            FString::Printf(TEXT("@%s"), *IdText));
     }
 
     const FAuthoredStateEntry* StateEntry = Index.GetEntry(Matches[0]);
@@ -4277,7 +4279,7 @@ TSharedPtr<FJsonObject> QueryState(
             TEXT("resolution.object_not_found"),
             TEXT("Indexed State is unavailable."),
             TEXT("state"),
-            FString::Printf(TEXT("state@%s"), *IdText));
+            FString::Printf(TEXT("@%s"), *IdText));
     }
     const UStateTreeState& State = *StateEntry->State;
     FStateTreeRelationshipIndex Relationships(*EditorData, Index, Context);
@@ -4352,7 +4354,7 @@ TSharedPtr<FJsonObject> QueryState(
                 TEXT("validation.result_too_large"),
                 SchemaError,
                 TEXT("state"),
-                FString::Printf(TEXT("state@%s"), *IdText));
+                FString::Printf(TEXT("@%s"), *IdText));
         }
         Builder.AddComment(SchemaText);
     }
@@ -4791,11 +4793,11 @@ TSharedPtr<FJsonObject> QueryParameter(
     {
         return QueryError(
             TEXT("validation.invalid_target"),
-            TEXT("Exact StateTree Parameter Query requires one valid parameter@container-guid/property-guid reference."),
+            TEXT("Exact StateTree Parameter Query requires one valid @container-guid/property-guid reference."),
             TEXT("parameter"),
             IdText);
     }
-    const FString Ref = FString::Printf(TEXT("parameter@%s"), *IdText);
+    const FString Ref = FString::Printf(TEXT("@%s"), *IdText);
     if (!Index.IsParameterIdentityComplete())
     {
         return QueryError(
@@ -4908,7 +4910,7 @@ TSharedPtr<FJsonObject> QueryParameter(
                 TEXT("validation.result_too_large"),
                 SchemaError,
                 TEXT("parameter"),
-                FString::Printf(TEXT("parameter@%s"), *IdText));
+                FString::Printf(TEXT("@%s"), *IdText));
         }
         Builder.AddComment(SchemaText);
     }
@@ -4954,16 +4956,16 @@ TSharedPtr<FJsonObject> QueryContextObject(
     {
         return QueryError(
             TEXT("validation.invalid_target"),
-            TEXT("Exact StateTree Context Data Query requires one valid object@context-guid reference."),
+            TEXT("Exact StateTree Context Data Query requires one valid @context-guid reference."),
             TEXT("object"),
             IdText);
     }
-    const FString Ref = FString::Printf(TEXT("object@%s"), *IdText);
+    const FString Ref = FString::Printf(TEXT("@%s"), *IdText);
     if (!Index.IsContextIdentityComplete())
     {
         return QueryError(
             TEXT("validation.reference_scan_incomplete"),
-            TEXT("The Schema Context Data identity scan exceeded a hard traversal limit, so this object@id cannot be resolved exactly."),
+            TEXT("The Schema Context Data identity scan exceeded a hard traversal limit, so this @identity cannot be resolved exactly."),
             TEXT("object"),
             Ref);
     }
@@ -5021,7 +5023,7 @@ TSharedPtr<FJsonObject> QueryContextObject(
                 TEXT("validation.result_too_large"),
                 SchemaError,
                 TEXT("object"),
-                FString::Printf(TEXT("object@%s"), *IdText));
+                FString::Printf(TEXT("@%s"), *IdText));
         }
         Builder.AddComment(SchemaText);
     }
@@ -5095,9 +5097,9 @@ TSharedPtr<FJsonObject> QueryNode(
     {
         return QueryError(
             TEXT("validation.reference_scan_incomplete"),
-            TEXT("The authored StateTree Node identity scan exceeded a hard traversal limit, so this node@id cannot be resolved exactly."),
+            TEXT("The authored StateTree Node identity scan exceeded a hard traversal limit, so this @identity cannot be resolved exactly."),
             TEXT("node"),
-            FString::Printf(TEXT("node@%s"), *IdText));
+            FString::Printf(TEXT("@%s"), *IdText));
     }
     const TArray<int32> Matches = Index.FindNodeById(Id);
     const FAuthoredNodeEntry* Entry = Matches.Num() == 1 ? Index.GetNodeEntry(Matches[0]) : nullptr;
@@ -5110,7 +5112,7 @@ TSharedPtr<FJsonObject> QueryNode(
                 ? TEXT("Node was not found in the bound StateTree asset.")
                 : TEXT("Node does not have one unambiguous safe authored ownership in the bound StateTree asset."),
             TEXT("node"),
-            FString::Printf(TEXT("node@%s"), *IdText));
+            FString::Printf(TEXT("@%s"), *IdText));
     }
     if (Entry->Node == nullptr)
     {
@@ -5118,7 +5120,7 @@ TSharedPtr<FJsonObject> QueryNode(
             TEXT("resolution.object_not_found"),
             TEXT("Indexed StateTree Node is unavailable."),
             TEXT("node"),
-            FString::Printf(TEXT("node@%s"), *IdText));
+            FString::Printf(TEXT("@%s"), *IdText));
     }
 
     FStateTreeRelationshipIndex Relationships(*EditorData, Index, Context);
@@ -5156,7 +5158,7 @@ TSharedPtr<FJsonObject> QueryNode(
                 TEXT("resolution.object_not_found"),
                 TEXT("The exact Node's owner State is unavailable."),
                 TEXT("node"),
-                FString::Printf(TEXT("node@%s"), *IdText));
+                FString::Printf(TEXT("@%s"), *IdText));
         }
         const FString StateAlias = Aliases.Allocate(StateEntry->State->Name.ToString(), TEXT("state"));
         Builder.AddLocalBinding(StateAlias, StateValue(*StateEntry->State, EStateEmission::Compact, Index));
@@ -5177,7 +5179,7 @@ TSharedPtr<FJsonObject> QueryNode(
                 StateTreeSchema::FExactSchemaTextBuilder::MaxFields,
                 static_cast<long long>(StateTreeSchema::FExactSchemaTextBuilder::MaxCharacters)),
             TEXT("node"),
-            FString::Printf(TEXT("node@%s"), *IdText));
+            FString::Printf(TEXT("@%s"), *IdText));
     }
     Builder.AddComment(NodeOwnerText(Index, *Entry, StatePaths));
     if (WantsExactSchema(Query))
@@ -5196,7 +5198,7 @@ TSharedPtr<FJsonObject> QueryNode(
                 TEXT("validation.result_too_large"),
                 SchemaError,
                 TEXT("node"),
-                FString::Printf(TEXT("node@%s"), *IdText));
+                FString::Printf(TEXT("@%s"), *IdText));
         }
         Builder.AddComment(SchemaText);
     }
@@ -5250,9 +5252,9 @@ TSharedPtr<FJsonObject> QueryTransition(
     {
         return QueryError(
             TEXT("validation.reference_scan_incomplete"),
-            TEXT("The authored StateTree Transition identity scan exceeded a hard traversal limit, so this transition@id cannot be resolved exactly."),
+            TEXT("The authored StateTree Transition identity scan exceeded a hard traversal limit, so this @identity cannot be resolved exactly."),
             TEXT("transition"),
-            FString::Printf(TEXT("transition@%s"), *IdText));
+            FString::Printf(TEXT("@%s"), *IdText));
     }
     const TArray<int32> Matches = Index.FindTransitionById(Id);
     const FAuthoredTransitionEntry* Entry = Matches.Num() == 1
@@ -5267,7 +5269,7 @@ TSharedPtr<FJsonObject> QueryTransition(
                 ? TEXT("Transition was not found in the bound StateTree asset.")
                 : TEXT("Transition does not have one unambiguous safe authored ownership in the bound StateTree asset."),
             TEXT("transition"),
-            FString::Printf(TEXT("transition@%s"), *IdText));
+            FString::Printf(TEXT("@%s"), *IdText));
     }
     if (Entry->Transition == nullptr)
     {
@@ -5275,7 +5277,7 @@ TSharedPtr<FJsonObject> QueryTransition(
             TEXT("resolution.object_not_found"),
             TEXT("Indexed StateTree Transition is unavailable."),
             TEXT("transition"),
-            FString::Printf(TEXT("transition@%s"), *IdText));
+            FString::Printf(TEXT("@%s"), *IdText));
     }
     const FAuthoredStateEntry* StateEntry = Index.GetEntry(Entry->OwnerStateIndex);
     if (StateEntry == nullptr || StateEntry->State == nullptr)
@@ -5284,7 +5286,7 @@ TSharedPtr<FJsonObject> QueryTransition(
             TEXT("resolution.object_not_found"),
             TEXT("The exact Transition's owner State is unavailable."),
             TEXT("transition"),
-            FString::Printf(TEXT("transition@%s"), *IdText));
+            FString::Printf(TEXT("@%s"), *IdText));
     }
 
     FStateTreeRelationshipIndex Relationships(*EditorData, Index, Context);
@@ -5333,7 +5335,7 @@ TSharedPtr<FJsonObject> QueryTransition(
                 TEXT("validation.result_too_large"),
                 SchemaError,
                 TEXT("transition"),
-                FString::Printf(TEXT("transition@%s"), *IdText));
+                FString::Printf(TEXT("@%s"), *IdText));
         }
         Builder.AddComment(SchemaText);
     }
@@ -5436,11 +5438,21 @@ bool ResolveReferenceSubject(
     TSharedPtr<FJsonObject> Owner;
     if (!ReadReferencePath(Ref, Owner, OutSubject.Path) || !Owner.IsValid())
     {
-        OutMessage = TEXT("StateTree references requires one exact stable object or member reference.");
+        OutMessage = TEXT("StateTree references requires TargetSelf, a stable object, or one of their members.");
         return false;
     }
-    if (!Owner->TryGetStringField(TEXT("kind"), OutSubject.StableKind)
-        || !Owner->TryGetStringField(TEXT("id"), OutSubject.StableId))
+    if (!Owner->TryGetStringField(TEXT("kind"), OutSubject.StableKind))
+    {
+        OutMessage = TEXT("StateTree references subject has no normalized kind.");
+        return false;
+    }
+    if (OutSubject.StableKind == TEXT("target_self"))
+    {
+        OutCode = TEXT("capability.reference_unavailable");
+        OutMessage = TEXT("StateTree does not currently expose its asset Target as a complete authored reference subject; use a contained State, Node, Transition, Parameter, or Context StableRef.");
+        return false;
+    }
+    if (!Owner->TryGetStringField(TEXT("id"), OutSubject.StableId))
     {
         OutMessage = TEXT("StateTree references requires one stable state, node, transition, parameter, or object reference.");
         return false;
@@ -5548,7 +5560,7 @@ bool ResolveReferenceSubject(
         {
             return false;
         }
-        // A parameter@id denotes its native descriptor value. `.Value` is the
+        // A Parameter StableRef denotes its native descriptor value. `.Value` is the
         // explicit schema spelling of the same Binding endpoint.
         if (!OutSubject.Path.IsEmpty() && OutSubject.Path[0] == TEXT("Value"))
         {
@@ -5647,7 +5659,7 @@ bool EndpointMatchesReference(
 
 FString RelationshipEndpointText(const FRelationshipEndpoint& Endpoint)
 {
-    FString Result = Endpoint.StableKind + TEXT("@") + Endpoint.StableId;
+    FString Result = TEXT("@") + Endpoint.StableId;
     for (const FRelationshipPathSegment& Segment : Endpoint.Path)
     {
         Result += Segment.Index != INDEX_NONE
@@ -5997,7 +6009,7 @@ TSharedPtr<FJsonObject> QueryReferences(
                     ERelationshipOwnerKind::State,
                     StateIndex,
                     {FString::Printf(
-                        TEXT("reference member: state@%s.LinkedSubtree"),
+                        TEXT("reference member: @%s.LinkedSubtree"),
                         *GuidText(AuthoredState.ID))});
             }
         }
@@ -6015,7 +6027,7 @@ TSharedPtr<FJsonObject> QueryReferences(
                     ERelationshipOwnerKind::Transition,
                     TransitionIndex,
                     {FString::Printf(
-                        TEXT("reference member: transition@%s.State"),
+                        TEXT("reference member: @%s.State"),
                         *GuidText(TransitionEntry->Transition->ID))});
             }
         }
@@ -6059,7 +6071,7 @@ TSharedPtr<FJsonObject> QueryReferences(
                 for (const FString& Path : Paths)
                 {
                     Notes.Add(FString::Printf(
-                        TEXT("reference member: node@%s.%s"),
+                        TEXT("reference member: @%s.%s"),
                         *GuidText(NodeEntry->Node->ID),
                         *Path));
                 }
@@ -6115,7 +6127,7 @@ TSharedPtr<FJsonObject> QueryReferences(
                 for (const FString& Path : Paths)
                 {
                     Notes.Add(FString::Printf(
-                        TEXT("reference member: parameter@%s.%s"),
+                        TEXT("reference member: @%s.%s"),
                         *ParameterId,
                         *Path));
                 }
@@ -6253,11 +6265,10 @@ bool PaletteSchemaText(
             ? TEXT("<destination-defined>")
             : Entry.NativeType.ToString();
     if (!Builder.Append(FString::Printf(
-            TEXT("palette schema:\n  constructor: %s\n  destination: %s\n  native type: %s\n  palette: %s"),
-            StateTreePalette::ConstructorName(Entry.ConstructorKind),
+            TEXT("palette schema:\n  creation object: { palette: \"%s\" }\n  destination: %s\n  native type: %s"),
+            *Entry.Id,
             StateTreePalette::DestinationRoleName(Destination.Role),
-            *NativeTypeText,
-            *Entry.Id)))
+            *NativeTypeText)))
     {
         return Finish();
     }
@@ -6398,7 +6409,7 @@ bool PaletteSchemaText(
                 }
             }
             if (!Builder.Append(FString::Printf(
-                    TEXT("\nconstraints:\n  Type: fixed to %s; the copied constructor must preserve this Palette capability\n  SelectionBehavior: fixed to %s for this fixed State capability"),
+                    TEXT("\nconstraints:\n  Type: fixed to %s; the copied creation object must preserve this Palette capability\n  SelectionBehavior: fixed to %s for this fixed State capability"),
                     *Entry.StateType,
                     *FixedSelection)))
             {
@@ -6407,7 +6418,7 @@ bool PaletteSchemaText(
             if (Entry.LinkedSubtreeId.IsValid())
             {
                 if (!Builder.Append(FString::Printf(
-                        TEXT("\n  LinkedSubtree: fixed to state@%s; the copied constructor must preserve this exact destination-bound target"),
+                        TEXT("\n  LinkedSubtree: fixed to @%s; the copied creation object must preserve this exact destination-bound target"),
                         *GuidText(Entry.LinkedSubtreeId))))
                 {
                     return Finish();
@@ -6645,7 +6656,7 @@ TSharedPtr<FJsonObject> QueryPalette(
     {
         return QueryError(
             TEXT("validation.palette_context_invalid"),
-            TEXT("Exact StateTree Palette Query requires palette @id and one exact destination after to."),
+            TEXT("Exact StateTree Palette Query requires a Palette identity and one exact destination after to."),
             TEXT("palette"),
             PaletteId);
     }
@@ -6722,7 +6733,7 @@ TSharedPtr<FJsonObject> FSalStateTreeInterface::Query(
     {
         return QueryError(
             TEXT("capability.interface_unavailable"),
-            TEXT("The state_tree interface requires an exact UStateTree asset target."),
+            TEXT("The state_tree Domain requires an exact UStateTree asset Target."),
             FString(),
             Target.AssetPath);
     }
@@ -6828,5 +6839,128 @@ TSharedPtr<FJsonObject> FSalStateTreeInterface::Query(
         Operation,
         FString(),
         {TEXT("target"), TEXT("summary"), TEXT("tree"), TEXT("states"), TEXT("nodes"), TEXT("parameters"), TEXT("state"), TEXT("node"), TEXT("transition"), TEXT("parameter"), TEXT("object"), TEXT("references"), TEXT("palette_entries"), TEXT("palette")});
+}
+
+bool FSalStateTreeInterface::ResolveCreationKind(
+    const FString& Palette,
+    FString& OutLegacyKind)
+{
+    OutLegacyKind.Reset();
+    if (Palette == TEXT("state_tree.state")
+        || Palette == TEXT("state_tree.state.linked_asset")
+        || Palette.StartsWith(TEXT("state_tree.state.linked.")))
+    {
+        OutLegacyKind = TEXT("state");
+    }
+    else if (Palette == TEXT("state_tree.transition"))
+    {
+        OutLegacyKind = TEXT("transition");
+    }
+    else if (Palette == TEXT("state_tree.parameter"))
+    {
+        OutLegacyKind = TEXT("parameter");
+    }
+    else if (Palette.StartsWith(TEXT("state_tree.node.")))
+    {
+        OutLegacyKind = TEXT("node");
+    }
+    return !OutLegacyKind.IsEmpty();
+}
+
+bool FSalStateTreeInterface::LowerStableReference(
+    const FSalResolvedTarget& Target,
+    const TArray<FString>& IdentityPath,
+    FString& OutLegacyKind,
+    FString& OutLegacyId,
+    FString& OutCode,
+    FString& OutMessage)
+{
+    using namespace StateTreeRead;
+
+    OutLegacyKind.Reset();
+    OutLegacyId.Reset();
+    OutCode = TEXT("resolution.object_not_found");
+    OutMessage = TEXT("Stable reference was not found in the bound StateTree identity environment.");
+    UStateTree* StateTree = ResolvedStateTree(Target);
+    UStateTreeEditorData* EditorData = AuthoredData(StateTree);
+    if (StateTree == nullptr
+        || EditorData == nullptr
+        || !(IdentityPath.Num() == 1 || IdentityPath.Num() == 2))
+    {
+        return false;
+    }
+
+    TArray<TPair<FString, FString>> Candidates;
+    if (IdentityPath.Num() == 1)
+    {
+        FGuid Guid;
+        if (!FGuid::Parse(IdentityPath[0], Guid) || !Guid.IsValid())
+        {
+            OutMessage = TEXT("StateTree identity component must be a valid non-zero Guid.");
+            return false;
+        }
+        const FString Id = GuidText(Guid);
+        for (const TCHAR* Kind : {
+                 TEXT("state"),
+                 TEXT("node"),
+                 TEXT("transition"),
+                 TEXT("object")})
+        {
+            Candidates.Add({Kind, Id});
+        }
+    }
+    else
+    {
+        FGuid ContainerGuid;
+        FGuid PropertyGuid;
+        if (!FGuid::Parse(IdentityPath[0], ContainerGuid)
+            || !ContainerGuid.IsValid()
+            || !FGuid::Parse(IdentityPath[1], PropertyGuid)
+            || !PropertyGuid.IsValid())
+        {
+            OutMessage = TEXT("StateTree Parameter identity components must be valid non-zero Guids.");
+            return false;
+        }
+        Candidates.Add({
+            TEXT("parameter"),
+            ParameterIdentityText(ContainerGuid, PropertyGuid)});
+    }
+
+    FReadContext Context;
+    FAuthoredStateIndex Index(*EditorData, Context);
+    TArray<TPair<FString, FString>> Matches;
+    for (const TPair<FString, FString>& Candidate : Candidates)
+    {
+        TSharedPtr<FJsonObject> Ref = MakeShared<FJsonObject>();
+        Ref->SetStringField(TEXT("kind"), Candidate.Key);
+        Ref->SetStringField(TEXT("id"), Candidate.Value);
+        FReferenceSubject Subject;
+        FString Code;
+        FString Message;
+        if (ResolveReferenceSubject(
+                *StateTree,
+                *EditorData,
+                Index,
+                Ref,
+                Subject,
+                Code,
+                Message))
+        {
+            Matches.Add(Candidate);
+        }
+    }
+    if (Matches.Num() != 1)
+    {
+        OutCode = Matches.IsEmpty()
+            ? TEXT("resolution.object_not_found")
+            : TEXT("resolution.identity_conflict");
+        OutMessage = Matches.IsEmpty()
+            ? TEXT("StateTree object was not found.")
+            : TEXT("StateTree identity path matches more than one native object category.");
+        return false;
+    }
+    OutLegacyKind = Matches[0].Key;
+    OutLegacyId = Matches[0].Value;
+    return true;
 }
 }

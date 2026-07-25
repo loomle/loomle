@@ -471,7 +471,9 @@ TSharedPtr<FJsonValue> AssetValue(
     TArray<TSharedPtr<FJsonValue>> Domains;
     for (const FString& Domain : DomainsFor(Data))
     {
-        Domains.Add(Value::Name(Domain));
+        // Domain names are structural SAL keywords, so they cannot be Name
+        // expressions or semantic tags. Preserve them as ordinary data.
+        Domains.Add(Value::String(Domain));
     }
     Args->SetArrayField(TEXT("domains"), Domains);
     Args->SetBoolField(TEXT("loaded"), Data.IsAssetLoaded());
@@ -642,16 +644,11 @@ TSharedPtr<FJsonObject> SavePlan(const FSalResolvedTarget& Target, const bool bD
     return Plan;
 }
 
-TSharedPtr<FJsonObject> ResolvedSaveRefs(const FSalResolvedTarget& Target)
+TSharedPtr<FJsonObject> ResolvedSaveRefs(const FSalResolvedTarget&)
 {
-    TSharedPtr<FJsonObject> Asset = MakeShared<FJsonObject>();
-    Asset->SetStringField(TEXT("path"), Target.AssetPath);
-    TSharedPtr<FJsonObject> Package = MakeShared<FJsonObject>();
-    Package->SetStringField(TEXT("name"), Target.Package != nullptr ? Target.Package->GetName() : FString());
-    TSharedPtr<FJsonObject> Refs = MakeShared<FJsonObject>();
-    Refs->SetObjectField(TEXT("asset"), Asset);
-    Refs->SetObjectField(TEXT("package"), Package);
-    return Refs;
+    // Asset and Package locators are already represented by the canonical
+    // Result Target and are not StableRefs in an Asset identity scope.
+    return nullptr;
 }
 }
 
@@ -754,7 +751,7 @@ TSharedPtr<FJsonObject> FSalAssetInterface::Patch(const FSalPatch& Patch, const 
     {
         return MakeMutationResult(
             nullptr,
-            {FSalDiagnostics::Error(TEXT("validation.exact_asset_required"), TEXT("Asset save requires one exact asset(path: ...) target."))
+            {FSalDiagnostics::Error(TEXT("validation.exact_asset_required"), TEXT("Asset save requires canonical target { domain: asset, path: ..., type: ... }."))
                 .Interface(TEXT("asset"))
                 .Build()},
             Patch.bDryRun,

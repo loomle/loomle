@@ -2,7 +2,7 @@
   "name": "loomle",
   "version": "0.7.0-rc.2",
   "loomle": {
-    "protocolVersion": 2
+    "protocolVersion": 3
   },
   "private": true,
   "type": "module",

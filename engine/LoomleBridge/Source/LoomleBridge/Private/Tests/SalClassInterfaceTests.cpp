@@ -4,6 +4,7 @@
 
 #include "Sal/Class/SalClassInterface.h"
 #include "SalClassSparseTestTypes.h"
+#include "SalTestObjectModel.h"
 #include "Tests/LoomleTestEditorState.h"
 
 #include "Dom/JsonObject.h"
@@ -94,16 +95,15 @@ TArray<TSharedPtr<FJsonObject>> CallArgs(
         const TSharedPtr<FJsonObject>* Statement = nullptr;
         const TSharedPtr<FJsonObject>* Call = nullptr;
         const TSharedPtr<FJsonObject>* CallArgsObject = nullptr;
-        FString ActualCallee;
         if (StatementValue.IsValid()
             && StatementValue->TryGetObject(Statement)
             && Statement != nullptr
             && (*Statement)->TryGetObjectField(TEXT("value"), Call)
             && Call != nullptr
-            && (*Call)->TryGetStringField(TEXT("callee"), ActualCallee)
-            && ActualCallee == Callee
-            && (*Call)->TryGetObjectField(TEXT("args"), CallArgsObject)
-            && CallArgsObject != nullptr)
+            && Loomle::Tests::Sal::TryReadObjectExpr(
+                *Call,
+                Callee,
+                CallArgsObject))
         {
             Args.Add(*CallArgsObject);
         }

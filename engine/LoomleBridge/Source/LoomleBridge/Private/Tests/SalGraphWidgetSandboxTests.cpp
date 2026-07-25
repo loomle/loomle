@@ -1048,7 +1048,7 @@ bool FSalGraphDryRunSandboxIsolationTest::RunTest(
             && SandboxTarget.Graph->GraphGuid
                 == Fixture.Graph->GraphGuid);
     TestNotNull(
-        TEXT("Graph sandbox restores reconstructed tolerance pin@id"),
+        TEXT("Graph sandbox restores reconstructed tolerance pin @id"),
         FindPinByNodeAndPinGuid(
             Sandbox,
             Fixture.PromotableNode->NodeGuid,
@@ -1402,7 +1402,7 @@ bool FSalWidgetDryRunSandboxIsolationTest::RunTest(
             && Sandbox->GetExtensions()[0]
                 != Fixture.Extension);
     TestNotNull(
-        TEXT("Widget sandbox restores reconstructed tolerance pin@id"),
+        TEXT("Widget sandbox restores reconstructed tolerance pin @id"),
         FindPinByNodeAndPinGuid(
             Sandbox,
             Fixture.PromotableNode->NodeGuid,

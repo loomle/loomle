@@ -14,33 +14,65 @@ using Loomle::Sal::FSalJson;
 using Loomle::Sal::FSalPatch;
 using Loomle::Sal::FSalQuery;
 
-TSharedRef<FJsonObject> MakeCall(const FString& Callee, const TSharedRef<FJsonObject>& Args)
+TSharedRef<FJsonObject> MakeObjectExpr(
+    const TSharedRef<FJsonObject>& Fields,
+    const FString& SemanticTag = FString())
 {
-    const TSharedRef<FJsonObject> Call = MakeShared<FJsonObject>();
-    Call->SetStringField(TEXT("kind"), TEXT("call"));
-    Call->SetStringField(TEXT("callee"), Callee);
-    Call->SetObjectField(TEXT("args"), Args);
-    return Call;
+    const TSharedRef<FJsonObject> Object = MakeShared<FJsonObject>();
+    Object->SetStringField(TEXT("kind"), TEXT("object"));
+    Object->SetObjectField(TEXT("fields"), Fields);
+    if (!SemanticTag.IsEmpty())
+    {
+        Object->SetStringField(TEXT("semanticTag"), SemanticTag);
+    }
+    return Object;
 }
 
 TSharedRef<FJsonObject> MakeAssetTarget()
 {
-    const TSharedRef<FJsonObject> Args = MakeShared<FJsonObject>();
-    Args->SetStringField(TEXT("path"), TEXT("/Game/AI/ST_Test.ST_Test"));
-    Args->SetStringField(TEXT("type"), TEXT("/Script/StateTreeModule.StateTree"));
+    const TSharedRef<FJsonObject> Value = MakeShared<FJsonObject>();
+    Value->SetStringField(TEXT("kind"), TEXT("target"));
+    Value->SetStringField(TEXT("domain"), TEXT("state_tree"));
+    Value->SetStringField(TEXT("asset"), TEXT("/Game/AI/ST_Test.ST_Test"));
+    Value->SetStringField(TEXT("type"), TEXT("/Script/StateTreeModule.StateTree"));
 
     const TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
-    Target->SetStringField(TEXT("alias"), TEXT("tree"));
-    Target->SetObjectField(TEXT("value"), MakeCall(TEXT("asset"), Args));
+    Target->SetStringField(TEXT("alias"), TEXT("tree_scope"));
+    Target->SetObjectField(TEXT("target"), Value);
     return Target;
 }
 
-TSharedRef<FJsonObject> MakeStableRef(const FString& Kind, const FString& Id)
+TSharedRef<FJsonObject> MakeStableRef(
+    const FString& SemanticTag,
+    const FString& Id)
 {
     const TSharedRef<FJsonObject> Ref = MakeShared<FJsonObject>();
-    Ref->SetStringField(TEXT("kind"), Kind);
-    Ref->SetStringField(TEXT("id"), Id);
+    Ref->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    TArray<FString> Identity;
+    Id.ParseIntoArray(Identity, TEXT("/"), false);
+    TArray<TSharedPtr<FJsonValue>> Segments;
+    for (const FString& Segment : Identity)
+    {
+        Segments.Add(MakeShared<FJsonValueString>(Segment));
+    }
+    Ref->SetArrayField(TEXT("identityPath"), Segments);
+    if (!SemanticTag.IsEmpty())
+    {
+        Ref->SetStringField(TEXT("semanticTag"), SemanticTag);
+    }
     return Ref;
+}
+
+TSharedRef<FJsonObject> MakeExactOperation(
+    const FString& SemanticTag,
+    const FString& Id)
+{
+    const TSharedRef<FJsonObject> Operation = MakeShared<FJsonObject>();
+    Operation->SetStringField(TEXT("kind"), TEXT("object"));
+    Operation->SetObjectField(
+        TEXT("target"),
+        MakeStableRef(SemanticTag, Id));
+    return Operation;
 }
 
 TSharedRef<FJsonObject> MakeLocalRef(const FString& Name)
@@ -127,31 +159,29 @@ bool FSalStateTreeQueryContractTest::RunTest(const FString& Parameters)
         TEXT("StateTree Parameter collection accepts its optional search text"),
         DecodeQuery(ParameterSearch, ParameterSearchQuery));
 
-    for (const FString& Kind : {TEXT("state"), TEXT("node"), TEXT("transition"), TEXT("parameter"), TEXT("object")})
+    for (const FString& Kind : {TEXT("state"), TEXT("node"), TEXT("transition"), TEXT("parameter")})
     {
-        const TSharedRef<FJsonObject> Operation = MakeKindOperation(Kind);
-        Operation->SetStringField(
-            TEXT("id"),
-            Kind == TEXT("parameter") ? TEXT("container-guid/property-guid") : TEXT("authored-guid"));
+        const TSharedRef<FJsonObject> Operation = MakeExactOperation(
+            Kind,
+            Kind == TEXT("parameter")
+                ? TEXT("container-guid/property-guid")
+                : TEXT("authored-guid"));
         FSalQuery Query;
         TestTrue(*FString::Printf(TEXT("StateTree %s exact Query shape is accepted"), *Kind), DecodeQuery(Operation, Query));
     }
 
-
-    const TSharedRef<FJsonObject> CompoundParameter = MakeKindOperation(TEXT("parameter"));
-    CompoundParameter->SetStringField(
-        TEXT("id"),
+    const TSharedRef<FJsonObject> CompoundParameter = MakeExactOperation(
+        TEXT("parameter"),
         TEXT("11111111-2222-3333-4444-555555555555/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
     FSalQuery CompoundParameterQuery;
     TestTrue(
         TEXT("StateTree exact Parameter preserves the canonical container/property compound id"),
         DecodeQuery(CompoundParameter, CompoundParameterQuery));
-    FString CompoundId;
     TestTrue(
         TEXT("Decoded exact Parameter keeps the slash as identity rather than member syntax"),
         CompoundParameterQuery.Operation.IsValid()
-            && CompoundParameterQuery.Operation->TryGetStringField(TEXT("id"), CompoundId)
-            && CompoundId == TEXT("11111111-2222-3333-4444-555555555555/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
+            && CompoundParameterQuery.Operation->GetObjectField(TEXT("target"))
+                ->GetArrayField(TEXT("identityPath")).Num() == 2);
 
     const TSharedRef<FJsonObject> Tree = MakeKindOperation(TEXT("tree"));
     Tree->SetObjectField(TEXT("root"), MakeStableRef(TEXT("state"), TEXT("root-state-guid")));
@@ -171,7 +201,7 @@ bool FSalStateTreeQueryContractTest::RunTest(const FString& Parameters)
     Palette->SetStringField(TEXT("id"), TEXT("P_State"));
     Palette->SetObjectField(
         TEXT("to"),
-        MakeMemberRef(MakeLocalRef(TEXT("tree")), {StringSegment(TEXT("SubTrees"))}));
+        MakeMemberRef(MakeLocalRef(TEXT("tree_scope")), {StringSegment(TEXT("SubTrees"))}));
     FSalQuery PaletteQuery;
     TestTrue(TEXT("StateTree exact Palette read accepts the bound target destination"), DecodeQuery(Palette, PaletteQuery));
 
@@ -205,21 +235,12 @@ bool FSalStateTreeIndexedPathContractTest::RunTest(const FString& Parameters)
     BracketReference->SetObjectField(
         TEXT("target"),
         MakeStableRef(TEXT("parameter"), TEXT("container-guid/property-guid[0]")));
+    FSalQuery BracketQuery;
+    TestTrue(
+        TEXT("StableRef identity segments remain opaque; brackets are not member syntax inside identityPath"),
+        DecodeQuery(BracketReference, BracketQuery));
+
     FSalQuery InvalidQuery;
-    TestFalse(TEXT("A StableRef id cannot absorb an indexed member suffix"), DecodeQuery(BracketReference, InvalidQuery));
-
-    const TSharedRef<FJsonObject> BracketExact = MakeKindOperation(TEXT("parameter"));
-    BracketExact->SetStringField(TEXT("id"), TEXT("container-guid/property-guid[0]"));
-    TestFalse(TEXT("An exact Parameter id cannot absorb an indexed member suffix"), DecodeQuery(BracketExact, InvalidQuery));
-
-    for (const FString& Kind : {TEXT("state"), TEXT("node"), TEXT("transition")})
-    {
-        const TSharedRef<FJsonObject> BracketObject = MakeKindOperation(Kind);
-        BracketObject->SetStringField(TEXT("id"), TEXT("authored-guid[0]"));
-        TestFalse(
-            *FString::Printf(TEXT("An exact %s id rejects a bracket suffix"), *Kind),
-            DecodeQuery(BracketObject, InvalidQuery));
-    }
 
     const TSharedRef<FJsonObject> NegativeIndex = MakeKindOperation(TEXT("references"));
     NegativeIndex->SetObjectField(
@@ -251,7 +272,9 @@ bool FSalStateTreeBindingContractTest::RunTest(const FString& Parameters)
     ConstructorArgs->SetStringField(TEXT("palette"), TEXT("P_ClampPropertyFunction"));
     const TSharedRef<FJsonObject> FunctionBinding = MakeShared<FJsonObject>();
     FunctionBinding->SetObjectField(TEXT("target"), MakeLocalRef(TEXT("clamp")));
-    FunctionBinding->SetObjectField(TEXT("value"), MakeCall(TEXT("node"), ConstructorArgs));
+    FunctionBinding->SetObjectField(
+        TEXT("value"),
+        MakeObjectExpr(ConstructorArgs, TEXT("node")));
 
     const TSharedRef<FJsonObject> BindFunction = MakeKindOperation(TEXT("bind"));
     BindFunction->SetObjectField(

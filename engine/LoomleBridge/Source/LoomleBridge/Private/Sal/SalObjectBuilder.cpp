@@ -4,16 +4,100 @@
 
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
+#include "Misc/ScopeLock.h"
 
 namespace Loomle::Sal
 {
 namespace
 {
+bool IsReservedLocalIdentifier(const FString& Text)
+{
+    static const TSet<FString> Reserved = {
+        TEXT("true"), TEXT("false"), TEXT("null"),
+        TEXT("target"), TEXT("domain"), TEXT("tree"),
+        TEXT("context"), TEXT("palette"), TEXT("object"), TEXT("asset"),
+        TEXT("blueprint"), TEXT("class"), TEXT("graph"),
+        TEXT("state_tree"), TEXT("widget")
+    };
+    return Reserved.Contains(Text);
+}
+
 TSharedPtr<FJsonObject> MakeKindObject(const FString& Kind)
 {
     TSharedPtr<FJsonObject> Object = MakeShared<FJsonObject>();
     Object->SetStringField(TEXT("kind"), Kind);
     return Object;
+}
+
+FString StableSemanticTag(const FString& Kind)
+{
+    if (Kind == TEXT("local_variable")
+        || Kind == TEXT("owner_variable")
+        || Kind == TEXT("owner_local_variable"))
+    {
+        return TEXT("variable");
+    }
+    if (Kind == TEXT("owner_dispatcher"))
+    {
+        return TEXT("dispatcher");
+    }
+    if (Kind == TEXT("owner_component"))
+    {
+        return TEXT("component");
+    }
+    return Kind;
+}
+
+bool CanEmitSemanticTag(const FString& Tag)
+{
+    return FSalObjectBuilder::IsLocalIdentifier(Tag);
+}
+
+TSet<const FJsonValue*>& ExplicitExpressionValues()
+{
+    static TSet<const FJsonValue*>* Values =
+        new TSet<const FJsonValue*>();
+    return *Values;
+}
+
+FCriticalSection& ExplicitExpressionValuesMutex()
+{
+    static FCriticalSection* Mutex = new FCriticalSection();
+    return *Mutex;
+}
+
+void RegisterExplicitExpression(const FJsonValue* Value)
+{
+    FScopeLock Lock(&ExplicitExpressionValuesMutex());
+    ExplicitExpressionValues().Add(Value);
+}
+
+void UnregisterExplicitExpression(const FJsonValue* Value)
+{
+    FScopeLock Lock(&ExplicitExpressionValuesMutex());
+    ExplicitExpressionValues().Remove(Value);
+}
+
+class FExplicitSalExpressionValue final : public FJsonValueObject
+{
+public:
+    explicit FExplicitSalExpressionValue(
+        const TSharedPtr<FJsonObject>& InObject)
+        : FJsonValueObject(InObject)
+    {
+        RegisterExplicitExpression(this);
+    }
+
+    virtual ~FExplicitSalExpressionValue() override
+    {
+        UnregisterExplicitExpression(this);
+    }
+};
+
+TSharedPtr<FJsonValue> MakeExplicitExpressionValue(
+    const TSharedPtr<FJsonObject>& Object)
+{
+    return MakeShared<FExplicitSalExpressionValue>(Object);
 }
 }
 
@@ -48,26 +132,50 @@ TSharedPtr<FJsonObject> LocalObject(const FString& InName)
 
 TSharedPtr<FJsonValue> Local(const FString& InName)
 {
-    return MakeShared<FJsonValueObject>(LocalObject(InName));
+    return MakeExplicitExpressionValue(LocalObject(InName));
 }
 
 TSharedPtr<FJsonObject> StableObject(const FString& InKind, const FString& InId)
 {
-    TSharedPtr<FJsonObject> Object = MakeKindObject(InKind);
-    Object->SetStringField(TEXT("id"), InId);
+    TSharedPtr<FJsonObject> Object = MakeKindObject(TEXT("stable_ref"));
+    TArray<FString> IdentityPath;
+    InId.ParseIntoArray(IdentityPath, TEXT("/"), false);
+    if (IdentityPath.IsEmpty() && !InId.IsEmpty())
+    {
+        IdentityPath.Add(InId);
+    }
+    TArray<TSharedPtr<FJsonValue>> Segments;
+    Segments.Reserve(IdentityPath.Num());
+    for (const FString& Segment : IdentityPath)
+    {
+        Segments.Add(String(Segment));
+    }
+    Object->SetArrayField(TEXT("identityPath"), Segments);
+    const FString Tag = StableSemanticTag(InKind);
+    if (CanEmitSemanticTag(Tag))
+    {
+        Object->SetStringField(TEXT("semanticTag"), Tag);
+    }
     return Object;
 }
 
 TSharedPtr<FJsonValue> Stable(const FString& InKind, const FString& InId)
 {
-    return MakeShared<FJsonValueObject>(StableObject(InKind, InId));
+    return MakeExplicitExpressionValue(StableObject(InKind, InId));
 }
 
 TSharedPtr<FJsonValue> Name(const FString& InName)
 {
     TSharedPtr<FJsonObject> Object = MakeKindObject(TEXT("name"));
     Object->SetStringField(TEXT("name"), InName);
-    return MakeShared<FJsonValueObject>(Object);
+    return MakeExplicitExpressionValue(Object);
+}
+
+TSharedPtr<FJsonValue> NameOrString(const FString& InName)
+{
+    return FSalObjectBuilder::IsLocalIdentifier(InName)
+        ? Name(InName)
+        : String(InName);
 }
 
 TSharedPtr<FJsonObject> MemberObject(const TSharedPtr<FJsonObject>& ObjectRef, const TArray<FString>& Path)
@@ -86,20 +194,35 @@ TSharedPtr<FJsonObject> MemberObject(const TSharedPtr<FJsonObject>& ObjectRef, c
 
 TSharedPtr<FJsonValue> Member(const TSharedPtr<FJsonObject>& ObjectRef, const TArray<FString>& Path)
 {
-    return MakeShared<FJsonValueObject>(MemberObject(ObjectRef, Path));
+    return MakeExplicitExpressionValue(MemberObject(ObjectRef, Path));
 }
 
 TSharedPtr<FJsonObject> CallObject(const FString& Callee, const TSharedPtr<FJsonObject>& Args)
 {
-    TSharedPtr<FJsonObject> Object = MakeKindObject(TEXT("call"));
-    Object->SetStringField(TEXT("callee"), Callee);
-    Object->SetObjectField(TEXT("args"), Args.IsValid() ? Args : MakeShared<FJsonObject>());
+    TSharedPtr<FJsonObject> Object = MakeKindObject(TEXT("object"));
+    Object->SetObjectField(
+        TEXT("fields"),
+        Args.IsValid() ? Args : MakeShared<FJsonObject>());
+    if (CanEmitSemanticTag(Callee))
+    {
+        Object->SetStringField(TEXT("semanticTag"), Callee);
+    }
     return Object;
 }
 
 TSharedPtr<FJsonValue> Call(const FString& Callee, const TSharedPtr<FJsonObject>& Args)
 {
-    return MakeShared<FJsonValueObject>(CallObject(Callee, Args));
+    return MakeExplicitExpressionValue(CallObject(Callee, Args));
+}
+
+bool IsExplicitExpression(const TSharedPtr<FJsonValue>& InValue)
+{
+    if (!InValue.IsValid())
+    {
+        return false;
+    }
+    FScopeLock Lock(&ExplicitExpressionValuesMutex());
+    return ExplicitExpressionValues().Contains(InValue.Get());
 }
 }
 
@@ -128,6 +251,11 @@ bool FSalObjectBuilder::IsIdentifier(const FString& Text)
     return Text != TEXT("true") && Text != TEXT("false") && Text != TEXT("null");
 }
 
+bool FSalObjectBuilder::IsLocalIdentifier(const FString& Text)
+{
+    return IsIdentifier(Text) && !IsReservedLocalIdentifier(Text);
+}
+
 FString FSalObjectBuilder::SanitizeIdentifier(const FString& Text, const FString& Fallback)
 {
     const auto IsAsciiAlpha = [](const TCHAR Character)
@@ -153,7 +281,7 @@ FString FSalObjectBuilder::SanitizeIdentifier(const FString& Text, const FString
     {
         Alias.InsertAt(0, TEXT('_'));
     }
-    if (Alias == TEXT("true") || Alias == TEXT("false") || Alias == TEXT("null"))
+    if (IsReservedLocalIdentifier(Alias))
     {
         Alias += TEXT("_item");
     }

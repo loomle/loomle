@@ -107,15 +107,15 @@ FString BlueprintPath(const UBlueprint* Blueprint)
 FString NodeRef(const UEdGraphNode* Node)
 {
     return Node != nullptr && Node->NodeGuid.IsValid()
-        ? TEXT("node@") + GuidText(Node->NodeGuid)
-        : TEXT("node@<invalid>");
+        ? TEXT("@") + GuidText(Node->NodeGuid)
+        : TEXT("@<invalid>");
 }
 
 FString GraphRef(const UEdGraph* Graph)
 {
     return Graph != nullptr && Graph->GraphGuid.IsValid()
-        ? TEXT("graph@") + GuidText(Graph->GraphGuid)
-        : TEXT("graph@<invalid>");
+        ? TEXT("@") + GuidText(Graph->GraphGuid)
+        : TEXT("@<invalid>");
 }
 
 bool ParseGuid(const FString& Text, FGuid& OutGuid)
@@ -1754,7 +1754,7 @@ FExtractionResult ExtractWidgetBindingFacts(
         SetIssue(
             Issue,
             EReferenceCoverageIssueKind::Broken,
-            TEXT("widget@<unresolved>"),
+            TEXT("@<unresolved>"),
             TEXT("Bindings.ObjectName"),
             bDuplicateWidget
                 ? TEXT("Widget Binding ObjectName resolves to several source Widgets.")
@@ -1773,7 +1773,7 @@ FExtractionResult ExtractWidgetBindingFacts(
     }
     else
     {
-        WidgetFailure.ObjectRef = TEXT("widget@<unresolved>");
+        WidgetFailure.ObjectRef = TEXT("@<unresolved>");
         FRawReferenceHint Hint;
         if (const FGuid* Guid = Blueprint->WidgetVariableNameToGuidMap.Find(WidgetName))
         {
@@ -1807,7 +1807,7 @@ FExtractionResult ExtractWidgetBindingFacts(
         }
         else
         {
-            Failure.ObjectRef = TEXT("widget@") + GuidText(DestinationWidget.Guid);
+            Failure.ObjectRef = TEXT("@") + GuidText(DestinationWidget.Guid);
             Failure.FieldPath = TEXT("Bindings.PropertyName");
             AddUnresolved(Result, MoveTemp(Failure), Hint);
         }
@@ -1860,7 +1860,7 @@ FExtractionResult ExtractWidgetBindingFacts(
         }
         else
         {
-            Failure.ObjectRef = TEXT("widget@") + GuidText(DestinationWidget.Guid);
+            Failure.ObjectRef = TEXT("@") + GuidText(DestinationWidget.Guid);
             if (Failure.FieldPath.IsEmpty())
             {
                 Failure.FieldPath = SourceFunctionPath;
@@ -1888,7 +1888,7 @@ FExtractionResult ExtractWidgetBindingFacts(
         }
         else
         {
-            Failure.ObjectRef = TEXT("widget@") + GuidText(DestinationWidget.Guid);
+            Failure.ObjectRef = TEXT("@") + GuidText(DestinationWidget.Guid);
             Failure.FieldPath = TEXT("Bindings.SourceProperty");
             AddUnresolved(Result, MoveTemp(Failure), Hint);
         }
@@ -1905,7 +1905,7 @@ FExtractionResult ExtractWidgetBindingFacts(
         }
         else
         {
-            Failure.ObjectRef = TEXT("widget@") + GuidText(DestinationWidget.Guid);
+            Failure.ObjectRef = TEXT("@") + GuidText(DestinationWidget.Guid);
             Failure.FieldPath = TEXT("Bindings.SourcePath");
             AddUnresolved(Result, MoveTemp(Failure), Hint);
         }
@@ -1972,7 +1972,7 @@ bool ReadSubjectRef(
 
 FString SubjectText(const FString& Kind, const FString& Id, const TArray<FString>& Path)
 {
-    FString Result = Kind + TEXT("@") + Id;
+    FString Result = TEXT("@") + Id;
     if (!Path.IsEmpty())
     {
         Result += TEXT(".") + FString::Join(Path, TEXT("."));
@@ -2396,13 +2396,93 @@ FReferenceSubjectResolution FSalReferenceFacts::ResolveSubject(
     TArray<FString> MemberPath;
     FString StableKind;
     FString StableId;
-    if (!ReadSubjectRef(OperationTarget, StableRef, MemberPath)
-        || !ReadStableRef(StableRef, StableKind, StableId))
+    if (!ReadSubjectRef(OperationTarget, StableRef, MemberPath))
     {
         SetResolutionFailure(
             Result,
             EReferenceResolutionStatus::Unsupported,
-            TEXT("References target must be one typed StableRef or its direct native Member path."));
+            TEXT("References target must be TargetSelf, a StableRef, or one of their direct native Member paths."));
+        return Result;
+    }
+
+    FString StructuralKind;
+    StableRef->TryGetStringField(TEXT("kind"), StructuralKind);
+    if (StructuralKind == TEXT("target_self"))
+    {
+        Result.Subject.QueryRef = TEXT("target");
+        if (!MemberPath.IsEmpty())
+        {
+            Result.Subject.QueryRef += TEXT(".")
+                + FString::Join(MemberPath, TEXT("."));
+        }
+        if (StableRef->Values.Num() != 1
+            || BoundTarget.Domain != ESalDomain::Graph
+            || BoundTarget.Kind != ESalTargetKind::Graph
+            || BoundTarget.Graph == nullptr)
+        {
+            SetResolutionFailure(
+                Result,
+                EReferenceResolutionStatus::Unsupported,
+                TEXT("The active Domain does not expose its Target as a confirmed declaration subject."));
+            return Result;
+        }
+        if (MemberPath.Num() > 1)
+        {
+            SetResolutionFailure(
+                Result,
+                EReferenceResolutionStatus::Unsupported,
+                TEXT("Graph Target relationships expose only confirmed direct native Member paths."));
+            return Result;
+        }
+        if (!MemberPath.IsEmpty())
+        {
+            if (MemberPath[0] == TEXT("InterfaceGuid"))
+            {
+                return ResolveInterfaceGuid(
+                    Blueprint,
+                    BoundTarget.Graph,
+                    Result.Subject.QueryRef);
+            }
+            SetResolutionFailure(
+                Result,
+                EReferenceResolutionStatus::Unsupported,
+                TEXT("The exact Graph Target member is not a confirmed reference-bearing native field."));
+            return Result;
+        }
+        if (IsFunctionDeclarationGraph(Blueprint, BoundTarget.Graph))
+        {
+            Result.Subject.Identity = MakeGuidIdentity(
+                EReferenceDeclarationKind::Function,
+                Blueprint,
+                BoundTarget.Graph->GraphGuid,
+                BoundTarget.Graph->GetFName());
+        }
+        else if (IsMacroDeclarationGraph(Blueprint, BoundTarget.Graph))
+        {
+            Result.Subject.Identity = MakeGuidIdentity(
+                EReferenceDeclarationKind::Macro,
+                Blueprint,
+                BoundTarget.Graph->GraphGuid,
+                BoundTarget.Graph->GetFName());
+        }
+        else
+        {
+            SetResolutionFailure(
+                Result,
+                EReferenceResolutionStatus::Unsupported,
+                TEXT("The bound Graph is authored state but not a Function or Macro declaration."));
+            return Result;
+        }
+        Result.Status = EReferenceResolutionStatus::Resolved;
+        return Result;
+    }
+
+    if (!ReadStableRef(StableRef, StableKind, StableId))
+    {
+        SetResolutionFailure(
+            Result,
+            EReferenceResolutionStatus::Unsupported,
+            TEXT("References target must be TargetSelf, a StableRef, or one of their direct native Member paths."));
         return Result;
     }
     if (MemberPath.Num() > 1)
@@ -2853,7 +2933,7 @@ void ScanRepNotifyFacts(
         Hint.OwnerPath = BlueprintPath(Blueprint);
         if (MayIssueAffectTarget(Target, Hint))
         {
-            Failure.ObjectRef = TEXT("variable@") + GuidText(Variable.VarGuid);
+            Failure.ObjectRef = TEXT("@") + GuidText(Variable.VarGuid);
             Failure.FieldPath = TEXT("RepNotifyFunc");
             AddIssueUnique(OutResult, Failure);
         }
