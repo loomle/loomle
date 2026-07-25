@@ -44,7 +44,7 @@ permalink: /
           <span class="loom-index-line"></span>
           HUMANS — AGENTS — WORLDS
         </div>
-        <h1>Weave new worlds with AI agents.</h1>
+        <h1>Weave New Worlds with AI Agents.</h1>
         <p class="loom-lede">
           Loomle AI builds SAL, Loomle MCP, and OASIUM—Structured Agent
           Language, an Unreal Engine interface, and an immersive world where
