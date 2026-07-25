@@ -9,12 +9,7 @@ permalink: /
 <div class="loomle-home">
   <header class="loom-topbar">
     <a class="loom-wordmark" href="/" aria-label="Loomle home">
-      <span class="loom-mark" aria-hidden="true">
-        <i></i><i></i><i></i><i></i>
-        <i></i><i></i><i></i><i></i>
-        <i></i><i></i><i></i><i></i>
-        <i></i><i></i><i></i><i></i>
-      </span>
+      <span class="loom-mark" aria-hidden="true"></span>
       <span>LOOMLE</span>
     </a>
     <nav class="loom-nav" aria-label="Home">
