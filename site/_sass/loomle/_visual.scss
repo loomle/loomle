@@ -549,6 +549,11 @@ body:has(.loomle-home) .main-content main {
   gap: 0.75rem;
 }
 
+.loom-actions .loom-button {
+  padding: 0 1.5rem;
+  font-size: 0.875rem;
+}
+
 .loom-button {
   display: inline-flex;
   min-height: 48px;
@@ -731,7 +736,7 @@ body:has(.loomle-home) .main-content main {
 
 .loom-principle h2,
 .loom-interface h2,
-.loom-native h2,
+.loom-oasium h2,
 .loom-start h2 {
   margin: 0;
   padding-top: 0;
@@ -744,12 +749,20 @@ body:has(.loomle-home) .main-content main {
 }
 
 .loom-principle p,
-.loom-interface-intro p,
-.loom-native-copy p {
+.loom-interface-intro p {
   margin: 0;
   color: #5f615b;
   font-size: 1rem;
   line-height: 1.75;
+}
+
+.loom-heading-title,
+.loom-heading-description {
+  display: block;
+}
+
+.loom-heading-description {
+  margin-top: 0.32em;
 }
 
 .loom-sal {
@@ -777,10 +790,10 @@ body:has(.loomle-home) .main-content main {
   padding: 0;
   border: 0;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(2.55rem, 4.4vw, 5rem);
+  font-size: clamp(3rem, 5.1vw, 5.8rem);
   font-weight: 400;
   letter-spacing: -0.052em;
-  line-height: 0.98;
+  line-height: 1.12;
 }
 
 .loom-sal-intro p {
@@ -940,6 +953,12 @@ body:has(.loomle-home) .main-content main {
   gap: clamp(3rem, 8vw, 10rem);
 }
 
+.loom-interface h2 {
+  color: #f3f0e9;
+  font-size: clamp(3rem, 5.1vw, 5.8rem);
+  line-height: 1.12;
+}
+
 .loom-interface-intro p {
   color: #9a9b94;
 }
@@ -948,8 +967,9 @@ body:has(.loomle-home) .main-content main {
   display: grid;
   margin-top: 4.5rem;
   grid-template-columns: repeat(3, 1fr);
-  border-top: 1px solid #464842;
-  border-left: 1px solid #464842;
+  gap: 1px;
+  border: 1px solid #3b3d37;
+  background: #3b3d37;
 }
 
 .loom-call-grid a {
@@ -959,12 +979,11 @@ body:has(.loomle-home) .main-content main {
   grid-template-columns: 2rem 1fr;
   grid-template-rows: auto 1fr;
   column-gap: 1rem;
-  border-right: 1px solid #464842;
-  border-bottom: 1px solid #464842;
+  background: #2a2b27;
 }
 
 .loom-call-grid a:hover {
-  background: #292a25;
+  background: #30312d;
 }
 
 .loom-call-grid span {
@@ -974,7 +993,7 @@ body:has(.loomle-home) .main-content main {
 }
 
 .loom-call-grid strong {
-  color: #efebe3;
+  color: #e2e1dc;
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 0.88rem;
   font-weight: 500;
@@ -983,17 +1002,23 @@ body:has(.loomle-home) .main-content main {
 .loom-call-grid small {
   grid-column: 2;
   align-self: end;
-  color: #85877f;
-  font-size: 0.74rem;
-  line-height: 1.45;
+  color: #a7a8a2;
+  font-size: 0.82rem;
+  line-height: 1.55;
 }
 
-.loom-native {
+.loom-call-grid small code {
+  border-color: #474943;
+  background: #242521;
+  color: #d1d2cc;
+}
+
+.loom-oasium {
   display: grid;
   padding-top: 6.5rem;
   padding-bottom: 6.5rem;
-  grid-template-columns: 0.85fr 1.15fr;
-  gap: clamp(3rem, 8vw, 9rem);
+  grid-template-columns: 0.75fr 1.25fr;
+  gap: clamp(3rem, 6vw, 7rem);
   align-items: center;
   border-right: 1px solid $loom-line;
   border-left: 1px solid $loom-line;
@@ -1001,12 +1026,24 @@ body:has(.loomle-home) .main-content main {
   color: $loom-ink;
 }
 
-.loom-native h2 {
+.loom-oasium h2 {
   margin-top: 2.5rem;
+  font-size: clamp(3rem, 5.1vw, 5.8rem);
+  line-height: 1.12;
 }
 
-.loom-native-copy p {
-  margin-top: 1.7rem;
+.loom-oasium-visual {
+  display: block;
+  overflow: hidden;
+  border: 1px solid $loom-ink;
+  background: $loom-ink;
+  box-shadow: 12px 12px 0 $loom-paper-deep;
+}
+
+.loom-oasium-visual img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .loom-text-link {
@@ -1018,6 +1055,11 @@ body:has(.loomle-home) .main-content main {
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 0.68rem;
   letter-spacing: 0.025em;
+}
+
+.loom-text-link-dark {
+  border-color: #9a9b94;
+  color: #d8d6cf !important;
 }
 
 .loom-specimen {
@@ -1104,7 +1146,7 @@ body:has(.loomle-home) .main-content main {
 .loom-footer {
   display: grid;
   min-height: 92px;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: 1fr auto 1fr;
   gap: 2rem;
   align-items: center;
   border-right: 1px solid #343630;
@@ -1115,8 +1157,20 @@ body:has(.loomle-home) .main-content main {
   letter-spacing: 0.055em;
 }
 
-.loom-footer span:nth-child(2) {
-  text-align: center;
+.loom-footer-products {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-self: center;
+}
+
+.loom-footer-products a:hover {
+  color: #fff;
+}
+
+.loom-footer > span:last-child {
+  justify-self: end;
+  text-align: right;
 }
 
 // Responsive ----------------------------------------------------------------
@@ -1142,7 +1196,7 @@ body:has(.loomle-home) .main-content main {
   .loom-principle-grid,
   .loom-sal-intro,
   .loom-interface-intro,
-  .loom-native {
+  .loom-oasium {
     grid-template-columns: 1fr;
   }
 
@@ -1227,7 +1281,7 @@ body:has(.loomle-home) .main-content main {
   .loom-principle,
   .loom-sal,
   .loom-interface,
-  .loom-native,
+  .loom-oasium,
   .loom-start {
     padding-top: 4.25rem;
     padding-bottom: 4.25rem;
@@ -1278,7 +1332,7 @@ body:has(.loomle-home) .main-content main {
     grid-template-columns: 1fr auto;
   }
 
-  .loom-footer span:nth-child(2) {
+  .loom-footer-products {
     display: none;
   }
 }

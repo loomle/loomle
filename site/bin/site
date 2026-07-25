@@ -74,6 +74,7 @@ case "$command_name" in
     bundle exec jekyll build --destination _site
     test -s _site/index.html
     test -s _site/assets/css/loomle.css
+    test -s _site/assets/images/oasium-cover.webp
     test ! -e _site/bin/site
     grep -q 'class="loom-sal"' _site/index.html
     grep -q 'class="language-sal"' _site/index.html
@@ -84,6 +85,22 @@ case "$command_name" in
     grep -q '<span class="c1"># excerpt:' _site/index.html
     grep -q '<span class="kd">query</span>' _site/concepts/sal.html
     grep -q 'language-sal highlighter-rouge' _site/workflows/blueprint-add-node.html
+    grep -q 'SAL / PATCH TEXT' _site/index.html
+    grep -q 'ADD / CONNECT' _site/index.html
+    grep -q '01 / HUMAN–AGENT–COMPUTER' _site/index.html
+    grep -q '02 / UNREAL ENGINE MCP' _site/index.html
+    grep -q 'SAL — Structured Agent Language' _site/index.html
+    grep -q 'class="loom-heading-title"' _site/index.html
+    grep -q 'class="loom-heading-description"' _site/index.html
+    grep -q 'native Loomle Bridge' _site/index.html
+    grep -q 'artist’s current Editor focus' _site/index.html
+    grep -q 'Domain cards' _site/index.html
+    grep -q '<code>with schema</code>' _site/index.html
+    grep -q 'precise control over scope, depth, and detail' _site/index.html
+    grep -q 'complex, interdependent Unreal edits' _site/index.html
+    grep -q '03 / PLAYERS–AGENTS–WORLDS' _site/index.html
+    grep -q 'assets/images/oasium-cover.webp' _site/index.html
+    grep -q 'https://oasium.io/' _site/index.html
     echo "Site check passed."
     ;;
   *)

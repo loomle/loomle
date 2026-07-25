@@ -12,10 +12,12 @@ permalink: /
       <span class="loom-mark" aria-hidden="true"></span>
       <span>LOOMLE</span>
     </a>
-    <nav class="loom-nav" aria-label="Home">
+    <nav class="loom-nav" aria-label="Primary">
+      <a href="/">Home</a>
+      <a href="/#sal">SAL</a>
+      <a href="/#loomle-mcp">Loomle MCP</a>
+      <a href="https://oasium.io/">OASIUM ↗</a>
       <a href="/quickstart.html">Docs</a>
-      <a href="/tools/">Interfaces</a>
-      <a href="/workflows/">Workflows</a>
       <a href="https://github.com/loomle/loomle">GitHub ↗</a>
     </nav>
   </header>
@@ -29,15 +31,15 @@ permalink: /
         </div>
         <h1>Weave new worlds with AI agents.</h1>
         <p class="loom-lede">
-          Loomle AI builds SAL, Loomle MCP, and Oasium: the Structured Agent
-          Language, an Unreal Engine interface, and an immersive world for
-          human–AI creation.
+          Loomle AI builds SAL, Loomle MCP, and OASIUM—Structured Agent
+          Language, an Unreal Engine interface, and an immersive world where
+          humans and AI agents create together.
         </p>
         <div class="loom-actions">
           <a class="loom-button loom-button-primary" href="https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.3">
-            Download 0.7.0-rc.3
+            Download Loomle MCP
           </a>
-          <a class="loom-button" href="/quickstart.html">Read the quickstart</a>
+          <a class="loom-button" href="/quickstart.html">Read the Docs</a>
         </div>
         <div class="loom-release">
           <span class="loom-status-dot"></span>
@@ -45,9 +47,9 @@ permalink: /
         </div>
       </div>
 
-      <div class="loom-machine" role="group" aria-label="Example SAL program">
+      <div class="loom-machine" role="group" aria-label="Complete SAL Patch Text">
         <div class="loom-machine-head">
-          <span>PROGRAM / BP_DOOR</span>
+          <span>SAL / PATCH TEXT</span>
           <span>DRY RUN</span>
         </div>
         <div class="loom-punch-row" aria-hidden="true">
@@ -58,29 +60,37 @@ permalink: /
 eventGraph = target {
   domain: graph,
   asset: "/Game/Blueprints/BP_Door.BP_Door",
-  id: "22222222-2222-2222-2222-222222222222"
+  blueprintId: "7c3f91a4-2d68-4f0e-b517-9a42e6c8d35b",
+  id: "e2a56b9d-73c1-48f4-8d20-c6b91a374ef2"
 }
 
 patch eventGraph dry run
 print = { palette: "returned-palette-entry-id" }
-add print
+add print @source-node-guid/source-pin-guid -> print.execute
+move print to (640, 320)
 {% endhighlight %}
         <div class="loom-machine-foot">
-          <span><b>01</b> PARSE</span>
-          <span><b>02</b> RESOLVE</span>
-          <span><b>03</b> VALIDATE</span>
+          <span><b>01</b> TARGET</span>
+          <span><b>02</b> BIND</span>
+          <span><b>03</b> ADD / CONNECT</span>
           <span class="is-ready"><b>04</b> PLAN / VALID</span>
         </div>
       </div>
     </section>
 
-    <section class="loom-sal">
-      <div class="loom-section-label">01 / SAL — STRUCTURED AGENT LANGUAGE</div>
+    <section class="loom-sal" id="sal">
+      <div class="loom-section-label">01 / HUMAN–AGENT–COMPUTER</div>
       <div class="loom-sal-intro">
-        <h2>
-          A shared text language for human–agent–computer collaboration on
-          complex non-text objects.
-        </h2>
+        <div class="loom-heading-block">
+          <h2>
+            <span class="loom-heading-title">SAL — Structured Agent Language</span>
+            <span class="loom-heading-description">
+              A shared text language for human–agent–computer collaboration on
+              complex non-text objects.
+            </span>
+          </h2>
+          <a class="loom-text-link" href="/concepts/sal.html">Explore SAL →</a>
+        </div>
         <p>
           Structured Agent Language (SAL) expresses object structure,
           relationships, capabilities, and edits as compact, ordered, copyable
@@ -135,80 +145,74 @@ insert @source-node-guid/source-pin-guid -> delay.execute / then -> @target-node
       </div>
     </section>
 
-    <section class="loom-interface">
-      <div class="loom-section-label">02 / CONTROL SURFACE</div>
+    <section class="loom-interface" id="loomle-mcp">
+      <div class="loom-section-label">02 / UNREAL ENGINE MCP</div>
       <div class="loom-interface-intro">
-        <h2>Six calls.<br>Unreal-scale reach.</h2>
+        <div class="loom-heading-block">
+          <h2>
+            <span class="loom-heading-title">Loomle MCP</span>
+            <span class="loom-heading-description">Six calls. Unreal-scale reach.</span>
+          </h2>
+          <a class="loom-text-link loom-text-link-dark" href="/calls/">Explore Loomle MCP →</a>
+        </div>
         <p>
-          The public surface stays deliberately small. Rich UE behavior lives
-          in SAL and in interface cards that agents can discover as needed.
+          Loomle MCP connects agents to the live Unreal Editor through a
+          bundled local Client and native Loomle Bridge. Six stable calls
+          handle project binding, editor context, discovery, reading, and
+          editing, while SAL carries the depth of Unreal without turning every
+          capability into another tool.
         </p>
       </div>
 
       <div class="loom-call-grid">
-        <a href="/calls/status.html"><span>01</span><strong>status</strong><small>Client, update, session, Bridge</small></a>
-        <a href="/calls/project.html"><span>02</span><strong>project</strong><small>Project discovery and binding</small></a>
-        <a href="/calls/sal.html"><span>03</span><strong>sal_query</strong><small>Compact, targeted inspection</small></a>
-        <a href="/calls/sal.html"><span>04</span><strong>sal_patch</strong><small>Planned and reviewable edits</small></a>
-        <a href="/calls/schema.html"><span>05</span><strong>sal_schema</strong><small>Resident guide and interface cards</small></a>
-        <a href="/calls/editor-context.html"><span>06</span><strong>editor_context</strong><small>The user’s active UE target</small></a>
+        <a href="/calls/status.html"><span>01</span><strong>status</strong><small>Inspect the Client, updates, session state, and Loomle Bridge health.</small></a>
+        <a href="/calls/project.html"><span>02</span><strong>project</strong><small>Work safely across multiple Unreal projects through explicit, sticky per-session binding.</small></a>
+        <a href="/calls/editor-context.html"><span>03</span><strong>editor_context</strong><small>Share the artist’s current Editor focus and selection with an agent, so both can continue creating from the same context.</small></a>
+        <a href="/calls/schema.html"><span>04</span><strong>sal_schema</strong><small>Guide agents from broad discovery to exact action through three schema layers: the resident guide, Domain cards, and exact live capabilities discovered with <code>with schema</code>.</small></a>
+        <a href="/calls/sal.html"><span>05</span><strong>sal_query</strong><small>SAL Query Text lets agents discover objects and inspect live Unreal state, structure, relationships, and execution flow with precise control over scope, depth, and detail.</small></a>
+        <a href="/calls/sal.html"><span>06</span><strong>sal_patch</strong><small>SAL Patch Text lets agents compose complex, interdependent Unreal edits into one ordered batch—ready to dry-run, validate, and apply.</small></a>
       </div>
     </section>
 
-    <section class="loom-native">
-      <div class="loom-native-copy">
-        <div class="loom-section-label">03 / UE-FAITHFUL BY DESIGN</div>
-        <h2>No parallel model between the agent and the Editor.</h2>
-        <p>
-          Asset Paths, Class Paths, native types, field names, Palette
-          capabilities, validation, compiler messages, and editor semantics
-          remain Unreal-native.
-        </p>
-        <a class="loom-text-link" href="/concepts/">Explore the core concepts →</a>
+    <section class="loom-oasium">
+      <div class="loom-oasium-copy">
+        <div class="loom-section-label">03 / PLAYERS–AGENTS–WORLDS</div>
+        <h2>
+          <span class="loom-heading-title">OASIUM</span>
+          <span class="loom-heading-description">
+            An immersive social world where players and AI agents explore,
+            play, and create together.
+          </span>
+        </h2>
+        <a class="loom-text-link" href="https://oasium.io/" target="_blank" rel="noreferrer">Enter OASIUM ↗</a>
       </div>
 
-      <div class="loom-specimen">
-        <div class="loom-specimen-head">
-          <span>OUTPUT SPECIMEN</span>
-          <span>SAL / RESULT TEXT</span>
-        </div>
-        {% highlight sal %}
-result exact_target
-target door = target {
-  domain: blueprint,
-  asset: "/Game/Blueprints/BP_Door.BP_Door"
-}
-objects
-
-door = blueprint {
-  variables: 3,
-  graphs: 2,
-  components: 4
-}
-{% endhighlight %}
-        <div class="loom-specimen-key">
-          <span>CANONICAL TARGET</span>
-          <span>ORDERED OBJECT TEXT</span>
-          <span>UE-NATIVE IDENTITY</span>
-        </div>
-      </div>
+      <a class="loom-oasium-visual" href="https://oasium.io/" target="_blank" rel="noreferrer" aria-label="Visit the OASIUM website">
+        <img src="/assets/images/oasium-cover.webp" alt="OASIUM immersive social world collage" width="2560" height="1440" loading="lazy">
+      </a>
     </section>
 
     <section class="loom-start">
       <div>
-        <div class="loom-section-label">04 / START THE MACHINE</div>
-        <h2>From first connection to a verified Unreal edit.</h2>
+        <div class="loom-section-label">04 / START CREATING</div>
+        <h2>Bring AI agents into your Unreal workflow.</h2>
       </div>
       <div class="loom-start-actions">
-        <a class="loom-button loom-button-light" href="/install.html">Install Loomle</a>
-        <a class="loom-button loom-button-outline-light" href="/quickstart.html">Run the quickstart</a>
+        <a class="loom-button loom-button-light" href="https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.3">Download Loomle MCP</a>
+        <a class="loom-button loom-button-outline-light" href="/quickstart.html">Read the Docs</a>
       </div>
     </section>
   </div>
 
   <footer class="loom-footer">
-    <span>LOOMLE / PROGRAMMABLE LOOM</span>
-    <span>Agent-native Unreal Engine tooling</span>
-    <span>© 2026</span>
+    <span>© 2026 LOOMLE AI</span>
+    <nav class="loom-footer-products" aria-label="Projects">
+      <a href="/#sal">SAL</a>
+      <span aria-hidden="true">·</span>
+      <a href="/#loomle-mcp">LOOMLE MCP</a>
+      <span aria-hidden="true">·</span>
+      <a href="https://oasium.io/">OASIUM</a>
+    </nav>
+    <span>LOOMLE AI / PROGRAMMABLE LOOM</span>
   </footer>
 </div>
