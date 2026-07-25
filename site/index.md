@@ -72,47 +72,60 @@ add print</code></pre>
       </div>
     </section>
 
-    <section class="loom-principle">
-      <div class="loom-section-label">01 / OPERATING PRINCIPLE</div>
-      <div class="loom-principle-grid">
-        <h2>Read the machine.<br>Author the change.<br>Verify the result.</h2>
+    <section class="loom-sal">
+      <div class="loom-section-label">01 / SAL — STRUCTURED AGENT LANGUAGE</div>
+      <div class="loom-sal-intro">
+        <h2>
+          A shared text language for human–agent–computer collaboration on
+          complex non-text objects.
+        </h2>
         <p>
-          A loom turns a stored pattern into repeatable physical work. Loomle
-          gives agents the same kind of disciplined operating layer for Unreal:
-          explicit targets, reviewable instructions, and results grounded in
-          the running Editor.
+          Structured Agent Language (SAL) expresses object structure,
+          relationships, capabilities, and edits as compact, ordered, copyable
+          text while preserving native names, values, identities, and
+          semantics. Humans and agents can inspect, exchange, and modify the
+          same text; computers can validate and execute it. Its compact form
+          reduces total token cost across the full agent loop—from discovery
+          and reading through reasoning, modification, and verification.
         </p>
       </div>
-    </section>
 
-    <section class="loom-cycle" aria-label="Loomle working cycle">
-      <article>
-        <div class="loom-step-head"><span>01</span><span>SENSE</span></div>
-        <h3>Inspect before acting.</h3>
-        <p>
-          Begin with editor context or an exact Asset Path. Query only the
-          summary, collection, tree, context, or flow the task needs.
-        </p>
-        <div class="loom-thread" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-      </article>
-      <article>
-        <div class="loom-step-head"><span>02</span><span>FORM</span></div>
-        <h3>Use the pattern Unreal provides.</h3>
-        <p>
-          Discover exact schema and Palette capabilities in the live target
-          context. Stable references keep every follow-up precise.
-        </p>
-        <div class="loom-thread" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-      </article>
-      <article>
-        <div class="loom-step-head"><span>03</span><span>APPLY</span></div>
-        <h3>Dry-run the real edit path.</h3>
-        <p>
-          Parse, resolve, validate, and plan before mutation. Apply the same
-          authored change, then compile, save, and read back.
-        </p>
-        <div class="loom-thread" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-      </article>
+      <div class="loom-sal-examples">
+        <article class="loom-sal-example loom-sal-object">
+          <div class="loom-sal-example-head">
+            <span>01 / OBJECT TEXT</span>
+            <span>STRUCTURE + RELATIONSHIPS</span>
+          </div>
+          <pre><code>beginPlay = node {
+  id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  type: "/Script/BlueprintGraph.K2Node_Event"
+}
+
+beginPlay.then -> validate.execute / then -> unlock.execute / then -> open.execute / then -> notify.execute
+
+# excerpt: Pin and intermediate Node bindings omitted</code></pre>
+        </article>
+
+        <article class="loom-sal-example">
+          <div class="loom-sal-example-head">
+            <span>02 / QUERY TEXT</span>
+            <span>DISCOVER + INSPECT</span>
+          </div>
+          <pre><code>query eventGraph
+exec flow from pin @node-guid/pin-guid depth 8</code></pre>
+        </article>
+
+        <article class="loom-sal-example">
+          <div class="loom-sal-example-head">
+            <span>03 / PATCH TEXT</span>
+            <span>MODIFY + VERIFY</span>
+          </div>
+          <pre><code>patch eventGraph dry run
+delay = { palette: "P_Delay" }
+add delay
+insert @source-node-guid/source-pin-guid -> delay.execute / then -> @target-node-guid/target-pin-guid</code></pre>
+        </article>
+      </div>
     </section>
 
     <section class="loom-interface">

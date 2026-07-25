@@ -682,6 +682,113 @@ body:has(.loomle-home) .main-content main {
   line-height: 1.75;
 }
 
+.loom-sal {
+  padding-top: clamp(5rem, 8vw, 7.5rem);
+  padding-bottom: clamp(5rem, 8vw, 7.5rem);
+  border: 1px solid $loom-line;
+  border-bottom: 0;
+  background:
+    radial-gradient(circle, rgba(23, 24, 22, 0.14) 0 1px, transparent 1.5px) right 4rem top 4rem / 18px 18px no-repeat,
+    $loom-paper;
+  color: $loom-ink;
+}
+
+.loom-sal-intro {
+  display: grid;
+  margin-top: 3rem;
+  grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+  gap: clamp(3rem, 8vw, 9rem);
+  align-items: start;
+}
+
+.loom-sal h2 {
+  max-width: 820px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2.55rem, 4.4vw, 5rem);
+  font-weight: 400;
+  letter-spacing: -0.052em;
+  line-height: 0.98;
+}
+
+.loom-sal-intro p {
+  margin: 0;
+  color: #5f615b;
+  font-size: 0.97rem;
+  line-height: 1.78;
+}
+
+.loom-sal-examples {
+  display: grid;
+  margin-top: clamp(4rem, 7vw, 6rem);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid #3a3c36;
+  border-left: 1px solid #3a3c36;
+  background: $loom-ink;
+  box-shadow: 12px 12px 0 $loom-paper-deep;
+}
+
+.loom-sal-example {
+  min-width: 0;
+  border-right: 1px solid #3a3c36;
+  border-bottom: 1px solid #3a3c36;
+  background: #11120f;
+}
+
+.loom-sal-object {
+  grid-column: 1 / -1;
+}
+
+.loom-sal-example-head {
+  display: flex;
+  min-height: 42px;
+  padding: 0 1rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  border-bottom: 1px solid #3a3c36;
+  color: #8a8c84;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.58rem;
+  letter-spacing: 0.075em;
+}
+
+.loom-sal-example-head span:first-child {
+  color: $loom-brass;
+}
+
+.loom-sal-example-head span:last-child {
+  text-align: right;
+}
+
+.loom-sal-example pre {
+  min-height: 190px;
+  margin: 0;
+  padding: 1.5rem;
+  overflow-x: auto;
+  border: 0;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    transparent;
+  background-size: 100% 27px;
+}
+
+.loom-sal-object pre {
+  min-height: 250px;
+}
+
+.loom-sal-example code {
+  border: 0;
+  background: transparent;
+  color: #d4d2ca;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: clamp(0.68rem, 1vw, 0.79rem);
+  line-height: 1.72;
+  white-space: pre;
+}
+
 .loom-cycle {
   display: grid;
   padding-right: 0 !important;
@@ -963,6 +1070,7 @@ body:has(.loomle-home) .main-content main {
   }
 
   .loom-principle-grid,
+  .loom-sal-intro,
   .loom-interface-intro,
   .loom-native {
     grid-template-columns: 1fr;
@@ -1047,11 +1155,31 @@ body:has(.loomle-home) .main-content main {
   }
 
   .loom-principle,
+  .loom-sal,
   .loom-interface,
   .loom-native,
   .loom-start {
     padding-top: 4.25rem;
     padding-bottom: 4.25rem;
+  }
+
+  .loom-sal-examples {
+    grid-template-columns: 1fr;
+    box-shadow: 7px 7px 0 $loom-paper-deep;
+  }
+
+  .loom-sal-object {
+    grid-column: auto;
+  }
+
+  .loom-sal-example-head span:last-child {
+    display: none;
+  }
+
+  .loom-sal-example pre,
+  .loom-sal-object pre {
+    min-height: 0;
+    padding: 1.2rem 1rem;
   }
 
   .loom-call-grid {
