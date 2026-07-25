@@ -122,7 +122,6 @@ exec flow from pin @node-guid/pin-guid depth 8</code></pre>
           </div>
           <pre><code>patch eventGraph dry run
 delay = { palette: "P_Delay" }
-add delay
 insert @source-node-guid/source-pin-guid -> delay.execute / then -> @target-node-guid/target-pin-guid</code></pre>
         </article>
       </div>
