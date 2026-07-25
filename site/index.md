@@ -1,8 +1,8 @@
 ---
 layout: home
-title: Loomle
+title: Loomle AI
 nav_order: 1
-description: The operational interface between AI agents and Unreal Engine.
+description: Loomle AI builds SAL, Loomle MCP, and OASIUM for human–AI creation.
 permalink: /
 ---
 
@@ -20,6 +20,21 @@ permalink: /
       <a href="/quickstart.html">Docs</a>
       <a href="https://github.com/loomle/loomle">GitHub ↗</a>
     </nav>
+    <details class="loom-mobile-menu">
+      <summary aria-label="Toggle navigation">
+        <span class="loom-mobile-menu-icon" aria-hidden="true">
+          <i></i><i></i><i></i>
+        </span>
+      </summary>
+      <nav class="loom-mobile-menu-nav" aria-label="Mobile">
+        <a href="/">Home</a>
+        <a href="/#sal">SAL</a>
+        <a href="/#loomle-mcp">Loomle MCP</a>
+        <a href="https://oasium.io/">OASIUM ↗</a>
+        <a href="/quickstart.html">Docs</a>
+        <a href="https://github.com/loomle/loomle">GitHub ↗</a>
+      </nav>
+    </details>
   </header>
 
   <div class="loom-main">
@@ -217,3 +232,11 @@ move print to (640, 320)
     <span>LOOMLE AI / PROGRAMMABLE LOOM</span>
   </footer>
 </div>
+
+<script>
+  document.querySelectorAll(".loom-mobile-menu a").forEach(function (link) {
+    link.addEventListener("click", function () {
+      link.closest("details").removeAttribute("open");
+    });
+  });
+</script>

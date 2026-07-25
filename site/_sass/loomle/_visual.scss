@@ -485,6 +485,10 @@ body:has(.loomle-home) .main-content main {
   color: #fff;
 }
 
+.loom-mobile-menu {
+  display: none;
+}
+
 .loom-main {
   border-top: 1px solid #343630;
 }
@@ -1227,15 +1231,77 @@ body:has(.loomle-home) .main-content main {
 
 @media (max-width: 520px) {
   .loom-topbar {
+    position: relative;
     min-height: 66px;
   }
 
   .loom-nav {
-    font-size: 0.61rem;
+    display: none;
   }
 
-  .loom-nav a:first-child {
+  .loom-mobile-menu {
+    display: block;
+  }
+
+  .loom-mobile-menu summary {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    margin-right: -0.6rem;
+    place-items: center;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .loom-mobile-menu summary::-webkit-details-marker {
     display: none;
+  }
+
+  .loom-mobile-menu-icon {
+    display: grid;
+    width: 20px;
+    gap: 4px;
+  }
+
+  .loom-mobile-menu-icon i {
+    display: block;
+    height: 1px;
+    background: #d4d1c9;
+  }
+
+  .loom-mobile-menu-nav {
+    position: absolute;
+    z-index: 20;
+    top: 100%;
+    right: 0;
+    left: 0;
+    display: grid;
+    border-top: 1px solid #343630;
+    border-bottom: 1px solid #343630;
+    background: #171815;
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.28);
+    color: #c5c4bd;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 0.66rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .loom-mobile-menu-nav a {
+    min-height: 48px;
+    padding: 0 1.25rem;
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid #2d2f2a;
+  }
+
+  .loom-mobile-menu-nav a:last-child {
+    border-bottom: 0;
+  }
+
+  .loom-mobile-menu-nav a:hover {
+    background: #22231f;
+    color: #fff;
   }
 
   .loom-hero {
@@ -1328,11 +1394,30 @@ body:has(.loomle-home) .main-content main {
   }
 
   .loom-footer {
-    min-height: 120px;
-    grid-template-columns: 1fr auto;
+    min-height: 148px;
+    padding-top: 1.5rem;
+    padding-bottom: 1.5rem;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 1rem;
+    row-gap: 1.4rem;
+    font-size: 0.52rem;
   }
 
   .loom-footer-products {
-    display: none;
+    display: flex;
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-self: center;
+    font-size: 0.58rem;
+  }
+
+  .loom-footer > span:first-child {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .loom-footer > span:last-child {
+    grid-column: 2;
+    grid-row: 2;
   }
 }

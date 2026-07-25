@@ -76,6 +76,8 @@ case "$command_name" in
     test -s _site/assets/css/loomle.css
     test -s _site/assets/images/oasium-cover.webp
     test ! -e _site/bin/site
+    grep -q '<title>Loomle AI - Weave New Worlds with AI Agents</title>' _site/index.html
+    grep -q '<title>Quickstart | Loomle AI</title>' _site/quickstart.html
     grep -q 'class="loom-sal"' _site/index.html
     grep -q 'class="language-sal"' _site/index.html
     grep -q '<span class="kd">patch</span>' _site/index.html
@@ -101,6 +103,8 @@ case "$command_name" in
     grep -q '03 / PLAYERS–AGENTS–WORLDS' _site/index.html
     grep -q 'assets/images/oasium-cover.webp' _site/index.html
     grep -q 'https://oasium.io/' _site/index.html
+    grep -q 'class="loom-mobile-menu"' _site/index.html
+    grep -q 'class="loom-mobile-menu-nav"' _site/index.html
     echo "Site check passed."
     ;;
   *)
