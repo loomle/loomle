@@ -25,7 +25,7 @@ permalink: /
       <div class="loom-hero-copy">
         <div class="loom-index">
           <span class="loom-index-line"></span>
-          ARTISTS — AGENTS — WORLDS
+          HUMANS — AGENTS — WORLDS
         </div>
         <h1>Weave new worlds with AI agents.</h1>
         <p class="loom-lede">
