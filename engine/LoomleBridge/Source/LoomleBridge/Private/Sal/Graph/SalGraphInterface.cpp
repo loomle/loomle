@@ -193,7 +193,10 @@ FString ExprNativeText(const TSharedPtr<FJsonValue>& Value)
     }
     if (DecodedObject->TryGetStringField(TEXT("id"), String)) return String;
     TArray<FString> Keys;
-    DecodedObject->Values.GetKeys(Keys);
+    // Values keys are FString before UE 5.8 and UE::FSharedString from
+    // 5.8 on. operator* yields const TCHAR* for both, so this copy
+    // compiles against either engine version.
+    for (const auto& Pair : DecodedObject->Values) Keys.Add(FString(*Pair.Key));
     Keys.Sort();
     TArray<FString> Fields;
     for (const FString& Key : Keys)
