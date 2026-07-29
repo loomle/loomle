@@ -360,26 +360,26 @@ A candidate can be promoted only when the same commit passes:
 3. packaged end-to-end smoke against the exact candidate archive;
 4. lifecycle verification with no new crash report;
 5. archive structure, version, license, and hash audits;
-6. the platform signing and trust policy required by its release channel.
+6. an explicit platform signing and trust declaration in the release notes.
 
 The release workflow consumes both already-tested native archives and their
 matching result files. It must never rebuild, resign, or recompress after these
 gates.
 
 The Mac Apple Silicon and Windows x64 workflows implement the same native
-sequence. `0.7.0-rc.*` GitHub prereleases may explicitly publish both unsigned
-candidates used by QA, with macOS Gatekeeper and Windows trust-warning
-limitations stated in their release notes. Stable release promotion remains
-blocked until the required platform signing and trust gates are performed
-before packaged end-to-end, so the tested bytes are also the published bytes.
+sequence. GitHub prereleases and final releases may publish the unsigned
+candidates used by QA when macOS Gatekeeper and Windows trust-warning
+limitations are stated in their release notes. Platform signing remains
+valuable distribution hardening for the agent-invoked Client, but it is not a
+promotion prerequisite. The tested bytes must still be the published bytes.
 
 The Windows x64 workflow follows the same candidate construction:
 it builds a pinned native Node SEA Client, runs the complete UE Automation
 category against a same-commit test-bearing plugin, builds and audits a stripped
 Win64 plugin, and runs packaged end-to-end against the exact ZIP it uploads.
 PE audits require both `loomle.exe` and `UnrealEditor-LoomleBridge.dll` to use
-the AMD64 machine type. The prerelease executable may remain unsigned only when
-the checked-in release notes explain the resulting Windows trust warning.
+the AMD64 machine type. An unsigned executable may be published only when the
+checked-in release notes explain the resulting Windows trust warning.
 
 The 2026-07-24 local Windows repair audit used pinned Node 24.18.0 and the UE
 5.7.4 Installed Build. The repository test command passed; both the

@@ -162,16 +162,22 @@ test("maps only packaged release targets", () => {
   assert.equal(platformTarget("linux", "x64"), undefined);
 });
 
-test("the published release manifest matches the current packaged prerelease", async () => {
+test("the published release manifest matches or has not yet published the current package", async () => {
   const value = JSON.parse(await readFile(
     new URL("../../../site/releases.json", import.meta.url),
     "utf8",
   )) as unknown;
   const releases = checker(value);
-  assert.deepEqual(await releases.check(productVersion, "darwin-arm64"), {
-    status: "current",
-  });
-  assert.deepEqual(await releases.check(productVersion, "win32-x64"), {
-    status: "current",
-  });
+  for (const target of ["darwin-arm64", "win32-x64"]) {
+    const result = await releases.check(productVersion, target);
+    if (productVersion.includes("-")) {
+      assert.deepEqual(result, { status: "current" });
+    } else {
+      assert.ok(
+        result.status === "current"
+          || (result.status === "unknown" && result.reason === "channel_unpublished"),
+        `stable manifest state is ${JSON.stringify(result)}`,
+      );
+    }
+  }
 });

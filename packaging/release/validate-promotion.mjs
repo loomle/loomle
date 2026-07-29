@@ -32,18 +32,14 @@ export async function validatePromotion({
   if (!["prerelease", "final"].includes(channel)) {
     fail(`unsupported release channel: ${channel}.`);
   }
-  if (channel === "final") {
-    fail(
-      "stable promotion is disabled until platform signing and trust gates"
-      + " are verified before packaged E2E.",
-    );
-  }
-
   const product = await readJson(join(repoRoot, "package.json"));
   const version = product.version;
-  if (typeof version !== "string"
-      || !/^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$/.test(version)) {
-    fail(`prerelease promotion requires an x.y.z-rc.N product version; found ${version}.`);
+  const versionPattern = channel === "prerelease"
+    ? /^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$/
+    : /^[0-9]+\.[0-9]+\.[0-9]+$/;
+  if (typeof version !== "string" || !versionPattern.test(version)) {
+    const expected = channel === "prerelease" ? "x.y.z-rc.N" : "x.y.z";
+    fail(`${channel} promotion requires an ${expected} product version; found ${version}.`);
   }
 
   if (!Array.isArray(candidates)) {
@@ -109,6 +105,7 @@ export async function validatePromotion({
       );
     }
     if (descriptor.Installed !== true
+        || descriptor.IsBetaVersion !== (channel === "prerelease")
         || !same(descriptor.SupportedTargetPlatforms, [releaseTarget.platform])
         || !same(moduleNames, ["LoomleBridge"])
         || !same(module?.PlatformAllowList, [releaseTarget.platform])

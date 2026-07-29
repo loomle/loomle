@@ -51,7 +51,7 @@ permalink: /
           humans and AI agents create together.
         </p>
         <div class="loom-actions">
-          <a class="loom-button loom-button-primary" href="https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.3">
+          <a class="loom-button loom-button-primary" href="https://github.com/loomle/loomle/releases/tag/v0.7.0">
             Download Loomle MCP
           </a>
           <a class="loom-button" href="/quickstart.html">Read the Docs</a>
@@ -214,7 +214,7 @@ move print to (640, 320)
         <h2>Bring AI agents into your Unreal workflow.</h2>
       </div>
       <div class="loom-start-actions">
-        <a class="loom-button loom-button-light" href="https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.3">Download Loomle MCP</a>
+        <a class="loom-button loom-button-light" href="https://github.com/loomle/loomle/releases/tag/v0.7.0">Download Loomle MCP</a>
         <a class="loom-button loom-button-outline-light" href="/quickstart.html">Read the Docs</a>
       </div>
     </section>

@@ -23,6 +23,23 @@ The staged plugin is assembled from:
 - `.tmp/client/<platform-arch>/loomle(.exe)` for the standalone Client;
 - `packaging/fab/FAB_PLUGIN_README.md` for the packaged README.
 
+## One Package Contract
+
+Loomle maintains one plugin package definition, not independent Fab and GitHub
+layouts. The assembled pre-BuildPlugin tree is the canonical package:
+
+- the Fab submission ZIP is that tree exactly, with full `Source/` and without
+  UE-generated `Binaries/`, `Intermediate/`, or `Saved/`;
+- the GitHub ZIP is produced by running UE BuildPlugin against the same tree,
+  retains the complete Fab source and Client, and adds the matching compiled UE
+  Bridge under `Binaries/`.
+
+`packaging/fab/verify-derivation.mjs` enforces this relationship. Every file in
+the Fab source tree must remain present and byte-identical in the GitHub
+package. The only permitted new file root is `Binaries/`; BuildPlugin may also
+set its normal descriptor installation fields. This keeps one source package,
+one Client boundary, one README, and one license/notices set.
+
 `engine/LoomleBridge/Source/LoomleBridge/Private/Tests` is development input,
 not release source. The assembler excludes that exact subtree before
 BuildPlugin can run UHT or compile the staged plugin. This includes reflected
@@ -100,16 +117,16 @@ keep itself, `Resources/Loomle`, `LICENSE`, and
 generates deterministic third-party notices from the production dependency
 set in `package-lock.json`.
 
-UE BuildPlugin consumes that staging tree and produces the distributable
-plugin. The final tree must add the matching Mac dylib or Win64 DLL, mark the
-descriptor `Installed=true`, retain `Config/FilterPlugin.ini`, and preserve the
-exact Client bytes and executable permission. Both the BuildPlugin output and
-the final ZIP are audited again for the one-module descriptor and the absence
-of test source, `Intermediate/`, `Saved/`, and files below the empty `Content/`
-directory. Because archive tools cannot infer an empty directory that
-BuildPlugin omitted, release staging restores it before the final audit and ZIP
-creation. For `darwin-arm64`, both binaries are arm64-only; for `win32-x64`,
-both use the PE AMD64 machine type.
+UE BuildPlugin consumes that same staging tree and produces the full GitHub
+plugin. The resulting tree must add the matching Mac dylib or Win64 DLL, mark
+the descriptor `Installed=true`, retain `Config/FilterPlugin.ini`, and preserve
+the exact source and Client. Both the BuildPlugin output and its final ZIP are
+audited again for the one-module descriptor and the absence of test source,
+`Intermediate/`, `Saved/`, and files below the empty `Content/` directory.
+Because archive tools cannot infer an empty directory that BuildPlugin omitted,
+release staging restores it before the final audit and ZIP creation. For
+`darwin-arm64`, both binaries are arm64-only; for `win32-x64`, both use the PE
+AMD64 machine type.
 
 Run the assembler tests locally:
 
@@ -119,6 +136,21 @@ node --test packaging/fab/assemble.test.mjs
 
 Release automation must run the Client build and executable smoke test on a
 native target runner before invoking the assembler. UE BuildPlugin then compiles
-that staged source for the same architecture. The distributable archive is the
-BuildPlugin output, not the pre-build staging tree. The assembler deliberately
-has no fallback input path.
+that staged source for the same architecture. The pre-build staging ZIP is the
+Fab source candidate; the BuildPlugin ZIP is the GitHub full-package candidate.
+The assembler deliberately has no fallback input path, and the derivation audit
+proves that the second package only adds UE build output to the first.
+
+Each native verification workflow now publishes both mechanically related
+artifacts:
+
+```text
+loomle-fab-source-<platform-arch>.zip
+loomle-fab-plugin-<platform-arch>.zip
+```
+
+The `loomle-fab-source-*` archive is the Fab Project File Link candidate. The
+`loomle-fab-plugin-*` archive is the complete, precompiled GitHub candidate.
+Both have SHA-256 sidecars. Promotion attaches both kinds to the public GitHub
+Release so Fab reviewers can download the source ZIP without authentication;
+the BuildPlugin archives remain the user-facing GitHub installation packages.

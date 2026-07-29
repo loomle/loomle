@@ -120,6 +120,47 @@ jobs:
             --target win32-x64
           "staging=$staging" >> $env:GITHUB_OUTPUT
 
+      - name: Archive Fab Source Package
+        id: source-archive
+        env:
+          STAGING: ${{ steps.assemble.outputs.staging }}
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "loomle-fab-source-win32-x64.zip"
+          Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
+          tar.exe -a -cf $archive -C $env:STAGING LoomleBridge
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not create the Windows Fab source ZIP."
+          }
+
+          $entries = @(tar.exe -tf $archive)
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not list the Windows Fab source ZIP."
+          }
+          foreach ($required in @(
+            "LoomleBridge/LoomleBridge.uplugin",
+            "LoomleBridge/Source/LoomleBridge/LoomleBridge.Build.cs",
+            "LoomleBridge/Resources/Loomle/win32-x64/loomle.exe",
+            "LoomleBridge/Content/",
+            "LoomleBridge/LICENSE",
+            "LoomleBridge/THIRD_PARTY_NOTICES.txt"
+          )) {
+            if ($entries -notcontains $required) {
+              throw "Fab source archive is missing $required."
+            }
+          }
+          foreach ($entry in $entries) {
+            if ($entry -match '^LoomleBridge/(Binaries|Intermediate|Saved)(/|$)') {
+              throw "Fab source archive contains UE-generated output: $entry"
+            }
+          }
+
+          $archiveSha = "$archive.sha256"
+          $archiveHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$archiveHash  $([IO.Path]::GetFileName($archive))" | `
+            Set-Content -LiteralPath $archiveSha -Encoding utf8NoBOM
+          "archive=$archive" >> $env:GITHUB_OUTPUT
+          "archive_sha=$archiveSha" >> $env:GITHUB_OUTPUT
+
       - name: Resolve Unreal Engine Root
         id: ue
         env:
@@ -336,6 +377,19 @@ jobs:
           }
           node packaging/tools/pe-machine.mjs $client $bridge
 
+      - name: Verify GitHub Package Derives From Fab Source
+        env:
+          PACKAGE: ${{ steps.package.outputs.package }}
+          STAGING: ${{ steps.assemble.outputs.staging }}
+        run: |
+          node packaging/fab/verify-derivation.mjs `
+            --source-plugin (Join-Path $env:STAGING "LoomleBridge") `
+            --github-plugin (Join-Path $env:PACKAGE "LoomleBridge") `
+            --target win32-x64
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub package does not derive solely from the Fab source package."
+          }
+
       - name: Archive Verified BuildPlugin Output
         id: archive
         env:
@@ -469,4 +523,13 @@ jobs:
           path: |
             ${{ steps.archive.outputs.archive }}
             ${{ steps.archive.outputs.archive_sha }}
+          if-no-files-found: error
+
+      - name: Upload Windows Fab Source Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: loomle-fab-source-win32-x64
+          path: |
+            ${{ steps.source-archive.outputs.archive }}
+            ${{ steps.source-archive.outputs.archive_sha }}
           if-no-files-found: error

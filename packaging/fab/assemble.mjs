@@ -11,6 +11,7 @@ import {
   readdir,
   realpath,
   rm,
+  rmdir,
   stat,
   writeFile,
 } from "node:fs/promises";
@@ -113,6 +114,7 @@ export async function assembleFabPlugin({ repoRoot, outputDir, target }) {
 
   await rm(join(pluginRoot, "Content"), { recursive: true, force: true });
   await mkdir(join(pluginRoot, "Content"), { recursive: true });
+  await pruneEmptyDirectories(pluginRoot, new Set(["Content"]));
   await validateFabPlugin({
     repoRoot: resolvedRepoRoot,
     pluginRoot,
@@ -177,6 +179,22 @@ async function copyPluginSource(source, destination) {
       );
     },
   });
+}
+
+async function pruneEmptyDirectories(root, preservedRelativePaths) {
+  async function visit(directory) {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) await visit(join(directory, entry.name));
+    }
+    if (directory === root) return;
+    const relativePath = relative(root, directory).split(/[\\/]+/).join("/");
+    if (preservedRelativePaths.has(relativePath)) return;
+    if ((await readdir(directory)).length === 0) {
+      await rmdir(directory);
+    }
+  }
+  await visit(root);
 }
 
 async function copyRequiredFile(source, destination) {

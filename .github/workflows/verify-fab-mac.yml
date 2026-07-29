@@ -57,6 +57,52 @@ jobs:
             --target darwin-arm64
           echo "staging=$staging" >> "$GITHUB_OUTPUT"
 
+      - name: Archive Fab Source Package
+        id: source-archive
+        shell: bash
+        env:
+          STAGING: ${{ steps.assemble.outputs.staging }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/loomle-fab-source-darwin-arm64.zip"
+          rm -f "$archive"
+          cd "$STAGING"
+          /usr/bin/zip -qry "$archive" LoomleBridge
+
+          entries="$RUNNER_TEMP/loomle-fab-source-entries-darwin-arm64.txt"
+          /usr/bin/unzip -Z1 "$archive" > "$entries"
+          for required in \
+            LoomleBridge/LoomleBridge.uplugin \
+            LoomleBridge/Source/LoomleBridge/LoomleBridge.Build.cs \
+            LoomleBridge/Resources/Loomle/darwin-arm64/loomle \
+            LoomleBridge/Content/ \
+            LoomleBridge/LICENSE \
+            LoomleBridge/THIRD_PARTY_NOTICES.txt; do
+            grep -Fxq "$required" "$entries" || {
+              echo "Fab source archive is missing $required." >&2
+              exit 1
+            }
+          done
+          if grep -Eq '^LoomleBridge/(Binaries|Intermediate|Saved)(/|$)' "$entries"; then
+            echo "Fab source archive contains UE-generated output." >&2
+            exit 1
+          fi
+
+          audit="$RUNNER_TEMP/loomle-fab-source-audit-darwin-arm64"
+          rm -rf "$audit"
+          mkdir -p "$audit"
+          /usr/bin/unzip -q "$archive" -d "$audit"
+          [[ -x "$audit/LoomleBridge/Resources/Loomle/darwin-arm64/loomle" ]] || {
+            echo "Fab source archive did not preserve the Client executable bit." >&2
+            exit 1
+          }
+
+          archive_sha="$archive.sha256"
+          archive_hash="$(shasum -a 256 "$archive" | awk '{print $1}')"
+          printf '%s  %s\n' "$archive_hash" "$(basename "$archive")" > "$archive_sha"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "archive_sha=$archive_sha" >> "$GITHUB_OUTPUT"
+
       - name: Resolve Unreal Engine Root
         id: ue
         shell: bash
@@ -239,6 +285,18 @@ jobs:
             exit 1
           }
 
+      - name: Verify GitHub Package Derives From Fab Source
+        shell: bash
+        env:
+          PACKAGE: ${{ steps.package.outputs.package }}
+          STAGING: ${{ steps.assemble.outputs.staging }}
+        run: |
+          set -euo pipefail
+          node packaging/fab/verify-derivation.mjs \
+            --source-plugin "$STAGING/LoomleBridge" \
+            --github-plugin "$PACKAGE/LoomleBridge" \
+            --target darwin-arm64
+
       - name: Archive Verified BuildPlugin Output
         id: archive
         shell: bash
@@ -372,4 +430,13 @@ jobs:
           path: |
             ${{ steps.archive.outputs.archive }}
             ${{ steps.archive.outputs.archive_sha }}
+          if-no-files-found: error
+
+      - name: Upload Fab Source Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: loomle-fab-source-darwin-arm64
+          path: |
+            ${{ steps.source-archive.outputs.archive }}
+            ${{ steps.source-archive.outputs.archive_sha }}
           if-no-files-found: error

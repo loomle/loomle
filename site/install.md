@@ -7,11 +7,11 @@ description: Install Loomle 0.7 for Unreal Engine 5.7 on macOS or Windows and co
 
 # Install
 
-Loomle 0.7.0-rc.3 is available as a GitHub prerelease for Unreal Engine 5.7.
+Loomle 0.7.0 is available as a GitHub release for Unreal Engine 5.7.
 Each platform package contains both the Unreal Bridge and the matching
 self-contained Loomle Client.
 
-[View the 0.7.0-rc.3 release](https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.3){: .btn .btn-primary .fs-5 .mr-2 }
+[View the 0.7.0 release](https://github.com/loomle/loomle/releases/tag/v0.7.0){: .btn .btn-primary .fs-5 .mr-2 }
 [Read the Quickstart](quickstart.html){: .btn .fs-5 }
 
 {: .warning }
@@ -28,7 +28,7 @@ self-contained Loomle Client.
 | 5.7 | Windows | x64 | `win32-x64` |
 
 Other engine versions, operating systems, and architectures are not part of
-this release candidate.
+this release.
 
 ## 1. Remove an Old Project Plugin
 
@@ -46,21 +46,21 @@ Before installing or updating Loomle:
 
 ## 2. Download the Matching Package
 
-[Download for macOS Apple Silicon](https://github.com/loomle/loomle/releases/download/v0.7.0-rc.3/loomle-fab-plugin-darwin-arm64.zip){: .btn .btn-primary .mr-2 }
-[Download for Windows x64](https://github.com/loomle/loomle/releases/download/v0.7.0-rc.3/loomle-fab-plugin-win32-x64.zip){: .btn .btn-primary }
+[Download for macOS Apple Silicon](https://github.com/loomle/loomle/releases/download/v0.7.0/loomle-fab-plugin-darwin-arm64.zip){: .btn .btn-primary .mr-2 }
+[Download for Windows x64](https://github.com/loomle/loomle/releases/download/v0.7.0/loomle-fab-plugin-win32-x64.zip){: .btn .btn-primary }
 
 SHA-256 sidecars are available beside both ZIPs on the
-[release page](https://github.com/loomle/loomle/releases/tag/v0.7.0-rc.3).
+[release page](https://github.com/loomle/loomle/releases/tag/v0.7.0).
 
 ### macOS security
 
-This release candidate is not notarized. macOS may block the downloaded
+This release is not notarized. macOS may block the downloaded
 Client. Review the release source and package, then use **Privacy & Security**
 in System Settings if macOS asks you to approve it.
 
 ### Windows security
 
-This release candidate is not Authenticode-signed. Before extracting, open the
+This release is not Authenticode-signed. Before extracting, open the
 downloaded ZIP's **Properties** and use **Unblock** if Windows shows that
 option. Windows may also display a trust or SmartScreen warning.
 

@@ -85,6 +85,14 @@ test("assembles the Bridge source and only the canonical TypeScript Client execu
     assert.equal(await exists(join(pluginRoot, "Intermediate")), false);
     assert.equal(await exists(join(pluginRoot, "Saved")), false);
     assert.equal(await exists(join(pluginRoot, "Resources", "Loomle", "stale-target")), false);
+    assert.equal(
+      await exists(join(pluginRoot, "Source", "LoomleBridge", "Public")),
+      false,
+    );
+    assert.equal(
+      await exists(join(pluginRoot, "Source", "LoomleBridge", "Private", "Retired")),
+      false,
+    );
     const descriptor = JSON.parse(await readFile(
       join(pluginRoot, "LoomleBridge.uplugin"),
       "utf8",
@@ -663,6 +671,11 @@ async function createFixture(target, options = {}) {
     ],
   }));
   await write(join(pluginRoot, "Source", "LoomleBridge", "LoomleBridge.Build.cs"), "build rules\n");
+  await mkdir(join(pluginRoot, "Source", "LoomleBridge", "Public"), { recursive: true });
+  await mkdir(
+    join(pluginRoot, "Source", "LoomleBridge", "Private", "Retired"),
+    { recursive: true },
+  );
   await write(
     join(pluginRoot, "Source", "LoomleBridge", "Private", "Tests", "BridgeTests.cpp"),
     "test-only source\n",

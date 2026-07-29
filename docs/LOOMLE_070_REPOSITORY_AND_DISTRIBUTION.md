@@ -292,8 +292,9 @@ repository permission, upload audited ZIPs and durable result files, and never
 create a tag, GitHub Release, latest alias, or public Fab submission. The
 separate manual promotion workflow requires one successful Mac run and one
 successful Windows run from the same exact commit. It verifies and may publish
-both exact ZIPs and their SHA-256 sidecars as one GitHub prerelease. It cannot
-build, sign, or recompress either candidate.
+both exact BuildPlugin ZIPs, both Fab source ZIPs, and their SHA-256 sidecars as
+one GitHub prerelease or final release. It cannot build, sign, or recompress any
+candidate.
 
 ## Verification Boundary
 
@@ -307,7 +308,8 @@ small packaged Client-to-UE workflow against that exact ZIP. See
 
 Tag-driven builds are not part of the 0.7 design. Promotion is a final explicit
 manual step after every advertised artifact has passed the gates for its
-channel. Unsigned `0.7.0-rc.*` prereleases are allowed only with an explicit
-macOS Gatekeeper and Windows trust-warning notice. Stable promotion remains
-disabled until the required platform signing and trust gates occur before
-packaged end-to-end verification.
+channel. Unsigned releases are allowed only with explicit macOS Gatekeeper and
+Windows trust-warning notices. The Client is invoked by an agent rather than
+installed as a standalone desktop application, so platform signing is tracked
+as distribution hardening instead of a stable-promotion prerequisite. Exact
+packaged end-to-end and checksum verification remain mandatory.

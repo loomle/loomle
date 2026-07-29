@@ -114,6 +114,8 @@ jobs:
           mkdir -p \
             "$RUNNER_TEMP/qa/mac" \
             "$RUNNER_TEMP/qa/windows" \
+            "$RUNNER_TEMP/fab-source/mac" \
+            "$RUNNER_TEMP/fab-source/windows" \
             "$RUNNER_TEMP/results/mac" \
             "$RUNNER_TEMP/results/windows"
           gh run download "$MAC_RUN_ID" \
@@ -132,6 +134,51 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --name loomle-native-test-results-win32-x64 \
             --dir "$RUNNER_TEMP/results/windows"
+          gh run download "$MAC_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name loomle-fab-source-darwin-arm64 \
+            --dir "$RUNNER_TEMP/fab-source/mac"
+          gh run download "$WINDOWS_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name loomle-fab-source-win32-x64 \
+            --dir "$RUNNER_TEMP/fab-source/windows"
+
+      - name: Verify Fab Source Archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in darwin-arm64 win32-x64; do
+            platform_dir="mac"
+            [[ "$target" == "win32-x64" ]] && platform_dir="windows"
+            archive="$RUNNER_TEMP/fab-source/$platform_dir/loomle-fab-source-$target.zip"
+            sidecar="$archive.sha256"
+            [[ -s "$archive" && -s "$sidecar" ]] || {
+              echo "Fab source archive or checksum is missing for $target." >&2
+              exit 1
+            }
+            expected="$(awk 'NR == 1 { print $1 }' "$sidecar")"
+            actual="$(sha256sum "$archive" | awk '{ print $1 }')"
+            [[ "$expected" == "$actual" ]] || {
+              echo "Fab source archive checksum mismatch for $target." >&2
+              exit 1
+            }
+            expected_name="loomle-fab-source-$target.zip"
+            sidecar_name="$(awk 'NR == 1 { print $2 }' "$sidecar")"
+            [[ "$sidecar_name" == "$expected_name" ]] || {
+              echo "Fab source checksum names $sidecar_name; expected $expected_name." >&2
+              exit 1
+            }
+            entries="$RUNNER_TEMP/fab-source-$target.entries"
+            unzip -Z1 "$archive" > "$entries"
+            grep -Fxq "LoomleBridge/Source/" "$entries" || {
+              echo "Fab source archive is missing Source for $target." >&2
+              exit 1
+            }
+            if grep -Eq '^LoomleBridge/(Binaries|Intermediate|Saved)(/|$)' "$entries"; then
+              echo "Fab source archive contains generated UE output for $target." >&2
+              exit 1
+            fi
+          done
 
       - name: Verify Promotion Contract
         id: release
@@ -190,27 +237,40 @@ jobs:
             exit 1
           fi
 
-      - name: Publish Exact Verified Prerelease
+      - name: Publish Exact Verified Release
         shell: bash
         env:
+          CHANNEL: ${{ inputs.channel }}
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ steps.source.outputs.head_sha }}
+          MAC_FAB_SOURCE: ${{ runner.temp }}/fab-source/mac/loomle-fab-source-darwin-arm64.zip
+          MAC_FAB_SOURCE_SHA_FILE: ${{ runner.temp }}/fab-source/mac/loomle-fab-source-darwin-arm64.zip.sha256
           MAC_ARCHIVE: ${{ steps.release.outputs.mac_archive }}
           MAC_ARCHIVE_SHA_FILE: ${{ steps.release.outputs.mac_archive_sha_file }}
           NOTES: ${{ steps.release.outputs.notes }}
           TAG: ${{ steps.release.outputs.tag }}
           VERSION: ${{ steps.release.outputs.version }}
+          WINDOWS_FAB_SOURCE: ${{ runner.temp }}/fab-source/windows/loomle-fab-source-win32-x64.zip
+          WINDOWS_FAB_SOURCE_SHA_FILE: ${{ runner.temp }}/fab-source/windows/loomle-fab-source-win32-x64.zip.sha256
           WINDOWS_ARCHIVE: ${{ steps.release.outputs.windows_archive }}
           WINDOWS_ARCHIVE_SHA_FILE: ${{ steps.release.outputs.windows_archive_sha_file }}
         run: |
           set -euo pipefail
+          channel_args=(--latest)
+          if [[ "$CHANNEL" == "prerelease" ]]; then
+            channel_args=(--prerelease)
+          fi
           gh release create "$TAG" \
+            "$MAC_FAB_SOURCE" \
+            "$MAC_FAB_SOURCE_SHA_FILE" \
             "$MAC_ARCHIVE" \
             "$MAC_ARCHIVE_SHA_FILE" \
+            "$WINDOWS_FAB_SOURCE" \
+            "$WINDOWS_FAB_SOURCE_SHA_FILE" \
             "$WINDOWS_ARCHIVE" \
             "$WINDOWS_ARCHIVE_SHA_FILE" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$HEAD_SHA" \
             --title "Loomle $VERSION" \
             --notes-file "$NOTES" \
-            --prerelease
+            "${channel_args[@]}"

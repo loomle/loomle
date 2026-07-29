@@ -3,7 +3,7 @@
 This directory is the Jekyll documentation site published at
 <https://loomle.ai/> through GitHub Pages.
 
-The site documents the current Loomle 0.7 release candidate. GitHub Releases is
+The site documents the current Loomle 0.7 release. GitHub Releases is
 the active 0.7 installation channel; the public Fab listing still contains
 0.6 and is explicitly marked as incompatible with these instructions. The site
 publishes documentation only: there are no website bootstrap scripts, global

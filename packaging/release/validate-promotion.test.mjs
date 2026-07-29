@@ -52,12 +52,53 @@ test("accepts exact successful Mac and Windows prerelease candidates", async () 
   }
 });
 
-test("blocks stable promotion until platform signing and trust gates exist", async () => {
+test("accepts exact successful Mac and Windows final candidates", async () => {
+  const fixture = await createFixture({ version: "0.7.0", channel: "final" });
+  try {
+    const result = await validatePromotion(fixture.input);
+    assert.equal(result.version, "0.7.0");
+    assert.equal(result.tag, "v0.7.0");
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("requires the product version to match the selected channel", async () => {
   const fixture = await createFixture();
   try {
     await assert.rejects(
       validatePromotion({ ...fixture.input, channel: "final" }),
-      /stable promotion is disabled/,
+      /final promotion requires an x\.y\.z product version/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("does not publish a stable product through the prerelease channel", async () => {
+  const fixture = await createFixture({ version: "0.7.0", channel: "prerelease" });
+  try {
+    await assert.rejects(
+      validatePromotion(fixture.input),
+      /prerelease promotion requires an x\.y\.z-rc\.N product version/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a final candidate whose descriptor remains beta", async () => {
+  const fixture = await createFixture({
+    version: "0.7.0",
+    channel: "final",
+    targetOverrides: {
+      "darwin-arm64": { isBetaVersion: true },
+    },
+  });
+  try {
+    await assert.rejects(
+      validatePromotion(fixture.input),
+      /darwin-arm64 archive descriptor does not match its native platform/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -132,10 +173,12 @@ test("requires the complete advertised target set", async () => {
 async function createFixture(options = {}) {
   const root = await mkdtemp(join(tmpdir(), "loomle-promotion-"));
   const repoRoot = join(root, "repo");
+  const version = options.version ?? VERSION;
+  const channel = options.channel ?? "prerelease";
 
-  await write(join(repoRoot, "package.json"), JSON.stringify({ version: VERSION }));
+  await write(join(repoRoot, "package.json"), JSON.stringify({ version }));
   await write(
-    join(repoRoot, "packaging", "release", "notes", `${VERSION}.md`),
+    join(repoRoot, "packaging", "release", "notes", `${version}.md`),
     "release notes\n",
   );
 
@@ -155,7 +198,8 @@ async function createFixture(options = {}) {
       join(payloadRoot, "LoomleBridge", "LoomleBridge.uplugin"),
       JSON.stringify({
         Installed: true,
-        VersionName: override.descriptorVersion ?? VERSION,
+        IsBetaVersion: override.isBetaVersion ?? (channel === "prerelease"),
+        VersionName: override.descriptorVersion ?? version,
         SupportedTargetPlatforms: [descriptorPlatform],
         Modules: [{
           Name: "LoomleBridge",
@@ -210,7 +254,7 @@ async function createFixture(options = {}) {
       repoRoot,
       candidates,
       headSha: COMMIT,
-      channel: "prerelease",
+      channel,
     },
   };
 }
