@@ -135,7 +135,8 @@ compact vertical workflow:
 2. bind the copied project while it is offline;
 3. read local `sal_schema` and verify the six active interface modules;
 4. start the Editor and observe the same project identity become ready;
-5. find the fixture through Asset and Blueprint queries;
+5. prove Game Thread admission with the exact read-only fixture Asset query,
+   then inspect the fixture through Blueprint queries;
 6. dry-run a Blueprint description edit and prove the fixture is unchanged;
 7. apply the edit, read it back, and restore the authored value;
 8. read `editor_context`, reconnect the Client, then stop the Editor and
@@ -162,8 +163,14 @@ The same end-to-end runner owns lifecycle scenarios:
 - a request active during shutdown fails within its deadline;
 - the runner terminates only the process group that it created.
 
-Readiness polling is allowed. Failed assertions and scenarios are never retried
-automatically.
+Readiness polling is allowed. A public `ready` report proves listener health and
+recent Game Thread progress, but UE may still be finishing startup work when
+the first invocation arrives. Before any mutation, the harness therefore
+retries the exact read-only fixture Asset query within the existing readiness
+deadline only when the Bridge returns `runtime.editor_unresponsive`, meaning
+the request was cancelled before Game Thread admission. Any other diagnostic
+fails immediately. Once one read-only query is admitted successfully, failed
+assertions, scenarios, and all Patch calls are never retried automatically.
 
 The real Editor workflow currently covers clean Editor stop, offline
 observation, and Client reconnection. A separate candidate-Client transport

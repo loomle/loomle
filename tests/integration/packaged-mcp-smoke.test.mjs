@@ -16,6 +16,7 @@ import {
   parseProjectReport,
   requireToolText,
   runPackagedMcpSmoke,
+  waitForFixtureAssetAdmission,
   waitForProjectStatus,
 } from "./packaged-mcp-smoke.mjs";
 
@@ -226,6 +227,106 @@ test("missing fixture is a hard failure and still stops the owned Editor", async
   );
 });
 
+test("packaged readiness retries only a pre-mutation editor admission miss", async () => {
+  const harness = new FakePackagedHarness({ editorUnresponsiveQueries: 2 });
+  let clock = 0;
+  let sleeps = 0;
+
+  const result = await runPackagedMcpSmoke({
+    projectRoot,
+    fixture,
+    mutationDescription,
+    expectedServerVersion: "0.7.0-test",
+    sessionFactory: () => harness.connect(),
+    startEditor: async () => {
+      harness.editorStatus = "ready";
+    },
+    stopEditor: async () => {
+      harness.editorStatus = "offline";
+    },
+    now: () => clock++,
+    sleep: async () => {
+      sleeps += 1;
+    },
+  });
+
+  assert.equal(result.status, "passed");
+  assert.equal(sleeps, 2);
+  assert.equal(
+    harness.calls.filter(
+      (call) => call.name === "sal_query" && /^query assets$/m.test(call.args.text),
+    ).length,
+    3,
+  );
+  assert.equal(
+    harness.calls.filter((call) => call.name === "sal_patch").length,
+    3,
+    "dry-run, apply, and restoration remain single attempts",
+  );
+});
+
+test("fixture admission timeout reports the last retryable Editor response", async () => {
+  const harness = new FakePackagedHarness({ editorUnresponsiveQueries: 10 });
+  const session = await harness.connect();
+  let clock = 0;
+
+  await assert.rejects(
+    waitForFixtureAssetAdmission(session, fixture, {
+      timeoutMs: 3,
+      pollIntervalMs: 1,
+      now: () => clock++,
+      sleep: async () => undefined,
+    }),
+    (error) => error instanceof PackagedSmokeAssertionError
+      && /timed out waiting for the fixture read/.test(error.message)
+      && /runtime\.editor_unresponsive/.test(error.message),
+  );
+  assert.equal(
+    harness.calls.filter((call) => call.name === "sal_query").length,
+    3,
+  );
+  assert.equal(
+    harness.calls.some((call) => call.name === "sal_patch"),
+    false,
+  );
+});
+
+test("fixture admission does not retry another runtime diagnostic", async () => {
+  let calls = 0;
+  let sleeps = 0;
+  const session = {
+    async callTool() {
+      calls += 1;
+      return {
+        ...textBlocks(
+          "result unresolved_target\nno_objects",
+          [
+            "###",
+            "SAL diagnostics",
+            "ERROR project.offline: The bound project has no healthy Editor runtime.",
+            "  retryable: true",
+            "###",
+          ].join("\n"),
+        ),
+        isError: true,
+      };
+    },
+  };
+
+  await assert.rejects(
+    waitForFixtureAssetAdmission(session, fixture, {
+      sleep: async () => {
+        sleeps += 1;
+      },
+    }),
+    (error) => error instanceof PackagedSmokeAssertionError
+      && /required fixture asset is unavailable/.test(error.message)
+      && /project\.offline/.test(error.message),
+  );
+  assert.equal(calls, 1);
+  assert.equal(sleeps, 0);
+});
+
 test("an apply readback failure still restores the fixture description", async () => {
   const harness = new FakePackagedHarness({ corruptAppliedReadback: true });
 
@@ -402,12 +503,14 @@ class FakePackagedHarness {
     corruptAppliedReadback = false,
     throwAfterApply = false,
     abortAfterApply,
+    editorUnresponsiveQueries = 0,
     tools = PUBLIC_TOOL_NAMES,
   } = {}) {
     this.assetMissing = assetMissing;
     this.corruptAppliedReadback = corruptAppliedReadback;
     this.throwAfterApply = throwAfterApply;
     this.abortAfterApply = abortAfterApply;
+    this.editorUnresponsiveQueries = editorUnresponsiveQueries;
     this.didThrowAfterApply = false;
     this.tools = tools;
     this.editorStatus = "offline";
@@ -522,6 +625,23 @@ class FakePackagedHarness {
 
   query(text) {
     if (/^query assets$/m.test(text)) {
+      if (this.editorUnresponsiveQueries > 0) {
+        this.editorUnresponsiveQueries -= 1;
+        return {
+          ...textBlocks(
+            "result unresolved_target\nno_objects",
+            [
+              "###",
+              "SAL diagnostics",
+              "ERROR runtime.editor_unresponsive: The Unreal Editor game thread did not admit the request.",
+              '  detail: {"isError":true,"code":"runtime.editor_unresponsive"}',
+              "  retryable: true",
+              "###",
+            ].join("\n"),
+          ),
+          isError: true,
+        };
+      }
       return textResult(resultEnvelope({
         targetContext: "domain_root",
         alias: "assets",

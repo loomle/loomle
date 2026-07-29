@@ -229,7 +229,10 @@ export async function runPackagedMcpSmoke(options = {}) {
     });
 
     await step(PACKAGED_SMOKE_STEP_NAMES[4], async () => {
-      await assertFixtureAsset(session, config.fixture);
+      await waitForFixtureAssetAdmission(session, config.fixture, {
+        signal: config.signal,
+        ...config.poll,
+      });
       blueprintId = await fixtureBlueprintId(session, config.fixture);
       assertDescription(
         await blueprintDescription(session, config.fixture, blueprintId),
@@ -511,24 +514,59 @@ async function assertTools(session) {
   );
 }
 
-async function assertFixtureAsset(session, fixture) {
-  let text;
-  try {
-    text = await textCall(
-      session,
-      "sal_query",
-      { text: buildAssetQuery(fixture) },
+export async function waitForFixtureAssetAdmission(session, fixture, {
+  timeoutMs = defaults.statusTimeoutMs,
+  pollIntervalMs = defaults.pollIntervalMs,
+  now = Date.now,
+  sleep = delay,
+  signal,
+} = {}) {
+  const deadline = now() + timeoutMs;
+  let lastResponse;
+  do {
+    throwIfAborted(signal);
+    let response;
+    try {
+      publicTool("sal_query");
+      response = await session.callTool(
+        "sal_query",
+        { text: buildAssetQuery(fixture) },
+        signal ? { signal } : undefined,
+      );
+    } catch (cause) {
+      throw fixtureUnavailable(fixture, cause);
+    }
+    const text = requireToolText(
+      response,
       "fixture asset query",
+      { allowError: true },
     );
-  } catch (cause) {
-    throw new PackagedSmokeAssertionError(
-      [
-        `required fixture asset is unavailable: ${fixture.blueprintAssetPath}`,
-        `Cause: ${boundedText(message(cause))}`,
-      ].join("\n"),
-      { cause },
-    );
-  }
+    if (response?.isError !== true) {
+      assertFixtureAssetText(text, fixture);
+      return;
+    }
+    if (!/^ERROR runtime\.editor_unresponsive:/m.test(text)) {
+      try {
+        requireToolText(response, "fixture asset query");
+      } catch (cause) {
+        throw fixtureUnavailable(fixture, cause);
+      }
+    }
+    lastResponse = text;
+    if (now() >= deadline) break;
+    await sleep(pollIntervalMs);
+    throwIfAborted(signal);
+  } while (true);
+  throw new PackagedSmokeAssertionError(
+    [
+      `timed out waiting for the fixture read to reach the Unreal Editor game thread after ${timeoutMs} ms`,
+      `Fixture: ${fixture.blueprintAssetPath}`,
+      `Last response:\n${boundedText(lastResponse)}`,
+    ].join("\n"),
+  );
+}
+
+function assertFixtureAssetText(text, fixture) {
   const object = salObject(text, "fixture asset query");
   const found = object.statements.some(
     (statement) => statement?.value?.kind === "object"
@@ -541,6 +579,16 @@ async function assertFixtureAsset(session, fixture) {
       `required fixture asset was not returned: ${fixture.blueprintAssetPath} (${fixture.assetType})`,
       `SAL response:\n${boundedText(text)}`,
     ].join("\n"),
+  );
+}
+
+function fixtureUnavailable(fixture, cause) {
+  return new PackagedSmokeAssertionError(
+    [
+      `required fixture asset is unavailable: ${fixture.blueprintAssetPath}`,
+      `Cause: ${boundedText(message(cause))}`,
+    ].join("\n"),
+    { cause },
   );
 }
 
