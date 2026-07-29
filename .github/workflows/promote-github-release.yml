@@ -156,14 +156,14 @@ jobs:
               echo "Fab source archive or checksum is missing for $target." >&2
               exit 1
             }
-            expected="$(awk 'NR == 1 { print $1 }' "$sidecar")"
+            expected="$(awk 'NR == 1 { print $1 }' "$sidecar" | tr -d '\r')"
             actual="$(sha256sum "$archive" | awk '{ print $1 }')"
             [[ "$expected" == "$actual" ]] || {
               echo "Fab source archive checksum mismatch for $target." >&2
               exit 1
             }
             expected_name="loomle-fab-source-$target.zip"
-            sidecar_name="$(awk 'NR == 1 { print $2 }' "$sidecar")"
+            sidecar_name="$(awk 'NR == 1 { print $2 }' "$sidecar" | tr -d '\r')"
             [[ "$sidecar_name" == "$expected_name" ]] || {
               echo "Fab source checksum names $sidecar_name; expected $expected_name." >&2
               exit 1
