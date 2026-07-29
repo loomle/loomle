@@ -50,6 +50,44 @@ jobs:
             throw "The win32-x64 Client must be built on a native Windows AMD64 runner."
           }
 
+      - name: Recover Stale Loomle Test Editor
+        run: |
+          $editors = @(
+            Get-CimInstance Win32_Process -Filter `
+              "Name = 'UnrealEditor.exe' OR Name = 'UnrealEditor-Cmd.exe'"
+          )
+          $owned = @()
+          $foreign = @()
+          foreach ($editor in $editors) {
+            $commandLine = [string] $editor.CommandLine
+            if ($commandLine -match '(?i)loomle-ue-(automation|packaged-e2e)-' -and
+                $commandLine -match '(?i)(^|\s)-Unattended(\s|$)') {
+              $owned += $editor
+            } else {
+              $foreign += $editor
+            }
+          }
+          if ($foreign.Count -ne 0) {
+            $foreign | Format-Table ProcessId, Name, ExecutablePath, CommandLine -Wrap
+            throw "The runner has an Unreal Editor that is not owned by a stale Loomle test."
+          }
+          foreach ($editor in $owned) {
+            Write-Host "Stopping stale Loomle test Editor PID $($editor.ProcessId)."
+            Stop-Process -Id $editor.ProcessId -Force -ErrorAction SilentlyContinue
+          }
+          for ($attempt = 0; $attempt -lt 20; $attempt += 1) {
+            $remaining = @(Get-Process UnrealEditor, UnrealEditor-Cmd -ErrorAction SilentlyContinue)
+            if ($remaining.Count -eq 0) {
+              break
+            }
+            Start-Sleep -Milliseconds 500
+          }
+          $remaining = @(Get-Process UnrealEditor, UnrealEditor-Cmd -ErrorAction SilentlyContinue)
+          if ($remaining.Count -ne 0) {
+            $remaining | Format-Table Id, ProcessName, Path
+            throw "A stale Loomle test Editor did not terminate."
+          }
+
       - name: Set Up Pinned Node.js
         timeout-minutes: 10
         env:

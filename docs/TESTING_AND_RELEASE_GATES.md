@@ -377,6 +377,10 @@ The Windows x64 workflow follows the same candidate construction:
 it builds a pinned native Node SEA Client, runs the complete UE Automation
 category against a same-commit test-bearing plugin, builds and audits a stripped
 Win64 plugin, and runs packaged end-to-end against the exact ZIP it uploads.
+At job start it may terminate only an unattended Editor whose command line
+names a `loomle-ue-automation-*` or `loomle-ue-packaged-e2e-*` temporary
+workspace left by an interrupted runner job. Any other existing Editor remains
+a hard failure.
 PE audits require both `loomle.exe` and `UnrealEditor-LoomleBridge.dll` to use
 the AMD64 machine type. An unsigned executable may be published only when the
 checked-in release notes explain the resulting Windows trust warning.
