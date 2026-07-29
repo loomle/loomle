@@ -105,7 +105,7 @@ export async function validatePromotion({
       );
     }
     if (descriptor.Installed !== true
-        || descriptor.IsBetaVersion !== (channel === "prerelease")
+        || (descriptor.IsBetaVersion ?? false) !== (channel === "prerelease")
         || !same(descriptor.SupportedTargetPlatforms, [releaseTarget.platform])
         || !same(moduleNames, ["LoomleBridge"])
         || !same(module?.PlatformAllowList, [releaseTarget.platform])

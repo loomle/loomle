@@ -198,7 +198,8 @@ async function createFixture(options = {}) {
       join(payloadRoot, "LoomleBridge", "LoomleBridge.uplugin"),
       JSON.stringify({
         Installed: true,
-        IsBetaVersion: override.isBetaVersion ?? (channel === "prerelease"),
+        IsBetaVersion: override.isBetaVersion
+          ?? (channel === "prerelease" ? true : undefined),
         VersionName: override.descriptorVersion ?? version,
         SupportedTargetPlatforms: [descriptorPlatform],
         Modules: [{

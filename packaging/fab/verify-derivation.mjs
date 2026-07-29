@@ -190,6 +190,7 @@ function normalizeDescriptor(descriptor) {
   const normalized = structuredClone(descriptor);
   delete normalized.Installed;
   if (normalized.MarketplaceURL === "") delete normalized.MarketplaceURL;
+  if (normalized.IsBetaVersion === false) delete normalized.IsBetaVersion;
   return sortJson(normalized);
 }
 

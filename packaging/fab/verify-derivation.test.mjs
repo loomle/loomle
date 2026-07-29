@@ -141,6 +141,7 @@ async function createFixture() {
     FileVersion: 3,
     Version: 107,
     VersionName: "0.7.0",
+    IsBetaVersion: false,
     SupportedTargetPlatforms: ["Mac"],
     Modules: [{
       Name: "LoomleBridge",
@@ -184,6 +185,7 @@ async function createFixture() {
       ...descriptor,
       MarketplaceURL: "",
       Installed: true,
+      IsBetaVersion: undefined,
     }),
   );
   return { githubRoot, root, sourceRoot };
