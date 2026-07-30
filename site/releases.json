@@ -2,16 +2,16 @@
   "schemaVersion": 1,
   "channels": {
     "stable": {
-      "version": "0.7.0",
-      "releaseUrl": "https://github.com/loomle/loomle/releases/tag/v0.7.0",
+      "version": "0.7.1",
+      "releaseUrl": "https://github.com/loomle/loomle/releases/tag/v0.7.1",
       "targets": {
         "darwin-arm64": {
-          "assetUrl": "https://github.com/loomle/loomle/releases/download/v0.7.0/loomle-fab-plugin-darwin-arm64.zip",
-          "sha256": "92797da16fbf277bd3fb3140c93dcce88ff07b888de2cacbb41e18f2b17b00ad"
+          "assetUrl": "https://github.com/loomle/loomle/releases/download/v0.7.1/loomle-fab-plugin-darwin-arm64.zip",
+          "sha256": "323c3448ef114dc37a99baaab7c1e4e87a821f894b827fec074daec6949a1019"
         },
         "win32-x64": {
-          "assetUrl": "https://github.com/loomle/loomle/releases/download/v0.7.0/loomle-fab-plugin-win32-x64.zip",
-          "sha256": "65b0581575400d65454660afcbd5cad286b6d22627699b38ac34cd959c074f05"
+          "assetUrl": "https://github.com/loomle/loomle/releases/download/v0.7.1/loomle-fab-plugin-win32-x64.zip",
+          "sha256": "10b27562b6b2f047f6f0754dc5c3de8aca38614faadd43801f86222ee29b2105"
         }
       }
     },
