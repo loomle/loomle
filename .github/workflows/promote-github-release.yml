@@ -221,15 +221,20 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Require New Tag And Release
+      - name: Require Exact Tag And New Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.source.outputs.head_sha }}
           TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
-            echo "Tag already exists: $TAG" >&2
+          tag_ref="$RUNNER_TEMP/release-tag.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > "$tag_ref"
+          tag_type="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).object.type' "$tag_ref")"
+          tag_sha="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).object.sha' "$tag_ref")"
+          if [[ "$tag_type" != "commit" || "$tag_sha" != "$HEAD_SHA" ]]; then
+            echo "Release tag $TAG resolves to $tag_type $tag_sha; expected commit $HEAD_SHA." >&2
             exit 1
           fi
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -260,8 +265,6 @@ jobs:
           if [[ "$CHANNEL" == "prerelease" ]]; then
             channel_args=(--prerelease)
           fi
-          git tag "$TAG" "$HEAD_SHA"
-          git push origin "refs/tags/$TAG"
           gh release create "$TAG" \
             "$MAC_FAB_SOURCE" \
             "$MAC_FAB_SOURCE_SHA_FILE" \
