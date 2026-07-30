@@ -260,6 +260,8 @@ jobs:
           if [[ "$CHANNEL" == "prerelease" ]]; then
             channel_args=(--prerelease)
           fi
+          git tag "$TAG" "$HEAD_SHA"
+          git push origin "refs/tags/$TAG"
           gh release create "$TAG" \
             "$MAC_FAB_SOURCE" \
             "$MAC_FAB_SOURCE_SHA_FILE" \
@@ -270,7 +272,6 @@ jobs:
             "$WINDOWS_ARCHIVE" \
             "$WINDOWS_ARCHIVE_SHA_FILE" \
             --repo "$GITHUB_REPOSITORY" \
-            --target "$HEAD_SHA" \
             --title "Loomle $VERSION" \
             --notes-file "$NOTES" \
             "${channel_args[@]}"

@@ -40,9 +40,12 @@ a tag, GitHub Release, or public Fab submission.
 takes successful Mac and Windows verification run IDs, requires both runs to
 belong to the same exact commit, checks out that commit, and verifies both sets
 of result files, target descriptors, and archive hashes. It derives
-`v<product-version>` and publishes both already-tested ZIPs and their SHA-256
-sidecars together with both audited Fab source ZIPs and their sidecars, without
-rebuilding or recompressing any candidate.
+`v<product-version>`, pushes that lightweight tag at the exact verified commit,
+and publishes both already-tested ZIPs and their SHA-256 sidecars together with
+both audited Fab source ZIPs and their sidecars, without rebuilding or
+recompressing any candidate. Promotion creates the tag before the Release
+instead of passing a commit SHA through `gh release create --target`, which the
+Actions installation token cannot reliably use for an older verified commit.
 
 `.github/workflows/verify-fab-windows.yml` proves the native Windows x64 Client,
 Bridge, Automation, Fab-source archive, package-derivation contract, and
