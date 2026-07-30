@@ -1843,13 +1843,18 @@ void AppendCanonicalJson(FString& Out, const TSharedPtr<FJsonValue>& Json)
     if (Json->TryGetObject(Object) && Object != nullptr && (*Object).IsValid())
     {
         TArray<FString> Keys;
-        (*Object)->Values.GetKeys(Keys);
+        // Values keys are FString before UE 5.8 and UE::FSharedString from
+        // 5.8 on. operator* yields const TCHAR* for both, so this copy
+        // compiles against either engine version.
+        for (const auto& Pair : (*Object)->Values) Keys.Add(FString(*Pair.Key));
         Keys.Sort();
         Out += TEXT("o{");
         for (const FString& Key : Keys)
         {
             AppendCursorToken(Out, TEXT('k'), Key);
-            AppendCanonicalJson(Out, (*Object)->Values.FindRef(Key));
+            // TryGetField takes an FString on both engine versions;
+            // Values.FindRef cannot from UE 5.8 on.
+            AppendCanonicalJson(Out, (*Object)->TryGetField(Key));
         }
         Out += TEXT("};");
         return;

@@ -2509,7 +2509,10 @@ bool ApplyConstructorFields(
     const FCreatedRef& Created)
 {
     TArray<FString> Keys;
-    Definition.Args->Values.GetKeys(Keys);
+    // Values keys are FString before UE 5.8 and UE::FSharedString from
+    // 5.8 on. operator* yields const TCHAR* for both, so this copy
+    // compiles against either engine version.
+    for (const auto& Pair : Definition.Args->Values) Keys.Add(FString(*Pair.Key));
     Keys.Remove(TEXT("palette"));
     if (Created.Kind == TEXT("parameter"))
     {
@@ -3467,7 +3470,10 @@ FString NativeExpressionText(
     const FStructProperty* StructProperty = CastField<FStructProperty>(Property);
     TArray<FString> Fields;
     TArray<FString> Keys;
-    DecodedObject->Values.GetKeys(Keys);
+    // Values keys are FString before UE 5.8 and UE::FSharedString from
+    // 5.8 on. operator* yields const TCHAR* for both, so this copy
+    // compiles against either engine version.
+    for (const auto& Pair : DecodedObject->Values) Keys.Add(FString(*Pair.Key));
     Keys.Sort();
     for (const FString& Key : Keys)
     {
