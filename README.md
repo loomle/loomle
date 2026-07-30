@@ -66,8 +66,8 @@ interface card states the exact subjects that accept it.
 
 ## Install
 
-Loomle 0.7.0 is available from
-[GitHub Releases](https://github.com/loomle/loomle/releases/tag/v0.7.0)
+Loomle 0.7.1 is available from
+[GitHub Releases](https://github.com/loomle/loomle/releases/tag/v0.7.1)
 for Unreal Engine 5.7:
 
 | Platform | Architecture | Package |
