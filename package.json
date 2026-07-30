@@ -23,7 +23,7 @@
     "test:executable": "node packaging/client/test.mjs",
     "assemble:fab": "node packaging/fab/assemble.mjs",
     "test:fab": "node --test packaging/fab/assemble.test.mjs packaging/fab/verify-derivation.test.mjs",
-    "test:release": "node --test packaging/release/validate-promotion.test.mjs packaging/release/promotion-workflow.test.mjs",
+    "test:release": "node --test packaging/release/merge-platform-packages.test.mjs packaging/release/validate-promotion.test.mjs packaging/release/promotion-workflow.test.mjs",
     "test:ue-runner": "node --test tests/runner/ue-test-runner.test.mjs",
     "test:packaged-smoke-unit": "npm run build --workspace @loomle/client && node --test tests/integration/packaged-mcp-smoke.test.mjs tests/integration/packaged-runtime-lifecycle.test.mjs",
     "test:ue-automation": "node tests/runner/ue-test-runner.mjs --profile automation",

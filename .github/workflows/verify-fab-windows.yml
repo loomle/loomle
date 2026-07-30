@@ -156,6 +156,21 @@ jobs:
             --repo-root $env:GITHUB_WORKSPACE `
             --output-dir $staging `
             --target win32-x64
+          $textExtensions = @(".cpp", ".cs", ".h", ".ini", ".json", ".md", ".txt", ".uplugin")
+          $nonLfReleaseFiles = @(
+            Get-ChildItem -LiteralPath (Join-Path $staging "LoomleBridge") -File -Recurse |
+              Where-Object {
+                $_.Name -eq "LICENSE" -or
+                $textExtensions -contains $_.Extension.ToLowerInvariant()
+              } |
+              Where-Object {
+                [IO.File]::ReadAllText($_.FullName).Contains("`r")
+              }
+          )
+          if ($nonLfReleaseFiles.Count -ne 0) {
+            $nonLfReleaseFiles | Select-Object -ExpandProperty FullName
+            throw "Fab assembler must normalize every release text file to LF."
+          }
           "staging=$staging" >> $env:GITHUB_OUTPUT
 
       - name: Archive Fab Source Package

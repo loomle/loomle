@@ -6,10 +6,10 @@ Current responsibilities:
 
 - `client/`: turn the self-contained TypeScript Client bundle into a native
   standalone program at `.tmp/client/<platform-arch>/loomle(.exe)`;
-- `fab/`: combine the UE Bridge source with exactly one matching standalone
-  Client under `Resources/Loomle/<platform-arch>/`, archive that canonical tree
-  for Fab, and verify the GitHub BuildPlugin package derives from it without
-  source drift;
+- `fab/`: assemble target-specific native QA fragments, verify each
+  BuildPlugin result derives from its matching source, then merge the verified
+  Mac and Windows fragments into one cross-platform source package and one
+  cross-platform compiled plugin without source or binary drift;
 - `tools/`: derive and verify the product and Client–Bridge protocol versions
   from the root `package.json`;
 - `release/`: document release promotion and the currently accepted targets.
@@ -22,7 +22,9 @@ npm Client build
   -> packaging/client
   -> .tmp/client/<platform-arch>/loomle(.exe)
   -> packaging/fab
-  -> staged LoomleBridge plugin
+  -> native QA fragments
+  -> one cross-platform LoomleBridge source package
+  -> one cross-platform compiled LoomleBridge package
 ```
 
 The packaged Client contains SAL, Interfaces, MCP support, and its runtime. A

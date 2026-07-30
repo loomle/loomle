@@ -142,6 +142,59 @@ test("assembles the canonical Windows x64 Client and narrows the descriptor to W
   }
 });
 
+test("normalizes release text to LF without touching the Client", async () => {
+  const fixture = await createFixture("win32-x64");
+  try {
+    await writeFile(join(fixture.repoRoot, "LICENSE"), "line one\r\nline two\r\n");
+    await writeFile(
+      join(fixture.repoRoot, "packaging", "fab", "FAB_PLUGIN_README.md"),
+      "readme one\r\nreadme two\r\n",
+    );
+    await writeFile(
+      join(
+        fixture.repoRoot,
+        "engine",
+        "LoomleBridge",
+        "Source",
+        "LoomleBridge",
+        "LoomleBridge.Build.cs",
+      ),
+      "build one\r\nbuild two\r\n",
+    );
+
+    await assembleFabPlugin({
+      repoRoot: fixture.repoRoot,
+      outputDir: fixture.outputDir,
+      target: "win32-x64",
+    });
+    const pluginRoot = join(fixture.outputDir, "LoomleBridge");
+    assert.equal(
+      await readFile(join(pluginRoot, "LICENSE"), "utf8"),
+      "line one\nline two\n",
+    );
+    assert.equal(
+      await readFile(join(pluginRoot, "README.md"), "utf8"),
+      "readme one\nreadme two\n",
+    );
+    assert.equal(
+      await readFile(
+        join(pluginRoot, "Source", "LoomleBridge", "LoomleBridge.Build.cs"),
+        "utf8",
+      ),
+      "build one\nbuild two\n",
+    );
+    assert.equal(
+      await readFile(
+        join(pluginRoot, "Resources", "Loomle", "win32-x64", "loomle.exe"),
+        "utf8",
+      ),
+      "canonical-client",
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("rejects native targets that have not completed the QA acceptance path", async () => {
   const fixture = await createFixture("darwin-arm64");
   try {

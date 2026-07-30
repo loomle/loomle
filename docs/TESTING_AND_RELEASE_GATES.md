@@ -420,9 +420,14 @@ Manual promotion takes successful `verify-fab-mac.yml` and
 `verify-fab-windows.yml` run IDs. It requires both runs to belong to the same
 commit, then checks out that exact commit and verifies both run identities,
 native targets, result files, candidate hashes, product versions, and release
-notes. It publishes both exact ZIPs and SHA-256 sidecars without rebuilding or
-recompressing them. The tag is derived from the checked-out product version
-rather than accepted as free-form input.
+notes. It rejects shared-file drift, allowing only an explicitly verified
+CRLF/LF-equivalent historical text representation and emitting LF. It then
+mechanically merges the two verified source fragments and the two verified
+compiled fragments, and publishes one
+cross-platform source ZIP plus one cross-platform complete plugin ZIP with
+their SHA-256 sidecars. Client and Bridge executable bytes are copied unchanged
+from the exact native E2E-tested fragments. The tag is derived from the
+checked-out product version rather than accepted as free-form input.
 
 On Mac, architecture is verified from the built Client and Bridge binaries,
 not expressed as a module `PlatformArchitectureAllowList`. A universal UE

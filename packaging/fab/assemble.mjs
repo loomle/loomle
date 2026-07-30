@@ -15,7 +15,15 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkProductVersion } from "../tools/product-version.mjs";
 import { renderThirdPartyNotices } from "../release/third-party-notices.mjs";
@@ -47,6 +55,16 @@ const FORBIDDEN_BINARY_SUFFIXES = new Set([
   ".lib",
   ".pdb",
   ".so",
+]);
+const RELEASE_TEXT_EXTENSIONS = new Set([
+  ".cpp",
+  ".cs",
+  ".h",
+  ".ini",
+  ".json",
+  ".md",
+  ".txt",
+  ".uplugin",
 ]);
 
 export async function assembleFabPlugin({ repoRoot, outputDir, target }) {
@@ -114,6 +132,7 @@ export async function assembleFabPlugin({ repoRoot, outputDir, target }) {
 
   await rm(join(pluginRoot, "Content"), { recursive: true, force: true });
   await mkdir(join(pluginRoot, "Content"), { recursive: true });
+  await normalizeReleaseTextFiles(pluginRoot);
   await pruneEmptyDirectories(pluginRoot, new Set(["Content"]));
   await validateFabPlugin({
     repoRoot: resolvedRepoRoot,
@@ -131,6 +150,29 @@ export async function assembleFabPlugin({ repoRoot, outputDir, target }) {
     target,
     packageKind: "fab-plugin",
   };
+}
+
+async function normalizeReleaseTextFiles(root) {
+  const pending = [root];
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(path);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (entry.name !== "LICENSE"
+          && !RELEASE_TEXT_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
+        continue;
+      }
+      const original = await readFile(path, "utf8");
+      const normalized = original.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      if (normalized !== original) await writeFile(path, normalized);
+    }
+  }
 }
 
 async function resetDirectory(path) {

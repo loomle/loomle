@@ -39,13 +39,16 @@ a tag, GitHub Release, or public Fab submission.
 `.github/workflows/promote-github-release.yml` is a separate manual step. It
 takes successful Mac and Windows verification run IDs, requires both runs to
 belong to the same exact commit, checks out that commit, and verifies both sets
-of result files, target descriptors, and archive hashes. It derives
-`v<product-version>`, requires an existing lightweight tag at the exact verified
-commit, and publishes both already-tested ZIPs and their SHA-256 sidecars
-together with both audited Fab source ZIPs and their sidecars, without rebuilding
-or recompressing any candidate. A trusted maintainer pushes the exact tag before
-promotion because the Actions installation token cannot create a tag that exposes
-historical workflow-file changes and cannot reliably pass an older commit through
+of result files, target descriptors, and archive hashes. It then rejects shared
+source drift, except for a strictly verified historical CRLF/LF-only text
+difference that is emitted as LF, and mechanically merges the fragments into one
+cross-platform source archive and one cross-platform complete plugin archive.
+No executable bytes are rebuilt or rewritten. It derives `v<product-version>`,
+requires an existing lightweight tag at the exact verified commit, and
+publishes only those two merged ZIPs and their SHA-256 sidecars. A trusted
+maintainer pushes the exact tag before promotion because the Actions
+installation token cannot create a tag that exposes historical workflow-file
+changes and cannot reliably pass an older commit through
 `gh release create --target`.
 
 `.github/workflows/verify-fab-windows.yml` proves the native Windows x64 Client,
@@ -60,17 +63,19 @@ quality improvement, not a promotion prerequisite for the agent-invoked
 standalone Client. Every published binary must still pass the exact packaged
 end-to-end and checksum gates. Fab submission remains a separate human action.
 
-For each accepted target, the verification workflow publishes:
+For each accepted target, the verification workflow uploads internal QA
+fragments:
 
-- `loomle-fab-source-<platform-arch>.zip` and checksum for the Fab Project File
-  Link;
-- `loomle-fab-plugin-<platform-arch>.zip` and checksum for GitHub promotion.
+- `loomle-fab-source-<platform-arch>.zip` and checksum;
+- `loomle-fab-plugin-<platform-arch>.zip` and checksum.
 
-These are not separately maintained packages. The second is compiled from the
-first, and `packaging/fab/verify-derivation.mjs` rejects source drift, omitted
-source, or non-build additions. Promotion publishes both source ZIPs as public,
-no-login Fab Project File Link candidates and both complete BuildPlugin ZIPs as
-GitHub installation packages.
+These are not public or separately maintained packages. The second is compiled
+from the first, and `packaging/fab/verify-derivation.mjs` rejects source drift,
+omitted source, or non-build additions. Promotion merges the two native pairs
+and publishes:
+
+- `loomle-bridge-<version>-source.zip` for the single Fab Project File Link;
+- `loomle-bridge-<version>.zip` as the single GitHub installation package.
 
 Release notes are checked in under `packaging/release/notes/` and named by the
 exact product version.

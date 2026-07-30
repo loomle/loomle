@@ -27,3 +27,20 @@ test("promotion validates a maintainer tag before creating the release", async (
   assert.doesNotMatch(workflow, /git push origin "refs\/tags\/\$TAG"/);
   assert.doesNotMatch(workflow, /gh release create[\s\S]*?--target "\$HEAD_SHA"/);
 });
+
+test("promotion merges native QA fragments and publishes only two public archives", async () => {
+  const workflow = await readFile(workflowUrl, "utf8");
+  const mergeCommand = "node packaging/release/merge-platform-packages.mjs";
+  const releaseCommand = 'gh release create "$TAG"';
+
+  assert.ok(workflow.indexOf(mergeCommand) < workflow.indexOf(releaseCommand));
+  assert.match(workflow, /loomle-bridge-\$VERSION-source\.zip/);
+  assert.match(workflow, /loomle-bridge-\$VERSION\.zip/);
+  assert.match(
+    workflow,
+    /gh release create "\$TAG" \\\n\s+"\$SOURCE_ARCHIVE" \\\n\s+"\$SOURCE_SHA_FILE" \\\n\s+"\$PLUGIN_ARCHIVE" \\\n\s+"\$PLUGIN_SHA_FILE"/,
+  );
+  const publishStep = workflow.slice(workflow.indexOf(releaseCommand));
+  assert.doesNotMatch(publishStep, /\$MAC_(FAB_SOURCE|ARCHIVE)/);
+  assert.doesNotMatch(publishStep, /\$WINDOWS_(FAB_SOURCE|ARCHIVE)/);
+});

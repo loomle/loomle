@@ -1,7 +1,7 @@
-# Fab Packaging
+# Loomle Bridge Packaging
 
-Fab packaging assembles the UE Bridge source and one matching standalone
-TypeScript Client executable into a platform-specific plugin payload. The
+Native packaging assembles the UE Bridge source and one matching standalone
+TypeScript Client executable into a platform-specific QA fragment. The
 assembler does not build the Client or Unreal binaries. Its only Client input
 is the canonical executable produced and tested by `packaging/client`:
 
@@ -25,20 +25,38 @@ The staged plugin is assembled from:
 
 ## One Package Contract
 
-Loomle maintains one plugin package definition, not independent Fab and GitHub
-layouts. The assembled pre-BuildPlugin tree is the canonical package:
+Loomle publishes exactly two cross-platform artifacts per version:
 
-- the Fab submission ZIP is that tree exactly, with full `Source/` and without
-  UE-generated `Binaries/`, `Intermediate/`, or `Saved/`;
-- the GitHub ZIP is produced by running UE BuildPlugin against the same tree,
-  retains the complete Fab source and Client, and adds the matching compiled UE
-  Bridge under `Binaries/`.
+```text
+loomle-bridge-<version>-source.zip
+loomle-bridge-<version>.zip
+```
 
-`packaging/fab/verify-derivation.mjs` enforces this relationship. Every file in
-the Fab source tree must remain present and byte-identical in the GitHub
-package. The only permitted new file root is `Binaries/`; BuildPlugin may also
-set its normal descriptor installation fields. This keeps one source package,
-one Client boundary, one README, and one license/notices set.
+The source ZIP is the single Fab Project File Link. It contains the complete
+Bridge `Source/`, both native Clients, and no UE-generated build output. The
+complete ZIP is the single GitHub installation package. It retains every
+source-package file and adds both verified Bridge binaries under
+`Binaries/Mac` and `Binaries/Win64`.
+
+Assembly normalizes release text files to LF before native compilation and
+archiving. This prevents a persistent Windows checkout from creating
+platform-specific source bytes. The Client and all other binary resources are
+excluded from line-ending normalization.
+
+Mac and Windows workflows still produce platform-specific source and
+BuildPlugin trees because compilation and packaged end-to-end tests must run
+on their native platforms. Those trees are internal QA fragments, not public
+packages. `packaging/fab/verify-derivation.mjs` verifies each native compiled
+fragment derives from its matching source. The cross-platform merger then:
+
+- requires both fragment pairs to come from the same verified commit;
+- rejects any shared source, metadata, README, license, or notice drift,
+  accepting only CRLF/LF-equivalent historical text and emitting LF;
+- preserves both Client and Bridge binaries byte-for-byte;
+- restores a descriptor that allows exactly Mac and Win64;
+- emits a source tree without `Binaries/`, `Intermediate/`, or `Saved/`;
+- emits one complete tree whose only source-package additions are
+  `Binaries/Mac` and `Binaries/Win64`.
 
 `engine/LoomleBridge/Source/LoomleBridge/Private/Tests` is development input,
 not release source. The assembler excludes that exact subtree before
@@ -47,12 +65,12 @@ test headers and their generated-code inputs. The descriptor must contain
 exactly one runtime module, `LoomleBridge`; a test module or any other extra
 module is rejected.
 
-The Client is copied to
+Each native Client is copied to
 `LoomleBridge/Resources/Loomle/<platform-arch>/loomle(.exe)`. No alternative
-Client implementation or resource tree is consumed. The package includes an
-empty `Content/` directory as part of its Fab-facing structure while keeping
-`CanContainContent=false`; no Unreal asset is invented merely to retain it.
-It also includes Loomle's `LICENSE` and a generated
+Client implementation or resource tree is consumed. The merged package
+contains both accepted target directories. It includes an empty `Content/`
+directory while keeping `CanContainContent=false`; no Unreal asset is invented
+merely to retain it. It also includes Loomle's `LICENSE` and a generated
 `THIRD_PARTY_NOTICES.txt` covering the pinned Node runtime and bundled
 production dependencies.
 
@@ -141,16 +159,18 @@ Fab source candidate; the BuildPlugin ZIP is the GitHub full-package candidate.
 The assembler deliberately has no fallback input path, and the derivation audit
 proves that the second package only adds UE build output to the first.
 
-Each native verification workflow now publishes both mechanically related
-artifacts:
+Each native verification workflow uploads two internal QA fragments:
 
 ```text
 loomle-fab-source-<platform-arch>.zip
 loomle-fab-plugin-<platform-arch>.zip
 ```
 
-The `loomle-fab-source-*` archive is the Fab Project File Link candidate. The
-`loomle-fab-plugin-*` archive is the complete, precompiled GitHub candidate.
-Both have SHA-256 sidecars. Promotion attaches both kinds to the public GitHub
-Release so Fab reviewers can download the source ZIP without authentication;
-the BuildPlugin archives remain the user-facing GitHub installation packages.
+Both have SHA-256 sidecars and remain inputs to promotion only. Promotion
+extracts, validates, and mechanically combines them. The public GitHub Release
+contains only the two cross-platform archives and their sidecars:
+
+```text
+loomle-bridge-<version>-source.zip
+loomle-bridge-<version>.zip
+```

@@ -122,8 +122,8 @@ installation of `node_modules`, SAL documents, or schemas.
 
 ## Fab Layout
 
-Fab is the 0.7 installation channel. The staged plugin contains both the UE
-Bridge and the matching standalone Client:
+Fab is the 0.7 installation channel. Its one Project Version contains the UE
+Bridge source and both supported standalone Clients:
 
 ```text
 LoomleBridge/
@@ -133,13 +133,29 @@ LoomleBridge/
   Source/
   Resources/
     Loomle/
-      <platform-arch>/
-        loomle(.exe)
+      darwin-arm64/
+        loomle
+      win32-x64/
+        loomle.exe
   LoomleBridge.uplugin
 ```
 
-The Fab assembler accepts only the canonical standalone Client program and has
-no alternative Client layout or script fallback.
+Fab receives one cross-platform source archive named
+`loomle-bridge-<version>-source.zip`. It contains no UE-generated `Binaries/`,
+`Intermediate/`, or `Saved/` tree. The public GitHub installation archive is
+named `loomle-bridge-<version>.zip`; it contains the same source and both
+Clients, then adds the exact verified Mac and Win64 Bridge binaries:
+
+```text
+LoomleBridge/
+  Binaries/
+    Mac/UnrealEditor-LoomleBridge.dylib
+    Win64/UnrealEditor-LoomleBridge.dll
+```
+
+The per-target assembler still accepts only one canonical standalone Client
+program and has no alternative Client layout or script fallback. Its
+platform-specific trees are native QA fragments, not public packages.
 
 The Client discovers live Bridge records through `~/.loomle/state/runtimes`.
 That directory is runtime state, not a global Loomle installation and not a
@@ -149,7 +165,7 @@ rejected before tool dispatch. A matching record is only an early discovery
 check; the live `rpc.capabilities` response must report the same version before
 the Client invokes any Bridge tool.
 
-Fab assembly takes an explicit native target and has no fallback input:
+Native QA assembly takes an explicit target and has no fallback input:
 
 ```sh
 npm run build:executable -- --target darwin-arm64
@@ -169,26 +185,33 @@ missing or receipt-mismatched canonical Client, product- or protocol-version
 drift, another staged Client target, unexpected Client resources, and platform
 build outputs. The receipt does not fingerprint every source file, so both
 local QA and automation build and test the Client immediately before assembly.
-For `darwin-arm64` it narrows the derived descriptor to Mac; for `win32-x64`
-it narrows it to Win64. Both deliberately omit a module architecture
-allow-list. UE represents a universal Mac Editor as architecture `MULTI`, even
-when its active process slice is arm64, so `Mac:arm64` would prevent the module
-from loading. The source descriptor remains multi-platform development input.
-UE BuildPlugin must compile the matching target, native audits must prove the
-requested Client and Bridge architecture, and `Config/FilterPlugin.ini` must
-preserve the exact Client bytes. The final QA or release archive is always the
-BuildPlugin output, never the pre-build staging tree. It must contain the
-matching Bridge binary, `Installed=true` descriptor, retained filter contract,
-and the same one-target Client payload. Before BuildPlugin runs UHT, Fab
-assembly removes the development-only
+For `darwin-arm64` native QA narrows the derived descriptor to Mac; for
+`win32-x64` it narrows it to Win64. Both deliberately omit a module
+architecture allow-list. UE represents a universal Mac Editor as architecture
+`MULTI`, even when its active process slice is arm64, so `Mac:arm64` would
+prevent the module from loading. UE BuildPlugin compiles the matching native
+fragment, native audits prove the requested Client and Bridge architecture,
+and `Config/FilterPlugin.ini` preserves the exact Client bytes. Before
+BuildPlugin runs UHT, Fab assembly removes the development-only
 `Source/LoomleBridge/Private/Tests` subtree and requires the descriptor to
 contain exactly one module named `LoomleBridge`. The BuildPlugin output and
-final ZIP repeat that audit and must not contain test source, `Intermediate/`,
-`Saved/`, or files below `Content/`. The distributable intentionally includes
-an empty `Content/` directory, even though `CanContainContent=false`, together
-with Loomle's `LICENSE` and a generated `THIRD_PARTY_NOTICES.txt`. The notices
-are generated from the pinned Node runtime and the production packages in the
-root lockfile; missing license text fails assembly.
+native QA ZIP repeat that audit and must not contain test source,
+`Intermediate/`, `Saved/`, or files below `Content/`.
+
+Promotion consumes successful Mac and Windows QA runs from the same commit.
+The assembler canonicalizes release text to LF on every platform. Promotion
+rejects any shared source drift; for historical fragments it accepts only an
+otherwise identical CRLF/LF representation and emits the LF form. It verifies
+each native BuildPlugin tree still derives from its matching source fragment,
+then performs a mechanical merge. The combined descriptors allow exactly
+`["Mac", "Win64"]`; the complete package sets `Installed=true`; both omit
+`PlatformArchitectureAllowList`. Promotion copies the two Clients and the two
+Bridge binaries byte-for-byte from their verified fragments. No executable is
+rebuilt, resigned, or rewritten.
+The public archives intentionally include an empty `Content/` directory,
+Loomle's `LICENSE`, and a generated `THIRD_PARTY_NOTICES.txt`. The notices are
+generated from the pinned Node runtime and production packages in the root
+lockfile; missing license text fails assembly.
 
 UE 5.7 `BuildPlugin` treats compiled build products as implicit includes, which
 on Windows includes the module import library under `Intermediate/Build`.

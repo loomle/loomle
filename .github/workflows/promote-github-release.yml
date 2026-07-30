@@ -221,6 +221,96 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Build Cross-Platform Release Packages
+        id: packages
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          fragments="$RUNNER_TEMP/fragments"
+          release_root="$RUNNER_TEMP/release"
+          mkdir -p \
+            "$fragments/mac-source" \
+            "$fragments/mac-plugin" \
+            "$fragments/windows-source" \
+            "$fragments/windows-plugin" \
+            "$release_root/source" \
+            "$release_root/plugin" \
+            "$release_root/assets"
+
+          unzip -q \
+            "$RUNNER_TEMP/fab-source/mac/loomle-fab-source-darwin-arm64.zip" \
+            -d "$fragments/mac-source"
+          unzip -q \
+            "${{ steps.release.outputs.mac_archive }}" \
+            -d "$fragments/mac-plugin"
+          unzip -q \
+            "$RUNNER_TEMP/fab-source/windows/loomle-fab-source-win32-x64.zip" \
+            -d "$fragments/windows-source"
+          unzip -q \
+            "${{ steps.release.outputs.windows_archive }}" \
+            -d "$fragments/windows-plugin"
+
+          node packaging/release/merge-platform-packages.mjs \
+            --mac-source-plugin "$fragments/mac-source/LoomleBridge" \
+            --mac-plugin "$fragments/mac-plugin/LoomleBridge" \
+            --windows-source-plugin "$fragments/windows-source/LoomleBridge" \
+            --windows-plugin "$fragments/windows-plugin/LoomleBridge" \
+            --output-source-plugin "$release_root/source/LoomleBridge" \
+            --output-plugin "$release_root/plugin/LoomleBridge"
+
+          source_archive="$release_root/assets/loomle-bridge-$VERSION-source.zip"
+          plugin_archive="$release_root/assets/loomle-bridge-$VERSION.zip"
+          (
+            cd "$release_root/source"
+            zip -qry "$source_archive" LoomleBridge
+          )
+          (
+            cd "$release_root/plugin"
+            zip -qry "$plugin_archive" LoomleBridge
+          )
+          (
+            cd "$release_root/assets"
+            sha256sum "$(basename "$source_archive")" > "$(basename "$source_archive").sha256"
+            sha256sum "$(basename "$plugin_archive")" > "$(basename "$plugin_archive").sha256"
+          )
+
+          source_entries="$RUNNER_TEMP/merged-source.entries"
+          plugin_entries="$RUNNER_TEMP/merged-plugin.entries"
+          unzip -Z1 "$source_archive" > "$source_entries"
+          unzip -Z1 "$plugin_archive" > "$plugin_entries"
+          for required in \
+            LoomleBridge/Resources/Loomle/darwin-arm64/loomle \
+            LoomleBridge/Resources/Loomle/win32-x64/loomle.exe \
+            LoomleBridge/Source/; do
+            grep -Fxq "$required" "$source_entries" || {
+              echo "Merged source archive is missing $required." >&2
+              exit 1
+            }
+            grep -Fxq "$required" "$plugin_entries" || {
+              echo "Merged plugin archive is missing $required." >&2
+              exit 1
+            }
+          done
+          if grep -Eq '^LoomleBridge/(Binaries|Intermediate|Saved)(/|$)' "$source_entries"; then
+            echo "Merged source archive contains generated UE output." >&2
+            exit 1
+          fi
+          for required in \
+            LoomleBridge/Binaries/Mac/UnrealEditor-LoomleBridge.dylib \
+            LoomleBridge/Binaries/Win64/UnrealEditor-LoomleBridge.dll; do
+            grep -Fxq "$required" "$plugin_entries" || {
+              echo "Merged plugin archive is missing $required." >&2
+              exit 1
+            }
+          done
+
+          echo "source_archive=$source_archive" >> "$GITHUB_OUTPUT"
+          echo "source_sha_file=$source_archive.sha256" >> "$GITHUB_OUTPUT"
+          echo "plugin_archive=$plugin_archive" >> "$GITHUB_OUTPUT"
+          echo "plugin_sha_file=$plugin_archive.sha256" >> "$GITHUB_OUTPUT"
+
       - name: Require Exact Tag And New Release
         shell: bash
         env:
@@ -248,17 +338,13 @@ jobs:
           CHANNEL: ${{ inputs.channel }}
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ steps.source.outputs.head_sha }}
-          MAC_FAB_SOURCE: ${{ runner.temp }}/fab-source/mac/loomle-fab-source-darwin-arm64.zip
-          MAC_FAB_SOURCE_SHA_FILE: ${{ runner.temp }}/fab-source/mac/loomle-fab-source-darwin-arm64.zip.sha256
-          MAC_ARCHIVE: ${{ steps.release.outputs.mac_archive }}
-          MAC_ARCHIVE_SHA_FILE: ${{ steps.release.outputs.mac_archive_sha_file }}
           NOTES: ${{ steps.release.outputs.notes }}
+          PLUGIN_ARCHIVE: ${{ steps.packages.outputs.plugin_archive }}
+          PLUGIN_SHA_FILE: ${{ steps.packages.outputs.plugin_sha_file }}
+          SOURCE_ARCHIVE: ${{ steps.packages.outputs.source_archive }}
+          SOURCE_SHA_FILE: ${{ steps.packages.outputs.source_sha_file }}
           TAG: ${{ steps.release.outputs.tag }}
           VERSION: ${{ steps.release.outputs.version }}
-          WINDOWS_FAB_SOURCE: ${{ runner.temp }}/fab-source/windows/loomle-fab-source-win32-x64.zip
-          WINDOWS_FAB_SOURCE_SHA_FILE: ${{ runner.temp }}/fab-source/windows/loomle-fab-source-win32-x64.zip.sha256
-          WINDOWS_ARCHIVE: ${{ steps.release.outputs.windows_archive }}
-          WINDOWS_ARCHIVE_SHA_FILE: ${{ steps.release.outputs.windows_archive_sha_file }}
         run: |
           set -euo pipefail
           channel_args=(--latest)
@@ -266,14 +352,10 @@ jobs:
             channel_args=(--prerelease)
           fi
           gh release create "$TAG" \
-            "$MAC_FAB_SOURCE" \
-            "$MAC_FAB_SOURCE_SHA_FILE" \
-            "$MAC_ARCHIVE" \
-            "$MAC_ARCHIVE_SHA_FILE" \
-            "$WINDOWS_FAB_SOURCE" \
-            "$WINDOWS_FAB_SOURCE_SHA_FILE" \
-            "$WINDOWS_ARCHIVE" \
-            "$WINDOWS_ARCHIVE_SHA_FILE" \
+            "$SOURCE_ARCHIVE" \
+            "$SOURCE_SHA_FILE" \
+            "$PLUGIN_ARCHIVE" \
+            "$PLUGIN_SHA_FILE" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Loomle $VERSION" \
             --notes-file "$NOTES" \
