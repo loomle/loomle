@@ -2,17 +2,18 @@
 
 ## Status
 
-The read-side and explicit Graph `move` designs below are confirmed and await
-implementation. The read side extends the existing `with layout` detail. The
-move design deliberately narrows Graph movement to absolute `to`, retiring the
-currently accepted Graph `by` clause, and adds exact per-move planning and
-diffs. Neither design adds a Query operation, Patch operation, result object,
-Target kind, or MCP tool.
+The current implementation covers the read-side `with layout` enrichment and
+the explicit Graph `move` contract below. The read side keeps stored layout
+facts and conditionally adds authoritative live Slate geometry. Graph movement
+is narrowed to absolute `to`, with exact per-move planning and move-only rich
+diffs; Graph `by` is retired. Neither part adds a Query operation, Patch
+operation, result object, Target kind, or MCP tool.
 
-Current SAL returns stored Node layout through `with layout` and can move exact
-Nodes to explicit coordinates. It does not yet return authoritative Slate
-geometry or detailed per-move plans and diffs, plan a layout, or automatically
-format a graph.
+This document is now the design and audit record for that implementation.
+Interface-level automation covers the closed-Graph fallback and one
+representative live Slate scenario. The acceptance matrix remains the required
+behavior, not a claim that every live Slate variant has dedicated coverage.
+Automatic layout planning and formatting are still outside the implementation.
 
 Automatic layout mutation remains a later design. The Query contract in this
 document supplies facts only. The agent chooses what to change, and Graph Patch
@@ -541,8 +542,11 @@ change set:
       "index": 0,
       "kind": "move",
       "target": {
-        "kind": "node",
-        "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        "kind": "stable_ref",
+        "identityPath": [
+          "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        ],
+        "semanticTag": "node"
       },
       "before": { "at": [128, 0] },
       "after": { "at": [320, 0] }
@@ -684,8 +688,11 @@ Node widgets is allowed when it has no user-visible or authored-state effect.
 
 ## Acceptance Matrix
 
-Read-side implementation is not complete until the public `sal_query` path
-verifies:
+The following remains the acceptance matrix for the public `sal_query` path.
+Interface-level automation verifies the closed-surface fallback, one unique
+synchronized live surface, and one response-wide Pin-widget mismatch fallback.
+The remaining bullets are requirements, not coverage implied by the aggregate
+automation result.
 
 ### Protocol And Projection
 
@@ -744,7 +751,12 @@ verifies:
 
 ### Explicit Move
 
-Move implementation is not complete until the public `sal_patch` path verifies:
+The following remains the acceptance matrix for the public `sal_patch` path:
+
+Dedicated release-blocker and public-routing automation verifies the core
+absolute move, planning and diff, precision, no-op, live readback and Undo,
+live parity rollback, dry-run isolation, and `by` rejection paths. The bullets
+below remain the complete contract and are not all one-to-one tested.
 
 - existing `move <node> to (x, y)` syntax remains unchanged and no automatic
   layout operation is introduced;
@@ -795,6 +807,45 @@ Move implementation is not complete until the public `sal_patch` path verifies:
 - an earlier dry run supplies no cross-request reservation or revision
   guarantee;
 - post-apply visual verification requires a later Query with `with layout`.
+
+## Current Audit Conclusion
+
+Implemented behavior:
+
+- `with layout` preserves stored `at` and optional stored `size`, conditionally
+  enriches the original Node and Pin objects from one exact usable live Graph
+  surface, and applies response-wide visual fallback with
+  `capability.layout_geometry_unavailable`;
+- precise-use gating is the absence of that warning plus complete applicable
+  visual field shapes; the fallback path remains useful only for rough
+  placement;
+- Graph movement accepts absolute `to`, uses exact stored-coordinate planning,
+  and supplies move-only rich diffs without adding automatic layout policy.
+
+Known limitations and remaining audit work:
+
+- the live surface discovery path observes visible `SGraphEditor` widgets
+  reachable from interactive top-level Slate windows; background,
+  non-standard, or otherwise unreachable Graph surfaces are not a separate
+  authoritative source and can fall back as unavailable;
+- second-pass-dependent Nodes, missing or custom widget geometry, active
+  interactions, incomplete synchronization, and invalid measurements
+  deliberately fall back for the entire response rather than being estimated;
+- live visual geometry remains an observation of one Query response, with no
+  persistent snapshot, revision, or cross-Query atomicity;
+- dedicated automation now covers stored fallback, representative live Node and
+  Pin geometry, intentional Pin non-presentation, response-wide fallback after
+  a widget-inventory mismatch, non-unit Graph zoom, absolute move
+  planning/diffs, live readback, live-only parity rollback, and Undo without
+  viewport, dirty-state, or transaction leakage;
+- the final macOS arm64 candidate built with the Installed UE 5.7 toolchain and
+  passed all 138 native tests with no failure, timeout, crash report, or
+  runner-classified log hazard;
+- dedicated variants for ambiguous live surfaces, active interactions,
+  off-viewport and custom widgets, second-pass-dependent Nodes, Comments,
+  Knots, the remaining hidden-Pin reasons, row-edge anchors, and every Query
+  projection remain incomplete even though unavailable cases fail closed and
+  the measurable cases follow the same implementation path.
 
 ## Deferred Work
 

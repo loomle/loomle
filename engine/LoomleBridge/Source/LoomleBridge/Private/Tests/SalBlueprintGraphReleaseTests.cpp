@@ -61,6 +61,33 @@ bool HasError(const TSharedPtr<FJsonObject>& Result)
     return false;
 }
 
+bool HasDiagnosticCode(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& ExpectedCode)
+{
+    const TArray<TSharedPtr<FJsonValue>>* Diagnostics = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetArrayField(TEXT("diagnostics"), Diagnostics)
+        || Diagnostics == nullptr)
+    {
+        return false;
+    }
+    for (const TSharedPtr<FJsonValue>& Value : *Diagnostics)
+    {
+        const TSharedPtr<FJsonObject>* Diagnostic = nullptr;
+        FString Code;
+        if (Value.IsValid()
+            && Value->TryGetObject(Diagnostic)
+            && Diagnostic != nullptr
+            && (*Diagnostic)->TryGetStringField(TEXT("code"), Code)
+            && Code == ExpectedCode)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool ResultBool(
     const TSharedPtr<FJsonObject>& Result,
     const TCHAR* Field,
@@ -248,6 +275,162 @@ bool ReadLayout(
     return true;
 }
 
+TSharedPtr<FJsonObject> ObjectField(
+    const TSharedPtr<FJsonObject>& Object,
+    const TCHAR* Field)
+{
+    const TSharedPtr<FJsonObject>* Value = nullptr;
+    return Object.IsValid()
+        && Object->TryGetObjectField(Field, Value)
+        && Value != nullptr
+        ? *Value
+        : nullptr;
+}
+
+TArray<TSharedPtr<FJsonObject>> ObjectArrayField(
+    const TSharedPtr<FJsonObject>& Object,
+    const TCHAR* Field)
+{
+    TArray<TSharedPtr<FJsonObject>> Values;
+    const TArray<TSharedPtr<FJsonValue>>* Items = nullptr;
+    if (!Object.IsValid()
+        || !Object->TryGetArrayField(Field, Items)
+        || Items == nullptr)
+    {
+        return Values;
+    }
+    for (const TSharedPtr<FJsonValue>& Item : *Items)
+    {
+        const TSharedPtr<FJsonObject>* ItemObject = nullptr;
+        if (Item.IsValid()
+            && Item->TryGetObject(ItemObject)
+            && ItemObject != nullptr)
+        {
+            Values.Add(*ItemObject);
+        }
+    }
+    return Values;
+}
+
+bool ReadPointField(
+    const TSharedPtr<FJsonObject>& Object,
+    const TCHAR* Field,
+    FIntPoint& OutPoint)
+{
+    const TArray<TSharedPtr<FJsonValue>>* Point = nullptr;
+    double X = 0.0;
+    double Y = 0.0;
+    if (!Object.IsValid()
+        || !Object->TryGetArrayField(Field, Point)
+        || Point == nullptr
+        || Point->Num() != 2
+        || !(*Point)[0].IsValid()
+        || !(*Point)[1].IsValid()
+        || !(*Point)[0]->TryGetNumber(X)
+        || !(*Point)[1]->TryGetNumber(Y))
+    {
+        return false;
+    }
+    OutPoint = FIntPoint(
+        static_cast<int32>(X),
+        static_cast<int32>(Y));
+    return true;
+}
+
+bool ReadNestedAt(
+    const TSharedPtr<FJsonObject>& Object,
+    const TCHAR* Field,
+    FIntPoint& OutPoint)
+{
+    return ReadPointField(
+        ObjectField(Object, Field),
+        TEXT("at"),
+        OutPoint);
+}
+
+bool MatchesMovePlanOperation(
+    const TSharedPtr<FJsonObject>& Operation,
+    const int32 ExpectedIndex,
+    const FString& ExpectedRef,
+    const FIntPoint ExpectedTo,
+    const FIntPoint ExpectedBefore,
+    const FIntPoint ExpectedAfter,
+    const bool bExpectedChanged)
+{
+    double Index = -1.0;
+    FString Kind;
+    FString Ref;
+    bool bChanged = !bExpectedChanged;
+    FIntPoint To;
+    FIntPoint Before;
+    FIntPoint After;
+    return Operation.IsValid()
+        && Operation->TryGetNumberField(TEXT("index"), Index)
+        && Index == ExpectedIndex
+        && Operation->TryGetStringField(TEXT("operation"), Kind)
+        && Kind == TEXT("move")
+        && Operation->TryGetStringField(TEXT("ref"), Ref)
+        && Ref == ExpectedRef
+        && ReadPointField(Operation, TEXT("to"), To)
+        && To == ExpectedTo
+        && ReadNestedAt(Operation, TEXT("before"), Before)
+        && Before == ExpectedBefore
+        && ReadNestedAt(Operation, TEXT("after"), After)
+        && After == ExpectedAfter
+        && Operation->TryGetBoolField(TEXT("changed"), bChanged)
+        && bChanged == bExpectedChanged;
+}
+
+bool MatchesStableNodeTarget(
+    const TSharedPtr<FJsonObject>& Target,
+    const FString& ExpectedId)
+{
+    FString Kind;
+    FString SemanticTag;
+    const TArray<TSharedPtr<FJsonValue>>* IdentityPath = nullptr;
+    FString Id;
+    return Target.IsValid()
+        && Target->TryGetStringField(TEXT("kind"), Kind)
+        && Kind == TEXT("stable_ref")
+        && Target->TryGetStringField(
+            TEXT("semanticTag"),
+            SemanticTag)
+        && SemanticTag == TEXT("node")
+        && Target->TryGetArrayField(
+            TEXT("identityPath"),
+            IdentityPath)
+        && IdentityPath != nullptr
+        && IdentityPath->Num() == 1
+        && (*IdentityPath)[0].IsValid()
+        && (*IdentityPath)[0]->TryGetString(Id)
+        && Id == ExpectedId;
+}
+
+bool MatchesMoveDiffChange(
+    const TSharedPtr<FJsonObject>& Change,
+    const int32 ExpectedIndex,
+    const FString& ExpectedNodeId,
+    const FIntPoint ExpectedBefore,
+    const FIntPoint ExpectedAfter)
+{
+    double Index = -1.0;
+    FString Kind;
+    FIntPoint Before;
+    FIntPoint After;
+    return Change.IsValid()
+        && Change->TryGetNumberField(TEXT("index"), Index)
+        && Index == ExpectedIndex
+        && Change->TryGetStringField(TEXT("kind"), Kind)
+        && Kind == TEXT("move")
+        && MatchesStableNodeTarget(
+            ObjectField(Change, TEXT("target")),
+            ExpectedNodeId)
+        && ReadNestedAt(Change, TEXT("before"), Before)
+        && Before == ExpectedBefore
+        && ReadNestedAt(Change, TEXT("after"), After)
+        && After == ExpectedAfter;
+}
+
 FSalQuery Query(
     const FString& Kind,
     const FString& Alias)
@@ -306,9 +489,10 @@ FSalResolvedTarget GraphTarget(
     return Target;
 }
 
-FSalPatch MoveNodePatch(
+TSharedRef<FJsonValue> MoveNodeToStatement(
     const UEdGraphNode* Node,
-    const FIntPoint Delta)
+    const double X,
+    const double Y)
 {
     TSharedRef<FJsonObject> NodeRef = MakeShared<FJsonObject>();
     NodeRef->SetStringField(TEXT("kind"), TEXT("node"));
@@ -320,16 +504,26 @@ FSalPatch MoveNodePatch(
     Move->SetStringField(TEXT("kind"), TEXT("move"));
     Move->SetObjectField(TEXT("target"), NodeRef);
     Move->SetArrayField(
-        TEXT("by"),
+        TEXT("to"),
         {
-            MakeShared<FJsonValueNumber>(Delta.X),
-            MakeShared<FJsonValueNumber>(Delta.Y)
+            MakeShared<FJsonValueNumber>(X),
+            MakeShared<FJsonValueNumber>(Y)
         });
+    return MakeShared<FJsonValueObject>(Move);
+}
 
+FSalPatch MoveNodeToPatch(
+    const UEdGraphNode* Node,
+    const FIntPoint Position)
+{
     FSalPatch Patch;
     Patch.Alias = TEXT("graph");
     Patch.bDryRun = false;
-    Patch.Statements = {MakeShared<FJsonValueObject>(Move)};
+    Patch.Statements = {
+        MoveNodeToStatement(
+            Node,
+            Position.X,
+            Position.Y)};
     return Patch;
 }
 
@@ -678,6 +872,16 @@ bool FSalBlueprintGraphQueryReleaseBlockerTest::RunTest(
         HasCommentContaining(
             ExactNodeResult,
             TEXT("schema:")));
+    TestTrue(
+        TEXT("Graph exact Node schema advertises absolute move"),
+        HasCommentContaining(
+            ExactNodeResult,
+            TEXT("move to (x, y)")));
+    TestFalse(
+        TEXT("Graph exact Node schema does not advertise relative move"),
+        HasCommentContaining(
+            ExactNodeResult,
+            TEXT("move by")));
 
     FSalQuery ExactPin = Query(TEXT("pin"), TEXT("graph"));
     ExactPin.Operation->SetStringField(TEXT("id"), PinId);
@@ -710,6 +914,367 @@ bool FSalBlueprintGraphQueryReleaseBlockerTest::RunTest(
     TestTrue(
         *FString::Printf(
             TEXT("Query fixture unloads: %s"),
+            *CleanupError),
+        bCleaned);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalGraphMoveSemanticsReleaseBlockerTest,
+    "Loomle.Sal.ReleaseBlocker.Graph.MovePlanDiffNoOpPrecision",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalGraphMoveSemanticsReleaseBlockerTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RequireEditor(*this, TEXT("Graph move semantics test")))
+    {
+        return false;
+    }
+
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(
+            TEXT("Move fixture owns an isolated transaction buffer"),
+            Transactions.Initialize()))
+    {
+        return false;
+    }
+    FBlueprintGraphReleaseFixture Fixture;
+    if (!TestTrue(
+            TEXT("Real Blueprint move fixture is valid"),
+            Fixture.IsValid()))
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    const FSalResolvedTarget GraphScope =
+        GraphTarget(Fixture.Blueprint, Fixture.Graph);
+    const FString NodeId = GuidText(Fixture.Node->NodeGuid);
+    const FString NodeRef = TEXT("@") + NodeId;
+    const FIntPoint Original(
+        Fixture.Node->NodePosX,
+        Fixture.Node->NodePosY);
+    const bool bPackageDirtyBefore =
+        Fixture.Package->IsDirty();
+    const FIntPoint First(512, 256);
+    const FIntPoint Second(768, 384);
+
+    FSalPatch OrderedMoves;
+    OrderedMoves.Alias = TEXT("graph");
+    OrderedMoves.bDryRun = true;
+    OrderedMoves.Statements = {
+        MoveNodeToStatement(Fixture.Node, First.X, First.Y),
+        MoveNodeToStatement(Fixture.Node, Second.X, Second.Y)};
+    const TSharedPtr<FJsonObject> OrderedResult =
+        FSalGraphInterface::Patch(
+            OrderedMoves,
+            GraphScope);
+    TestTrue(
+        TEXT("Repeated absolute moves validate in dry run"),
+        ResultBool(OrderedResult, TEXT("valid")));
+    TestTrue(
+        TEXT("Repeated absolute moves report dry-run mode"),
+        ResultBool(OrderedResult, TEXT("dryRun")));
+    TestFalse(
+        TEXT("Repeated absolute move dry run does not apply"),
+        ResultBool(OrderedResult, TEXT("applied"), true));
+    TestTrue(
+        TEXT("Repeated absolute move dry run preserves source layout"),
+        Fixture.Node->NodePosX == Original.X
+            && Fixture.Node->NodePosY == Original.Y);
+
+    const TSharedPtr<FJsonObject> OrderedPlan =
+        ObjectField(OrderedResult, TEXT("planned"));
+    double PlannedChangeCount = -1.0;
+    TestTrue(
+        TEXT("Move plan reports both changed operations"),
+        OrderedPlan.IsValid()
+            && OrderedPlan->TryGetNumberField(
+                TEXT("changedOperationCount"),
+                PlannedChangeCount)
+            && PlannedChangeCount == 2.0);
+    const TArray<TSharedPtr<FJsonObject>> PlannedOperations =
+        ObjectArrayField(
+            OrderedPlan,
+            TEXT("operations"));
+    TestEqual(
+        TEXT("Move plan preserves repeated statement count"),
+        PlannedOperations.Num(),
+        2);
+    if (PlannedOperations.Num() == 2)
+    {
+        TestTrue(
+            TEXT("First move plan records original-to-first transition"),
+            MatchesMovePlanOperation(
+                PlannedOperations[0],
+                0,
+                NodeRef,
+                First,
+                Original,
+                First,
+                true));
+        TestTrue(
+            TEXT("Second move plan observes the first planned position"),
+            MatchesMovePlanOperation(
+                PlannedOperations[1],
+                1,
+                NodeRef,
+                Second,
+                First,
+                Second,
+                true));
+    }
+
+    const TSharedPtr<FJsonObject> OrderedDiff =
+        ObjectField(OrderedResult, TEXT("diff"));
+    double DiffChangeCount = -1.0;
+    FString DiffScope;
+    TestTrue(
+        TEXT("Move-only dry-run diff is explicitly Graph-scoped"),
+        OrderedDiff.IsValid()
+            && OrderedDiff->TryGetNumberField(
+                TEXT("changedOperations"),
+                DiffChangeCount)
+            && DiffChangeCount == 2.0
+            && OrderedDiff->TryGetStringField(
+                TEXT("scope"),
+                DiffScope)
+            && DiffScope == TEXT("graph"));
+    const TArray<TSharedPtr<FJsonObject>> DiffChanges =
+        ObjectArrayField(
+            OrderedDiff,
+            TEXT("changes"));
+    TestEqual(
+        TEXT("Move diff preserves repeated change count"),
+        DiffChanges.Num(),
+        2);
+    if (DiffChanges.Num() == 2)
+    {
+        TestTrue(
+            TEXT("First move diff records original-to-first transition"),
+            MatchesMoveDiffChange(
+                DiffChanges[0],
+                0,
+                NodeId,
+                Original,
+                First));
+        TestTrue(
+            TEXT("Second move diff records first-to-second transition"),
+            MatchesMoveDiffChange(
+                DiffChanges[1],
+                1,
+                NodeId,
+                First,
+                Second));
+    }
+
+    const TArray<double> AcceptedCoordinates = {
+        -16777216.0,
+        16777216.0,
+        16777218.0,
+        static_cast<double>(MIN_int32)};
+    for (const double X : AcceptedCoordinates)
+    {
+        FSalPatch Boundary;
+        Boundary.Alias = TEXT("graph");
+        Boundary.bDryRun = true;
+        Boundary.Statements = {
+            MoveNodeToStatement(Fixture.Node, X, 0.0)};
+        const TSharedPtr<FJsonObject> Result =
+            FSalGraphInterface::Patch(
+                Boundary,
+                GraphScope);
+        TestTrue(
+            *FString::Printf(
+                TEXT("Exactly representable coordinate %s validates"),
+                *FString::SanitizeFloat(X)),
+            ResultBool(Result, TEXT("valid")));
+        TestTrue(
+            *FString::Printf(
+                TEXT("Accepted coordinate %s preserves live layout"),
+                *FString::SanitizeFloat(X)),
+            Fixture.Node->NodePosX == Original.X
+                && Fixture.Node->NodePosY == Original.Y);
+    }
+
+    const TArray<double> RejectedCoordinates = {
+        -16777217.0,
+        16777217.0,
+        static_cast<double>(MAX_int32),
+        320.5,
+        2147483648.0};
+    for (const double X : RejectedCoordinates)
+    {
+        FSalPatch Boundary;
+        Boundary.Alias = TEXT("graph");
+        Boundary.bDryRun = true;
+        Boundary.Statements = {
+            MoveNodeToStatement(Fixture.Node, X, 0.0)};
+        const TSharedPtr<FJsonObject> Result =
+            FSalGraphInterface::Patch(
+                Boundary,
+                GraphScope);
+        TestFalse(
+            *FString::Printf(
+                TEXT("Inexact coordinate %s does not validate"),
+                *FString::SanitizeFloat(X)),
+            ResultBool(Result, TEXT("valid"), true));
+        TestTrue(
+            *FString::Printf(
+                TEXT("Inexact coordinate %s reports layout validation"),
+                *FString::SanitizeFloat(X)),
+            HasDiagnosticCode(
+                Result,
+                TEXT("validation.layout_invalid")));
+        TestTrue(
+            *FString::Printf(
+                TEXT("Rejected coordinate %s preserves live layout"),
+                *FString::SanitizeFloat(X)),
+            Fixture.Node->NodePosX == Original.X
+                && Fixture.Node->NodePosY == Original.Y);
+    }
+
+    FSalPatch NoOp =
+        MoveNodeToPatch(Fixture.Node, Original);
+    const TSharedPtr<FJsonObject> NoOpResult =
+        FSalGraphInterface::Patch(
+            NoOp,
+            GraphScope);
+    TestTrue(
+        TEXT("Live move to the stored position validates"),
+        ResultBool(NoOpResult, TEXT("valid")));
+    TestFalse(
+        TEXT("Live move to the stored position is not applied"),
+        ResultBool(NoOpResult, TEXT("applied"), true));
+    TestFalse(
+        TEXT("Live no-op result is not a dry run"),
+        ResultBool(NoOpResult, TEXT("dryRun"), true));
+
+    const TArray<TSharedPtr<FJsonObject>> NoOpOperations =
+        ObjectArrayField(
+            ObjectField(NoOpResult, TEXT("planned")),
+            TEXT("operations"));
+    TestTrue(
+        TEXT("No-op plan records unchanged before and after layout"),
+        NoOpOperations.Num() == 1
+            && MatchesMovePlanOperation(
+                NoOpOperations[0],
+                0,
+                NodeRef,
+                Original,
+                Original,
+                Original,
+                false));
+    const TSharedPtr<FJsonObject> NoOpDiff =
+        ObjectField(NoOpResult, TEXT("diff"));
+    double NoOpChangeCount = -1.0;
+    FString NoOpDiffScope;
+    TestTrue(
+        TEXT("No-op diff is empty and Graph-scoped"),
+        NoOpDiff.IsValid()
+            && NoOpDiff->TryGetNumberField(
+                TEXT("changedOperations"),
+                NoOpChangeCount)
+            && NoOpChangeCount == 0.0
+            && NoOpDiff->TryGetStringField(
+                TEXT("scope"),
+                NoOpDiffScope)
+            && NoOpDiffScope == TEXT("graph")
+            && ObjectArrayField(
+                NoOpDiff,
+                TEXT("changes")).IsEmpty());
+    TestTrue(
+        TEXT("No-op move preserves native source state"),
+        Fixture.Node->NodePosX == Original.X
+            && Fixture.Node->NodePosY == Original.Y
+            && Fixture.Package->IsDirty() == bPackageDirtyBefore);
+    TestFalse(
+        TEXT("No-op move does not create an Undo record"),
+        GEditor->UndoTransaction(false));
+
+    const FIntPoint MismatchTarget =
+        Original + FIntPoint(384, 192);
+    const int32 QueueLengthBeforeMismatch =
+        GEditor->Trans->GetQueueLength();
+    const int32 UndoCountBeforeMismatch =
+        GEditor->Trans->GetUndoCount();
+    const bool bDirtyBeforeMismatch =
+        Fixture.Package->IsDirty();
+    FSalGraphInterface::SetMoveAppliedHookForTesting(
+        [LiveNode = Fixture.Node](UEdGraphNode* AppliedNode)
+        {
+            if (AppliedNode == LiveNode)
+            {
+                AppliedNode->Modify();
+                ++AppliedNode->NodePosX;
+            }
+        });
+    const TSharedPtr<FJsonObject> MismatchResult =
+        FSalGraphInterface::Patch(
+            MoveNodeToPatch(
+                Fixture.Node,
+                MismatchTarget),
+            GraphScope);
+    FSalGraphInterface::SetMoveAppliedHookForTesting({});
+
+    TestFalse(
+        TEXT("Live move readback mismatch does not validate"),
+        ResultBool(MismatchResult, TEXT("valid"), true));
+    TestFalse(
+        TEXT("Live move readback mismatch does not apply"),
+        ResultBool(MismatchResult, TEXT("applied"), true));
+    TestTrue(
+        TEXT("Live move readback mismatch is an execution error"),
+        ResultBool(MismatchResult, TEXT("isError")));
+    TestTrue(
+        TEXT("Live move readback mismatch reports the exact diagnostic"),
+        HasDiagnosticCode(
+            MismatchResult,
+            TEXT("validation.layout_apply_failed")));
+    const TArray<TSharedPtr<FJsonObject>> MismatchOperations =
+        ObjectArrayField(
+            ObjectField(MismatchResult, TEXT("planned")),
+            TEXT("operations"));
+    TestTrue(
+        TEXT("Live move readback mismatch retains the attempted plan"),
+        MismatchOperations.Num() == 1
+            && MatchesMovePlanOperation(
+                MismatchOperations[0],
+                0,
+                NodeRef,
+                MismatchTarget,
+                Original,
+                MismatchTarget,
+                true));
+    TestTrue(
+        TEXT("Live move readback mismatch omits partial diff"),
+        MismatchResult.IsValid()
+            && !MismatchResult->HasField(TEXT("diff")));
+    TestTrue(
+        TEXT("Live move readback mismatch omits partial object readback"),
+        MismatchResult.IsValid()
+            && !MismatchResult->HasField(TEXT("object")));
+    TestTrue(
+        TEXT("Live move readback mismatch restores native layout and dirty state"),
+        Fixture.Node->NodePosX == Original.X
+            && Fixture.Node->NodePosY == Original.Y
+            && Fixture.Package->IsDirty()
+                == bDirtyBeforeMismatch);
+    TestTrue(
+        TEXT("Live move readback mismatch leaves no Undo record"),
+        GEditor->Trans->GetQueueLength()
+                == QueueLengthBeforeMismatch
+            && GEditor->Trans->GetUndoCount()
+                == UndoCountBeforeMismatch);
+
+    Transactions.Restore();
+    FString CleanupError;
+    const bool bCleaned = Fixture.Cleanup(CleanupError);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Move semantics fixture unloads: %s"),
             *CleanupError),
         bCleaned);
     return true;
@@ -756,7 +1321,7 @@ bool FSalGraphLiveMoveReleaseBlockerTest::RunTest(
 
     const TSharedPtr<FJsonObject> Applied =
         FSalGraphInterface::Patch(
-            MoveNodePatch(Fixture.Node, Delta),
+            MoveNodeToPatch(Fixture.Node, Expected),
             GraphScope);
     TestTrue(
         TEXT("Graph live move validates"),
@@ -764,6 +1329,42 @@ bool FSalGraphLiveMoveReleaseBlockerTest::RunTest(
     TestTrue(
         TEXT("Graph live move applies to the source Blueprint"),
         ResultBool(Applied, TEXT("applied")));
+    const TArray<TSharedPtr<FJsonObject>> AppliedOperations =
+        ObjectArrayField(
+            ObjectField(Applied, TEXT("planned")),
+            TEXT("operations"));
+    TestTrue(
+        TEXT("Graph live move returns its verified absolute plan"),
+        AppliedOperations.Num() == 1
+            && MatchesMovePlanOperation(
+                AppliedOperations[0],
+                0,
+                TEXT("@") + NodeId,
+                Expected,
+                Original,
+                Expected,
+                true));
+    const TSharedPtr<FJsonObject> AppliedDiff =
+        ObjectField(Applied, TEXT("diff"));
+    double AppliedChangeCount = -1.0;
+    const TArray<TSharedPtr<FJsonObject>> AppliedChanges =
+        ObjectArrayField(
+            AppliedDiff,
+            TEXT("changes"));
+    TestTrue(
+        TEXT("Graph live move returns its verified rich diff"),
+        AppliedDiff.IsValid()
+            && AppliedDiff->TryGetNumberField(
+                TEXT("changedOperations"),
+                AppliedChangeCount)
+            && AppliedChangeCount == 1.0
+            && AppliedChanges.Num() == 1
+            && MatchesMoveDiffChange(
+                AppliedChanges[0],
+                0,
+                NodeId,
+                Original,
+                Expected));
     TestEqual(
         TEXT("Native source Node X changes"),
         Fixture.Node->NodePosX,

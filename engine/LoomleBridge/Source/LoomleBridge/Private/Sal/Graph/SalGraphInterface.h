@@ -7,6 +7,7 @@
 
 class FJsonObject;
 class UBlueprint;
+class UEdGraphNode;
 
 namespace Loomle::Sal
 {
@@ -33,6 +34,8 @@ public:
         TStrongObjectPtr<UBlueprint>& OutSandboxOwner,
         FSalResolvedTarget& OutTarget,
         FString& OutError);
+    static void SetMoveAppliedHookForTesting(
+        TFunction<void(UEdGraphNode*)> Hook);
 #endif
 };
 }

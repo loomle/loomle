@@ -32,6 +32,9 @@
 #include "Engine/SimpleConstructionScript.h"
 #include "Engine/TimelineTemplate.h"
 #include "GameFramework/Actor.h"
+#include "GraphEditor.h"
+#include "Layout/ArrangedChildren.h"
+#include "Layout/WidgetPath.h"
 #include "K2Node_AddPinInterface.h"
 #include "K2Node_BaseMCDelegate.h"
 #include "K2Node_CallFunction.h"
@@ -60,7 +63,11 @@
 #include "Logging/TokenizedMessage.h"
 #include "LoomleMutationTransaction.h"
 #include "Misc/Crc.h"
+#include "Framework/Application/SlateApplication.h"
 #include "ScopedTransaction.h"
+#include "SGraphNode.h"
+#include "SGraphPanel.h"
+#include "SGraphPin.h"
 #include "Sal/Blueprint/SalBlueprintSandbox.h"
 #include "Sal/SalDiagnostics.h"
 #include "Sal/SalModel.h"
@@ -72,6 +79,8 @@
 #include "UObject/SavePackage.h"
 #include "UObject/UnrealType.h"
 #include "WidgetBlueprint.h"
+#include "Widgets/SBoxPanel.h"
+#include "Widgets/SWindow.h"
 
 #define LOCTEXT_NAMESPACE "LoomleSalGraph"
 
@@ -98,12 +107,17 @@ TSharedPtr<FEdGraphSchemaAction> ResolvePaletteAction(
 UEdGraphNode* TemplateForAction(const TSharedPtr<FEdGraphSchemaAction>& Action, UEdGraph* Graph);
 bool ImportPinType(const FString& Text, FEdGraphPinType& OutType);
 bool IsExecPin(const UEdGraphPin* Pin);
+FString GraphPlanRef(const TSharedPtr<FJsonObject>& Ref);
 struct FPatchState;
 bool SetObjectField(FPatchState& State, UObject* Object, const FString& Field, const TSharedPtr<FJsonValue>& Value, bool bReset, FString& OutError);
 void AddGraphNavigationHandoff(
     const TSharedPtr<FJsonObject>& Result,
     const FSalResolvedTarget& Target,
     const UEdGraphNode* Node);
+
+#if WITH_DEV_AUTOMATION_TESTS
+TFunction<void(UEdGraphNode*)> GMoveAppliedTestHook;
+#endif
 
 struct FGraphObjectRef
 {
@@ -125,6 +139,17 @@ struct FNodeDefinition
     bool bConsumed = false;
 };
 
+struct FGraphMoveEffect
+{
+    int32 Index = INDEX_NONE;
+    FString Ref;
+    FString NodeId;
+    FIntPoint To = FIntPoint::ZeroValue;
+    FIntPoint Before = FIntPoint::ZeroValue;
+    FIntPoint After = FIntPoint::ZeroValue;
+    bool bChanged = false;
+};
+
 struct FPatchState
 {
     const FSalResolvedTarget& Target;
@@ -136,20 +161,34 @@ struct FPatchState
     TSet<UEdGraphPin*> TouchedPins;
     TSharedPtr<FJsonObject> ResolvedRefs = MakeShared<FJsonObject>();
     TArray<TSharedPtr<FJsonObject>> Diagnostics;
+    TArray<FGraphMoveEffect> MoveEffects;
+    const TArray<FGraphMoveEffect>* ExpectedMoveEffects = nullptr;
     int32 ChangedOps = 0;
 
-    FPatchState(const FSalResolvedTarget& InTarget, const bool bInApply)
-        : Target(InTarget), bApply(bInApply)
+    FPatchState(
+        const FSalResolvedTarget& InTarget,
+        const bool bInApply,
+        const TArray<FGraphMoveEffect>* InExpectedMoveEffects = nullptr)
+        : Target(InTarget)
+        , bApply(bInApply)
+        , ExpectedMoveEffects(InExpectedMoveEffects)
     {
     }
 };
 
-void AddPatchError(FPatchState& State, const FString& Code, const FString& Message, const FString& Operation, const FString& Ref = FString())
+void AddPatchError(
+    FPatchState& State,
+    const FString& Code,
+    const FString& Message,
+    const FString& Operation,
+    const FString& Ref = FString(),
+    const FString& Suggestion = FString())
 {
     FSalDiagnosticBuilder Diagnostic = FSalDiagnostics::Error(Code, Message)
         .Interface(TEXT("graph"))
         .Operation(Operation);
     if (!Ref.IsEmpty()) Diagnostic.Ref(Ref);
+    if (!Suggestion.IsEmpty()) Diagnostic.Suggestion(Suggestion);
     State.Diagnostics.Add(Diagnostic.Build());
 }
 
@@ -679,15 +718,47 @@ UEdGraphNode* MaterializeDefinition(FPatchState& State, const FString& Alias, co
     return NewNode;
 }
 
-bool ReadPoint(const TSharedPtr<FJsonValue>& Value, FIntPoint& Out)
+enum class EGraphPointReadResult : uint8
+{
+    Valid,
+    InvalidPoint,
+    InvalidLayout
+};
+
+EGraphPointReadResult ReadGraphLayoutPoint(
+    const TSharedPtr<FJsonValue>& Value,
+    FIntPoint& Out)
 {
     const TArray<TSharedPtr<FJsonValue>>* Items = nullptr;
-    if (!Value.IsValid() || !Value->TryGetArray(Items) || Items == nullptr || Items->Num() != 2) return false;
+    if (!Value.IsValid()
+        || !Value->TryGetArray(Items)
+        || Items == nullptr
+        || Items->Num() != 2)
+    {
+        return EGraphPointReadResult::InvalidPoint;
+    }
     double X = 0.0;
     double Y = 0.0;
-    if (!(*Items)[0]->TryGetNumber(X) || !(*Items)[1]->TryGetNumber(Y)) return false;
+    if (!(*Items)[0]->TryGetNumber(X)
+        || !(*Items)[1]->TryGetNumber(Y)
+        || !FMath::IsFinite(X)
+        || !FMath::IsFinite(Y))
+    {
+        return EGraphPointReadResult::InvalidPoint;
+    }
+    const auto IsValidComponent = [](const double Component)
+    {
+        return FMath::TruncToDouble(Component) == Component
+            && Component >= static_cast<double>(MIN_int32)
+            && Component <= static_cast<double>(MAX_int32)
+            && static_cast<double>(static_cast<float>(Component)) == Component;
+    };
+    if (!IsValidComponent(X) || !IsValidComponent(Y))
+    {
+        return EGraphPointReadResult::InvalidLayout;
+    }
     Out = FIntPoint(static_cast<int32>(X), static_cast<int32>(Y));
-    return true;
+    return EGraphPointReadResult::Valid;
 }
 
 bool PinsAreLinked(const UEdGraphPin* A, const UEdGraphPin* B)
@@ -1365,7 +1436,10 @@ bool HandleSetReset(FPatchState& State, const TSharedPtr<FJsonObject>& Operation
     return bOk;
 }
 
-bool HandleMove(FPatchState& State, const TSharedPtr<FJsonObject>& Operation)
+bool HandleMove(
+    FPatchState& State,
+    const TSharedPtr<FJsonObject>& Operation,
+    const int32 StatementIndex)
 {
     TSharedPtr<FJsonObject> TargetRef;
     FGraphObjectRef Object;
@@ -1375,38 +1449,150 @@ bool HandleMove(FPatchState& State, const TSharedPtr<FJsonObject>& Operation)
         AddPatchError(State, TEXT("validation.invalid_target"), TEXT("Graph move accepts only a Node."), TEXT("move"));
         return false;
     }
-    FIntPoint Point;
-    bool bBy = false;
-    if (Operation->HasField(TEXT("to")))
+    const FString Ref = GraphPlanRef(TargetRef);
+    if (Operation->HasField(TEXT("by")))
     {
-        if (!ReadPoint(Operation->TryGetField(TEXT("to")), Point))
+        AddPatchError(
+            State,
+            TEXT("capability.clause_unavailable"),
+            TEXT("Graph move supports only absolute to (x, y); relative by (dx, dy) is unavailable."),
+            TEXT("move"),
+            Ref,
+            TEXT("Query the exact Node with layout, read its stored at point, compute the absolute target, and retry with move ... to (x, y)."));
+        return false;
+    }
+    if (!Operation->HasField(TEXT("to")))
+    {
+        AddPatchError(
+            State,
+            TEXT("capability.clause_unavailable"),
+            TEXT("Graph move requires the absolute to (x, y) clause."),
+            TEXT("move"),
+            Ref,
+            TEXT("Use move @node-guid to (x, y)."));
+        return false;
+    }
+
+    FIntPoint Point;
+    const EGraphPointReadResult PointResult =
+        ReadGraphLayoutPoint(Operation->TryGetField(TEXT("to")), Point);
+    if (PointResult != EGraphPointReadResult::Valid)
+    {
+        FSalDiagnosticBuilder Diagnostic = FSalDiagnostics::Error(
+            PointResult == EGraphPointReadResult::InvalidPoint
+                ? TEXT("language.invalid_point")
+                : TEXT("validation.layout_invalid"),
+            PointResult == EGraphPointReadResult::InvalidPoint
+                ? TEXT("Graph move to requires exactly two finite numbers.")
+                : TEXT("Graph move coordinates must be signed 32-bit mathematical integers that round-trip exactly through FVector2f."))
+            .Interface(TEXT("graph"))
+            .Operation(TEXT("move"))
+            .Ref(Ref)
+            .Actual(Operation->TryGetField(TEXT("to")))
+            .Suggestion(TEXT("Use an exact absolute integer point; every integer from -16777216 through 16777216 is representable."));
+        State.Diagnostics.Add(Diagnostic.Build());
+        return false;
+    }
+
+    FGraphMoveEffect Effect;
+    Effect.Index = StatementIndex;
+    Effect.Ref = Ref;
+    Effect.NodeId = NodeId(Object.Node);
+    Effect.To = Point;
+    Effect.Before = FIntPoint(Object.Node->NodePosX, Object.Node->NodePosY);
+    Effect.After = Effect.Before;
+    Effect.bChanged = Effect.Before != Point;
+
+    const FGraphMoveEffect* Expected = nullptr;
+    if (State.ExpectedMoveEffects != nullptr)
+    {
+        Expected = State.ExpectedMoveEffects->FindByPredicate(
+            [StatementIndex](const FGraphMoveEffect& Candidate)
+            {
+                return Candidate.Index == StatementIndex;
+            });
+        if (Expected == nullptr
+            || Expected->Ref != Effect.Ref
+            || Expected->To != Effect.To
+            || Expected->Before != Effect.Before
+            || Expected->bChanged != Effect.bChanged)
         {
-            AddPatchError(State, TEXT("validation.layout_invalid"), TEXT("Graph move to requires an integer point."), TEXT("move"));
+            FSalDiagnosticBuilder Diagnostic = FSalDiagnostics::Error(
+                TEXT("validation.layout_apply_failed"),
+                TEXT("Live Graph state no longer matches the move plan produced by this request."))
+                .Interface(TEXT("graph"))
+                .Operation(TEXT("move"))
+                .Ref(Ref);
+            if (Expected != nullptr)
+            {
+                TArray<TSharedPtr<FJsonValue>> ExpectedAt = {
+                    Value::Number(Expected->Before.X),
+                    Value::Number(Expected->Before.Y)};
+                Diagnostic.Expected(MakeShared<FJsonValueArray>(ExpectedAt));
+            }
+            TArray<TSharedPtr<FJsonValue>> ActualAt = {
+                Value::Number(Effect.Before.X),
+                Value::Number(Effect.Before.Y)};
+            Diagnostic.Actual(MakeShared<FJsonValueArray>(ActualAt));
+            State.Diagnostics.Add(Diagnostic.Build());
             return false;
         }
     }
-    else if (Operation->HasField(TEXT("by")))
+
+    if (!Effect.bChanged)
     {
-        if (!ReadPoint(Operation->TryGetField(TEXT("by")), Point)) return false;
-        bBy = true;
+        State.MoveEffects.Add(Effect);
+        return true;
     }
-    else
+
+    const UEdGraphSchema* Schema = Object.Node->GetSchema();
+    if (Schema == nullptr)
     {
-        AddPatchError(State, TEXT("capability.clause_unavailable"), TEXT("Graph move supports only to (x, y) or by (dx, dy)."), TEXT("move"));
+        AddPatchError(
+            State,
+            TEXT("capability.operation_unavailable"),
+            TEXT("The bound Graph has no Schema movement path for this Node."),
+            TEXT("move"),
+            Ref);
         return false;
     }
-    if (State.bApply)
+
+    Schema->SetNodePosition(
+        Object.Node,
+        FVector2f(
+            static_cast<float>(Point.X),
+            static_cast<float>(Point.Y)));
+#if WITH_DEV_AUTOMATION_TESTS
+    if (GMoveAppliedTestHook)
     {
-        Object.Node->Modify();
-        const FIntPoint NewPoint = bBy ? FIntPoint(Object.Node->NodePosX + Point.X, Object.Node->NodePosY + Point.Y) : Point;
-        if (Object.Node->NodePosX != NewPoint.X || Object.Node->NodePosY != NewPoint.Y)
-        {
-            Object.Node->NodePosX = NewPoint.X;
-            Object.Node->NodePosY = NewPoint.Y;
-            State.TouchedNodes.Add(Object.Node);
-            ++State.ChangedOps;
-        }
+        GMoveAppliedTestHook(Object.Node);
     }
+#endif
+    Effect.After = FIntPoint(Object.Node->NodePosX, Object.Node->NodePosY);
+    if (Effect.After != Point
+        || (Expected != nullptr && Effect.After != Expected->After))
+    {
+        TArray<TSharedPtr<FJsonValue>> ExpectedAt = {
+            Value::Number(Point.X),
+            Value::Number(Point.Y)};
+        TArray<TSharedPtr<FJsonValue>> ActualAt = {
+            Value::Number(Effect.After.X),
+            Value::Number(Effect.After.Y)};
+        State.Diagnostics.Add(
+            FSalDiagnostics::Error(
+                TEXT("validation.layout_apply_failed"),
+                TEXT("UE Graph Schema did not preserve the exact requested Node position."))
+                .Interface(TEXT("graph"))
+                .Operation(TEXT("move"))
+                .Ref(Ref)
+                .Expected(MakeShared<FJsonValueArray>(ExpectedAt))
+                .Actual(MakeShared<FJsonValueArray>(ActualAt))
+                .Build());
+        return false;
+    }
+    State.MoveEffects.Add(Effect);
+    State.TouchedNodes.Add(Object.Node);
+    ++State.ChangedOps;
     return true;
 }
 
@@ -2596,8 +2782,12 @@ TSharedPtr<FJsonObject> BuildTouchedObject(
 
 bool RunPatch(FPatchState& State, const FSalPatch& Patch)
 {
-    for (const TSharedPtr<FJsonValue>& StatementValue : Patch.Statements)
+    for (int32 StatementIndex = 0;
+         StatementIndex < Patch.Statements.Num();
+         ++StatementIndex)
     {
+        const TSharedPtr<FJsonValue>& StatementValue =
+            Patch.Statements[StatementIndex];
         TSharedPtr<FJsonObject> Statement;
         if (!JsonObjectValue(StatementValue, Statement))
         {
@@ -2617,7 +2807,7 @@ bool RunPatch(FPatchState& State, const FSalPatch& Patch)
         else if (Kind == TEXT("break")) bOk = HandleBreak(State, Statement);
         else if (Kind == TEXT("set")) bOk = HandleSetReset(State, Statement, false);
         else if (Kind == TEXT("reset")) bOk = HandleSetReset(State, Statement, true);
-        else if (Kind == TEXT("move")) bOk = HandleMove(State, Statement);
+        else if (Kind == TEXT("move")) bOk = HandleMove(State, Statement, StatementIndex);
         else if (Kind == TEXT("remove")) bOk = HandleRemove(State, Statement);
         else if (Kind == TEXT("insert")) bOk = HandleInsert(State, Statement);
         else if (Kind == TEXT("invoke")) bOk = HandleInvoke(State, Statement);
@@ -2635,6 +2825,16 @@ bool RunPatch(FPatchState& State, const FSalPatch& Patch)
             AddPatchError(State, TEXT("validation.unused_binding"), TEXT("Every Graph creation binding must be consumed exactly once by add or insert."), TEXT("patch"), Pair.Key);
             return false;
         }
+    }
+    if (State.ExpectedMoveEffects != nullptr
+        && State.MoveEffects.Num() != State.ExpectedMoveEffects->Num())
+    {
+        AddPatchError(
+            State,
+            TEXT("validation.layout_apply_failed"),
+            TEXT("Live Graph move execution did not match the complete preflight move plan."),
+            TEXT("patch"));
+        return false;
     }
     return State.Diagnostics.IsEmpty();
 }
@@ -3044,6 +3244,41 @@ TSharedPtr<FJsonObject> BuildGraphPlan(
                 Operation->SetStringField(TEXT("invoke"), Invoke);
             }
 
+            if (Kind == TEXT("move"))
+            {
+                const FGraphMoveEffect* Move =
+                    Preflight.MoveEffects.FindByPredicate(
+                        [Index](const FGraphMoveEffect& Candidate)
+                        {
+                            return Candidate.Index == Index;
+                        });
+                if (Move != nullptr)
+                {
+                    auto PointArray = [](const FIntPoint& Point)
+                    {
+                        TArray<TSharedPtr<FJsonValue>> Values = {
+                            Value::Number(Point.X),
+                            Value::Number(Point.Y)};
+                        return Values;
+                    };
+                    auto AtObject = [&PointArray](const FIntPoint& Point)
+                    {
+                        TSharedPtr<FJsonObject> Object =
+                            MakeShared<FJsonObject>();
+                        Object->SetArrayField(TEXT("at"), PointArray(Point));
+                        return Object;
+                    };
+                    Operation->SetArrayField(TEXT("to"), PointArray(Move->To));
+                    Operation->SetObjectField(
+                        TEXT("before"),
+                        AtObject(Move->Before));
+                    Operation->SetObjectField(
+                        TEXT("after"),
+                        AtObject(Move->After));
+                    Operation->SetBoolField(TEXT("changed"), Move->bChanged);
+                }
+            }
+
             FString Effect;
             const FString From = ReadRefField(TEXT("from"));
             const FString To = ReadRefField(TEXT("to"));
@@ -3103,6 +3338,65 @@ TSharedPtr<FJsonObject> BuildGraphPlan(
     Plan->SetArrayField(TEXT("effects"), Effects);
     return Plan;
 }
+
+bool IsMoveOnlyPatch(const FSalPatch& Patch)
+{
+    if (Patch.Statements.IsEmpty())
+    {
+        return false;
+    }
+    for (const TSharedPtr<FJsonValue>& StatementValue : Patch.Statements)
+    {
+        TSharedPtr<FJsonObject> Statement;
+        FString Kind;
+        if (!JsonObjectValue(StatementValue, Statement)
+            || !Statement->TryGetStringField(TEXT("kind"), Kind)
+            || Kind != TEXT("move"))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+TSharedPtr<FJsonObject> BuildMoveDiff(
+    const TArray<FGraphMoveEffect>& MoveEffects,
+    const int32 ChangedOperations)
+{
+    TSharedPtr<FJsonObject> Diff = MakeShared<FJsonObject>();
+    Diff->SetNumberField(TEXT("changedOperations"), ChangedOperations);
+    Diff->SetStringField(TEXT("scope"), TEXT("graph"));
+
+    auto AtObject = [](const FIntPoint& Point)
+    {
+        TSharedPtr<FJsonObject> Object = MakeShared<FJsonObject>();
+        TArray<TSharedPtr<FJsonValue>> At = {
+            Value::Number(Point.X),
+            Value::Number(Point.Y)};
+        Object->SetArrayField(TEXT("at"), At);
+        return Object;
+    };
+
+    TArray<TSharedPtr<FJsonValue>> Changes;
+    for (const FGraphMoveEffect& Effect : MoveEffects)
+    {
+        if (!Effect.bChanged)
+        {
+            continue;
+        }
+        TSharedPtr<FJsonObject> Change = MakeShared<FJsonObject>();
+        Change->SetNumberField(TEXT("index"), Effect.Index);
+        Change->SetStringField(TEXT("kind"), TEXT("move"));
+        Change->SetObjectField(
+            TEXT("target"),
+            Value::StableObject(TEXT("node"), Effect.NodeId));
+        Change->SetObjectField(TEXT("before"), AtObject(Effect.Before));
+        Change->SetObjectField(TEXT("after"), AtObject(Effect.After));
+        Changes.Add(MakeShared<FJsonValueObject>(Change));
+    }
+    Diff->SetArrayField(TEXT("changes"), Changes);
+    return Diff;
+}
 }
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -3117,6 +3411,12 @@ bool FSalGraphInterface::BuildSandboxTargetForTesting(
         OutSandboxOwner,
         OutTarget,
         OutError);
+}
+
+void FSalGraphInterface::SetMoveAppliedHookForTesting(
+    TFunction<void(UEdGraphNode*)> Hook)
+{
+    GMoveAppliedTestHook = MoveTemp(Hook);
 }
 #endif
 
@@ -3157,6 +3457,7 @@ TSharedPtr<FJsonObject> FSalGraphInterface::Patch(const FSalPatch& Patch, const 
     }
 
     TSharedPtr<FJsonObject> Planned = BuildGraphPlan(Patch, Preflight, Target);
+    const bool bMoveOnly = IsMoveOnlyPatch(Patch);
     if (Patch.bDryRun)
     {
         FPatchState Current(Target, true);
@@ -3174,12 +3475,35 @@ TSharedPtr<FJsonObject> FSalGraphInterface::Patch(const FSalPatch& Patch, const 
             Target.AssetPath,
             TEXT("patch"),
             Planned,
-            nullptr);
+            nullptr,
+            bMoveOnly
+                ? BuildMoveDiff(
+                    Preflight.MoveEffects,
+                    Preflight.ChangedOps)
+                : nullptr);
         for (const UEdGraphNode* Node : EncodedNodes)
         {
             AddGraphNavigationHandoff(Result, Target, Node);
         }
         return Result;
+    }
+
+    if (bMoveOnly && Preflight.ChangedOps == 0)
+    {
+        FPatchState Current(Target, true);
+        return MakeMutationResult(
+            BuildTouchedObject(Current),
+            {},
+            false,
+            true,
+            false,
+            Target.AssetPath,
+            TEXT("patch"),
+            Planned,
+            nullptr,
+            BuildMoveDiff(
+                Preflight.MoveEffects,
+                Preflight.ChangedOps));
     }
 
     if (GEditor == nullptr || !GEditor->CanTransact() || GEditor->IsTransactionActive())
@@ -3190,7 +3514,7 @@ TSharedPtr<FJsonObject> FSalGraphInterface::Patch(const FSalPatch& Patch, const 
         return MakeMutationResult(nullptr, Diagnostics, false, false, false, Target.AssetPath, TEXT("patch"), Planned, nullptr);
     }
 
-    FPatchState Apply(Target, true);
+    FPatchState Apply(Target, true, &Preflight.MoveEffects);
     const bool bWasDirty = Target.Package != nullptr && Target.Package->IsDirty();
     bool bApplied = false;
     bool bRolledBack = false;
@@ -3252,8 +3576,16 @@ TSharedPtr<FJsonObject> FSalGraphInterface::Patch(const FSalPatch& Patch, const 
         FBlueprintEditorUtils::MarkBlueprintAsModified(Target.Blueprint);
         Target.Blueprint->MarkPackageDirty();
     }
-    TSharedPtr<FJsonObject> Diff = MakeShared<FJsonObject>();
-    Diff->SetNumberField(TEXT("changedOperations"), Apply.ChangedOps);
+    TSharedPtr<FJsonObject> Diff;
+    if (bMoveOnly)
+    {
+        Diff = BuildMoveDiff(Apply.MoveEffects, Apply.ChangedOps);
+    }
+    else
+    {
+        Diff = MakeShared<FJsonObject>();
+        Diff->SetNumberField(TEXT("changedOperations"), Apply.ChangedOps);
+    }
     TSet<const UEdGraphNode*> EncodedNodes;
     TSharedPtr<FJsonObject> Result = MakeMutationResult(
         BuildTouchedObject(Apply, &EncodedNodes),
@@ -4095,6 +4427,721 @@ void AddNodeNativeFields(const UEdGraphNode* Node, const TSharedPtr<FJsonObject>
     }
 }
 
+void GatherVisibleGraphEditors(
+    const TSharedRef<SWidget>& Widget,
+    UEdGraph* Graph,
+    TSet<const SGraphEditor*>& Seen,
+    TArray<TSharedPtr<SGraphEditor>>& Out)
+{
+    if (!Widget->GetVisibility().IsVisible())
+    {
+        return;
+    }
+    if (Widget->GetType() == FName(TEXT("SGraphEditor")))
+    {
+        const TSharedRef<SGraphEditor> GraphEditor =
+            StaticCastSharedRef<SGraphEditor>(Widget);
+        if (GraphEditor->GetCurrentGraph() == Graph
+            && !Seen.Contains(&GraphEditor.Get()))
+        {
+            Seen.Add(&GraphEditor.Get());
+            Out.Add(GraphEditor);
+        }
+    }
+    FChildren* Children = Widget->GetAllChildren();
+    if (Children == nullptr)
+    {
+        return;
+    }
+    for (int32 Index = 0; Index < Children->Num(); ++Index)
+    {
+        GatherVisibleGraphEditors(
+            Children->GetChildAt(Index),
+            Graph,
+            Seen,
+            Out);
+    }
+}
+
+bool WidgetTreeHasMouseCapture(const TSharedRef<SWidget>& Widget)
+{
+    if (Widget->HasMouseCapture())
+    {
+        return true;
+    }
+    FChildren* Children = Widget->GetAllChildren();
+    if (Children == nullptr)
+    {
+        return false;
+    }
+    for (int32 Index = 0; Index < Children->Num(); ++Index)
+    {
+        if (WidgetTreeHasMouseCapture(Children->GetChildAt(Index)))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void CollectArrangedWidgetGeometries(
+    const TSharedRef<SWidget>& Widget,
+    const FGeometry& Geometry,
+    const TSet<const SWidget*>& Targets,
+    TMap<const SWidget*, FGeometry>& Out,
+    const int32 Depth = 0)
+{
+    if (Depth > 128 || Out.Num() == Targets.Num())
+    {
+        return;
+    }
+    FArrangedChildren Children(EVisibility::Visible);
+    Widget->ArrangeChildren(Geometry, Children, true);
+    for (int32 Index = 0; Index < Children.Num(); ++Index)
+    {
+        const FArrangedWidget& Child = Children[Index];
+        if (Targets.Contains(&Child.Widget.Get()))
+        {
+            Out.Add(&Child.Widget.Get(), Child.Geometry);
+        }
+    }
+    for (int32 Index = 0;
+         Index < Children.Num() && Out.Num() != Targets.Num();
+         ++Index)
+    {
+        const FArrangedWidget& Child = Children[Index];
+        CollectArrangedWidgetGeometries(
+            Child.Widget,
+            Child.Geometry,
+            Targets,
+            Out,
+            Depth + 1);
+    }
+}
+
+bool IsFiniteVector(const FVector2f& Value)
+{
+    return FMath::IsFinite(Value.X) && FMath::IsFinite(Value.Y);
+}
+
+bool IsFiniteRect(const FSlateRect& Rect)
+{
+    return FMath::IsFinite(Rect.Left)
+        && FMath::IsFinite(Rect.Top)
+        && FMath::IsFinite(Rect.Right)
+        && FMath::IsFinite(Rect.Bottom);
+}
+
+bool IsPositiveRect(const FSlateRect& Rect)
+{
+    return Rect.Right > Rect.Left && Rect.Bottom > Rect.Top;
+}
+
+void SetPointField(
+    const TSharedPtr<FJsonObject>& Fields,
+    const FString& Name,
+    const FVector2f& Point)
+{
+    TArray<TSharedPtr<FJsonValue>> Values = {
+        Value::Number(Point.X),
+        Value::Number(Point.Y)};
+    Fields->SetArrayField(Name, Values);
+}
+
+void SetBoundsField(
+    const TSharedPtr<FJsonObject>& Fields,
+    const FString& Name,
+    const FSlateRect& Bounds)
+{
+    TArray<TSharedPtr<FJsonValue>> Values = {
+        Value::Number(Bounds.Left),
+        Value::Number(Bounds.Top),
+        Value::Number(Bounds.Right),
+        Value::Number(Bounds.Bottom)};
+    Fields->SetArrayField(Name, Values);
+}
+
+TSharedPtr<FJsonObject> CallFields(
+    const TSharedPtr<FJsonValue>& Encoded)
+{
+    const TSharedPtr<FJsonObject>* Call = nullptr;
+    const TSharedPtr<FJsonObject>* Fields = nullptr;
+    return Encoded.IsValid()
+        && Encoded->TryGetObject(Call)
+        && Call != nullptr
+        && (*Call).IsValid()
+        && (*Call)->TryGetObjectField(TEXT("fields"), Fields)
+        && Fields != nullptr
+        ? *Fields
+        : nullptr;
+}
+
+class FGraphLayoutCapture
+{
+public:
+    FGraphLayoutCapture(UEdGraph* InGraph, const FString& InOperation)
+        : Graph(InGraph)
+        , Operation(InOperation)
+    {
+        ResolveSurface();
+    }
+
+    void EnrichNode(
+        const UEdGraphNode* Node,
+        const TSharedPtr<FJsonObject>& Fields)
+    {
+        NodeFields.Add(Fields);
+        if (!CanMeasure() || !Fields.IsValid())
+        {
+            if (!Fields.IsValid())
+            {
+                Fail(TEXT("unsupported_widget_geometry"));
+            }
+            return;
+        }
+        FMeasuredNode* Measured = EnsureNode(Node);
+        if (Measured == nullptr)
+        {
+            return;
+        }
+        SetBoundsField(
+            Fields,
+            TEXT("visualBounds"),
+            Measured->Bounds);
+    }
+
+    void EnrichPin(
+        const UEdGraphPin* Pin,
+        const TSharedPtr<FJsonObject>& Fields)
+    {
+        PinFields.Add(Fields);
+        if (!CanMeasure() || !Fields.IsValid())
+        {
+            if (!Fields.IsValid())
+            {
+                Fail(TEXT("unsupported_widget_geometry"));
+            }
+            return;
+        }
+        const UEdGraphNode* Owner =
+            Pin != nullptr ? Pin->GetOwningNodeUnchecked() : nullptr;
+        FMeasuredNode* Measured = EnsureNode(Owner);
+        if (Measured == nullptr || Pin == nullptr)
+        {
+            if (Pin == nullptr)
+            {
+                Fail(TEXT("pin_widget_unavailable"));
+            }
+            return;
+        }
+
+        const TArray<FString> HiddenReasons = PinHiddenReasons(Pin);
+        TSharedPtr<SGraphPin> PinWidget =
+            Measured->Widget->FindWidgetForPin(
+                const_cast<UEdGraphPin*>(Pin));
+        const bool bPresented =
+            PinWidget.IsValid()
+            && PinWidget->GetVisibility().IsVisible();
+        if (!HiddenReasons.IsEmpty() && !bPresented)
+        {
+            Fields->SetField(
+                TEXT("visualState"),
+                Value::Name(TEXT("intentionally_not_presented")));
+            TArray<TSharedPtr<FJsonValue>> Reasons;
+            for (const FString& Reason : HiddenReasons)
+            {
+                Reasons.Add(Value::Name(Reason));
+            }
+            Fields->SetArrayField(TEXT("geometryReasons"), Reasons);
+            return;
+        }
+        if (!PinWidget.IsValid()
+            || PinWidget->GetPinObj() != Pin
+            || !bPresented)
+        {
+            Fail(TEXT("pin_widget_unavailable"));
+            return;
+        }
+
+        TSharedPtr<SHorizontalBox> RowWidget =
+            PinWidget->GetFullPinHorizontalRowWidget().Pin();
+        if (!RowWidget.IsValid())
+        {
+            Fail(TEXT("unsupported_widget_geometry"));
+            return;
+        }
+        TSet<const SWidget*> Targets;
+        Targets.Add(RowWidget.Get());
+
+        const TSharedPtr<SWidget> PinImage =
+            PinWidget->GetPinImageWidget();
+        if (PinImage.IsValid())
+        {
+            Targets.Add(PinImage.Get());
+        }
+
+        TMap<const SWidget*, FGeometry> Arranged;
+        CollectArrangedWidgetGeometries(
+            Measured->Widget.ToSharedRef(),
+            Measured->Geometry,
+            Targets,
+            Arranged);
+        const FGeometry* RowGeometry =
+            Arranged.Find(RowWidget.Get());
+        if (RowGeometry == nullptr)
+        {
+            Fail(TEXT("unsupported_widget_geometry"));
+            return;
+        }
+        const FSlateRect RowBounds =
+            RowGeometry->GetLayoutBoundingRect();
+        if (!ValidateBounds(RowBounds))
+        {
+            return;
+        }
+
+        const FVector2f Center(
+            (RowBounds.Left + RowBounds.Right) * 0.5f,
+            (RowBounds.Top + RowBounds.Bottom) * 0.5f);
+        FVector2f Anchor;
+        FString AnchorKind;
+        const FGeometry* ImageGeometry =
+            PinImage.IsValid()
+                ? Arranged.Find(PinImage.Get())
+                : nullptr;
+        if (ImageGeometry != nullptr)
+        {
+            const FSlateRect ImageBounds =
+                ImageGeometry->GetLayoutBoundingRect();
+            if (IsFiniteRect(ImageBounds)
+                && IsPositiveRect(ImageBounds))
+            {
+                Anchor = FVector2f(
+                    (ImageBounds.Left + ImageBounds.Right) * 0.5f,
+                    (ImageBounds.Top + ImageBounds.Bottom) * 0.5f);
+                AnchorKind = TEXT("pin_image_center");
+            }
+        }
+        if (AnchorKind.IsEmpty())
+        {
+            Anchor = FVector2f(
+                Pin->Direction == EGPD_Output
+                    ? RowBounds.Right
+                    : RowBounds.Left,
+                Center.Y);
+            AnchorKind = TEXT("pin_row_edge_midpoint");
+        }
+        if (!IsFiniteVector(Center) || !IsFiniteVector(Anchor))
+        {
+            Fail(TEXT("non_finite_geometry"));
+            return;
+        }
+
+        Fields->SetField(
+            TEXT("visualState"),
+            Value::Name(TEXT("measured")));
+        SetBoundsField(Fields, TEXT("visualBounds"), RowBounds);
+        SetPointField(Fields, TEXT("visualCenter"), Center);
+        SetPointField(Fields, TEXT("placementAnchor"), Anchor);
+        Fields->SetField(
+            TEXT("placementAnchorKind"),
+            Value::Name(AnchorKind));
+    }
+
+    void FinalizeDiagnostics(
+        TArray<TSharedPtr<FJsonObject>>& Diagnostics)
+    {
+        if (CanMeasure())
+        {
+            return;
+        }
+        StripVisualFields();
+        TSharedPtr<FJsonObject> Actual = MakeShared<FJsonObject>();
+        Actual->SetStringField(TEXT("detail"), TEXT("layout"));
+        Actual->SetStringField(TEXT("reason"), FailureReason);
+        Diagnostics.Add(
+            FSalDiagnostics::Warning(
+                TEXT("capability.layout_geometry_unavailable"),
+                TEXT("Authoritative live Graph layout geometry is unavailable; stored Node layout fields remain available."))
+                .Interface(TEXT("graph"))
+                .Operation(Operation)
+                .Actual(MakeShared<FJsonValueObject>(Actual))
+                .Suggestion(SuggestionForReason(FailureReason))
+                .Build());
+    }
+
+private:
+    struct FMeasuredNode
+    {
+        TSharedPtr<SGraphNode> Widget;
+        FGeometry Geometry;
+        FSlateRect Bounds;
+    };
+
+    UEdGraph* Graph = nullptr;
+    FString Operation;
+    TSharedPtr<SGraphEditor> GraphEditor;
+    SGraphPanel* Panel = nullptr;
+    FString FailureReason;
+    TMap<const UEdGraphNode*, FMeasuredNode> MeasuredNodes;
+    TArray<TSharedPtr<FJsonObject>> NodeFields;
+    TArray<TSharedPtr<FJsonObject>> PinFields;
+
+    bool CanMeasure() const
+    {
+        return FailureReason.IsEmpty()
+            && GraphEditor.IsValid()
+            && Panel != nullptr;
+    }
+
+    void Fail(const FString& Reason)
+    {
+        if (FailureReason.IsEmpty())
+        {
+            FailureReason = Reason;
+        }
+    }
+
+    void ResolveSurface()
+    {
+        if (!IsInGameThread()
+            || !FSlateApplication::IsInitialized())
+        {
+            Fail(TEXT("slate_unavailable"));
+            return;
+        }
+        FSlateApplication& Slate = FSlateApplication::Get();
+        TArray<TSharedPtr<SGraphEditor>> Candidates;
+        TSet<const SGraphEditor*> Seen;
+        for (const TSharedRef<SWindow>& Window :
+             Slate.GetInteractiveTopLevelWindows())
+        {
+            GatherVisibleGraphEditors(
+                Window,
+                Graph,
+                Seen,
+                Candidates);
+        }
+        if (Candidates.IsEmpty())
+        {
+            Fail(TEXT("graph_not_open"));
+            return;
+        }
+
+        TArray<TSharedPtr<SGraphEditor>> Focused;
+        const TSharedPtr<SWidget> FocusedWidget =
+            Slate.GetKeyboardFocusedWidget();
+        FWidgetPath FocusPath;
+        if (FocusedWidget.IsValid()
+            && Slate.FindPathToWidget(
+                FocusedWidget.ToSharedRef(),
+                FocusPath,
+                EVisibility::Visible))
+        {
+            for (const TSharedPtr<SGraphEditor>& Candidate :
+                 Candidates)
+            {
+                if (Candidate.IsValid()
+                    && FocusPath.ContainsWidget(Candidate.Get()))
+                {
+                    Focused.Add(Candidate);
+                }
+            }
+        }
+        if (Focused.Num() == 1)
+        {
+            GraphEditor = Focused[0];
+        }
+        else if (!Focused.IsEmpty() || Candidates.Num() != 1)
+        {
+            Fail(TEXT("surface_ambiguous"));
+            return;
+        }
+        else
+        {
+            GraphEditor = Candidates[0];
+        }
+
+        Panel = GraphEditor.IsValid()
+            ? GraphEditor->GetGraphPanel()
+            : nullptr;
+        if (Panel == nullptr
+            || Panel->GetGraphObj() != Graph
+            || GraphEditor->GetCurrentGraph() != Graph)
+        {
+            Fail(TEXT("visual_sync_pending"));
+            return;
+        }
+        if (Slate.IsDragDropping()
+            || Panel->IsRelinkingConnection()
+            || WidgetTreeHasMouseCapture(GraphEditor.ToSharedRef()))
+        {
+            Fail(TEXT("interaction_in_progress"));
+            return;
+        }
+        if (Panel->HasDeferredObjectFocus()
+            || Panel->HasDeferredZoomDestination()
+            || Panel->HasMoved())
+        {
+            Fail(TEXT("visual_sync_pending"));
+            return;
+        }
+
+        const FGeometry& PanelGeometry =
+            Panel->GetTickSpaceGeometry();
+        const FVector2f PanelSize =
+            UE::Slate::CastToVector2f(
+                PanelGeometry.GetLocalSize());
+        if (!IsFiniteVector(PanelSize)
+            || PanelSize.X <= 0.0f
+            || PanelSize.Y <= 0.0f)
+        {
+            Fail(TEXT("visual_sync_pending"));
+            return;
+        }
+        const float LayoutScale =
+            PanelGeometry.GetAccumulatedLayoutTransform().GetScale()
+            * Panel->GetZoomAmount();
+        if (!FMath::IsFinite(LayoutScale)
+            || LayoutScale <= 0.0f)
+        {
+            Fail(TEXT("layout_scale_unavailable"));
+        }
+    }
+
+    FMeasuredNode* EnsureNode(const UEdGraphNode* Node)
+    {
+        if (!CanMeasure())
+        {
+            return nullptr;
+        }
+        if (FMeasuredNode* Existing = MeasuredNodes.Find(Node))
+        {
+            return Existing;
+        }
+        if (Node == nullptr || !Node->NodeGuid.IsValid())
+        {
+            Fail(TEXT("node_widget_unavailable"));
+            return nullptr;
+        }
+        TSharedPtr<SGraphNode> Widget =
+            Panel->GetNodeWidgetFromGuid(Node->NodeGuid);
+        if (!Panel->Contains(
+                const_cast<UEdGraphNode*>(Node))
+            || !Widget.IsValid()
+            || Widget->GetNodeObj() != Node
+            || Widget->GetOwnerPanel().Get() != Panel)
+        {
+            Fail(TEXT("node_widget_unavailable"));
+            return nullptr;
+        }
+        if (Widget->RequiresSecondPassLayout())
+        {
+            Fail(TEXT("second_pass_layout_unavailable"));
+            return nullptr;
+        }
+
+        const float EffectiveScale =
+            Panel->GetTickSpaceGeometry()
+                .GetAccumulatedLayoutTransform()
+                .GetScale()
+            * Panel->GetZoomAmount();
+        if (!FMath::IsFinite(EffectiveScale)
+            || EffectiveScale <= 0.0f)
+        {
+            Fail(TEXT("layout_scale_unavailable"));
+            return nullptr;
+        }
+        Widget->MarkPrepassAsDirty();
+        Widget->SlatePrepass(EffectiveScale);
+        if (Widget->NeedsPrepass())
+        {
+            Fail(TEXT("prepass_incomplete"));
+            return nullptr;
+        }
+
+        const FVector2f Position = Widget->GetPosition2f();
+        const FVector2f Size =
+            UE::Slate::CastToVector2f(
+                Widget->GetDesiredSize());
+        if (!IsFiniteVector(Position)
+            || !IsFiniteVector(Size))
+        {
+            Fail(TEXT("non_finite_geometry"));
+            return nullptr;
+        }
+        if (Size.X <= 0.0f || Size.Y <= 0.0f)
+        {
+            Fail(TEXT("non_positive_bounds"));
+            return nullptr;
+        }
+
+        FMeasuredNode Measured;
+        Measured.Widget = Widget;
+        Measured.Geometry = FGeometry::MakeRoot(
+            Size,
+            FSlateLayoutTransform(Position));
+        Measured.Bounds =
+            Measured.Geometry.GetLayoutBoundingRect();
+        if (!ValidateBounds(Measured.Bounds))
+        {
+            return nullptr;
+        }
+        MeasuredNodes.Add(Node, MoveTemp(Measured));
+        return MeasuredNodes.Find(Node);
+    }
+
+    bool ValidateBounds(const FSlateRect& Bounds)
+    {
+        if (!IsFiniteRect(Bounds))
+        {
+            Fail(TEXT("non_finite_geometry"));
+            return false;
+        }
+        if (!IsPositiveRect(Bounds))
+        {
+            Fail(TEXT("non_positive_bounds"));
+            return false;
+        }
+        return true;
+    }
+
+    TArray<FString> PinHiddenReasons(
+        const UEdGraphPin* Pin) const
+    {
+        TArray<FString> Reasons;
+        if (Pin == nullptr || !Pin->LinkedTo.IsEmpty())
+        {
+            return Reasons;
+        }
+        if (Pin->bHidden)
+        {
+            Reasons.Add(TEXT("hidden_native"));
+        }
+        const UEdGraphNode* Owner =
+            Pin->GetOwningNodeUnchecked();
+        if (Pin->bAdvancedView
+            && Owner != nullptr
+            && Owner->AdvancedPinDisplay
+                == ENodeAdvancedPins::Hidden)
+        {
+            Reasons.Add(TEXT("hidden_advanced"));
+        }
+
+        const bool bCanHideForPanel =
+            Pin->PinType.PinCategory
+                != UEdGraphSchema_K2::PC_Exec;
+        if (!bCanHideForPanel || Panel == nullptr)
+        {
+            return Reasons;
+        }
+        if (Panel->GetPinVisibility()
+            == SGraphEditor::Pin_HideNoConnection)
+        {
+            Reasons.Add(TEXT("hidden_unconnected"));
+        }
+        else if (Panel->GetPinVisibility()
+            == SGraphEditor::Pin_HideNoConnectionNoDefault)
+        {
+            const bool bOutput =
+                Pin->Direction == EGPD_Output;
+            const bool bHasDefault =
+                !Pin->DefaultValue.IsEmpty()
+                || Pin->DefaultObject != nullptr;
+            const bool bSelfTarget =
+                Pin->PinType.PinCategory
+                    == UEdGraphSchema_K2::PC_Object
+                && Pin->PinName
+                    == UEdGraphSchema_K2::PN_Self;
+            const bool bHasValidDefault =
+                !bOutput
+                && (bHasDefault || bSelfTarget);
+            if (!bHasValidDefault)
+            {
+                Reasons.Add(
+                    TEXT("hidden_unconnected_no_default"));
+            }
+        }
+        return Reasons;
+    }
+
+    void StripVisualFields()
+    {
+        static const TCHAR* VisualFields[] = {
+            TEXT("visualBounds"),
+            TEXT("visualState"),
+            TEXT("visualCenter"),
+            TEXT("placementAnchor"),
+            TEXT("placementAnchorKind"),
+            TEXT("geometryReasons")};
+        for (const TSharedPtr<FJsonObject>& Fields :
+             NodeFields)
+        {
+            if (!Fields.IsValid())
+            {
+                continue;
+            }
+            for (const TCHAR* Name : VisualFields)
+            {
+                Fields->RemoveField(Name);
+            }
+        }
+        for (const TSharedPtr<FJsonObject>& Fields :
+             PinFields)
+        {
+            if (!Fields.IsValid())
+            {
+                continue;
+            }
+            for (const TCHAR* Name : VisualFields)
+            {
+                Fields->RemoveField(Name);
+            }
+        }
+    }
+
+    static FString SuggestionForReason(
+        const FString& Reason)
+    {
+        if (Reason == TEXT("graph_not_open"))
+        {
+            return TEXT("Open the exact Graph Editor surface, then retry the same Query.");
+        }
+        if (Reason == TEXT("surface_ambiguous"))
+        {
+            return TEXT("Focus one exact matching Graph Editor surface, then retry the same Query.");
+        }
+        if (Reason == TEXT("interaction_in_progress"))
+        {
+            return TEXT("Finish the active Graph drag, resize, pan, or connection interaction, then retry the same Query.");
+        }
+        if (Reason == TEXT("visual_sync_pending")
+            || Reason == TEXT("prepass_incomplete"))
+        {
+            return TEXT("Wait for the exact Graph Editor surface to complete a Slate update, then retry the same Query.");
+        }
+        if (Reason == TEXT("layout_scale_unavailable"))
+        {
+            return TEXT("Keep the exact Graph Editor surface visible at a valid zoom, then retry the same Query.");
+        }
+        if (Reason == TEXT("node_widget_unavailable")
+            || Reason == TEXT("pin_widget_unavailable"))
+        {
+            return TEXT("Keep the exact Graph Editor surface open and synchronized, then retry the same Query.");
+        }
+        if (Reason == TEXT("slate_unavailable"))
+        {
+            return TEXT("Retry from an initialized Unreal Editor game-thread context with the exact Graph open.");
+        }
+        if (Reason == TEXT("second_pass_layout_unavailable")
+            || Reason == TEXT("unsupported_widget_geometry"))
+        {
+            return TEXT("This live widget cannot be measured safely through the supported Slate path; retry after refresh and report it if the reason persists.");
+        }
+        return TEXT("Wait for the exact Graph Editor surface to stabilize, retry the same Query, and report the widget if the reason persists.");
+    }
+};
+
 TSharedPtr<FJsonValue> NodeValue(
     const UEdGraphNode* Node,
     const FString& GraphAlias,
@@ -4301,17 +5348,27 @@ struct FEncodedGraph
     TMap<const UEdGraphNode*, FString> NodeAliases;
     TMap<const UEdGraphPin*, TSharedPtr<FJsonObject>> PinRefs;
     FSalResolvedTarget Target;
+    TUniquePtr<FGraphLayoutCapture> LayoutCapture;
 
     explicit FEncodedGraph(
         const FSalResolvedTarget& Target,
         const bool bFullGraph = false,
-        const bool bInIncludeHealthComments = true)
+        const bool bInIncludeHealthComments = true,
+        const bool bCaptureVisualLayout = false,
+        const FString& Operation = TEXT("query"))
     {
         this->Target = Target;
         Blueprint = Target.Blueprint;
         bIncludeHealthComments = bInIncludeHealthComments;
         GraphAlias = Builder.UniqueAlias(TEXT("g"));
         Builder.AddLocalBinding(GraphAlias, GraphValue(Target, bFullGraph));
+        if (bCaptureVisualLayout)
+        {
+            LayoutCapture =
+                MakeUnique<FGraphLayoutCapture>(
+                    Target.Graph,
+                    Operation);
+        }
     }
 
     void AddCompilerStaleNoteIfNeeded(const bool bHasCompilerMessage)
@@ -4339,17 +5396,32 @@ struct FEncodedGraph
         }
         const FString Preferred = NodeTitle(Node).IsEmpty() ? (Node != nullptr ? Node->GetClass()->GetName() : TEXT("node")) : NodeTitle(Node);
         const FString Alias = Builder.UniqueAlias(Preferred);
-        Builder.AddLocalBinding(Alias, NodeValue(Node, GraphAlias, bFull, bLayout));
+        const TSharedPtr<FJsonValue> Encoded =
+            NodeValue(Node, GraphAlias, bFull, bLayout);
+        if (LayoutCapture.IsValid())
+        {
+            LayoutCapture->EnrichNode(
+                Node,
+                CallFields(Encoded));
+        }
+        Builder.AddLocalBinding(Alias, Encoded);
         AddCompilerStaleNoteIfNeeded(AddNodeComments(Builder, Node, bIncludeHealthComments));
         NodeAliases.Add(Node, Alias);
         return Alias;
     }
 
     TSharedPtr<FJsonObject> BuildResult(
-        const TArray<TSharedPtr<FJsonObject>>& Diagnostics = {}) const
+        const TArray<TSharedPtr<FJsonObject>>& Diagnostics = {})
     {
+        TArray<TSharedPtr<FJsonObject>> EffectiveDiagnostics =
+            Diagnostics;
+        if (LayoutCapture.IsValid())
+        {
+            LayoutCapture->FinalizeDiagnostics(
+                EffectiveDiagnostics);
+        }
         TSharedPtr<FJsonObject> Result =
-            Builder.BuildResult(Diagnostics);
+            Builder.BuildResult(EffectiveDiagnostics);
         for (const TPair<const UEdGraphNode*, FString>& Pair :
              NodeAliases)
         {
@@ -4370,6 +5442,12 @@ struct FEncodedGraph
         const FString NativeName = Pin != nullptr ? Pin->PinName.ToString() : TEXT("pin");
         const FString Member = UniqueMemberAlias(NativeName, UsedMembers);
         TSharedPtr<FJsonValue> Encoded = PinValue(Pin, bFuture);
+        if (!bFuture && LayoutCapture.IsValid())
+        {
+            LayoutCapture->EnrichPin(
+                Pin,
+                CallFields(Encoded));
+        }
         const TSharedPtr<FJsonObject>* EncodedObject = nullptr;
         if (Encoded->TryGetObject(EncodedObject) && EncodedObject != nullptr && (*EncodedObject).IsValid() && Member != NativeName)
         {
@@ -5385,7 +6463,12 @@ TSharedPtr<FJsonObject> QueryNodes(const FSalQuery& Query, const FSalResolvedTar
     FSalPage Page;
     TSharedPtr<FJsonObject> PageError;
     if (!DecodeGraphPage(Query, Target, Page, PageError)) return PageError;
-    FEncodedGraph Out(Target);
+    FEncodedGraph Out(
+        Target,
+        false,
+        true,
+        HasDetail(Query, TEXT("layout")),
+        TEXT("nodes"));
     int32 Added = 0;
     for (int32 Index = Page.Offset; Index < Nodes.Num() && Added < Page.Limit; ++Index, ++Added)
     {
@@ -5424,7 +6507,10 @@ bool IsDynamicPinRemovable(UEdGraphPin* Pin, FString& OutOperation)
 
 void AddExactNodeSchema(UEdGraphNode* Node, TArray<FString>& Fields, TArray<FString>& Operations)
 {
-    Fields = {TEXT("id, type, graph: read only"), TEXT("at, size: layout only")};
+    Fields = {
+        TEXT("id, type, graph: read only"),
+        TEXT("at, size: stored layout only"),
+        TEXT("visualBounds: layout only when authoritative live Graph geometry is available")};
     if (UK2Node_Timeline* TimelineNode = Cast<UK2Node_Timeline>(Node))
     {
         Fields.Add(TEXT("TimelineName: read/write"));
@@ -5474,7 +6560,7 @@ void AddExactNodeSchema(UEdGraphNode* Node, TArray<FString>& Fields, TArray<FStr
         Fields.Add(Property->GetName() + TEXT(": ") + Availability);
     }
     if (Node->CanUserDeleteNode()) Operations.Add(TEXT("remove"));
-    Operations.Add(TEXT("move to (x, y) | move by (dx, dy)"));
+    Operations.Add(TEXT("move to (x, y)"));
     if (UK2Node_CustomEvent* Event = Cast<UK2Node_CustomEvent>(Node); Event != nullptr && Event->bIsEditable)
     {
         Operations.Add(TEXT("AddParameter(name, type) -> pin"));
@@ -5506,7 +6592,9 @@ void AddExactNodeSchema(UEdGraphNode* Node, TArray<FString>& Fields, TArray<FStr
 
 void AddExactPinSchema(UEdGraphPin* Pin, TArray<FString>& Fields, TArray<FString>& Operations)
 {
-    Fields = {TEXT("id, type, direction, ParentPin, PersistentGuid and structural flags: read only")};
+    Fields = {
+        TEXT("id, type, direction, ParentPin, PersistentGuid and structural flags: read only"),
+        TEXT("visualState, visualBounds, visualCenter, placementAnchor, placementAnchorKind, geometryReasons: layout only when authoritative live Graph geometry is available")};
     TArray<UK2Node_EditablePinBase*> SignatureOwners;
     SignatureOwnersForPin(Pin, SignatureOwners);
     if (!SignatureOwners.IsEmpty())
@@ -5809,7 +6897,13 @@ TSharedPtr<FJsonObject> QueryExact(const FSalQuery& Query, const FSalResolvedTar
 {
     FString Id;
     Query.Operation->TryGetStringField(TEXT("id"), Id);
-    FEncodedGraph Out(Target, Kind == TEXT("graph"));
+    FEncodedGraph Out(
+        Target,
+        Kind == TEXT("graph"),
+        true,
+        Kind != TEXT("graph")
+            && HasDetail(Query, TEXT("layout")),
+        Kind);
     if (Kind == TEXT("graph"))
     {
         if (!Target.Id.Equals(Id, ESearchCase::IgnoreCase))
@@ -6021,7 +7115,12 @@ TSharedPtr<FJsonObject> EncodeTraversal(const FSalQuery& Query, const FSalResolv
             Error,
             Kind);
     }
-    FEncodedGraph Out(Target);
+    FEncodedGraph Out(
+        Target,
+        false,
+        true,
+        HasDetail(Query, TEXT("layout")),
+        Kind);
     TMap<UEdGraphNode*, TSet<FString>> UsedMembers;
     for (UEdGraphNode* Node : Target.Graph->Nodes)
     {

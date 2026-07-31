@@ -339,9 +339,9 @@ FSalResolvedTarget GraphTarget(
     return Target;
 }
 
-FSalPatch MoveNodePatch(
+FSalPatch MoveNodeToPatch(
     const UEdGraphNode* Node,
-    const FIntPoint Delta)
+    const FIntPoint Position)
 {
     TSharedRef<FJsonObject> NodeRef = MakeShared<FJsonObject>();
     NodeRef->SetStringField(TEXT("kind"), TEXT("node"));
@@ -353,10 +353,10 @@ FSalPatch MoveNodePatch(
     Move->SetStringField(TEXT("kind"), TEXT("move"));
     Move->SetObjectField(TEXT("target"), NodeRef);
     Move->SetArrayField(
-        TEXT("by"),
+        TEXT("to"),
         {
-            MakeShared<FJsonValueNumber>(Delta.X),
-            MakeShared<FJsonValueNumber>(Delta.Y)
+            MakeShared<FJsonValueNumber>(Position.X),
+            MakeShared<FJsonValueNumber>(Position.Y)
         });
 
     FSalPatch Patch;
@@ -953,7 +953,9 @@ bool FSalGraphDryRunSandboxIsolationTest::RunTest(
         EditorSettings->PerBlueprintSettings;
 
     FSalPatch DryRunPatch =
-        MoveNodePatch(Fixture.Node, FIntPoint(31, -17));
+        MoveNodeToPatch(
+            Fixture.Node,
+            FIntPoint(SourceX + 31, SourceY - 17));
     DryRunPatch.Statements.Add(
         TimelineAddKeyStatement(
             Fixture.TimelineNode,

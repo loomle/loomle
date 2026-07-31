@@ -93,6 +93,29 @@ for (const entry of catalog) {
   validateSalExamples(`${entry.name}.md`, entry.text);
 }
 
+const graphInterface = catalog.find(({ name }) => name === "graph");
+assert.ok(graphInterface, "Graph interface must be present.");
+assert.match(
+  graphInterface.text,
+  /move @node-guid to \(\d+, \d+\)/,
+  "Graph interface must advertise absolute Node movement.",
+);
+assert.doesNotMatch(
+  graphInterface.text,
+  /\bmove\b[^\n]*\bby\s*\(/,
+  "Graph interface must not advertise relative Node movement.",
+);
+assert.match(
+  graphInterface.text,
+  /with layout[\s\S]*available only on `nodes`, exact Node or Pin reads, `context`, and exec\/data\s+flows/,
+  "Graph interface must close the operations that accept layout detail.",
+);
+assert.match(
+  graphInterface.text,
+  /planned\.operations[\s\S]*scope: "graph"[\s\S]*diff\.changes/,
+  "Graph interface must document precise move planning and move-only diffs.",
+);
+
 const formalDocumentationFiles = [
   ...markdownFiles(resolve(repositoryRoot, "sal/docs")),
   resolve(repositoryRoot, "docs/SAL_OBJECT_AND_REFERENCE_MODEL.md"),

@@ -141,12 +141,12 @@ definitions strictly gives the following state:
 | Surface | Current level | Verified higher-level anchors | Principal remaining boundary |
 |---|---|---|---|
 | Public Query | Contract | All target routing, composed interfaces, result-size gate | — |
-| Public Patch | Smoke | All mutable interfaces route through normalized dry-run | Normalized failure and real apply/RPC |
+| Public Patch | Smoke with representative normalized failure | All mutable interfaces route through normalized dry-run; Graph `by` rejection | Normalized live apply/RPC and broader failure matrix |
 | Asset | Persistent | Save dry/live, unload/reload, zero-load Query | I/O failure behavior |
 | Class | Contract | Fixed-array save/unload/reload | Failure after live mutation begins |
 | Blueprint | Persistent for representative operations | Declaration, Graph, Component, rollback | Compound Interface/Component operations |
-| Graph Query | Contract | Flow, context, Palette, schema | `nodes` condition/order/cursor matrix |
-| Graph Patch | Smoke with broad Lifecycle anchors | Add, connect, insert, break, dynamic Pin, Undo, persistent native topology | Invalid Patch, live rollback, reset, SAL-authored persistent topology |
+| Graph Query | Contract | Flow, context, Palette, schema, stored layout fallback, representative live Node/Pin Slate geometry, response-wide fallback | `nodes` condition/order/cursor, normalized public layout path, and complete live-surface matrix |
+| Graph Patch | Smoke with broad Lifecycle anchors | Add, connect, insert, break, dynamic Pin, absolute move plan/diff/precision/no-op/readback/parity rollback, Undo, persistent native topology | Mixed-operation diff contract, broader invalid-target matrix, reset, SAL-authored persistent topology |
 | Widget Query | Smoke | Tree depth, detached objects, Palette/schema | `widgets` condition/order/cursor and failure matrix |
 | Widget Patch | Smoke with a Persistent anchor | Add, Slot, wrap, rename, duplicate, replace, save/reload | Move, Named Slot, invalid Patch, live rollback |
 | Reference | Contract | Six local declaration kinds, Blueprint/Graph scope, pagination, zero-load project index | Widget, Macro, native member, and project parity |
@@ -228,6 +228,44 @@ pending. The corrected fixture performs that native validation and reacquires
 `EditorData`, Schema, and root identity afterward. The complete 135-test result
 closes that repair and the SAL v3 native audit.
 
+## Graph Layout And Absolute Move Audit
+
+The July 31 macOS arm64 run raises the native suite from 135 to 138 tests. The
+final same-source plugin candidate built successfully with the Installed UE 5.7
+Arm64 toolchain, and its isolated `UnrealEditor-Cmd` run passed all 138 tests.
+No test failed, timed out, remained unrun, or was missing; the runner found no
+new crash report or runner-classified log hazard.
+
+The three added tests and the expanded live-move release blocker prove:
+
+- a closed Graph preserves stored `at` and optional `size`, emits no visual
+  geometry, and returns the response-level
+  `capability.layout_geometry_unavailable` warning with `graph_not_open`;
+- one live `SGraphEditor` surface returns measured graph-space Node bounds and
+  Pin row, center, placement-anchor, visibility-state, and ordered-reason
+  fields without changing the viewport, Package dirty state, or transaction
+  history;
+- desynchronizing UObject Pin presentation from the already-built Slate widget
+  inventory removes every visual field and reports `pin_widget_unavailable`
+  instead of mixing measured and fallback objects;
+- absolute `move ... to (...)` planning preserves statement order and exact
+  `before.at`, `after.at`, and `changed` effects, including precision-boundary
+  rejection and no-op omission from the rich move-only diff; and
+- live movement reads back exact stored positions, skips mutation for no-op
+  statements, retains atomic Graph Patch behavior, and creates one reversible
+  Undo step for actual changes; and
+- a live-only Schema readback mismatch returns
+  `validation.layout_apply_failed`, retains the attempted plan, omits partial
+  object and diff output, and restores Node position, Package dirty state, and
+  Undo history atomically.
+
+The live geometry test is a representative Slate fixture, not exhaustive UI
+coverage. Ambiguous surfaces, active drag or relink interactions, off-viewport
+and custom widgets, second-pass-dependent Nodes, Comments, Knots, the remaining
+hidden-Pin reasons, row-edge anchors, and every Query projection still need
+dedicated variants even though the implementation fails closed when it cannot
+form one authoritative response.
+
 ## Release Gate
 
 An active public operation must have a matrix entry and a named native test.
@@ -247,7 +285,7 @@ The second remediation provides representative anchors for items 1–4 and the
 transport behavior in item 6. Item 5 remains partial until real Blueprint and
 Widget editor focus/selection paths are exercised. The stricter per-surface
 boundaries in the table above remain release risks even though the current
-135-test matrix is green.
+138-test matrix is green.
 
 Synthetic fixtures remain useful for deterministic edge cases. At least one
 authored, compiled asset fixture must protect each Blueprint-owned interface so

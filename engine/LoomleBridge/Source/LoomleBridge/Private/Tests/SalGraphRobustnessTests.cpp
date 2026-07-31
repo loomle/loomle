@@ -392,18 +392,18 @@ TSharedRef<FJsonValue> RobustGraphSet(
     return MakeShared<FJsonValueObject>(Statement);
 }
 
-TSharedRef<FJsonValue> RobustGraphMove(
+TSharedRef<FJsonValue> RobustGraphMoveTo(
     const TSharedRef<FJsonObject>& Target,
-    const FIntPoint Delta)
+    const FIntPoint Position)
 {
     TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
     Statement->SetStringField(TEXT("kind"), TEXT("move"));
     Statement->SetObjectField(TEXT("target"), Target);
     Statement->SetArrayField(
-        TEXT("by"),
+        TEXT("to"),
         {
-            MakeShared<FJsonValueNumber>(Delta.X),
-            MakeShared<FJsonValueNumber>(Delta.Y)
+            MakeShared<FJsonValueNumber>(Position.X),
+            MakeShared<FJsonValueNumber>(Position.Y)
         });
     return MakeShared<FJsonValueObject>(Statement);
 }
@@ -1374,11 +1374,13 @@ bool FSalRobustGraphPinIdentityScopeTest::RunTest(
     UnrelatedNodePatch.Alias = TEXT("graph");
     UnrelatedNodePatch.bDryRun = true;
     UnrelatedNodePatch.Statements = {
-        RobustGraphMove(
+        RobustGraphMoveTo(
             RobustGraphTyped(
                 TEXT("node"),
                 Fixture.BranchC->NodeGuid),
-            FIntPoint(16, 0))};
+            FIntPoint(
+                Fixture.BranchC->NodePosX + 16,
+                Fixture.BranchC->NodePosY))};
     const TSharedPtr<FJsonObject> UnrelatedMutation =
         FSalGraphInterface::Patch(UnrelatedNodePatch, Target);
     TestTrue(
@@ -1920,7 +1922,7 @@ bool FSalRobustGraphNodeLifecycleTest::RunTest(
                 TEXT("NodeComment")),
             MakeShared<FJsonValueString>(
                 TEXT("Created through robust SAL lifecycle"))),
-        RobustGraphMove(
+        RobustGraphMoveTo(
             RobustGraphLocal(TEXT("CreatedBranch")),
             FIntPoint(256, 128))
     };
@@ -1993,6 +1995,11 @@ bool FSalRobustGraphNodeLifecycleTest::RunTest(
         Created != nullptr
             && Created->NodeComment
                 == TEXT("Created through robust SAL lifecycle"));
+    TestTrue(
+        TEXT("Created Node preserves the authored absolute position"),
+        Created != nullptr
+            && Created->NodePosX == 256
+            && Created->NodePosY == 128);
 
     FSalQuery ExactNode = RobustGraphQuery(TEXT("node"));
     ExactNode.Operation->SetStringField(TEXT("id"), CreatedId);

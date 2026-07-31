@@ -5,7 +5,7 @@ delay = node {palette: "Delay", Duration: 1.0}
 add delay
 connect @aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaab -> delay.execute
 set @cccccccc-cccc-cccc-cccc-cccccccccccc.NodeComment = "Print after delay"
-move @cccccccc-cccc-cccc-cccc-cccccccccccc by (180, 0)
+move @cccccccc-cccc-cccc-cccc-cccccccccccc to (640, 0)
 
 ---
 

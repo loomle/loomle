@@ -19,6 +19,7 @@ public class LoomleBridge : ModuleRules
                 "Core",
                 "CoreUObject",
                 "Engine",
+                "GraphEditor",
                 "Json",
                 "Kismet",
                 "KismetCompiler",

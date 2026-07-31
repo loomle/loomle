@@ -59,9 +59,43 @@ with schema
 ```
 
 Traversal stays inside the exact Graph and defaults to depth 1. `with layout`
-adds stored Node position and size. Exact Node reads include current Pins;
-exact Pin reads include its compact owner. Exact objects and Palette entries
-may use `with schema`.
+is available only on `nodes`, exact Node or Pin reads, `context`, and exec/data
+flows. It is unavailable on `target`, `summary`, owning-Blueprint declarations,
+`references`, and Palette operations.
+
+On those supported operations, `with layout`
+always adds each returned Node's exact stored `at` and, when UE stores non-zero
+dimensions, optional stored `size`. On a usable live surface for the exact
+Graph, the same returned objects also receive authoritative graph-space visual
+facts: Nodes receive `visualBounds`; measured Pins receive `visualState`,
+`visualBounds`, `visualCenter`, `placementAnchor`, and `placementAnchorKind`;
+intentionally unpresented Pins receive `visualState` and `geometryReasons`.
+
+`visualBounds` is `[left, top, right, bottom]`; centers and anchors are `[x, y]`.
+`visualState` is `measured` or `intentionally_not_presented`.
+`placementAnchorKind` is `pin_image_center` or
+`pin_row_edge_midpoint`. `geometryReasons` is an ordered non-empty subset of
+`hidden_native`, `hidden_advanced`, `hidden_unconnected`, and
+`hidden_unconnected_no_default`.
+
+If that surface is closed, ambiguous, interacting, unsynchronized, or cannot
+measure every applicable object safely, the whole response omits all visual
+fields and warns `capability.layout_geometry_unavailable`. Follow its
+suggestion to open or focus the exact Graph, finish any interaction, wait for
+visual synchronization, and retry. Treat layout as precise only when that
+warning is absent and every applicable returned object has its complete visual
+field shape; otherwise `at` and `size` support only rough placement.
+`with layout` adds no status or snapshot object and never widens the
+operation's projection. Exact Node reads include current Pins; exact Pin reads
+include its compact owner. Exact objects and Palette entries may use
+`with schema`.
+
+The warning's `actual.reason` is one of `slate_unavailable`, `graph_not_open`,
+`surface_ambiguous`, `interaction_in_progress`, `visual_sync_pending`,
+`layout_scale_unavailable`, `node_widget_unavailable`,
+`pin_widget_unavailable`, `second_pass_layout_unavailable`,
+`unsupported_widget_geometry`, `prepass_incomplete`, `non_finite_geometry`,
+and `non_positive_bounds`.
 
 `nodes` filters on `type`, `id`, and `NodeComment`; Palette filters and ordering
 are closed by the static and exact schema. Collections use cursor pagination.
@@ -123,6 +157,25 @@ remove @node-guid
 invoke @node-guid Operation(namedArguments) [as alias]
 invoke @node-guid/pin-guid Operation(namedArguments) [as alias]
 ```
+
+Graph Node movement accepts only absolute `to (x, y)`. For relative intent,
+query the Node with `with layout`, read its stored `at`, compute the absolute
+destination, and emit `to`; `by` is not a Graph capability.
+
+Coordinates must be signed 32-bit mathematical integers that round-trip
+exactly through UE's `FVector2f` schema path. Every integer from `-16777216`
+through `16777216` is safe; outside that interval, use only values exactly
+representable as `FVector2f`.
+
+Each valid move remains in `planned.operations` with `index`, `operation:
+"move"`, `ref`, `to`, `before: {at}`, `after: {at}`, and `changed`. A no-op
+remains in the plan but skips mutation. When every Patch statement is a move,
+`diff` is complete and has `changedOperations`, `scope: "graph"`, and ordered
+`changes`; each change has `index`, `kind: "move"`, a structured stable Node
+`target`, `before: {at}`, and `after: {at}`. The target is
+`{"kind":"stable_ref","identityPath":["<NodeGuid>"],"semanticTag":"node"}`.
+No-ops are omitted from `diff.changes`. Mixed Graph Patches do not claim a
+partial rich move diff.
 
 Palette creates each base Node and its Pins through UE. Raw Pin creation is
 invalid. `insert` atomically replaces one existing Edge. Exact schema is

@@ -141,6 +141,11 @@ function validateDomainContract(object: SalObject): string[] {
           `${domain} Patch cannot ${statement.kind}; use the returned Blueprint Target handoff.`,
         );
       }
+      if (domain === "graph" && statement.kind === "move" && "by" in statement) {
+        errors.push(
+          "Graph move accepts only absolute to (x, y); query stored at, compute the destination, and retry with to.",
+        );
+      }
     }
   }
 

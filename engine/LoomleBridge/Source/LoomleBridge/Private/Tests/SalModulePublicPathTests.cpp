@@ -496,6 +496,39 @@ bool PublicPathHasDiagnosticCode(
     return false;
 }
 
+bool PublicPathHasDiagnosticSuggestion(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& ExpectedCode,
+    const FString& ExpectedText)
+{
+    const TArray<TSharedPtr<FJsonValue>>* Diagnostics = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetArrayField(TEXT("diagnostics"), Diagnostics)
+        || Diagnostics == nullptr)
+    {
+        return false;
+    }
+    for (const TSharedPtr<FJsonValue>& DiagnosticValue : *Diagnostics)
+    {
+        const TSharedPtr<FJsonObject>* Diagnostic = nullptr;
+        FString Code;
+        FString Suggestion;
+        if (DiagnosticValue.IsValid()
+            && DiagnosticValue->TryGetObject(Diagnostic)
+            && Diagnostic != nullptr
+            && (*Diagnostic)->TryGetStringField(TEXT("code"), Code)
+            && Code == ExpectedCode
+            && (*Diagnostic)->TryGetStringField(
+                TEXT("suggestion"),
+                Suggestion)
+            && Suggestion.Contains(ExpectedText))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool PublicPathHasError(
     const TSharedPtr<FJsonObject>& Result)
 {
@@ -2044,6 +2077,8 @@ bool FSalModulePatchRoutingMatrixTest::RunTest(
     const FIntPoint NodeBefore(
         BlueprintFixture.Node->NodePosX,
         BlueprintFixture.Node->NodePosY);
+    const bool bBlueprintPackageDirtyBefore =
+        BlueprintFixture.Blueprint->GetOutermost()->IsDirty();
     const bool bWidgetVariableBefore =
         WidgetFixture.Root->bIsVariable;
 
@@ -2079,10 +2114,10 @@ bool FSalModulePatchRoutingMatrixTest::RunTest(
             TEXT("node"),
             BlueprintFixture.Node->NodeGuid));
     Move->SetArrayField(
-        TEXT("by"),
+        TEXT("to"),
         {
-            MakeShared<FJsonValueNumber>(17),
-            MakeShared<FJsonValueNumber>(23)
+            MakeShared<FJsonValueNumber>(NodeBefore.X + 17),
+            MakeShared<FJsonValueNumber>(NodeBefore.Y + 23)
         });
     const TSharedPtr<FJsonObject> Graph =
         FSalModule::BuildPatchResult(
@@ -2093,6 +2128,44 @@ bool FSalModulePatchRoutingMatrixTest::RunTest(
                     BlueprintFixture.Blueprint->GetBlueprintGuid(),
                     BlueprintFixture.Graph),
                 {PublicPathStatement(Move)}));
+
+    const FIntPoint NodeBeforeRejectedMove(
+        BlueprintFixture.Node->NodePosX,
+        BlueprintFixture.Node->NodePosY);
+    const bool bPackageDirtyBeforeRejectedMove =
+        BlueprintFixture.Blueprint->GetOutermost()->IsDirty();
+    TSharedRef<FJsonObject> MoveBy = MakeShared<FJsonObject>();
+    MoveBy->SetStringField(TEXT("kind"), TEXT("move"));
+    MoveBy->SetObjectField(
+        TEXT("target"),
+        PublicPathStableReference(
+            TEXT("node"),
+            BlueprintFixture.Node->NodeGuid));
+    MoveBy->SetArrayField(
+        TEXT("by"),
+        {
+            MakeShared<FJsonValueNumber>(17),
+            MakeShared<FJsonValueNumber>(23)
+        });
+    const TSharedPtr<FJsonObject> GraphMoveBy =
+        FSalModule::BuildPatchResult(
+            PublicPathPatchArguments(
+                TEXT("graph_scope"),
+                PublicPathGraphCall(
+                    BlueprintFixture.Blueprint->GetPathName(),
+                    BlueprintFixture.Blueprint->GetBlueprintGuid(),
+                    BlueprintFixture.Graph),
+                {PublicPathStatement(MoveBy)}));
+    TestTrue(
+        TEXT("Rejected relative Graph move preserves native Node layout"),
+        BlueprintFixture.Node->NodePosX
+                == NodeBeforeRejectedMove.X
+            && BlueprintFixture.Node->NodePosY
+                == NodeBeforeRejectedMove.Y);
+    TestEqual(
+        TEXT("Rejected relative Graph move preserves immediate dirty state"),
+        BlueprintFixture.Blueprint->GetOutermost()->IsDirty(),
+        bPackageDirtyBeforeRejectedMove);
 
     const TSharedPtr<FJsonObject> Widget =
         FSalModule::BuildPatchResult(
@@ -2371,6 +2444,66 @@ bool FSalModulePatchRoutingMatrixTest::RunTest(
                 true));
     }
 
+    {
+        FString ValidationError;
+        const bool bOutgoingValid =
+            IsValidPublicPathOutgoingResult(
+                GraphMoveBy,
+                ValidationError);
+        TestTrue(
+            *FString::Printf(
+                TEXT("Relative Graph move rejection satisfies outgoing SAL: %s"),
+                *ValidationError),
+            bOutgoingValid);
+        TestTrue(
+            TEXT("Normalized public Patch reaches Graph before rejecting by"),
+            PublicPathResultBool(
+                GraphMoveBy,
+                TEXT("isError")));
+        TestFalse(
+            TEXT("Relative Graph move does not validate"),
+            PublicPathResultBool(
+                GraphMoveBy,
+                TEXT("valid"),
+                true));
+        TestTrue(
+            TEXT("Relative Graph move rejection retains dry-run semantics"),
+            PublicPathResultBool(
+                GraphMoveBy,
+                TEXT("dryRun")));
+        TestFalse(
+            TEXT("Relative Graph move rejection does not apply"),
+            PublicPathResultBool(
+                GraphMoveBy,
+                TEXT("applied"),
+                true));
+        TestTrue(
+            TEXT("Relative Graph move reports the unavailable clause"),
+            PublicPathHasDiagnosticCode(
+                GraphMoveBy,
+                TEXT("capability.clause_unavailable")));
+        TestTrue(
+            TEXT("Relative Graph move suggests querying exact layout"),
+            PublicPathHasDiagnosticSuggestion(
+                GraphMoveBy,
+                TEXT("capability.clause_unavailable"),
+                TEXT("with layout")));
+        TestTrue(
+            TEXT("Relative Graph move suggests retrying with absolute to"),
+            PublicPathHasDiagnosticSuggestion(
+                GraphMoveBy,
+                TEXT("capability.clause_unavailable"),
+                TEXT("to (x, y)")));
+        FString TargetContext;
+        TestTrue(
+            TEXT("Relative Graph move rejection retains exact Target context"),
+            GraphMoveBy.IsValid()
+                && GraphMoveBy->TryGetStringField(
+                    TEXT("targetContext"),
+                    TargetContext)
+                && TargetContext == TEXT("exact_target"));
+    }
+
     for (const TPair<FString, TSharedPtr<FJsonObject>>& Entry : {
              TPair<FString, TSharedPtr<FJsonObject>>(
                  TEXT("wrapped call-like data"),
@@ -2415,6 +2548,10 @@ bool FSalModulePatchRoutingMatrixTest::RunTest(
         TEXT("Graph dry-run preserves native node layout"),
         BlueprintFixture.Node->NodePosX == NodeBefore.X
             && BlueprintFixture.Node->NodePosY == NodeBefore.Y);
+    TestEqual(
+        TEXT("Rejected relative Graph move preserves package dirty state"),
+        BlueprintFixture.Blueprint->GetOutermost()->IsDirty(),
+        bBlueprintPackageDirtyBefore);
     TestEqual(
         TEXT("Widget dry-run preserves native Widget state"),
         WidgetFixture.Root->bIsVariable,

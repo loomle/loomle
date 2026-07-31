@@ -130,15 +130,69 @@ context supply semantics.
 Titles from `GetNodeTitle()` are comments, not `name` or translated type.
 Authored `UEdGraphNode` and subclass fields retain exact native names.
 
-`with layout` adds:
+### Layout Detail
+
+`with layout` enriches only the Node and Pin objects the selected operation
+already returns. It does not widen the projection or add a synthetic layout,
+status, snapshot, or region object.
+
+Every returned Node receives its stored layout:
 
 ```sal
 at: [640, 0]
 size: [240, 120]
 ```
 
-`at` maps to stored integer Node position. `size` is returned only when UE has
-non-zero stored size; SAL never estimates Slate geometry.
+`at` is the exact stored integer Node position. `size` is optional and appears
+only when UE stores non-zero Node dimensions. Their meaning never changes when
+the Graph Editor opens or closes: they are useful for conservative rough
+placement, but are not rendered collision bounds.
+
+When a usable live Graph Editor surface presents the exact Target Graph, the
+same objects also receive authoritative graph-space visual facts:
+
+- each Node has `visualBounds: [left, top, right, bottom]`;
+- a measured Pin has `visualState: measured`, `visualBounds`,
+  `visualCenter`, `placementAnchor`, and `placementAnchorKind`;
+- a Pin intentionally absent under current presentation rules has
+  `visualState: intentionally_not_presented` and non-empty
+  `geometryReasons`, with no visual coordinates.
+
+`placementAnchorKind` is `pin_image_center` or
+`pin_row_edge_midpoint`. The closed ordered `geometryReasons` values are
+`hidden_native`, `hidden_advanced`, `hidden_unconnected`, and
+`hidden_unconnected_no_default`.
+
+If the exact Graph surface is closed, ambiguous, interacting, not yet
+synchronized, or any applicable object cannot be measured safely, the entire
+response removes all `visualBounds`, `visualState`, `visualCenter`,
+`placementAnchor`, `placementAnchorKind`, and `geometryReasons` fields and
+emits the warning:
+
+```text
+capability.layout_geometry_unavailable
+```
+
+The warning's `actual.reason` identifies the availability failure and its
+suggestion tells the agent to open or focus the exact Graph, finish the
+interaction, wait for synchronization, or retry. A Blueprint asset being open
+without that exact Graph surface is not sufficient.
+
+The closed `actual.reason` values are `slate_unavailable`, `graph_not_open`,
+`surface_ambiguous`, `interaction_in_progress`, `visual_sync_pending`,
+`layout_scale_unavailable`, `node_widget_unavailable`,
+`pin_widget_unavailable`, `second_pass_layout_unavailable`,
+`unsupported_widget_geometry`, `prepass_incomplete`, `non_finite_geometry`,
+and `non_positive_bounds`.
+
+An agent may perform precise layout only when both conditions hold:
+
+1. the response has no `capability.layout_geometry_unavailable` warning; and
+2. every applicable returned Node and Pin has one complete visual field shape.
+
+Otherwise, only stored `at` and optional `size` remain available, and they
+authorize rough placement only. A response never mixes authoritative visual
+geometry with visual fallback.
 
 Pins, layout-native duplicates, compiler/upgrade messages, transient caches,
 and deprecated data are not flattened as arbitrary Node fields.
@@ -259,7 +313,8 @@ Operation capabilities:
 | `target` | optional `with schema` |
 | `summary` | none |
 | `nodes` | supported `where`, `order by`, `page`, optional `with layout` |
-| exact StableRef | optional `with schema`, `with layout` |
+| exact Node or Pin StableRef | optional `with schema`, `with layout` |
+| exact owning-Blueprint declaration StableRef | optional `with schema` |
 | `context`, flows | optional depth and layout |
 | `references` | page only |
 | `palette entries` | supported filters/order/page |
@@ -500,13 +555,48 @@ set @node-id/pin-id.NativeField = value
 reset @node-id.NativeField
 reset @node-id/pin-id.NativeField
 move @node-id to (x, y)
-move @node-id by (dx, dy)
 remove @node-id
 
 invoke g Operation(namedArguments) [as alias]
 invoke @node-id Operation(namedArguments) [as alias]
 invoke @node-id/pin-id Operation(namedArguments) [as alias]
 ```
+
+Graph Node movement accepts only the absolute `to (x, y)` placement. For
+relative intent, first Query the Node with `with layout`, read its stored `at`,
+compute the absolute destination, and emit `to`; `by` is not a Graph
+capability.
+
+Each coordinate must be a signed 32-bit mathematical integer that round-trips
+exactly through UE's `FVector2f` Schema path. Every integer from `-16777216`
+through `16777216` is safe; outside that interval, only exactly representable
+values are valid.
+
+Every valid move, including a no-op, has one ordered entry in
+`planned.operations`:
+
+```json
+{
+  "index": 0,
+  "operation": "move",
+  "ref": "@aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  "to": [640, 0],
+  "before": { "at": [320, 0] },
+  "after": { "at": [640, 0] },
+  "changed": true
+}
+```
+
+When every Patch statement is a move, `diff` is complete and uses
+`changedOperations`, `scope: "graph"`, and ordered `changes`. Each change
+contains `index`, `kind: "move"`, a shared structured stable Node `target`,
+`before: {at}`, and `after: {at}`. Its target shape is
+`{"kind":"stable_ref","identityPath":["<NodeGuid>"],"semanticTag":"node"}`.
+A no-op stays in the plan, skips mutation, and is omitted from `diff.changes`;
+an all-no-op move Patch therefore returns an empty rich diff and
+`applied: false`. Mixed Graph Patches do not return a partial rich move
+`changes` array. Patch results promise stored coordinates only; Query again
+with `with layout` for refreshed visual geometry.
 
 Raw Pin creation is invalid. Graph Schema owns connection compatibility,
 break-others behavior, conversion creation, and type promotion. Every native
