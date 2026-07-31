@@ -2,13 +2,17 @@
 
 ## Status
 
-The read-side design below is confirmed and awaits implementation. It extends
-the existing `with layout` detail; it does not add a Query operation, result
-object, Target kind, or MCP tool.
+The read-side and explicit Graph `move` designs below are confirmed and await
+implementation. The read side extends the existing `with layout` detail. The
+move design deliberately narrows Graph movement to absolute `to`, retiring the
+currently accepted Graph `by` clause, and adds exact per-move planning and
+diffs. Neither design adds a Query operation, Patch operation, result object,
+Target kind, or MCP tool.
 
 Current SAL returns stored Node layout through `with layout` and can move exact
 Nodes to explicit coordinates. It does not yet return authoritative Slate
-geometry, plan a layout, or automatically format a graph.
+geometry or detailed per-move plans and diffs, plan a layout, or automatically
+format a graph.
 
 Automatic layout mutation remains a later design. The Query contract in this
 document supplies facts only. The agent chooses what to change, and Graph Patch
@@ -403,6 +407,267 @@ Compilation and save remain explicit terminal operations on the owning
 Blueprint. Neither `with layout` nor Node movement implicitly compiles or
 saves.
 
+## Explicit Graph Move Contract
+
+### Scope And Syntax
+
+This design covers only the existing Graph Patch `move` operation:
+
+```sal
+patch g dry run
+move @first-node-guid to (320, 0)
+move @second-node-guid to (720, 32)
+```
+
+It does not add `layout`, `format`, `align`, `distribute`, `stack`, or
+`straighten` Patch operations. It does not redefine the planning, diff, or
+apply semantics of other Graph Patch operations.
+
+A Graph move targets exactly one Node in the bound exact Graph. Comments and
+Knots are Nodes and can be moved by their own exact identities. A Pin, Graph,
+editor selection, Query result, Query page, traversal boundary, viewport, or
+Comment-contained set is not an implicit move target.
+
+Each Graph move has exactly one absolute placement:
+
+```sal
+move @node-guid to (x, y)
+```
+
+Graph does not support relative `by (dx, dy)` movement. The domain-independent
+SAL parser may still recognize that generic Move clause, but the Graph
+interface does not advertise it and rejects it with
+`capability.clause_unavailable`. An agent that wants relative movement first
+reads the current stored `at`, computes an absolute target, and emits `to`.
+This is an intentional breaking narrowing of the current Graph interface;
+Graph documentation, examples, schemas, and tests must migrate existing `by`
+usage to absolute `to`.
+
+Absolute movement is idempotent: repeating the same move requests the same
+stored position rather than accumulating another translation.
+
+Patch statement order is authoritative. Multiple moves of the same Node are
+evaluated sequentially, so each later statement observes the effective stored
+position produced by the preceding statement.
+
+### Coordinate Semantics
+
+Every Graph move point must contain exactly two finite mathematical integers
+within the signed 32-bit range:
+
+```text
+[-2147483648, 2147483647]
+```
+
+Fractional values and out-of-range values are invalid. The provider must not
+truncate, round, saturate, wrap, or otherwise coerce them.
+
+UE 5.7's current schema movement override accepts `FVector2f`, while stored
+`NodePosX/NodePosY` are signed 32-bit integers. Converting a valid requested
+component to the `FVector2f` component and back to double precision must produce
+the same mathematical integer. Every integer in the continuous range below is
+guaranteed to satisfy that rule:
+
+```text
+[-16777216, 16777216]
+```
+
+Some signed 32-bit integers outside that continuous range are also exactly
+representable and remain valid. A value that does not round-trip exactly is
+invalid rather than silently changing position. Loomle must use the modern
+`FVector2f` schema override; it must not bypass that UE extension point through
+the deprecated double-vector overload.
+
+The before and after values exposed by move planning are stored `at`
+coordinates, not visual bounds or estimated positions. Movement does not
+change the meaning of `at` or `size`.
+
+### Move Planning And Diff
+
+The existing Graph Patch plan remains the enclosing result model. This design
+adds fields only to `move` entries in `planned.operations`; it does not invent
+a second move-plan object.
+
+An absolute move entry is:
+
+```json
+{
+  "index": 0,
+  "operation": "move",
+  "ref": "@aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  "to": [320, 0],
+  "before": { "at": [128, 0] },
+  "after": { "at": [320, 0] },
+  "changed": true
+}
+```
+
+The field rules are:
+
+- `index` is the zero-based Patch statement index;
+- `ref` is the existing stable Node reference text, or the source local alias
+  when the Node was created earlier in the same Patch;
+- `to` preserves the normalized absolute request;
+- `before.at` is the exact stored position immediately before this statement
+  executes in preflight;
+- for a changed move, `after.at` is the stored position read back after
+  schema-aware movement in preflight and exactly equals `to`;
+- for a no-op, `after.at` equals `before.at` without invoking schema movement;
+- `changed` is exactly whether `before.at` and `after.at` differ.
+
+Every valid move remains in `planned.operations`, including a no-op:
+
+```json
+{
+  "index": 2,
+  "operation": "move",
+  "ref": "@cccccccc-cccc-cccc-cccc-cccccccccccc",
+  "to": [900, 0],
+  "before": { "at": [900, 0] },
+  "after": { "at": [900, 0] },
+  "changed": false
+}
+```
+
+For a Patch whose statements are all moves, `diff` is a complete ordered move
+change set:
+
+```json
+{
+  "changedOperations": 1,
+  "scope": "graph",
+  "changes": [
+    {
+      "index": 0,
+      "kind": "move",
+      "target": {
+        "kind": "node",
+        "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+      },
+      "before": { "at": [128, 0] },
+      "after": { "at": [320, 0] }
+    }
+  ]
+}
+```
+
+`changedOperations` preserves the existing coarse count. `diff.changes` omits
+no-op moves, preserves Patch statement order, and uses the shared mutation
+contract's structured `target` identity.
+
+For dry run, `changes` is mechanically derived from the `changed: true` move
+entries in `planned.operations`. For successful live apply, it is built from
+the verified actual before/after readback; the same-request parity checks below
+guarantee that those values equal the live request's plan.
+
+The rich `scope` and `changes` fields are returned only when every Patch
+statement is a move. A mixed Graph Patch must not return a partial move
+`changes` array as if it were complete. Existing coarse diff fields remain
+unchanged, and rich diff coverage for other Graph operations remains separate
+work.
+
+The complete result matrix is:
+
+| Patch shape | Execution | `diff` |
+| --- | --- | --- |
+| Move-only | Successful dry run | Preflight `changedOperations`, `scope: "graph"`, and planned `changes` |
+| Move-only | Successful live apply | Actual `changedOperations`, `scope: "graph"`, and actual verified `changes` |
+| Mixed | Successful dry run | Omitted |
+| Mixed | Successful live apply | Existing coarse `changedOperations` only; `scope` and `changes` omitted |
+
+A successful all-no-op move-only Patch still returns a complete empty diff:
+
+```json
+{
+  "changedOperations": 0,
+  "scope": "graph",
+  "changes": []
+}
+```
+
+A failed preflight returns no partial `planned` or `diff`. On a successful dry
+run, the ordinary Object Text remains a readback of the current live touched
+objects; it must not pretend to be a hypothetical after-state. The move
+`planned` and `diff` metadata carry the hypothetical effects.
+
+### Dry Run And Live Apply
+
+A Graph move dry run is an advisory plan computed from asset state observed
+during that request. It does not reserve the Graph, lock Node positions, or
+produce a revision, plan token, or other value that a later request commits.
+
+A later live Patch performs a fresh complete preflight against then-current
+state. Its `planned` and `diff` belong to that live request and may differ from
+an earlier dry run when the asset changed between requests. This design does
+not expose `expectedRevision` or promise cross-request atomicity.
+
+Within one live request, move apply must use the bound Graph's
+`UEdGraphSchema::SetNodePosition` rather than writing `NodePosX/NodePosY`
+directly. The schema call preserves UE's movement override point and its native
+`Modify()` path. A move whose `before.at` already equals `to` is a no-op and
+must skip `SetNodePosition` and `Modify()`, must not increment the Patch change
+count, and must not itself cause dirtying, Graph notification, or Undo state.
+An otherwise all-no-op Patch therefore has none of those effects.
+
+A move-only live Patch whose complete preflight contains no changed moves must
+return success before opening the live top-level transaction or calling
+`Blueprint->Modify()` or `Graph->Modify()`. This keeps the all-no-op guarantee
+true at the enclosing Graph Patch layer rather than only at the Node handler.
+
+Preflight calls the same modern schema movement path for a changed move. If its
+stored readback differs from the exact requested `to`, preflight fails rather
+than treating schema adjustment, float coercion, snapping, or truncation as a
+new effective request.
+
+For every move, live apply verifies both:
+
+1. the stored position immediately before the statement equals that move
+   plan's `before.at`;
+2. for a changed move, the stored position read back after `SetNodePosition`
+   equals both that move plan's `after.at` and the requested `to`.
+
+Any mismatch fails the Patch and uses the existing Graph Patch atomic
+transaction to roll back the entire mutation. The move design relies on the
+existing Graph Patch guarantees of one top-level transaction, no partial
+success, and one Undo step; it does not redefine those guarantees.
+
+When live preflight succeeded but move parity or a later statement fails during
+apply, a successful rollback retains this request's complete preflight
+`planned` as the attempted plan, omits `diff` and partial changed-object
+readback, and returns `valid: false` and `applied: false`. Existing rollback
+failure semantics remain unchanged.
+
+On successful live apply, ordinary Object Text is the actual live touched-object
+readback. A live Patch containing only no-op moves is valid with
+`applied: false`; one or more changed moves produces `applied: true`.
+
+Patch completion promises stored coordinates only. Slate geometry can update
+asynchronously, so the Patch result does not promise refreshed `visualBounds`
+or Pin visual fields. The agent re-runs the relevant Query with `with layout`
+after apply to verify authoritative visual placement.
+
+### Move Diagnostics
+
+Move-specific failures use these existing or new diagnostics:
+
+| Condition | Diagnostic |
+| --- | --- |
+| Point text is not exactly two finite numbers | `language.invalid_point` |
+| Node reference cannot be resolved | Existing Graph `resolution.*` diagnostic |
+| Resolved target is not a Node | `validation.invalid_target` |
+| Point has a fractional or out-of-range component | `validation.layout_invalid` |
+| Absolute position cannot round-trip exactly through `FVector2f` | `validation.layout_invalid` |
+| Graph move uses the unsupported `by` clause | `capability.clause_unavailable` |
+| The bound Graph has no usable schema movement path | `capability.operation_unavailable` |
+| Schema readback differs from exact `to` or the live move plan | `validation.layout_apply_failed` |
+
+`validation.layout_invalid` identifies the Node and preserves the requested
+`to`. The unavailable-clause diagnostic tells the agent to read `at`, compute
+the absolute target, and retry with `to`.
+`validation.layout_apply_failed` reports the planned and actual position and
+invalidates preflight or, during live apply, causes atomic rollback. Existing
+transaction and rollback diagnostics retain their current meanings.
+
 ## Read Side-Effect Boundary
 
 A Query with `with layout` must not:
@@ -419,7 +684,8 @@ Node widgets is allowed when it has no user-visible or authored-state effect.
 
 ## Acceptance Matrix
 
-Implementation is not complete until the public `sal_query` path verifies:
+Read-side implementation is not complete until the public `sal_query` path
+verifies:
 
 ### Protocol And Projection
 
@@ -476,9 +742,63 @@ Implementation is not complete until the public `sal_query` path verifies:
 - existing result-size limits apply without silent truncation or a changed
   object projection.
 
+### Explicit Move
+
+Move implementation is not complete until the public `sal_patch` path verifies:
+
+- existing `move <node> to (x, y)` syntax remains unchanged and no automatic
+  layout operation is introduced;
+- Graph schema and guidance no longer advertise `by`, and Graph rejects it with
+  an actionable `capability.clause_unavailable` diagnostic;
+- exact ordinary Nodes, Comments, and Knots move only when explicitly named;
+- Pins, Graphs, editor state, Query pages, and Comment membership never become
+  implicit move targets;
+- absolute moves are idempotent and repeated moves of one Node observe
+  statement order;
+- integer positions throughout the continuous `FVector2f`-exact range, exact
+  representable positions outside it, and non-representable values around the
+  precision boundary are distinguished correctly;
+- `-16777216` and `16777216` are accepted, `-16777217` and `16777217` are
+  rejected, `16777218` is accepted as an exactly representable value outside
+  the continuous range, `-2147483648` is accepted, and `2147483647` is
+  rejected;
+- fractional, signed-32-bit-out-of-range, and non-`FVector2f`-exact positions
+  fail without truncation, rounding, source mutation, dirtying, or Undo state;
+- movement calls the modern Graph Schema `FVector2f` positioning path and
+  accepts only exact requested-position readback;
+- every valid move plan entry returns its original `to`, sequential
+  `before.at`, exact `after.at`, and exact `changed` value;
+- no-op moves remain in `planned.operations` and are omitted from
+  `diff.changes`, while skipping schema movement, modification, dirtying,
+  notification, and Undo;
+- an all-no-op move-only live Patch skips the top-level transaction and outer
+  Blueprint/Graph `Modify()` calls and returns a complete empty rich diff;
+- a move-only Patch diff preserves `changedOperations`, is complete and
+  ordered, uses `scope: "graph"` and structured Node targets, and corresponds
+  exactly to its changed plan entries;
+- a mixed dry run omits `diff`, while a mixed live Patch retains only the
+  existing coarse `changedOperations` and omits move-only rich `scope` and
+  `changes`;
+- dry run leaves the source Blueprint, Package dirty state, compile state, and
+  Undo history unchanged while returning current live Object Text and planned
+  move effects;
+- live apply re-preflights current state, uses one existing Graph Patch
+  transaction, returns actual stored coordinates, and creates at most one Undo
+  step;
+- a live before/after mismatch or later Patch failure rolls back every move
+  rather than returning partial success;
+- sandbox readback that differs from exact `to` fails preflight without
+  `planned` or `diff`, while a live-only parity mismatch retains the attempted
+  `planned`, rolls back, and omits `diff` and partial changed-object readback;
+- successful no-op apply is valid with `applied: false`, while any actual move
+  produces `applied: true`;
+- an earlier dry run supplies no cross-request reservation or revision
+  guarantee;
+- post-apply visual verification requires a later Query with `with layout`.
+
 ## Deferred Work
 
-The following remain outside this read-side design:
+The following remain outside this design:
 
 - authoritative synthetic or headless Slate geometry;
 - wire spline geometry, crossings, bubbles, shadows, tooltips, and screenshots;
@@ -488,10 +808,11 @@ The following remain outside this read-side design:
 - reroute synthesis or deletion;
 - persistent snapshots or cross-Query atomic geometry;
 - exposed layout revisions or geometry fingerprints;
+- rich before/after diffs for non-move Graph Patch operations;
 - cross-platform bitwise geometry equality.
 
-Any later layout mutation must follow the shared mutation dry-run contract,
-resolve every Patch target inside one exact Graph, validate its complete plan
-before applying, use UE transactions and schema-aware movement, preserve Graph
-behavior, and refuse partial application when its own declared prerequisites
-are missing.
+Any later automatic layout mutation must follow the shared mutation dry-run
+contract, resolve every Patch target inside one exact Graph, validate its
+complete plan before applying, use UE transactions and schema-aware movement,
+preserve Graph behavior, and refuse partial application when its own declared
+prerequisites are missing.
