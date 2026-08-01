@@ -76,9 +76,13 @@ non-resizable Nodes, so they are not a general rendered-size fallback.
 `UEdGraphSchema_K2::EstimateNodeHeight` is explicitly a best-effort estimate
 used before a later Slate tick and is not authoritative visual geometry.
 
-Pin placement is Slate state. A Pin row, its center, and its connection image
-are properties of its individual `SGraphPin`; two Pins on opposite sides of one
-row may have the same Y coordinate while remaining distinct Pin objects.
+Pin placement is Slate state. UE finds and arranges the individual `SGraphPin`
+widgets when drawing connections and uses each Pin widget's allotted vertical
+center for straightening. At normal detail the Pin presentation contains its
+full horizontal row; at low Graph LOD, `SLevelOfDetailBranchNode` replaces that
+row with the compact Pin image. The full-detail row is therefore not a universal
+geometry source. Two Pins on opposite sides of one Node row may have the same Y
+coordinate while remaining distinct Pin objects.
 
 An off-viewport Node can still be measured when its real `SGraphNode` exists on
 the live panel. The provider must prepass that widget with the panel's effective
@@ -230,8 +234,8 @@ The field contract is:
 | --- | --- | --- |
 | Node | `visualBounds` | `[left, top, right, bottom]` for the Node body in graph-space Slate logical units. |
 | Pin | `visualState` | `measured` or `intentionally_not_presented`. |
-| Pin | `visualBounds` | Complete arranged `SGraphPin` row bounds in graph space. |
-| Pin | `visualCenter` | Center of the Pin row; its Y value is the row-alignment coordinate used by native straightening. |
+| Pin | `visualBounds` | Complete bounds of the currently arranged `SGraphPin` presentation in graph space: its full row at ordinary detail or its compact Pin presentation at low LOD. |
+| Pin | `visualCenter` | Center of the current Pin presentation; its Y value is the alignment coordinate used by native straightening. |
 | Pin | `placementAnchor` | Pin image center when available, otherwise the direction-appropriate row-edge midpoint. |
 | Pin | `placementAnchorKind` | `pin_image_center` or `pin_row_edge_midpoint`. |
 | Pin | `geometryReasons` | Ordered reasons why an intentionally unpresented Pin has no visual geometry. |
@@ -269,9 +273,11 @@ The closed ordered `geometryReasons` values are:
 4. `hidden_unconnected_no_default`.
 
 Standard hidden, advanced, and panel filters do not remove a connected Pin.
-If a custom Node presentation or low LOD makes a required connected Pin
-unmeasurable, authoritative enrichment is unavailable for the response rather
-than fabricating a Pin position.
+Low LOD remains measurable from UE's arranged `SGraphPin` and Pin-image
+geometry; the provider must not require the inactive full-detail row. If a
+custom Node presentation makes the required `SGraphPin` itself unmeasurable,
+authoritative enrichment is unavailable for the response rather than
+fabricating a Pin position.
 
 `placementAnchor` is useful for placement and wire reasoning, but it is not a
 promise of the final rendered Bezier endpoint. A schema-specific connection
@@ -282,6 +288,13 @@ drawing policy may add spline and arrow offsets.
 Authoritative visual geometry is available only from the actual live Graph
 Editor surface presenting the exact Target Graph. Opening the Blueprint asset
 alone is insufficient when that exact Graph has no live surface.
+
+UE may host a standalone asset editor as a native child `SWindow` rather than
+as an entry in Slate's top-level window array. Surface discovery therefore
+walks each interactive top-level window and its recursive `GetChildWindows()`
+hierarchy, matching UE's own `FSlateWindowHelper` traversal. Scanning only the
+ordinary widget children of top-level windows can incorrectly report
+`graph_not_open` for a visible, focused standalone Blueprint Editor.
 
 The Node does not need to be inside the current viewport. The exact Graph
 surface must, however, exist and be Slate-synchronized. Surface selection is:
@@ -714,8 +727,8 @@ automation result.
 - off-viewport Nodes are measured from their real widgets without changing the
   viewport or trusting stale cached offsets;
 - pan, window position, and view scale do not leak into graph-space values;
-- every measured Pin returns valid row bounds, center, placement anchor, and
-  anchor kind;
+- every measured Pin returns valid current-presentation bounds, center,
+  placement anchor, and anchor kind at both ordinary and low Graph LOD;
 - input and output Pins that share a row remain separate Pin objects;
 - every intentionally unpresented Pin returns the closed ordered reasons and no
   visual coordinates;
@@ -825,22 +838,38 @@ Implemented behavior:
 Known limitations and remaining audit work:
 
 - the live surface discovery path observes visible `SGraphEditor` widgets
-  reachable from interactive top-level Slate windows; background,
-  non-standard, or otherwise unreachable Graph surfaces are not a separate
-  authoritative source and can fall back as unavailable;
+  reachable from interactive top-level Slate windows and their native child
+  window hierarchies; background, non-standard, or otherwise unreachable Graph
+  surfaces are not a separate authoritative source and can fall back as
+  unavailable;
 - second-pass-dependent Nodes, missing or custom widget geometry, active
   interactions, incomplete synchronization, and invalid measurements
   deliberately fall back for the entire response rather than being estimated;
+- Pin capture follows UE's arranged `SGraphPin` path and remains precise when
+  low Graph LOD replaces the inactive full-detail row with its compact Pin
+  presentation;
 - live visual geometry remains an observation of one Query response, with no
   persistent snapshot, revision, or cross-Query atomicity;
-- dedicated automation now covers stored fallback, representative live Node and
-  Pin geometry, intentional Pin non-presentation, response-wide fallback after
-  a widget-inventory mismatch, non-unit Graph zoom, absolute move
-  planning/diffs, live readback, live-only parity rollback, and Undo without
-  viewport, dirty-state, or transaction leakage;
-- the final macOS arm64 candidate built with the Installed UE 5.7 toolchain and
-  passed all 138 native tests with no failure, timeout, crash report, or
-  runner-classified log hazard;
+- dedicated headless automation covers stored fallback, synthetic `SGraphEditor`
+  Node and Pin geometry, intentional Pin non-presentation, response-wide
+  fallback after a widget-inventory mismatch, non-unit Graph zoom, absolute
+  move planning/diffs, live readback, live-only parity rollback, and Undo
+  without viewport, dirty-state, or transaction leakage;
+- authoritative surface acceptance is separately covered by a rendered Editor
+  automation case that opens a real standalone `FBlueprintEditor`, brings the
+  exact Graph document to the foreground through UE's native
+  `OpenGraphAndBringToFront` path, verifies its normal native window and focus
+  path, sets low Graph LOD, and then exercises the same exact-Node `with layout`
+  Query. A `UnrealEditor-Cmd -NullRHI` pass alone does not satisfy this gate;
+- the July 31 macOS arm64 candidate built with the Installed UE 5.7 toolchain
+  and passed all 138 then-current native tests, but its geometry case was the
+  headless synthetic layer above rather than rendered Blueprint Editor proof;
+- the August 1 corrective arm64 incremental build passed the rendered
+  `LiveGeometry` gate 1/1 with the exact UE 5.7 `UnrealEditor` executable and no
+  `-NullRHI`; the isolated headless suite then passed 140/140, including
+  `HeadlessSyntheticGeometry` and an explicit non-rendering skip for the
+  rendered-only case, with no failure, timeout, runner-classified log hazard,
+  or new crash report;
 - dedicated variants for ambiguous live surfaces, active interactions,
   off-viewport and custom widgets, second-pass-dependent Nodes, Comments,
   Knots, the remaining hidden-Pin reasons, row-edge anchors, and every Query

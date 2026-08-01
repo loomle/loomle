@@ -480,8 +480,22 @@ public:
 
         FBlueprintEditor* Editor = static_cast<FBlueprintEditor*>(Input.AssetEditor);
         const FName SelectionState = Editor->GetUISelectionState();
+        UEdGraph* FocusedGraph = Editor->GetFocusedGraph();
+        UBlueprint* Blueprint = Editor->GetBlueprintObj();
+        const bool bFocusedGraphOwned =
+            FocusedGraph != nullptr
+            && Blueprint != nullptr
+            && FBlueprintEditorUtils::FindBlueprintForGraph(FocusedGraph) == Blueprint;
+        const bool bGraphFocusPath =
+            Input.HasWidgetType(FName(TEXT("SGraphEditor")))
+            && bFocusedGraphOwned;
+        const bool bGraphFromFocusedDocument =
+            bFocusedGraphOwned
+            && (Input.bDeferredTabRecognition || SelectionState.IsNone());
         FName Surface;
-        if (SelectionState == FBlueprintEditor::SelectionState_Graph)
+        if (bGraphFocusPath
+            || bGraphFromFocusedDocument
+            || SelectionState == FBlueprintEditor::SelectionState_Graph)
         {
             Surface = SurfaceBlueprintGraph;
         }
@@ -509,6 +523,11 @@ public:
         CopyRecognition(Input, OutRecord);
         OutRecord.Provider = Name();
         OutRecord.Surface = Surface;
+        OutRecord.BlueprintSelectionState = SelectionState;
+        OutRecord.BlueprintGraph = FocusedGraph;
+        OutRecord.bGraphSurfaceFromFocusPath = bGraphFocusPath;
+        OutRecord.bGraphSurfaceFromFocusedDocument =
+            bGraphFromFocusedDocument;
         return true;
     }
 
@@ -532,7 +551,7 @@ public:
                 Record,
                 TEXT("The structurally resolved Blueprint Editor does not uniquely own its reported Blueprint."));
         }
-        if (!SurfaceMatchesSelectionState(Record.Surface, Editor->GetUISelectionState()))
+        if (!SurfaceMatchesSelectionState(Record, Editor))
         {
             return InvalidTrackedSurface(
                 Record,
@@ -580,11 +599,40 @@ public:
     }
 
 private:
-    static bool SurfaceMatchesSelectionState(const FName Surface, const FName SelectionState)
+    static bool SurfaceMatchesSelectionState(
+        const FInteractionRecord& Record,
+        FBlueprintEditor* Editor)
     {
+        const FName Surface = Record.Surface;
+        const FName SelectionState = Editor->GetUISelectionState();
         if (Surface == SurfaceBlueprintGraph)
         {
-            return SelectionState == FBlueprintEditor::SelectionState_Graph;
+            UEdGraph* Graph = Editor->GetFocusedGraph();
+            UBlueprint* Blueprint = Editor->GetBlueprintObj();
+            if (Graph == nullptr
+                || Graph != Record.BlueprintGraph.Get()
+                || Blueprint == nullptr
+                || FBlueprintEditorUtils::FindBlueprintForGraph(Graph) != Blueprint)
+            {
+                return false;
+            }
+            if (SelectionState == FBlueprintEditor::SelectionState_Graph)
+            {
+                return true;
+            }
+            if (!Record.bGraphSurfaceFromFocusPath
+                && !Record.bGraphSurfaceFromFocusedDocument)
+            {
+                return false;
+            }
+            if (SelectionState != Record.BlueprintSelectionState)
+            {
+                // Structural evidence may repair UE's initialization-stale or
+                // empty Graph selection state, but it must not mask a later
+                // explicit Blueprint surface change.
+                return false;
+            }
+            return true;
         }
         if (Surface == SurfaceMyBlueprint)
         {
@@ -2696,6 +2744,24 @@ public:
         }
         const bool bObservedCurrentFocus = ObserveCurrentFocus();
         if (!bObservedCurrentFocus
+            && bHasRecord
+            && Current.Provider == ProviderUnknown
+            && Current.AssetEditor == nullptr
+            && Current.bHadTab
+            && !Current.bHadFocusPath)
+        {
+            const TSharedPtr<SDockTab> TrackedTab = Current.Tab.Pin();
+            if (TrackedTab.IsValid()
+                && TrackedTab->GetTabRole() == ETabRole::MajorTab)
+            {
+                // Standalone Asset Editors foreground their Major Tab before
+                // UAssetEditorSubsystem publishes the editor instance. Retry
+                // only this same structural Tab; Observe still requires it to
+                // be foreground in Slate's active regular window.
+                Observe(nullptr, TrackedTab, true);
+            }
+        }
+        if (!bObservedCurrentFocus
             && FSlateApplication::IsInitialized()
             && bHasRecord
             && Current.bHadTab)
@@ -2785,6 +2851,16 @@ public:
         }
         return nullptr;
     }
+
+    bool GetTrackedRecordForTesting(FInteractionRecord& OutRecord) const
+    {
+        if (!bHasRecord)
+        {
+            return false;
+        }
+        OutRecord = Current;
+        return true;
+    }
 #endif
 
 private:
@@ -2822,10 +2898,14 @@ private:
         return true;
     }
 
-    FRecognitionInput MakeInput(const FWidgetPath* Path, TSharedPtr<SDockTab> Tab) const
+    FRecognitionInput MakeInput(
+        const FWidgetPath* Path,
+        TSharedPtr<SDockTab> Tab,
+        const bool bDeferredTabRecognition = false) const
     {
         FRecognitionInput Input;
         Input.FocusPath = Path;
+        Input.bDeferredTabRecognition = bDeferredTabRecognition;
         Input.bModal = FSlateApplication::IsInitialized()
             && FSlateApplication::Get().GetActiveModalWindow().IsValid();
         if (Path != nullptr && Path->IsValid())
@@ -2864,9 +2944,15 @@ private:
         return Input;
     }
 
-    void Observe(const FWidgetPath* Path, const TSharedPtr<SDockTab>& Tab)
+    void Observe(
+        const FWidgetPath* Path,
+        const TSharedPtr<SDockTab>& Tab,
+        const bool bDeferredTabRecognition = false)
     {
-        const FRecognitionInput Input = MakeInput(Path, Tab);
+        const FRecognitionInput Input = MakeInput(
+            Path,
+            Tab,
+            bDeferredTabRecognition);
         if (Path == nullptr && Tab.IsValid())
         {
             if (!FSlateApplication::IsInitialized())
@@ -3079,6 +3165,12 @@ TSharedPtr<FJsonObject> FEditorContextService::BuildProviderForTesting(
     const FInteractionRecord& Record) const
 {
     return Impl->BuildProviderForTesting(ProviderName, Record);
+}
+
+bool FEditorContextService::GetTrackedRecordForTesting(
+    FInteractionRecord& OutRecord) const
+{
+    return Impl->GetTrackedRecordForTesting(OutRecord);
 }
 #endif
 }

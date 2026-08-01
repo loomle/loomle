@@ -4463,6 +4463,28 @@ void GatherVisibleGraphEditors(
     }
 }
 
+void GatherVisibleGraphEditorsFromWindowHierarchy(
+    const TSharedRef<SWindow>& Window,
+    UEdGraph* Graph,
+    TSet<const SGraphEditor*>& Seen,
+    TArray<TSharedPtr<SGraphEditor>>& Out)
+{
+    GatherVisibleGraphEditors(
+        Window,
+        Graph,
+        Seen,
+        Out);
+    for (const TSharedRef<SWindow>& ChildWindow :
+         Window->GetChildWindows())
+    {
+        GatherVisibleGraphEditorsFromWindowHierarchy(
+            ChildWindow,
+            Graph,
+            Seen,
+            Out);
+    }
+}
+
 bool WidgetTreeHasMouseCapture(const TSharedRef<SWidget>& Widget)
 {
     if (Widget->HasMouseCapture())
@@ -4663,15 +4685,8 @@ public:
             return;
         }
 
-        TSharedPtr<SHorizontalBox> RowWidget =
-            PinWidget->GetFullPinHorizontalRowWidget().Pin();
-        if (!RowWidget.IsValid())
-        {
-            Fail(TEXT("unsupported_widget_geometry"));
-            return;
-        }
         TSet<const SWidget*> Targets;
-        Targets.Add(RowWidget.Get());
+        Targets.Add(PinWidget.Get());
 
         const TSharedPtr<SWidget> PinImage =
             PinWidget->GetPinImageWidget();
@@ -4686,23 +4701,23 @@ public:
             Measured->Geometry,
             Targets,
             Arranged);
-        const FGeometry* RowGeometry =
-            Arranged.Find(RowWidget.Get());
-        if (RowGeometry == nullptr)
+        const FGeometry* PinGeometry =
+            Arranged.Find(PinWidget.Get());
+        if (PinGeometry == nullptr)
         {
             Fail(TEXT("unsupported_widget_geometry"));
             return;
         }
-        const FSlateRect RowBounds =
-            RowGeometry->GetLayoutBoundingRect();
-        if (!ValidateBounds(RowBounds))
+        const FSlateRect PinBounds =
+            PinGeometry->GetLayoutBoundingRect();
+        if (!ValidateBounds(PinBounds))
         {
             return;
         }
 
         const FVector2f Center(
-            (RowBounds.Left + RowBounds.Right) * 0.5f,
-            (RowBounds.Top + RowBounds.Bottom) * 0.5f);
+            (PinBounds.Left + PinBounds.Right) * 0.5f,
+            (PinBounds.Top + PinBounds.Bottom) * 0.5f);
         FVector2f Anchor;
         FString AnchorKind;
         const FGeometry* ImageGeometry =
@@ -4726,8 +4741,8 @@ public:
         {
             Anchor = FVector2f(
                 Pin->Direction == EGPD_Output
-                    ? RowBounds.Right
-                    : RowBounds.Left,
+                    ? PinBounds.Right
+                    : PinBounds.Left,
                 Center.Y);
             AnchorKind = TEXT("pin_row_edge_midpoint");
         }
@@ -4740,7 +4755,7 @@ public:
         Fields->SetField(
             TEXT("visualState"),
             Value::Name(TEXT("measured")));
-        SetBoundsField(Fields, TEXT("visualBounds"), RowBounds);
+        SetBoundsField(Fields, TEXT("visualBounds"), PinBounds);
         SetPointField(Fields, TEXT("visualCenter"), Center);
         SetPointField(Fields, TEXT("placementAnchor"), Anchor);
         Fields->SetField(
@@ -4816,7 +4831,7 @@ private:
         for (const TSharedRef<SWindow>& Window :
              Slate.GetInteractiveTopLevelWindows())
         {
-            GatherVisibleGraphEditors(
+            GatherVisibleGraphEditorsFromWindowHierarchy(
                 Window,
                 Graph,
                 Seen,

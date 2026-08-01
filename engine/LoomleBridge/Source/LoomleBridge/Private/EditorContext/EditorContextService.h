@@ -10,6 +10,7 @@ class IDetailsView;
 class SDockTab;
 class SWidget;
 class FWidgetPath;
+class UEdGraph;
 
 namespace Loomle::EditorContext
 {
@@ -32,6 +33,11 @@ struct FRecognitionInput
     FName EditorName;
     bool bModal = false;
     bool bRecoveredHostFromWindow = false;
+    /**
+     * The same foreground Major Tab is being re-observed after its Asset
+     * Editor association had not yet been published by UE.
+     */
+    bool bDeferredTabRecognition = false;
 
     bool HasTag(FName Tag) const;
     bool HasWidgetType(FName Type) const;
@@ -58,6 +64,14 @@ struct FInteractionRecord
     bool bHadSurfaceWidget = false;
     bool bHadFocusPath = false;
     bool bRecoveredHostFromWindow = false;
+    /** Blueprint UI state observed with this interaction. */
+    FName BlueprintSelectionState;
+    /** Exact focused Graph document observed with this interaction. */
+    TWeakObjectPtr<UEdGraph> BlueprintGraph;
+    /** The live Focus Path contained an SGraphEditor. */
+    bool bGraphSurfaceFromFocusPath = false;
+    /** The active Graph document resolved an otherwise empty/deferred surface. */
+    bool bGraphSurfaceFromFocusedDocument = false;
 };
 
 /** Bridge-internal extraction unit ordered by Priority (larger values win). */
@@ -106,6 +120,8 @@ public:
     TSharedPtr<FJsonObject> BuildProviderForTesting(
         FName ProviderName,
         const FInteractionRecord& Record) const;
+    /** Copies the retained private tracker record for race regression tests. */
+    bool GetTrackedRecordForTesting(FInteractionRecord& OutRecord) const;
 #endif
 
 private:

@@ -145,7 +145,7 @@ definitions strictly gives the following state:
 | Asset | Persistent | Save dry/live, unload/reload, zero-load Query | I/O failure behavior |
 | Class | Contract | Fixed-array save/unload/reload | Failure after live mutation begins |
 | Blueprint | Persistent for representative operations | Declaration, Graph, Component, rollback | Compound Interface/Component operations |
-| Graph Query | Contract | Flow, context, Palette, schema, stored layout fallback, representative live Node/Pin Slate geometry, response-wide fallback | `nodes` condition/order/cursor, normalized public layout path, and complete live-surface matrix |
+| Graph Query | Contract | Flow, context, Palette, schema, stored layout fallback, synthetic headless Node/Pin Slate geometry, rendered standalone Blueprint Editor geometry at low LOD, response-wide fallback | `nodes` condition/order/cursor, normalized public layout path, and complete live-surface matrix |
 | Graph Patch | Smoke with broad Lifecycle anchors | Add, connect, insert, break, dynamic Pin, absolute move plan/diff/precision/no-op/readback/parity rollback, Undo, persistent native topology | Mixed-operation diff contract, broader invalid-target matrix, reset, SAL-authored persistent topology |
 | Widget Query | Smoke | Tree depth, detached objects, Palette/schema | `widgets` condition/order/cursor and failure matrix |
 | Widget Patch | Smoke with a Persistent anchor | Add, Slot, wrap, rename, duplicate, replace, save/reload | Move, Named Slot, invalid Patch, live rollback |
@@ -241,10 +241,10 @@ The three added tests and the expanded live-move release blocker prove:
 - a closed Graph preserves stored `at` and optional `size`, emits no visual
   geometry, and returns the response-level
   `capability.layout_geometry_unavailable` warning with `graph_not_open`;
-- one live `SGraphEditor` surface returns measured graph-space Node bounds and
-  Pin row, center, placement-anchor, visibility-state, and ordered-reason
-  fields without changing the viewport, Package dirty state, or transaction
-  history;
+- one synthetic headless `SGraphEditor` surface returns measured graph-space
+  Node bounds and Pin row, center, placement-anchor, visibility-state, and
+  ordered-reason fields without changing the viewport, Package dirty state, or
+  transaction history;
 - desynchronizing UObject Pin presentation from the already-built Slate widget
   inventory removes every visual field and reports `pin_widget_unavailable`
   instead of mixing measured and fallback objects;
@@ -259,12 +259,27 @@ The three added tests and the expanded live-move release blocker prove:
   object and diff output, and restores Node position, Package dirty state, and
   Undo history atomically.
 
-The live geometry test is a representative Slate fixture, not exhaustive UI
-coverage. Ambiguous surfaces, active drag or relink interactions, off-viewport
-and custom widgets, second-pass-dependent Nodes, Comments, Knots, the remaining
-hidden-Pin reasons, row-edge anchors, and every Query projection still need
-dedicated variants even though the implementation fails closed when it cannot
-form one authoritative response.
+That 138-test `UnrealEditor-Cmd -NullRHI` run does not prove geometry capture
+from a real Blueprint asset editor. Layout acceptance therefore has two
+separate layers: the retained headless synthetic fixture checks measurement and
+fallback logic, while a rendered Editor test must open a standalone
+`FBlueprintEditor`, foreground the exact Graph document through UE's native
+path, verify the normal native window and focus path, and run the same exact-Node
+`with layout` Query. Ambiguous surfaces, active drag or relink interactions,
+off-viewport and custom widgets, second-pass-dependent Nodes, Comments, Knots,
+the remaining hidden-Pin reasons, row-edge anchors, and every Query projection
+still need dedicated variants even after that rendered gate passes.
+
+The August 1 corrective run exercises those layers separately. The exact UE 5.7
+arm64 `UnrealEditor` executable, without `-NullRHI`, passed
+`Loomle.Sal.Graph.Layout.LiveGeometry` 1/1 after opening a real standalone
+Blueprint Editor, foregrounding its exact Graph document, and measuring its
+compact low-LOD Pin presentation. The full isolated
+`UnrealEditor-Cmd -NullRHI` suite then passed 140/140 tests: 126 succeeded and 14
+succeeded with existing ordinary warning entries, with zero failures, unrun or
+in-process tests, timeout, runner-classified log hazard, or new crash report.
+That headless run executed `HeadlessSyntheticGeometry`; `LiveGeometry` recorded
+an explicit non-rendering skip and relies on the separate rendered result above.
 
 ## Release Gate
 

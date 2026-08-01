@@ -7,6 +7,8 @@
 #include "SalTestObjectModel.h"
 #include "Tests/LoomleTestEditorState.h"
 
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "BlueprintEditor.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "EdGraph/EdGraph.h"
@@ -18,6 +20,7 @@
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Framework/Docking/TabManager.h"
 #include "GameFramework/Actor.h"
 #include "GraphEditor.h"
 #include "HAL/IConsoleManager.h"
@@ -25,14 +28,18 @@
 #include "K2Node_CustomEvent.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
+#include "Misc/App.h"
 #include "Misc/AutomationTest.h"
 #include "SGraphNode.h"
 #include "SGraphPanel.h"
 #include "SGraphPin.h"
+#include "Settings/EditorStyleSettings.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 #include "UObject/GarbageCollection.h"
 #include "UObject/Package.h"
 #include "UObject/UObjectHash.h"
 #include "Widgets/SBoxPanel.h"
+#include "Widgets/Docking/SDockTab.h"
 #include "Widgets/SWindow.h"
 
 namespace
@@ -41,7 +48,8 @@ using namespace Loomle::Sal;
 
 constexpr TCHAR LayoutUnavailableCode[] =
     TEXT("capability.layout_geometry_unavailable");
-constexpr float LiveLayoutZoom = 0.75f;
+constexpr float SyntheticLayoutZoom = 0.75f;
+constexpr float RenderedLayoutZoom = 0.25f;
 
 FString GuidText(const FGuid& Guid)
 {
@@ -668,10 +676,10 @@ bool BuildPinOracle(
     const UEdGraphPin* Pin,
     FPinOracle& Out)
 {
-    const TSharedPtr<SHorizontalBox> Row =
-        PinWidget->GetFullPinHorizontalRowWidget().Pin();
-    if (!Row.IsValid()
-        || !WidgetBoundsInGraph(Panel, *Row, Out.Bounds))
+    if (!WidgetBoundsInGraph(
+            Panel,
+            PinWidget.Get(),
+            Out.Bounds))
     {
         return false;
     }
@@ -702,9 +710,21 @@ bool BuildPinOracle(
     return true;
 }
 
+enum class EGraphLayoutSurfaceMode
+{
+    HeadlessSynthetic,
+    RenderedBlueprintEditor
+};
+
 class FLiveGraphLayoutContext
 {
 public:
+    explicit FLiveGraphLayoutContext(
+        const EGraphLayoutSurfaceMode InMode)
+        : Mode(InMode)
+    {
+    }
+
     ~FLiveGraphLayoutContext()
     {
         FString Ignored;
@@ -720,28 +740,6 @@ public:
                 TEXT("Could not install an isolated transaction buffer.");
             return false;
         }
-        HeadlessDrawingCVar =
-            IConsoleManager::Get().FindConsoleVariable(
-                TEXT("Slate.SkipWidgetDrawingInHeadlessMode"));
-        if (HeadlessDrawingCVar == nullptr)
-        {
-            OutError =
-                TEXT("Slate.SkipWidgetDrawingInHeadlessMode is unavailable.");
-            return false;
-        }
-        HeadlessDrawingBefore =
-            HeadlessDrawingCVar->GetInt();
-        HeadlessDrawingCVar->ReplaceCurrentPriorityAndTag(
-            0,
-            ECVF_SetByConsole,
-            ECVF_SetByConstructor);
-        bHeadlessDrawingOverridden = true;
-        if (HeadlessDrawingCVar->GetInt() != 0)
-        {
-            OutError =
-                TEXT("Could not enable Slate drawing for the headless fixture.");
-            return false;
-        }
         Fixture = MakeUnique<FGraphLayoutFixture>();
         if (!Fixture->IsValid())
         {
@@ -749,43 +747,121 @@ public:
             return false;
         }
 
-        GraphEditor =
-            SNew(SGraphEditor)
-            .GraphToEdit(Fixture->Graph);
-        GraphEditor->SetViewLocation(
-            FVector2f::ZeroVector,
-            LiveLayoutZoom);
-        Window =
-            SNew(SWindow)
-            .Title(FText::FromString(
-                TEXT("Loomle Graph Layout Automation")))
-            .ClientSize(FVector2f(960.0f, 720.0f))
-            .SupportsMaximize(false)
-            .SupportsMinimize(false)
-            [
-                GraphEditor.ToSharedRef()
-            ];
-        FSlateApplication::Get().AddWindow(
-            Window.ToSharedRef(),
-            true);
-        FSlateApplication::Get().ForceRedrawWindow(
-            Window.ToSharedRef());
+        if (Mode == EGraphLayoutSurfaceMode::HeadlessSynthetic)
+        {
+            HeadlessDrawingCVar =
+                IConsoleManager::Get().FindConsoleVariable(
+                    TEXT("Slate.SkipWidgetDrawingInHeadlessMode"));
+            if (HeadlessDrawingCVar == nullptr)
+            {
+                OutError = TEXT(
+                    "Slate.SkipWidgetDrawingInHeadlessMode is unavailable.");
+                return false;
+            }
+            HeadlessDrawingBefore = HeadlessDrawingCVar->GetInt();
+            HeadlessDrawingCVar->ReplaceCurrentPriorityAndTag(
+                0,
+                ECVF_SetByConsole,
+                ECVF_SetByConstructor);
+            bHeadlessDrawingOverridden = true;
+            if (HeadlessDrawingCVar->GetInt() != 0)
+            {
+                OutError = TEXT(
+                    "Could not enable Slate drawing for the headless fixture.");
+                return false;
+            }
+
+            GraphEditor =
+                SNew(SGraphEditor)
+                .GraphToEdit(Fixture->Graph);
+            GraphEditor->SetViewLocation(
+                FVector2f::ZeroVector,
+                SyntheticLayoutZoom);
+            Window =
+                SNew(SWindow)
+                .Title(FText::FromString(
+                    TEXT("Loomle Graph Layout Automation")))
+                .ClientSize(FVector2f(960.0f, 720.0f))
+                .SupportsMaximize(false)
+                .SupportsMinimize(false)
+                [
+                    GraphEditor.ToSharedRef()
+                ];
+            FSlateApplication::Get().AddWindow(
+                Window.ToSharedRef(),
+                true);
+            FSlateApplication::Get().ForceRedrawWindow(
+                Window.ToSharedRef());
+        }
+        else
+        {
+            PreviousFocus =
+                FSlateApplication::Get().GetKeyboardFocusedWidget();
+            StyleSettings =
+                GetMutableDefault<UEditorStyleSettings>();
+            if (StyleSettings == nullptr)
+            {
+                OutError = TEXT("Editor Style settings are unavailable.");
+                return false;
+            }
+            PreviousOpenLocation =
+                StyleSettings->AssetEditorOpenLocation;
+            StyleSettings->AssetEditorOpenLocation =
+                EAssetEditorOpenLocation::NewWindow;
+            bOpenLocationOverridden = true;
+
+            Fixture->Blueprint->bIsNewlyCreated = false;
+            Fixture->Blueprint->bForceFullEditor = true;
+            Fixture->Blueprint->LastEditedDocuments.Reset();
+            Fixture->Blueprint->LastEditedDocuments.Add(
+                Fixture->Graph);
+            FAssetRegistryModule::AssetCreated(Fixture->Blueprint);
+            bAssetRegistered = true;
+            Fixture->Package->SetDirtyFlag(false);
+
+            UAssetEditorSubsystem* Editors =
+                GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+            TSharedPtr<IToolkitHost> NoToolkitHost;
+            if (Editors == nullptr
+                || !Editors->OpenEditorForAsset(
+                    Fixture->Blueprint,
+                    EToolkitMode::Standalone,
+                    NoToolkitHost,
+                    false))
+            {
+                OutError = TEXT(
+                    "UAssetEditorSubsystem could not open the Blueprint in Standalone mode.");
+                return false;
+            }
+        }
         StartSeconds = FPlatformTime::Seconds();
         return true;
     }
 
     bool IsTimedOut() const
     {
-        return FPlatformTime::Seconds() - StartSeconds > 12.0;
+        const double TimeoutSeconds =
+            Mode == EGraphLayoutSurfaceMode::RenderedBlueprintEditor
+                ? 30.0
+                : 12.0;
+        return FPlatformTime::Seconds() - StartSeconds > TimeoutSeconds;
     }
 
     bool IsSurfaceReady()
     {
-        if (!Fixture.IsValid()
-            || !GraphEditor.IsValid()
-            || !Window.IsValid())
+        if (!Fixture.IsValid())
         {
-            LastUnavailableReason = TEXT("fixture_or_surface_missing");
+            LastUnavailableReason = TEXT("fixture_missing");
+            return false;
+        }
+        if (Mode == EGraphLayoutSurfaceMode::RenderedBlueprintEditor
+            && !PrepareRenderedSurface())
+        {
+            return false;
+        }
+        if (!GraphEditor.IsValid() || !Window.IsValid())
+        {
+            LastUnavailableReason = TEXT("surface_missing");
             return false;
         }
         if (!Window->IsVisible())
@@ -886,6 +962,14 @@ public:
                 ZoomBefore,
                 1.0f,
                 KINDA_SMALL_NUMBER));
+        if (Mode
+            == EGraphLayoutSurfaceMode::RenderedBlueprintEditor)
+        {
+            Test.TestTrue(
+                TEXT("Rendered layout oracle exercises UE's compact low-LOD Pin presentation"),
+                Panel->GetCurrentLOD()
+                    <= EGraphRenderingLOD::LowDetail);
+        }
         const bool bDirtyBefore = Fixture->Package->IsDirty();
         const int32 QueueLengthBefore =
             GEditor->Trans->GetQueueLength();
@@ -1129,14 +1213,54 @@ public:
         }
         bCleaned = true;
 
-        if (Window.IsValid()
+        bool bEditorClosed = true;
+        if (Mode == EGraphLayoutSurfaceMode::RenderedBlueprintEditor
+            && GEditor != nullptr
+            && Fixture.IsValid()
+            && Fixture->Blueprint != nullptr)
+        {
+            UAssetEditorSubsystem* Editors =
+                GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+            if (Editors != nullptr)
+            {
+                if (Fixture->Package != nullptr)
+                {
+                    Fixture->Package->SetDirtyFlag(false);
+                }
+                Editors->CloseAllEditorsForAsset(Fixture->Blueprint);
+                bEditorClosed =
+                    Editors->FindEditorsForAsset(
+                        Fixture->Blueprint).IsEmpty();
+            }
+        }
+        else if (Window.IsValid()
             && FSlateApplication::IsInitialized())
         {
             FSlateApplication::Get().DestroyWindowImmediately(
                 Window.ToSharedRef());
         }
         GraphEditor.Reset();
+        GraphTab.Reset();
+        OwnerTab.Reset();
         Window.Reset();
+        Editor = nullptr;
+
+        if (bOpenLocationOverridden && StyleSettings != nullptr)
+        {
+            StyleSettings->AssetEditorOpenLocation =
+                PreviousOpenLocation;
+        }
+        StyleSettings = nullptr;
+        bOpenLocationOverridden = false;
+        if (bAssetRegistered
+            && Fixture.IsValid()
+            && Fixture->Blueprint != nullptr)
+        {
+            FAssetRegistryModule::AssetDeleted(
+                Fixture->Blueprint);
+        }
+        bAssetRegistered = false;
+
         if (HeadlessDrawingCVar != nullptr
             && bHeadlessDrawingOverridden)
         {
@@ -1149,26 +1273,229 @@ public:
         bHeadlessDrawingOverridden = false;
         Transactions.Restore();
 
+        bool bFixtureCleaned = true;
         if (Fixture.IsValid())
         {
-            const bool bResult = Fixture->Cleanup(OutError);
+            bFixtureCleaned = Fixture->Cleanup(OutError);
             Fixture.Reset();
-            return bResult;
         }
-        return true;
+        if (!bEditorClosed && OutError.IsEmpty())
+        {
+            OutError = TEXT(
+                "The Standalone Blueprint Editor remained open during cleanup.");
+        }
+        if (FSlateApplication::IsInitialized()
+            && PreviousFocus.IsValid())
+        {
+            FSlateApplication::Get().SetKeyboardFocus(
+                PreviousFocus,
+                EFocusCause::SetDirectly);
+        }
+        PreviousFocus.Reset();
+        return bEditorClosed && bFixtureCleaned;
     }
 
     FString LastUnavailableReason;
 
 private:
+    bool PrepareRenderedSurface()
+    {
+        if (Editor == nullptr)
+        {
+            UAssetEditorSubsystem* Editors =
+                GEditor != nullptr
+                    ? GEditor->GetEditorSubsystem<
+                        UAssetEditorSubsystem>()
+                    : nullptr;
+            IAssetEditorInstance* Instance =
+                Editors != nullptr && Fixture.IsValid()
+                    ? Editors->FindEditorForAsset(
+                        Fixture->Blueprint,
+                        false)
+                    : nullptr;
+            if (Instance == nullptr)
+            {
+                LastUnavailableReason =
+                    TEXT("asset_editor_not_registered");
+                return false;
+            }
+            if (Instance->GetEditorName()
+                != FName(TEXT("BlueprintEditor")))
+            {
+                LastUnavailableReason =
+                    TEXT("wrong_asset_editor_type");
+                return false;
+            }
+            Editor = static_cast<FBlueprintEditor*>(Instance);
+        }
+
+        const TSharedPtr<FTabManager> Manager =
+            Editor->GetAssociatedTabManager();
+        if (!OwnerTab.IsValid())
+        {
+            OwnerTab = Manager.IsValid()
+                ? Manager->GetOwnerTab()
+                : nullptr;
+            if (!OwnerTab.IsValid())
+            {
+                LastUnavailableReason =
+                    TEXT("owner_major_tab_missing");
+                return false;
+            }
+        }
+
+        if (!GraphEditor.IsValid()
+            || GraphEditor->GetCurrentGraph() != Fixture->Graph)
+        {
+            FocusRenderedSurface();
+            if (!GraphEditor.IsValid())
+            {
+                LastUnavailableReason =
+                    TEXT("graph_document_not_open");
+                return false;
+            }
+        }
+
+        const bool bGraphTabMatchesEditor =
+            GraphTab.IsValid()
+            && &GraphTab->GetContent().Get()
+                == static_cast<SWidget*>(GraphEditor.Get());
+        if (!bGraphTabMatchesEditor)
+        {
+            TArray<TSharedPtr<SDockTab>> GraphTabs;
+            Editor->FindOpenTabsContainingDocument(
+                Fixture->Graph,
+                GraphTabs);
+            GraphTab.Reset();
+            for (const TSharedPtr<SDockTab>& Candidate : GraphTabs)
+            {
+                if (Candidate.IsValid()
+                    && &Candidate->GetContent().Get()
+                        == static_cast<SWidget*>(
+                            GraphEditor.Get()))
+                {
+                    GraphTab = Candidate;
+                    break;
+                }
+            }
+        }
+        if (!GraphTab.IsValid())
+        {
+            LastUnavailableReason = TEXT("graph_tab_not_open");
+            return false;
+        }
+
+        if (Editor->GetFocusedGraph() != Fixture->Graph
+            || !OwnerTab->IsForeground()
+            || !GraphTab->IsForeground())
+        {
+            FocusRenderedSurface();
+            LastUnavailableReason = TEXT("graph_document_not_foreground");
+            return false;
+        }
+
+        Window = FSlateApplication::Get().FindWidgetWindow(
+            GraphEditor.ToSharedRef());
+        if (!Window.IsValid()
+            || Window->GetType() != EWindowType::Normal
+            || !Window->IsVisible()
+            || Window->IsWindowMinimized()
+            || !Window->GetNativeWindow().IsValid())
+        {
+            LastUnavailableReason =
+                TEXT("graph_window_not_interactive");
+            return false;
+        }
+        if (FSlateApplication::Get()
+                .GetActiveTopLevelRegularWindow()
+            != Window)
+        {
+            FocusRenderedSurface();
+            LastUnavailableReason = TEXT("graph_window_not_active");
+            return false;
+        }
+
+        const TSharedPtr<SWidget> FocusedWidget =
+            FSlateApplication::Get().GetKeyboardFocusedWidget();
+        FWidgetPath FocusPath;
+        if (!FocusedWidget.IsValid()
+            || !FSlateApplication::Get()
+                .GeneratePathToWidgetUnchecked(
+                    FocusedWidget.ToSharedRef(),
+                    FocusPath)
+            || !FocusPath.IsValid()
+            || !FocusPath.ContainsWidget(GraphEditor.Get()))
+        {
+            FocusRenderedSurface();
+            LastUnavailableReason =
+                TEXT("focus_path_outside_graph");
+            return false;
+        }
+
+        if (!bViewConfigured)
+        {
+            GraphEditor->SetViewLocation(
+                FVector2f::ZeroVector,
+                RenderedLayoutZoom);
+            FSlateApplication::Get().ForceRedrawWindow(
+                Window.ToSharedRef());
+            bViewConfigured = true;
+            LastUnavailableReason = TEXT("graph_view_configuring");
+            return false;
+        }
+        return true;
+    }
+
+    void FocusRenderedSurface()
+    {
+        if (OwnerTab.IsValid())
+        {
+            OwnerTab->ActivateInParent(
+                ETabActivationCause::SetDirectly);
+            const TSharedPtr<SWindow> OwnerWindow =
+                OwnerTab->GetParentWindow();
+            if (OwnerWindow.IsValid())
+            {
+                OwnerWindow->BringToFront();
+            }
+        }
+        if (Editor != nullptr
+            && Fixture.IsValid()
+            && Fixture->Graph != nullptr)
+        {
+            const TSharedPtr<SGraphEditor> FocusedGraphEditor =
+                Editor->OpenGraphAndBringToFront(
+                    Fixture->Graph,
+                    true);
+            if (FocusedGraphEditor.IsValid()
+                && FocusedGraphEditor != GraphEditor)
+            {
+                GraphEditor = FocusedGraphEditor;
+                GraphTab.Reset();
+                bViewConfigured = false;
+            }
+        }
+    }
+
+    EGraphLayoutSurfaceMode Mode;
     Loomle::Tests::FScopedIsolatedTransactor Transactions;
     TUniquePtr<FGraphLayoutFixture> Fixture;
+    FBlueprintEditor* Editor = nullptr;
     TSharedPtr<SGraphEditor> GraphEditor;
+    TSharedPtr<SDockTab> GraphTab;
+    TSharedPtr<SDockTab> OwnerTab;
     TSharedPtr<SWindow> Window;
+    UEditorStyleSettings* StyleSettings = nullptr;
+    EAssetEditorOpenLocation PreviousOpenLocation =
+        EAssetEditorOpenLocation::Default;
+    TSharedPtr<SWidget> PreviousFocus;
     IConsoleVariable* HeadlessDrawingCVar = nullptr;
     int32 HeadlessDrawingBefore = 1;
     double StartSeconds = 0.0;
     bool bHeadlessDrawingOverridden = false;
+    bool bOpenLocationOverridden = false;
+    bool bAssetRegistered = false;
+    bool bViewConfigured = false;
     bool bCleaned = false;
 };
 
@@ -1308,6 +1635,43 @@ bool FSalGraphStoredLayoutFallbackTest::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalGraphHeadlessSyntheticLayoutGeometryTest,
+    "Loomle.Sal.Graph.Layout.HeadlessSyntheticGeometry",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalGraphHeadlessSyntheticLayoutGeometryTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RequireEditor(
+            *this,
+            TEXT("Headless synthetic Graph layout geometry test"),
+            true))
+    {
+        return false;
+    }
+
+    const TSharedRef<FLiveGraphLayoutContext> Context =
+        MakeShared<FLiveGraphLayoutContext>(
+            EGraphLayoutSurfaceMode::HeadlessSynthetic);
+    FString InitializeError;
+    if (!TestTrue(
+            *FString::Printf(
+                TEXT("Headless synthetic Graph layout fixture initializes: %s"),
+                *InitializeError),
+            Context->Initialize(InitializeError)))
+    {
+        FString CleanupError;
+        Context->Cleanup(CleanupError);
+        return false;
+    }
+
+    ADD_LATENT_AUTOMATION_COMMAND(
+        FRunLiveGraphLayoutCommand(this, Context));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FSalGraphLiveLayoutGeometryTest,
     "Loomle.Sal.Graph.Layout.LiveGeometry",
     EAutomationTestFlags::EditorContext
@@ -1323,9 +1687,16 @@ bool FSalGraphLiveLayoutGeometryTest::RunTest(
     {
         return false;
     }
+    if (!FApp::CanEverRender())
+    {
+        AddInfo(TEXT(
+            "Rendered Blueprint Graph layout geometry is skipped because this Editor process cannot render."));
+        return true;
+    }
 
     const TSharedRef<FLiveGraphLayoutContext> Context =
-        MakeShared<FLiveGraphLayoutContext>();
+        MakeShared<FLiveGraphLayoutContext>(
+            EGraphLayoutSurfaceMode::RenderedBlueprintEditor);
     FString InitializeError;
     if (!TestTrue(
             *FString::Printf(

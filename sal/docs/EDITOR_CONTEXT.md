@@ -94,6 +94,19 @@ Pathless activation is accepted only when the Tab is foreground in its Tab
 Well and belongs to the active regular Slate window. Asset Editor association
 must agree with its registered foreground owner Major Tab.
 
+Standalone Asset Editor creation has one native ordering edge: UE may
+foreground the `StandaloneToolkit` Major Tab before the editor has installed
+its associated Tab Manager and registered itself with
+`UAssetEditorSubsystem`. A context observation made in that interval cannot
+yet prove the Asset Editor owner and may initially be Unknown.
+
+When Context is read, that provisional record may be recognized again only
+when the exact same tracked Tab is still valid, foreground, visible, and in
+Slate's active regular window. The delayed recognition then uses the completed
+Tab Manager and `UAssetEditorSubsystem` association. It never searches for a
+different Tab, chooses the first open editor, or revives a background owner.
+Failure to establish one unique association remains unresolved.
+
 An auxiliary editor window without an `SDockTab` can recover its owner only
 when UE's docking relationship proves:
 
@@ -158,6 +171,22 @@ The most specific provider on the real Focus Path wins.
 The focused Graph becomes the main Graph Target. One selected Graph Node maps
 to `@NodeGuid`. A selected Pin is deferred because Graph editors do not expose
 one reliable persistent selected-Pin API across surfaces.
+
+An `SGraphEditor` on the current Focus Path is direct structural evidence for
+the Graph surface and takes precedence over a stale Blueprint UI selection
+state. When no other Blueprint surface is explicitly selected,
+`FBlueprintEditor::GetFocusedGraph()` also identifies the active Graph
+document even when the Graph selection is empty. An empty Node selection is a
+successful Graph observation: it returns the exact Graph Target with no
+selected object rather than falling back to the Blueprint Target or an
+unresolved surface.
+
+The retained observation records that exact Graph document. Before projecting
+a result, Context requires the editor to report the same focused Graph, still
+owned by the same Blueprint. When structural evidence repaired an empty or
+initialization-stale Blueprint UI state, that UI state must also remain
+unchanged. A later Graph-document or explicit Blueprint-surface change therefore
+invalidates the old observation instead of silently retargeting it.
 
 Graph Target canonicalization requires Asset Path, owning `BlueprintGuid`, and
 `GraphGuid`. The context never substitutes current Graph name for a missing
@@ -411,13 +440,27 @@ Acceptance verifies:
 - every successful exact result contains a canonical Target table;
 - no provider introduces public syntax or implicit Domain composition.
 
-### Implementation Audit — 2026-07-25
+### Implementation Audit — 2026-07-31
 
 The Provider registry, tracker, result projection, private `editor.context`
 RPC, and public `editor_context` tool remain the implementation path covered by
-this design. The current SAL, interface, and Client unit suites pass; the
-Client suite reports 86 passing tests.
+this design.
 
-This documentation pass did not launch Unreal Editor or rerun UE compilation
-or live panel interactions. The mappings above are therefore source-audited,
-while panel-by-panel UE 5.7 interaction acceptance remains outstanding.
+A live UE 5.7 standalone Blueprint interaction exposed an ordering gap: the
+visible `BP_LoomleE2E / EventGraph` surface returned Unknown
+`StandaloneToolkit` context. UE source confirms that
+`FAssetEditorToolkit::InitAssetEditor()` can foreground the Major Tab before
+creating the associated Tab Manager and calling `NotifyAssetsOpened()`. The
+confirmed correction is the same-Tab delayed recognition rule above, together
+with structural `SGraphEditor` and valid focused-Graph handling for an empty
+Node selection.
+
+This correction adds no public call input, SAL syntax, result field, Target
+variant, or implicit mutation scope. Implementation acceptance requires a live
+standalone Blueprint test that starts Context tracking before the editor opens,
+observes the pre-registration pathless Unknown record on that same
+`StandaloneToolkit` Major Tab, opens an Event Graph with no selected Node and
+no follow-up click, and returns the canonical exact Graph Target. It also
+requires an old Graph observation to fail after the focused Graph document
+changes. Background, ambiguous, closed, or unregistered owners must continue
+to fail closed.
