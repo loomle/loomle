@@ -84,6 +84,7 @@ export async function assembleFabPlugin({ repoRoot, outputDir, target }) {
   const clientReceipt = join(dirname(clientSource), "build.json");
   const nodeLicense = join(dirname(clientSource), "node-license.txt");
   const enginePlugin = join(resolvedRepoRoot, "engine", "LoomleBridge");
+  const agentSkillsSource = join(resolvedRepoRoot, "skills");
   const fabReadme = join(resolvedRepoRoot, "packaging", "fab", "FAB_PLUGIN_README.md");
   const loomleLicense = join(resolvedRepoRoot, "LICENSE");
   const pluginRoot = join(resolvedOutputDir, "LoomleBridge");
@@ -94,6 +95,7 @@ export async function assembleFabPlugin({ repoRoot, outputDir, target }) {
     clientReceipt,
     nodeLicense,
     enginePlugin,
+    agentSkillsSource,
     fabReadme,
     loomleLicense,
   ];
@@ -105,9 +107,14 @@ export async function assembleFabPlugin({ repoRoot, outputDir, target }) {
     nodeLicensePath: nodeLicense,
     target,
   });
+  await validateAgentSkills(agentSkillsSource);
   await assertNoOutputOverlap(resolvedOutputDir, assemblyInputs);
   await resetDirectory(resolvedOutputDir);
   await copyPluginSource(enginePlugin, pluginRoot);
+  await copyRequiredDirectory(
+    agentSkillsSource,
+    join(pluginRoot, "Resources", "AgentSkills"),
+  );
   await copyRequiredFile(fabReadme, join(pluginRoot, "README.md"));
   await copyRequiredFile(loomleLicense, join(pluginRoot, "LICENSE"));
   await writeFile(
@@ -243,6 +250,11 @@ async function copyRequiredFile(source, destination) {
   if (!(await isFile(source))) fail(`file not found: ${source}`);
   await mkdir(dirname(destination), { recursive: true });
   await copyFile(source, destination);
+}
+
+async function copyRequiredDirectory(source, destination) {
+  if (!(await isDirectory(source))) fail(`source not found: ${source}`);
+  await cp(source, destination, { recursive: true });
 }
 
 async function validateClientExecutable(path, target) {
@@ -385,6 +397,7 @@ async function validateFabPlugin({
     join(pluginRoot, "Content"),
     join(pluginRoot, "Source"),
     join(pluginRoot, "Resources", "Loomle", target),
+    join(pluginRoot, "Resources", "AgentSkills"),
   ];
   const descriptorPath = join(pluginRoot, "LoomleBridge.uplugin");
   const filterPath = join(pluginRoot, "Config", "FilterPlugin.ini");
@@ -396,6 +409,13 @@ async function validateFabPlugin({
     join(pluginRoot, "Source", "LoomleBridge", "LoomleBridge.Build.cs"),
     filterPath,
     stagedClient,
+    join(
+      pluginRoot,
+      "Resources",
+      "AgentSkills",
+      "format-unreal-blueprints",
+      "SKILL.md",
+    ),
   ];
   const missing = [];
   for (const path of requiredDirectories) {
@@ -424,6 +444,7 @@ async function validateFabPlugin({
 
   await validateDescriptor(repoRoot, descriptorPath, targetSpec);
   await validateFilterPlugin(filterPath);
+  await validateAgentSkills(join(pluginRoot, "Resources", "AgentSkills"));
   await validateOnlyClientTarget(pluginRoot, target);
   await validateClientExecutable(stagedClient, target);
   const stagedClientSha256 = await sha256(stagedClient);
@@ -447,6 +468,21 @@ async function validateFabPlugin({
   }
   if (forbidden.length > 0) {
     fail(`Fab plugin contains unexpected platform/build outputs:\n${forbidden.join("\n")}`);
+  }
+}
+
+async function validateAgentSkills(skillsRoot) {
+  if (!(await isDirectory(skillsRoot))) fail(`source not found: ${skillsRoot}`);
+  const entries = await readdir(skillsRoot, { withFileTypes: true });
+  if (entries.length === 0) fail("Resources/AgentSkills must contain at least one skill.");
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) {
+      fail(`Resources/AgentSkills may contain only skill directories: ${entry.name}`);
+    }
+    const skillPath = join(skillsRoot, entry.name, "SKILL.md");
+    if (!(await isFile(skillPath)) || (await readFile(skillPath, "utf8")).trim() === "") {
+      fail(`Agent skill ${entry.name} must contain a non-empty SKILL.md.`);
+    }
   }
 }
 
@@ -518,6 +554,7 @@ async function validateFilterPlugin(filterPath) {
   const required = [
     "/Config/FilterPlugin.ini",
     "/Resources/Loomle/...",
+    "/Resources/AgentSkills/...",
     "/Resources/LoomleToolbarIcon.png",
     "/README.md",
     "/LICENSE",

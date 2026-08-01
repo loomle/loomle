@@ -70,6 +70,33 @@ test("assembles the Bridge source and only the canonical TypeScript Client execu
     );
     assert.equal(await exists(join(pluginRoot, "Resources", "MCP")), false);
     assert.equal(
+      await readFile(
+        join(
+          pluginRoot,
+          "Resources",
+          "AgentSkills",
+          "format-unreal-blueprints",
+          "SKILL.md",
+        ),
+        "utf8",
+      ),
+      "---\nname: format-unreal-blueprints\ndescription: fixture\n---\n",
+    );
+    assert.equal(
+      await readFile(
+        join(
+          pluginRoot,
+          "Resources",
+          "AgentSkills",
+          "format-unreal-blueprints",
+          "references",
+          "layout-rules.md",
+        ),
+        "utf8",
+      ),
+      "layout rules\n",
+    );
+    assert.equal(
       await exists(join(pluginRoot, "Resources", "Loomle", "darwin-arm64", "build.json")),
       false,
     );
@@ -161,6 +188,16 @@ test("normalizes release text to LF without touching the Client", async () => {
       ),
       "build one\r\nbuild two\r\n",
     );
+    await writeFile(
+      join(
+        fixture.repoRoot,
+        "skills",
+        "format-unreal-blueprints",
+        "references",
+        "layout-rules.md",
+      ),
+      "rule one\r\nrule two\r\n",
+    );
 
     await assembleFabPlugin({
       repoRoot: fixture.repoRoot,
@@ -182,6 +219,20 @@ test("normalizes release text to LF without touching the Client", async () => {
         "utf8",
       ),
       "build one\nbuild two\n",
+    );
+    assert.equal(
+      await readFile(
+        join(
+          pluginRoot,
+          "Resources",
+          "AgentSkills",
+          "format-unreal-blueprints",
+          "references",
+          "layout-rules.md",
+        ),
+        "utf8",
+      ),
+      "rule one\nrule two\n",
     );
     assert.equal(
       await readFile(
@@ -523,6 +574,56 @@ test("rejects a FilterPlugin contract that still names Resources\/MCP", async ()
   }
 });
 
+test("rejects a FilterPlugin contract that omits packaged Agent Skills", async () => {
+  const fixture = await createFixture("darwin-arm64", {
+    missingAgentSkillsFilter: true,
+  });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /FilterPlugin\.ini is missing required entries:.*Resources\/AgentSkills/s,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a missing canonical Agent Skills source", async () => {
+  const fixture = await createFixture("darwin-arm64", { includeAgentSkills: false });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /source not found: .*\/skills/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a malformed canonical Agent Skill directory", async () => {
+  const fixture = await createFixture("darwin-arm64", { malformedAgentSkill: true });
+  try {
+    await assert.rejects(
+      assembleFabPlugin({
+        repoRoot: fixture.repoRoot,
+        outputDir: fixture.outputDir,
+        target: "darwin-arm64",
+      }),
+      /Agent skill incomplete must contain a non-empty SKILL\.md/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("rejects a FilterPlugin contract that can retain BuildPlugin Intermediate output", async () => {
   const fixture = await createFixture("darwin-arm64", {
     missingIntermediateExclusion: true,
@@ -662,6 +763,25 @@ async function createFixture(target, options = {}) {
     },
   }));
   await write(join(repoRoot, "LICENSE"), "loomle license\n");
+  if (options.includeAgentSkills !== false) {
+    await write(
+      join(repoRoot, "skills", "format-unreal-blueprints", "SKILL.md"),
+      "---\nname: format-unreal-blueprints\ndescription: fixture\n---\n",
+    );
+    await write(
+      join(
+        repoRoot,
+        "skills",
+        "format-unreal-blueprints",
+        "references",
+        "layout-rules.md",
+      ),
+      "layout rules\n",
+    );
+    if (options.malformedAgentSkill) {
+      await write(join(repoRoot, "skills", "incomplete", "README.md"), "incomplete\n");
+    }
+  }
   await write(
     join(repoRoot, "node_modules", "example-package", "package.json"),
     JSON.stringify({
@@ -769,7 +889,9 @@ async function createFixture(target, options = {}) {
     join(pluginRoot, "Config", "FilterPlugin.ini"),
     options.legacyFilter
       ? "[FilterPlugin]\n/Config/FilterPlugin.ini\n/Resources/MCP/...\n/Resources/LoomleToolbarIcon.png\n/README.md\n/LICENSE\n/THIRD_PARTY_NOTICES.txt\n"
-      : "[FilterPlugin]\n/Config/FilterPlugin.ini\n/Resources/Loomle/...\n/Resources/LoomleToolbarIcon.png\n/README.md\n/LICENSE\n/THIRD_PARTY_NOTICES.txt\n"
+      : "[FilterPlugin]\n/Config/FilterPlugin.ini\n/Resources/Loomle/...\n"
+        + (options.missingAgentSkillsFilter ? "" : "/Resources/AgentSkills/...\n")
+        + "/Resources/LoomleToolbarIcon.png\n/README.md\n/LICENSE\n/THIRD_PARTY_NOTICES.txt\n"
         + (options.missingIntermediateExclusion ? "" : "-/Intermediate/...\n"),
   );
   await write(join(pluginRoot, "Resources", "LoomleToolbarIcon.png"), "icon");

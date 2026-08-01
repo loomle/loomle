@@ -834,6 +834,10 @@ Implemented behavior:
   placement;
 - Graph movement accepts absolute `to`, uses exact stored-coordinate planning,
   and supplies move-only rich diffs without adding automatic layout policy.
+- a vendor-neutral `format-unreal-blueprints` Agent Skill now captures the
+  first agent-side formatting policy, SAL workflow, and golden examples; the
+  repository-root source is copied into plugin `Resources/AgentSkills` during
+  packaging and remains distinct from an engine-side automatic layout planner.
 
 Known limitations and remaining audit work:
 
@@ -882,7 +886,8 @@ The following remain outside this design:
 
 - authoritative synthetic or headless Slate geometry;
 - wire spline geometry, crossings, bubbles, shadows, tooltips, and screenshots;
-- automatic layout planning and quality scoring;
+- engine-side automatic layout planning and quality scoring (the packaged
+  Agent Skill provides agent-side policy and iterative visual scoring only);
 - native align, distribute, stack, and straighten Patch operations;
 - deterministic formatting, anchors, collision avoidance, and Comment fitting;
 - reroute synthesis or deletion;

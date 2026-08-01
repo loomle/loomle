@@ -113,6 +113,7 @@ LoomleBridge/Content/
 LoomleBridge/Config/FilterPlugin.ini
 LoomleBridge/Source/LoomleBridge/LoomleBridge.Build.cs
 LoomleBridge/Resources/Loomle/<platform-arch>/loomle(.exe)
+LoomleBridge/Resources/AgentSkills/format-unreal-blueprints/SKILL.md
 ```
 
 Before UE compilation it must not include:
@@ -130,10 +131,16 @@ all generated product/protocol artifacts, then checks the staged descriptor and
 Client receipt against the root product and protocol versions. The receipt
 SHA-256 is checked against both source and staged Client bytes, target fields
 are checked against the accepted target, and `FilterPlugin.ini` must explicitly
-keep itself, `Resources/Loomle`, `LICENSE`, and
+keep itself, `Resources/Loomle`, `Resources/AgentSkills`, `LICENSE`, and
 `THIRD_PARTY_NOTICES.txt`. Assembly also validates the copied Node license and
 generates deterministic third-party notices from the production dependency
 set in `package-lock.json`.
+
+Agent Skills are authored once under the repository-root `skills/` directory
+using the vendor-neutral Agent Skills format. Assembly copies that canonical
+tree into `Resources/AgentSkills`; each immediate child must be a directory
+with a non-empty `SKILL.md`. The packaged skill therefore travels with Loomle
+without making the source format specific to Codex, Claude, or another host.
 
 UE BuildPlugin consumes that same staging tree and produces the full GitHub
 plugin. The resulting tree must add the matching Mac dylib or Win64 DLL, mark

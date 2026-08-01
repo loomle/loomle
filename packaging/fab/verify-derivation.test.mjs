@@ -62,6 +62,32 @@ test("rejects a GitHub package that omits Fab source", async () => {
   }
 });
 
+test("rejects a GitHub package that omits a packaged Agent Skill", async () => {
+  const fixture = await createFixture();
+  try {
+    await rm(
+      join(
+        fixture.githubRoot,
+        "Resources",
+        "AgentSkills",
+        "format-unreal-blueprints",
+        "SKILL.md",
+      ),
+      { force: true },
+    );
+    await assert.rejects(
+      verifyPackageDerivation({
+        sourcePluginRoot: fixture.sourceRoot,
+        githubPluginRoot: fixture.githubRoot,
+        target: "darwin-arm64",
+      }),
+      /omitted Fab source file: Resources\/AgentSkills\/format-unreal-blueprints\/SKILL\.md/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("rejects a non-build addition in the GitHub package", async () => {
   const fixture = await createFixture();
   try {
@@ -157,6 +183,16 @@ async function createFixture() {
   await write(
     join(sourceRoot, "Resources", "Loomle", "darwin-arm64", "loomle"),
     "client",
+  );
+  await write(
+    join(
+      sourceRoot,
+      "Resources",
+      "AgentSkills",
+      "format-unreal-blueprints",
+      "SKILL.md",
+    ),
+    "---\nname: format-unreal-blueprints\ndescription: fixture\n---\n",
   );
   await write(
     join(sourceRoot, "Source", "LoomleBridge", "LoomleBridge.Build.cs"),

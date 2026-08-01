@@ -85,6 +85,19 @@ test("merges verified native fragments into one source and one complete package"
       ),
       "shared\nsource\n",
     );
+    assert.equal(
+      await readFile(
+        join(
+          fixture.outputPlugin,
+          "Resources",
+          "AgentSkills",
+          "format-unreal-blueprints",
+          "SKILL.md",
+        ),
+        "utf8",
+      ),
+      "---\nname: format-unreal-blueprints\ndescription: fixture\n---\n",
+    );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -157,9 +170,23 @@ async function createFixture() {
     await mkdir(join(source, "Resources", "Loomle", platform.target), {
       recursive: true,
     });
+    await mkdir(
+      join(source, "Resources", "AgentSkills", "format-unreal-blueprints"),
+      { recursive: true },
+    );
     await mkdir(join(source, "Source", "LoomleBridge"), { recursive: true });
     await writeFile(join(source, "Config", "FilterPlugin.ini"), "[FilterPlugin]");
     await writeFile(join(source, "README.md"), "shared readme");
+    await writeFile(
+      join(
+        source,
+        "Resources",
+        "AgentSkills",
+        "format-unreal-blueprints",
+        "SKILL.md",
+      ),
+      "---\nname: format-unreal-blueprints\ndescription: fixture\n---\n",
+    );
     await writeFile(join(source, "Source", "LoomleBridge", "Bridge.cpp"), "shared source");
     await writeFile(join(source, platform.client), `${platform.target} client`);
     await writeFile(
