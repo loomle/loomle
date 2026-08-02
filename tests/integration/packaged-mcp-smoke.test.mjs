@@ -597,7 +597,7 @@ class FakePackagedHarness {
                 "result unresolved_target",
                 "objects",
                 "# surface: SLevelViewport",
-                "# selection: unavailable",
+                "# selected: none",
               ].join("\n"),
               [
                 "###",

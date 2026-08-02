@@ -273,7 +273,7 @@ export async function runPackagedMcpSmoke(options = {}) {
       );
       assert(
         /(^|\n)\s*(?:#\s*)?surface:/m.test(context)
-          && /(^|\n)\s*(?:#\s*)?selection:/m.test(context),
+          && /(^|\n)\s*(?:#\s*)?(?:selection|selected):/m.test(context),
         "editor_context did not report both surface and selection",
       );
     });
