@@ -66,21 +66,21 @@ interface card states the exact subjects that accept it.
 
 ## Install
 
-Loomle 0.7.1 is available from
-[GitHub Releases](https://github.com/loomle/loomle/releases/tag/v0.7.1)
+Loomle 0.7.2 is available from
+[GitHub Releases](https://github.com/loomle/loomle/releases/tag/v0.7.2)
 for Unreal Engine 5.7:
 
-| Platform | Architecture | Package |
-| --- | --- | --- |
-| macOS | Apple Silicon | `loomle-fab-plugin-darwin-arm64.zip` |
-| Windows | x64 | `loomle-fab-plugin-win32-x64.zip` |
+| Package | Contents |
+| --- | --- |
+| `loomle-bridge-0.7.2.zip` | Complete Mac Apple Silicon and Windows x64 plugin |
+| `loomle-bridge-0.7.2-source.zip` | Cross-platform Fab source package |
 
 The public
 [Fab listing](https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428)
 still distributes Loomle 0.6. Do not use that package with the 0.7
 documentation.
 
-Each platform archive contains both components:
+The complete archive contains both native targets and their matching Clients:
 
 ```text
 LoomleBridge/
@@ -99,7 +99,7 @@ Before upgrading from 0.6, close Unreal Editor and remove or move the old
 `<Project>/Plugins/LoomleBridge` directory. A same-named project plugin takes
 precedence over the new engine plugin and would keep loading 0.6.
 
-Extract the matching archive, then copy the complete `LoomleBridge` directory
+Extract the complete archive, then copy the `LoomleBridge` directory
 to:
 
 ```text
