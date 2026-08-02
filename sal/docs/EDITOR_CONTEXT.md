@@ -107,13 +107,30 @@ Tab Manager and `UAssetEditorSubsystem` association. It never searches for a
 different Tab, chooses the first open editor, or revives a background owner.
 Failure to establish one unique association remains unresolved.
 
-An auxiliary editor window without an `SDockTab` can recover its owner only
-when UE's docking relationship proves:
+If exact window ownership proves one Blueprint Editor but UE has not yet
+published a focused Graph document, Context returns that editor's exact
+Blueprint Target through the generic Asset Editor mapping. A visible Graph name,
+restored-document label, or conventional `EventGraph` name is not enough to
+invent a Graph Target. Once UE reports an owned focused Graph, Context returns
+the exact Graph Target without requiring a selection.
+
+An editor Focus Path without an `SDockTab` can recover its owner from the
+containing normal window only when UE's docking relationship proves:
 
 - visible, non-minimized normal window;
-- exact sub-TabManager owned by one foreground Major Tab;
+- exactly one candidate Asset Editor whose registered Major Tab owns that root
+  window, or whose associated sub-TabManager is UE's native match for that
+  auxiliary Docking Area;
+- that sub-TabManager is registered to the same foreground Major Tab;
 - exactly one matching Asset Editor;
 - exactly one edited Asset.
+
+UE 5.7's `FGlobalTabmanager::GetSubTabManagerForWindow()` recognizes both the
+Major Tab's parent window and auxiliary Docking Areas owned by its TabManager.
+Context preserves that native distinction and applies a uniqueness check over
+all open Asset Editors before accepting either path. The Major Tab parent
+window is matched directly and is not rejected merely because it is the
+editor's root window.
 
 Window title, localized visible text, timestamps, heuristic scores, and “first
 open editor” are never identity.
@@ -316,6 +333,17 @@ reported by `ULevelInstanceSubsystem`, never the temporary instance package.
 Zero, multiple, or unsupported selections retain the Editor World owner.
 Editor Context reads Editor World, never transient PIE World.
 
+The native `SLevelViewport` widget type is direct structural evidence for the
+Level Editor even when its Focus Path contains no `SDockTab`. The broader
+`SEditorViewport` type and generic `LevelEditorViewport` metadata remain
+insufficient because asset editors and custom viewports reuse them.
+
+An unsaved Editor World has no registered persistent Asset Target. Context
+still reports the recognized Level Editor surface and current selection state,
+but returns `unresolved_target` with a diagnostic that identifies the temporary
+map package and suggests saving the map. It never turns the transient package
+name into an Asset Target.
+
 ### Generic Details
 
 Specific providers take precedence. Otherwise:
@@ -464,3 +492,36 @@ no follow-up click, and returns the canonical exact Graph Target. It also
 requires an old Graph observation to fail after the focused Graph document
 changes. Background, ambiguous, closed, or unregistered owners must continue
 to fail closed.
+
+### Implementation Audit — 2026-08-01
+
+A later real Blueprint interaction returned Unknown `SGraphPanel` even though
+the focused Blueprint and EventGraph remained open. The result proves that the
+Graph leaf was observed but no Asset Editor owner reached the Blueprint
+provider. Review against UE 5.7 found that Loomle's window recovery accepted
+only an auxiliary Docking Area and explicitly rejected the foreground Major
+Tab's own parent window, while UE's native window-to-sub-TabManager mapping
+supports both.
+
+The correction is to evaluate all open Asset Editors by their associated
+TabManager, registered foreground Major Tab, and exact window ownership, then
+accept the owner only when one editor and one edited Asset remain. Acceptance
+adds a rendered standalone Blueprint regression for root-window recovery and
+retains negative coverage for ambiguous, background, unregistered, and
+auxiliary-window ownership. No public syntax or result shape changes.
+
+A follow-up live audit isolated two remaining cases. First, an unsaved map with
+keyboard focus on a native `SLevelViewport` fell through to Unknown because the
+Focus Path contained no viewport DockTab. Second, a restored standalone
+Blueprint initially retained only its foreground `StandaloneToolkit` Major Tab;
+before the user clicked the Graph, Context did not recover the registered Asset
+Editor. Clicking the native `SGraphPanel` immediately produced the correct
+Graph Target and selected Node, proving that Graph and selection projection
+were already sound.
+
+The correction recognizes exact `SLevelViewport` structure without weakening
+generic viewport rejection, reports unsaved-map identity failure explicitly,
+and lets a pathless foreground Major Tab reuse the same exact window-owner
+recovery used by focused widgets. A recovered Blueprint Editor without a native
+focused Graph falls back to its exact Blueprint Target. It does not infer a
+Graph from names or restored visible labels.

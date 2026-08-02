@@ -151,7 +151,7 @@ definitions strictly gives the following state:
 | Widget Patch | Smoke with a Persistent anchor | Add, Slot, wrap, rename, duplicate, replace, save/reload | Move, Named Slot, invalid Patch, live rollback |
 | Reference | Contract | Six local declaration kinds, Blueprint/Graph scope, pagination, zero-load project index | Widget, Macro, native member, and project parity |
 | StateTree | Contract with a Persistent anchor | Class-backed Node/Binding and compile/save/reload | Failure after live mutation begins |
-| Editor Context | Smoke | Modal, Content Browser, Level Editor, unknown fallback | Real Blueprint/Widget/Details focus and selection recovery |
+| Editor Context | Smoke with rendered Blueprint anchor | Modal, Content Browser, Level Editor, unknown fallback, standalone Blueprint Graph focus/window recovery | Real Widget/Details focus and selection recovery |
 | Pipe | Real transport contract with Lifecycle anchors | Windows overlapped round trip, control, stale isolation, worker-aware stop | Busy saturation, partial frames, and multiple simultaneous clients |
 
 ## Windows Repair Audit
@@ -281,6 +281,27 @@ in-process tests, timeout, runner-classified log hazard, or new crash report.
 That headless run executed `HeadlessSyntheticGeometry`; `LiveGeometry` recorded
 an explicit non-rendering skip and relies on the separate rendered result above.
 
+## Editor Context Window And Unsaved-Level Audit
+
+The August 1 rendered UE 5.7 arm64 run passed all 5
+`Loomle.EditorContext.BuiltIn` tests without warnings or failures. The expanded
+fixtures prove:
+
+- a standalone Blueprint Editor can recover its exact native Asset Editor and
+  registered Major Tab from the root window even when the focused child has no
+  usable DockTab path;
+- native `SGraphPanel` focus resolves the exact focused Graph, while a stale
+  Graph UI state without an owned focused Graph cannot invent an EventGraph;
+- an exact Blueprint Editor without native Graph evidence falls back to its
+  exact Blueprint Target; and
+- a tabless native `SLevelViewport` still establishes Level Editor ownership,
+  while an unsaved temporary World returns `unresolved_target`, explains the
+  missing persistent Asset identity, and directs the agent to save the map.
+
+The test uses a real rendered standalone Blueprint window and verifies fixture
+cleanup after closing it. Widget Designer and Details-panel focus/selection
+recovery remain the primary Editor Context coverage gaps.
+
 ## Release Gate
 
 An active public operation must have a matrix entry and a named native test.
@@ -297,8 +318,9 @@ The 0.7 native release gate must at minimum close:
 6. in-flight cancellation and shutdown behavior at the transport boundary.
 
 The second remediation provides representative anchors for items 1–4 and the
-transport behavior in item 6. Item 5 remains partial until real Blueprint and
-Widget editor focus/selection paths are exercised. The stricter per-surface
+transport behavior in item 6. Item 5 now has a real standalone Blueprint
+focus/window-recovery anchor but remains partial until Widget and Details
+focus/selection paths are exercised. The stricter per-surface
 boundaries in the table above remain release risks even though the current
 138-test matrix is green.
 

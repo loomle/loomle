@@ -15,6 +15,7 @@
 #include "Editor.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
+#include "Engine/World.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Docking/TabManager.h"
 #include "GameFramework/Actor.h"
@@ -210,6 +211,40 @@ bool ResultContainsDiagnosticCode(
         if (Diagnostic.IsValid()
             && Diagnostic->TryGetStringField(TEXT("code"), Code)
             && Code == ExpectedCode)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ResultDiagnosticFieldContains(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& ExpectedCode,
+    const FString& Field,
+    const FString& ExpectedText)
+{
+    if (!Result.IsValid())
+    {
+        return false;
+    }
+    const TArray<TSharedPtr<FJsonValue>>* Diagnostics = nullptr;
+    if (!Result->TryGetArrayField(TEXT("diagnostics"), Diagnostics)
+        || Diagnostics == nullptr)
+    {
+        return false;
+    }
+    for (const TSharedPtr<FJsonValue>& Value : *Diagnostics)
+    {
+        const TSharedPtr<FJsonObject> Diagnostic =
+            Value.IsValid() ? Value->AsObject() : nullptr;
+        FString Code;
+        FString Text;
+        if (Diagnostic.IsValid()
+            && Diagnostic->TryGetStringField(TEXT("code"), Code)
+            && Code == ExpectedCode
+            && Diagnostic->TryGetStringField(Field, Text)
+            && Text.Contains(ExpectedText))
         {
             return true;
         }
@@ -623,6 +658,23 @@ public:
             {
                 return false;
             }
+
+            const TSharedPtr<SWindow> GraphWindow =
+                FSlateApplication::Get().FindWidgetWindow(
+                    GraphEditor.ToSharedRef());
+            TSharedPtr<SDockTab> WindowRecoveredOwnerTab;
+            IAssetEditorInstance* WindowRecoveredEditor =
+                FEditorContextService::Get()
+                    .ResolveAssetEditorForWindowForTesting(
+                        GraphWindow,
+                        WindowRecoveredOwnerTab);
+            Test.TestTrue(
+                TEXT("Standalone Blueprint root window recovers its exact Asset Editor"),
+                WindowRecoveredEditor == Editor);
+            Test.TestTrue(
+                TEXT("Standalone Blueprint root window recovers its registered Major Tab"),
+                WindowRecoveredOwnerTab == OwnerTab);
+
             FSlateApplication::Get().ClearKeyboardFocus(
                 EFocusCause::SetDirectly);
             Test.TestFalse(
@@ -856,6 +908,16 @@ public:
 
         Editor->SetUISelectionState(
             FBlueprintEditor::SelectionState_ClassDefaults);
+        {
+            const TSharedPtr<SWidget> GraphFocusedWidget =
+                FSlateApplication::Get().GetKeyboardFocusedWidget();
+            Test.TestEqual(
+                TEXT("Native Graph keyboard focus rests on the inner SGraphPanel"),
+                GraphFocusedWidget.IsValid()
+                    ? GraphFocusedWidget->GetType()
+                    : NAME_None,
+                FName(TEXT("SGraphPanel")));
+        }
         Test.TestEqual(
             TEXT("Public Context fixture preserves a stale non-Graph Blueprint UI state"),
             Editor->GetUISelectionState(),
@@ -1021,12 +1083,45 @@ public:
             ResultHasErrorDiagnostic(ComponentsResult));
         IsValidSalResult(Test, ComponentsResult);
 
+        Test.TestFalse(
+            TEXT("A stale Graph UI state without an owned focused Graph is not recognized as a Graph surface"),
+            FEditorContextService::Get().RecognizesBlueprintGraphSurfaceForTesting(
+                FBlueprintEditor::SelectionState_Graph,
+                false,
+                false,
+                false));
+
+        FInteractionRecord GenericBlueprintRecord;
+        Test.TestTrue(
+            TEXT("The generic provider accepts the exact Blueprint Asset Editor fallback"),
+            FEditorContextService::Get().RecognizeProviderForTesting(
+                FName(TEXT("generic_asset_editor")),
+                ExplicitSurfaceInput,
+                GenericBlueprintRecord));
+        const TSharedPtr<FJsonObject> GenericBlueprintResult =
+            FEditorContextService::Get().BuildProviderForTesting(
+                FName(TEXT("generic_asset_editor")),
+                GenericBlueprintRecord);
+        Test.TestTrue(
+            TEXT("The generic Blueprint fallback returns the exact Blueprint Target"),
+            ResultHasExactBlueprintTarget(
+                GenericBlueprintResult,
+                Blueprint));
+        Test.TestFalse(
+            TEXT("The Blueprint fallback does not invent an EventGraph Target"),
+            ResultHasExactGraphTarget(
+                GenericBlueprintResult,
+                Blueprint,
+                Graph));
+        IsValidSalResult(Test, GenericBlueprintResult);
+
         FString CleanupError;
+        const bool bCleanupSucceeded = Cleanup(CleanupError);
         Test.TestTrue(
             *FString::Printf(
                 TEXT("Standalone Context fixture cleans up: %s"),
                 *CleanupError),
-            Cleanup(CleanupError));
+            bCleanupSucceeded);
         return true;
     }
 
@@ -1764,6 +1859,21 @@ bool FEditorContextBuiltInLevelEditorOwnershipTest::RunTest(
             GenericViewportInput,
             Rejected));
 
+    FRecognitionInput ExactViewportInput = GenericViewportInput;
+    ExactViewportInput.WidgetTypes.Add(
+        FName(TEXT("SLevelViewport")));
+    FInteractionRecord ExactViewportRecord;
+    TestTrue(
+        TEXT("The native SLevelViewport type establishes Level Editor ownership without a DockTab"),
+        Service.RecognizeProviderForTesting(
+            FName(TEXT("level_editor")),
+            ExactViewportInput,
+            ExactViewportRecord));
+    TestEqual(
+        TEXT("A tabless native Level viewport records the Level Editor surface"),
+        ExactViewportRecord.Surface,
+        FName(TEXT("level_editor")));
+
     FRecognitionInput LevelInput = GenericViewportInput;
     LevelInput.TabId = FName(TEXT("LevelEditorViewport"));
     FInteractionRecord Record;
@@ -1787,6 +1897,43 @@ bool FEditorContextBuiltInLevelEditorOwnershipTest::RunTest(
             FName(TEXT("level_editor")),
             LevelInput,
             AssetOwnedRecord));
+
+    UPackage* UnsavedPackage = CreatePackage(
+        TEXT("/Temp/LoomleUnsavedEditorWorld"));
+    UWorld* UnsavedWorld = NewObject<UWorld>(
+        UnsavedPackage,
+        FName(TEXT("LoomleUnsavedEditorWorld")),
+        RF_Transient);
+    const TSharedPtr<FJsonObject> UnsavedResult =
+        Service.BuildLevelWorldForTesting(UnsavedWorld);
+    TestTrue(
+        TEXT("An unsaved Level Editor world has unresolved Target context"),
+        ResultHasTargetContext(
+            UnsavedResult,
+            TEXT("unresolved_target")));
+    TestTrue(
+        TEXT("An unsaved Level Editor world retains its recognized surface"),
+        ResultContainsComment(
+            UnsavedResult,
+            TEXT("Level Editor")));
+    TestTrue(
+        TEXT("An unsaved Level Editor world explains its missing persistent identity"),
+        ResultContainsComment(
+            UnsavedResult,
+            TEXT("no registered persistent Asset identity")));
+    TestTrue(
+        TEXT("An unsaved Level Editor world emits the registered unresolved Target diagnostic"),
+        ResultContainsDiagnosticCode(
+            UnsavedResult,
+            TEXT("resolution.unresolved_target")));
+    TestTrue(
+        TEXT("An unsaved Level Editor world suggests saving the map"),
+        ResultDiagnosticFieldContains(
+            UnsavedResult,
+            TEXT("resolution.unresolved_target"),
+            TEXT("suggestion"),
+            TEXT("Save the current map")));
+    IsValidSalResult(*this, UnsavedResult);
     return true;
 }
 

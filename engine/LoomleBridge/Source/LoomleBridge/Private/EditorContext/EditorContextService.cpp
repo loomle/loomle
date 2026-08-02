@@ -103,6 +103,25 @@ struct FContextOutput
         bHasError = true;
     }
 
+    void Unresolved(
+        const FString& Message,
+        const FString& Suggestion,
+        const FString& Ref = FString())
+    {
+        FSalDiagnosticBuilder Diagnostic =
+            FSalDiagnostics::Error(
+                TEXT("resolution.unresolved_target"),
+                Message)
+            .Interface(TEXT("editor_context"))
+            .Suggestion(Suggestion);
+        if (!Ref.IsEmpty())
+        {
+            Diagnostic.Ref(Ref);
+        }
+        Diagnostics.Add(Diagnostic.Build());
+        bHasError = true;
+    }
+
     void ExactTarget(
         const FString& PreferredAlias,
         const TSharedPtr<FJsonObject>& InTarget)
@@ -454,6 +473,18 @@ public:
     }
 };
 
+bool ShouldRecognizeBlueprintGraphSurface(
+    const FName SelectionState,
+    const bool bFocusedGraphOwned,
+    const bool bGraphFocusPath,
+    const bool bGraphFromFocusedDocument)
+{
+    return bGraphFocusPath
+        || bGraphFromFocusedDocument
+        || (SelectionState == FBlueprintEditor::SelectionState_Graph
+            && bFocusedGraphOwned);
+}
+
 class FBlueprintProvider final : public IEditorContextProvider
 {
 public:
@@ -493,9 +524,11 @@ public:
             bFocusedGraphOwned
             && (Input.bDeferredTabRecognition || SelectionState.IsNone());
         FName Surface;
-        if (bGraphFocusPath
-            || bGraphFromFocusedDocument
-            || SelectionState == FBlueprintEditor::SelectionState_Graph)
+        if (ShouldRecognizeBlueprintGraphSurface(
+                SelectionState,
+                bFocusedGraphOwned,
+                bGraphFocusPath,
+                bGraphFromFocusedDocument))
         {
             Surface = SurfaceBlueprintGraph;
         }
@@ -1411,19 +1444,31 @@ FAssetData FindRegisteredWorldAsset(UWorld* World)
     return FindRegisteredWorldAsset(FSoftObjectPath(World));
 }
 
-void EmitWorldOwner(FContextOutput& Out, UWorld* World)
+bool EmitWorldOwner(FContextOutput& Out, UWorld* World)
 {
-    const FAssetData WorldAsset = FindRegisteredWorldAsset(World);
+    const FString PackageName = World != nullptr
+        ? World->GetOutermost()->GetName()
+        : FString();
+    const FAssetData WorldAsset =
+        World != nullptr && !FPackageName::IsTempPackage(PackageName)
+            ? FindRegisteredWorldAsset(World)
+            : FAssetData();
     if (WorldAsset.IsValid())
     {
         EmitAsset(Out, WorldAsset);
+        return true;
     }
-    else if (World != nullptr)
+    if (World != nullptr)
     {
         Out.Builder.AddComment(FString::Printf(
-            TEXT("map asset: unavailable\npackagePath: \"%s\""),
-            *World->GetOutermost()->GetName()));
+            TEXT("map asset: unavailable\npackagePath: \"%s\"\nreason: map has no registered persistent Asset identity"),
+            *PackageName));
+        Out.Unresolved(
+            TEXT("The Level Editor map has no registered persistent Asset Target."),
+            TEXT("Save the current map, then retry editor_context."),
+            PackageName);
     }
+    return false;
 }
 
 bool EmitAuthoredLevelOwner(FContextOutput& Out, UWorld* EditorWorld, const ULevel* Level)
@@ -1572,7 +1617,9 @@ public:
         // Outliners. SEditorViewport also applies "LevelEditorViewport" as a
         // generic default tag, so only native Level Editor tabs establish
         // ownership of the global Level selection set.
-        if (!bLevelTab)
+        const bool bExactLevelViewport =
+            Input.HasWidgetType(FName(TEXT("SLevelViewport")));
+        if (!bLevelTab && !bExactLevelViewport)
         {
             return false;
         }
@@ -2433,48 +2480,54 @@ IAssetEditorInstance* FindAssetEditorForWindow(
         return nullptr;
     }
 
-    const TSharedRef<FGlobalTabmanager> GlobalManager = FGlobalTabmanager::Get();
-    const TSharedPtr<FTabManager> WindowManager = GlobalManager->GetSubTabManagerForWindow(Window.ToSharedRef());
-    if (!WindowManager.IsValid())
-    {
-        return nullptr;
-    }
-    const TSharedPtr<SDockTab> OwnerTab = WindowManager->GetOwnerTab();
-    const TSharedPtr<SDockTab> RegisteredMajorTab = GlobalManager->GetMajorTabForTabManager(WindowManager.ToSharedRef());
-    const TSharedPtr<SWindow> OwnerWindow = OwnerTab.IsValid() ? OwnerTab->GetParentWindow() : nullptr;
-    // UE resolves either the owner/root window or a Docking Area owned by the
-    // manager. Rejecting the owner window leaves only the exact auxiliary
-    // Docking Area path; the root-window branch is not structurally unique.
-    if (!OwnerTab.IsValid()
-        || OwnerTab != RegisteredMajorTab
-        || OwnerTab->GetTabRole() != ETabRole::MajorTab
-        || !OwnerTab->IsForeground()
-        || !OwnerWindow.IsValid()
-        || OwnerWindow == Window)
-    {
-        return nullptr;
-    }
-
     UAssetEditorSubsystem* Editors = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
     if (Editors == nullptr)
     {
         return nullptr;
     }
+
+    const TSharedRef<FGlobalTabmanager> GlobalManager = FGlobalTabmanager::Get();
+    const TSharedPtr<FTabManager> NativeWindowManager =
+        GlobalManager->GetSubTabManagerForWindow(Window.ToSharedRef());
     TArray<IAssetEditorInstance*> Matches;
+    TArray<TSharedPtr<SDockTab>> MatchOwnerTabs;
     for (IAssetEditorInstance* Editor : Editors->GetAllOpenEditors())
     {
-        if (Editor != nullptr
-            && Editor->GetAssociatedTabManager() == WindowManager)
+        if (Editor == nullptr)
         {
-            Matches.AddUnique(Editor);
+            continue;
         }
+        const TSharedPtr<FTabManager> EditorManager = Editor->GetAssociatedTabManager();
+        if (!EditorManager.IsValid())
+        {
+            continue;
+        }
+        const TSharedPtr<SDockTab> OwnerTab = EditorManager->GetOwnerTab();
+        const TSharedPtr<SDockTab> RegisteredMajorTab =
+            GlobalManager->GetMajorTabForTabManager(EditorManager.ToSharedRef());
+        const TSharedPtr<SWindow> OwnerWindow =
+            OwnerTab.IsValid() ? OwnerTab->GetParentWindow() : nullptr;
+        const bool bOwnsWindow = OwnerWindow == Window
+            || (NativeWindowManager.IsValid()
+                && EditorManager == NativeWindowManager);
+        if (!OwnerTab.IsValid()
+            || OwnerTab != RegisteredMajorTab
+            || OwnerTab->GetTabRole() != ETabRole::MajorTab
+            || !OwnerTab->IsForeground()
+            || !OwnerWindow.IsValid()
+            || !bOwnsWindow)
+        {
+            continue;
+        }
+        Matches.Add(Editor);
+        MatchOwnerTabs.Add(OwnerTab);
     }
     if (Matches.Num() != 1 || AssetsEditedBy(Matches[0]).Num() != 1)
     {
         return nullptr;
     }
 
-    OutOwnerTab = OwnerTab;
+    OutOwnerTab = MatchOwnerTabs[0];
     return Matches[0];
 }
 
@@ -2861,6 +2914,36 @@ public:
         OutRecord = Current;
         return true;
     }
+
+    IAssetEditorInstance* ResolveAssetEditorForWindowForTesting(
+        const TSharedPtr<SWindow>& Window,
+        TSharedPtr<SDockTab>& OutOwnerTab) const
+    {
+        return FindAssetEditorForWindow(Window, OutOwnerTab);
+    }
+
+    TSharedPtr<FJsonObject> BuildLevelWorldForTesting(
+        UWorld* World) const
+    {
+        FContextOutput Out;
+        AddSurface(Out, TEXT("Level Editor"));
+        EmitWorldOwner(Out, World);
+        AddNoSelection(Out);
+        return Validate(Out.Finish());
+    }
+
+    bool RecognizesBlueprintGraphSurfaceForTesting(
+        const FName SelectionState,
+        const bool bFocusedGraphOwned,
+        const bool bGraphFocusPath,
+        const bool bGraphFromFocusedDocument) const
+    {
+        return ShouldRecognizeBlueprintGraphSurface(
+            SelectionState,
+            bFocusedGraphOwned,
+            bGraphFocusPath,
+            bGraphFromFocusedDocument);
+    }
 #endif
 
 private:
@@ -2936,6 +3019,21 @@ private:
         if (Input.AssetEditor == nullptr)
         {
             Input.AssetEditor = FindAssetEditorForTab(Tab);
+        }
+        if (Input.AssetEditor == nullptr && Tab.IsValid())
+        {
+            TSharedPtr<SDockTab> RecoveredOwnerTab;
+            Input.AssetEditor = FindAssetEditorForWindow(
+                Tab->GetParentWindow(),
+                RecoveredOwnerTab);
+            if (Input.AssetEditor != nullptr
+                && RecoveredOwnerTab.IsValid())
+            {
+                Input.ActiveTab = RecoveredOwnerTab;
+                Input.TabId =
+                    RecoveredOwnerTab->GetLayoutIdentifier().TabType;
+                Input.bRecoveredHostFromWindow = true;
+            }
         }
         if (Input.AssetEditor != nullptr)
         {
@@ -3171,6 +3269,35 @@ bool FEditorContextService::GetTrackedRecordForTesting(
     FInteractionRecord& OutRecord) const
 {
     return Impl->GetTrackedRecordForTesting(OutRecord);
+}
+
+IAssetEditorInstance*
+FEditorContextService::ResolveAssetEditorForWindowForTesting(
+    const TSharedPtr<SWindow>& Window,
+    TSharedPtr<SDockTab>& OutOwnerTab) const
+{
+    return Impl->ResolveAssetEditorForWindowForTesting(
+        Window,
+        OutOwnerTab);
+}
+
+TSharedPtr<FJsonObject>
+FEditorContextService::BuildLevelWorldForTesting(UWorld* World) const
+{
+    return Impl->BuildLevelWorldForTesting(World);
+}
+
+bool FEditorContextService::RecognizesBlueprintGraphSurfaceForTesting(
+    const FName SelectionState,
+    const bool bFocusedGraphOwned,
+    const bool bGraphFocusPath,
+    const bool bGraphFromFocusedDocument) const
+{
+    return Impl->RecognizesBlueprintGraphSurfaceForTesting(
+        SelectionState,
+        bFocusedGraphOwned,
+        bGraphFocusPath,
+        bGraphFromFocusedDocument);
 }
 #endif
 }

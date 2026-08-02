@@ -9,8 +9,10 @@ class IAssetEditorInstance;
 class IDetailsView;
 class SDockTab;
 class SWidget;
+class SWindow;
 class FWidgetPath;
 class UEdGraph;
+class UWorld;
 
 namespace Loomle::EditorContext
 {
@@ -122,6 +124,18 @@ public:
         const FInteractionRecord& Record) const;
     /** Copies the retained private tracker record for race regression tests. */
     bool GetTrackedRecordForTesting(FInteractionRecord& OutRecord) const;
+    /** Exercises exact normal-window to Asset Editor ownership recovery. */
+    IAssetEditorInstance* ResolveAssetEditorForWindowForTesting(
+        const TSharedPtr<SWindow>& Window,
+        TSharedPtr<SDockTab>& OutOwnerTab) const;
+    /** Exercises Level Editor owner projection without replacing Editor World. */
+    TSharedPtr<FJsonObject> BuildLevelWorldForTesting(UWorld* World) const;
+    /** Exercises Graph recognition when UE retains a stale UI selection state. */
+    bool RecognizesBlueprintGraphSurfaceForTesting(
+        FName SelectionState,
+        bool bFocusedGraphOwned,
+        bool bGraphFocusPath,
+        bool bGraphFromFocusedDocument) const;
 #endif
 
 private:
