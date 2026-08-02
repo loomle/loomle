@@ -601,7 +601,7 @@ test("rejects a missing canonical Agent Skills source", async () => {
         outputDir: fixture.outputDir,
         target: "darwin-arm64",
       }),
-      /source not found: .*\/skills/,
+      /source not found: .*[\\/]skills/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
