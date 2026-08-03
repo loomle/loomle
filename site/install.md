@@ -7,11 +7,11 @@ description: Install Loomle 0.7 for Unreal Engine 5.7 on macOS or Windows and co
 
 # Install
 
-Loomle 0.7.0 is available as a GitHub release for Unreal Engine 5.7.
-Each platform package contains both the Unreal Bridge and the matching
-self-contained Loomle Client.
+Loomle 0.7.2 is available as a GitHub release for Unreal Engine 5.7.
+One complete package contains the Unreal Bridge binaries and self-contained
+Loomle Clients for both supported platforms.
 
-[View the 0.7.0 release](https://github.com/loomle/loomle/releases/tag/v0.7.0){: .btn .btn-primary .fs-5 .mr-2 }
+[View the 0.7.2 release](https://github.com/loomle/loomle/releases/tag/v0.7.2){: .btn .btn-primary .fs-5 .mr-2 }
 [Read the Quickstart](quickstart.html){: .btn .fs-5 }
 
 {: .warning }
@@ -24,8 +24,8 @@ self-contained Loomle Client.
 
 | Unreal Engine | Operating system | Architecture | Package |
 | --- | --- | --- | --- |
-| 5.7 | macOS | Apple Silicon | `darwin-arm64` |
-| 5.7 | Windows | x64 | `win32-x64` |
+| 5.7 | macOS | Apple Silicon | `loomle-bridge-0.7.2.zip` |
+| 5.7 | Windows | x64 | `loomle-bridge-0.7.2.zip` |
 
 Other engine versions, operating systems, and architectures are not part of
 this release.
@@ -44,13 +44,12 @@ Before installing or updating Loomle:
 4. Remove it or move it outside the project's `Plugins` directory.
 5. Repeat this check for every project that previously used Loomle 0.6.
 
-## 2. Download the Matching Package
+## 2. Download the Complete Package
 
-[Download for macOS Apple Silicon](https://github.com/loomle/loomle/releases/download/v0.7.0/loomle-fab-plugin-darwin-arm64.zip){: .btn .btn-primary .mr-2 }
-[Download for Windows x64](https://github.com/loomle/loomle/releases/download/v0.7.0/loomle-fab-plugin-win32-x64.zip){: .btn .btn-primary }
+[Download Loomle 0.7.2](https://github.com/loomle/loomle/releases/download/v0.7.2/loomle-bridge-0.7.2.zip){: .btn .btn-primary }
 
-SHA-256 sidecars are available beside both ZIPs on the
-[release page](https://github.com/loomle/loomle/releases/tag/v0.7.0).
+A SHA-256 sidecar is available beside the ZIP on the
+[release page](https://github.com/loomle/loomle/releases/tag/v0.7.2).
 
 ### macOS security
 
@@ -106,6 +105,9 @@ to the Client bundled inside the installed plugin:
 
 The Client is self-contained. Do not install Python, `uv`, Node.js, or a
 separate global Loomle package, and do not copy the Client out of the plugin.
+Loomle's workflow Skills are provided through the same MCP connection. Do not
+install or configure a separate Skill copy for Codex, Claude, or another MCP
+host.
 
 ### Codex
 
@@ -146,10 +148,12 @@ Keep the target Unreal project open, then:
    `project({ projectId: "<id>" })`.
 4. Call `editor_context({})`.
 5. Call `sal_schema({})` and confirm that the interface index is available.
+6. Call `agent_skill({})` and confirm that the resident Skill catalog is
+   available.
 
-`sal_schema` is local and remains available when Unreal Editor is offline. The
-other UE-backed tools require the bound project to have one healthy Editor
-runtime.
+`sal_schema` and `agent_skill` are local and remain available when Unreal
+Editor is offline. The UE-backed tools require the bound project to have one
+healthy Editor runtime.
 
 Continue with the [Quickstart](quickstart.html).
 

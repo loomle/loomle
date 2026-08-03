@@ -2,7 +2,7 @@
 layout: default
 title: Add a Blueprint Node
 parent: Workflows
-nav_order: 1
+nav_order: 2
 ---
 
 # Add a Blueprint Node

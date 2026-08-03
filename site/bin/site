@@ -72,12 +72,28 @@ case "$command_name" in
   check)
     require_bundle
     bundle exec jekyll build --destination _site
+    stable_version="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "version")')"
+    stable_release_url="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "releaseUrl")')"
+    stable_archive_url="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "targets", "darwin-arm64", "assetUrl")')"
+    windows_archive_url="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "targets", "win32-x64", "assetUrl")')"
+    test "$stable_archive_url" = "$windows_archive_url"
     test -s _site/index.html
     test -s _site/assets/css/loomle.css
     test -s _site/assets/images/oasium-cover.webp
     test ! -e _site/bin/site
     grep -q '<title>Loomle AI - Weave New Worlds with AI Agents</title>' _site/index.html
     grep -q '<title>Quickstart | Loomle AI</title>' _site/quickstart.html
+    grep -q '<title>Agent Skill | Loomle AI</title>' _site/calls/agent-skill.html
+    grep -q '<title>Format a Blueprint Graph | Loomle AI</title>' _site/workflows/blueprint-format-graph.html
+    grep -Fq "Loomle ${stable_version} is available" _site/install.html
+    grep -Fq "$stable_release_url" _site/install.html
+    grep -Fq "$stable_archive_url" _site/install.html
+    grep -q 'Seven calls. Unreal-scale reach.' _site/index.html
+    grep -q '<strong>agent_skill</strong>' _site/index.html
+    grep -q 'seven public Loomle MCP tools' _site/calls/index.html
+    grep -q 'Seven public MCP tools:' _site/llms.txt
+    grep -q 'format-unreal-blueprints' _site/llms.txt
+    ! grep -Eq 'loomle-fab-plugin-(darwin-arm64|win32-x64)' install.md llms.txt
     grep -q 'class="loom-sal"' _site/index.html
     grep -q 'class="language-sal"' _site/index.html
     grep -q '<span class="kd">patch</span>' _site/index.html

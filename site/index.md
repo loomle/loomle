@@ -51,7 +51,7 @@ permalink: /
           humans and AI agents create together.
         </p>
         <div class="loom-actions">
-          <a class="loom-button loom-button-primary" href="https://github.com/loomle/loomle/releases/tag/v0.7.0">
+          <a class="loom-button loom-button-primary" href="/install.html">
             Download Loomle MCP
           </a>
           <a class="loom-button" href="/quickstart.html">Read the Docs</a>
@@ -167,13 +167,13 @@ move print to (640, 320)
         <div class="loom-heading-block">
           <h2>
             <span class="loom-heading-title">Loomle MCP</span>
-            <span class="loom-heading-description">Six calls. Unreal-scale reach.</span>
+            <span class="loom-heading-description">Seven calls. Unreal-scale reach.</span>
           </h2>
           <a class="loom-text-link loom-text-link-dark" href="/calls/">Explore Loomle MCP →</a>
         </div>
         <p>
           Loomle MCP connects agents to the live Unreal Editor through a
-          bundled local Client and native Loomle Bridge. Six stable calls
+          bundled local Client and native Loomle Bridge. Seven stable calls
           handle project binding, editor context, discovery, reading, and
           editing, while SAL carries the depth of Unreal without turning every
           capability into another tool.
@@ -185,8 +185,9 @@ move print to (640, 320)
         <a href="/calls/project.html"><span>02</span><strong>project</strong><small>Work safely across multiple Unreal projects through explicit, sticky per-session binding.</small></a>
         <a href="/calls/editor-context.html"><span>03</span><strong>editor_context</strong><small>Share the artist’s current Editor focus and selection with an agent, so both can continue creating from the same context.</small></a>
         <a href="/calls/schema.html"><span>04</span><strong>sal_schema</strong><small>Guide agents from broad discovery to exact action through three schema layers: the resident guide, Domain cards, and exact live capabilities discovered with <code>with schema</code>.</small></a>
-        <a href="/calls/sal.html"><span>05</span><strong>sal_query</strong><small>SAL Query Text lets agents discover objects and inspect live Unreal state, structure, relationships, and execution flow with precise control over scope, depth, and detail.</small></a>
-        <a href="/calls/sal.html"><span>06</span><strong>sal_patch</strong><small>SAL Patch Text lets agents compose complex, interdependent Unreal edits into one ordered batch—ready to dry-run, validate, and apply.</small></a>
+        <a href="/calls/agent-skill.html"><span>05</span><strong>agent_skill</strong><small>Discover and load resident Loomle workflow guidance without a separate host-specific Skill installation.</small></a>
+        <a href="/calls/sal.html"><span>06</span><strong>sal_query</strong><small>SAL Query Text lets agents discover objects and inspect live Unreal state, structure, relationships, and execution flow with precise control over scope, depth, and detail.</small></a>
+        <a href="/calls/sal.html"><span>07</span><strong>sal_patch</strong><small>SAL Patch Text lets agents compose complex, interdependent Unreal edits into one ordered batch—ready to dry-run, validate, and apply.</small></a>
       </div>
     </section>
 
@@ -214,7 +215,7 @@ move print to (640, 320)
         <h2>Bring AI agents into your Unreal workflow.</h2>
       </div>
       <div class="loom-start-actions">
-        <a class="loom-button loom-button-light" href="https://github.com/loomle/loomle/releases/tag/v0.7.0">Download Loomle MCP</a>
+        <a class="loom-button loom-button-light" href="/install.html">Download Loomle MCP</a>
         <a class="loom-button loom-button-outline-light" href="/quickstart.html">Read the Docs</a>
       </div>
     </section>

@@ -2,7 +2,7 @@
 layout: default
 title: Editor Context
 parent: MCP Calls
-nav_order: 5
+nav_order: 6
 description: Read the user's current Unreal Editor interaction target as canonical SAL Result Text.
 ---
 

@@ -2,7 +2,7 @@
 layout: default
 title: Edit Blueprint Switch Cases
 parent: Workflows
-nav_order: 2
+nav_order: 3
 ---
 
 # Edit Blueprint Switch Cases

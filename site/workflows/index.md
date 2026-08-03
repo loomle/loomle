@@ -28,6 +28,9 @@ templates; do not invent them.
 
 ## Available Workflows
 
+- [Format a Blueprint Graph](blueprint-format-graph.html) loads Loomle's
+  resident formatting Skill, requires precise live geometry, plans absolute
+  move-only edits, and audits the measured result.
 - [Add a Blueprint Node](blueprint-add-node.html) follows Graph discovery,
   Palette creation, dry run, apply, and Blueprint finalization.
 - [Edit Blueprint Switch Cases](blueprint-edit-switch-cases.html) uses exact

@@ -48,7 +48,21 @@ project({ projectId: "<returned-project-id>" })
 The binding is session-local and sticky. If the Editor restarts or the project
 goes offline, Loomle preserves the same project intent.
 
-## 3. Start From the Editor
+## 3. Load a Matching Workflow Skill When Needed
+
+The `agent_skill` tool description exposes the resident Skill names and trigger
+descriptions automatically. A general read-and-edit request does not require a
+Skill call. When the task matches specialized guidance, load it before planning
+that work:
+
+```text
+agent_skill({ name: "format-unreal-blueprints" })
+```
+
+The returned `SKILL.md` and references guide use of the existing Loomle tools.
+Users do not install a separate Skill in the MCP host.
+
+## 4. Start From the Editor
 
 Open or select the asset you want to discuss, then call:
 
@@ -61,7 +75,7 @@ The first result block is canonical SAL Result Text. It declares
 Target table when resolved, and then carries `objects` or terminates with
 `no_objects`. Use the returned Target instead of guessing from the visible UI.
 
-## 4. Discover the Interface
+## 5. Discover the Interface
 
 List the active interface modules:
 
@@ -79,7 +93,7 @@ The `sal_schema` tool description already carries the compact resident SAL
 guide. Static module cards are for exact domain boundaries; they are not a
 prerequisite before every request.
 
-## 5. Read a Blueprint Summary
+## 6. Read a Blueprint Summary
 
 Send one self-contained Query Text to `sal_query`:
 
@@ -114,7 +128,7 @@ Every Query and Patch supplies exactly one flat Target binding. The Target Guid
 verifies the object opened by the Asset Path; it is separate from contained
 StableRefs.
 
-## 6. Follow the Graph Locally
+## 7. Follow the Graph Locally
 
 Bind the exact Graph returned by the Blueprint query:
 
@@ -134,7 +148,7 @@ Flow queries return compact Nodes and only the Pins needed to express the
 Edges. Query an exact Node reference when an operation needs every current Pin
 or dynamic schema.
 
-## 7. Discover Before Creating
+## 8. Discover Before Creating
 
 Never guess Node creation fields. Search the target Graph Palette:
 
@@ -168,7 +182,7 @@ with schema
 Then copy its returned brace object fields into a Patch. A displayed tag such
 as `node` is erasable and does not select creation behavior.
 
-## 8. Dry Run
+## 9. Dry Run
 
 Send the complete Patch Text to `sal_patch` with dry-run state on the Patch
 header:
@@ -190,13 +204,13 @@ Dry run parses, resolves, validates, and plans through the real edit path
 without changing live authored state. Review the returned diagnostics,
 resolved references, operations, effects, and diff.
 
-## 9. Apply and Read Back
+## 10. Apply and Read Back
 
 If the dry run is valid, send the same authored Patch again with dry-run state
 removed from the header. Afterward, query the affected Graph or exact Node
 again rather than assuming that the intended result was applied.
 
-## 10. Finalize Through the Owner
+## 11. Finalize Through the Owner
 
 Graph edits do not compile or save their owning Blueprint automatically.
 The Graph result returns an independent related Blueprint Target and names it
@@ -223,7 +237,7 @@ SAL-comment blocks.
 You have now completed the standard Loomle loop:
 
 ```text
-status → bind → locate → inspect → discover → dry run → apply → read back → finalize
+status → [load matching Skill] → bind → locate → inspect → discover → dry run → apply → read back → finalize
 ```
 
 Continue with [Core Concepts](concepts/) or browse the

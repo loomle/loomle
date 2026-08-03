@@ -3,13 +3,13 @@ layout: default
 title: MCP Calls
 nav_order: 5
 has_children: true
-description: The six public Loomle MCP tools and the boundary each one owns.
+description: The seven public Loomle MCP tools and the boundary each one owns.
 permalink: /calls/
 ---
 
 # MCP Calls
 
-The Loomle Client exposes six public MCP tools. Client status, project
+The Loomle Client exposes seven public MCP tools. Client status, project
 selection, and editor
 context are separate calls; all rich UE-domain reads and mutations flow through
 SAL.
@@ -21,6 +21,7 @@ SAL.
 | `sal_query` | one `text` value | Parse, validate, execute, and format Query Text. |
 | `sal_patch` | one `text` value | Parse, validate, execute, and format ordered Patch Text. |
 | `sal_schema` | empty or one `module` | Return the active module index or one static interface card. |
+| [`agent_skill`](agent-skill.html) | empty or one `name` | Discover or load resident Loomle workflow guidance. |
 | `editor_context` | empty | Read the current UE interaction target as Result Text. |
 
 These are the complete public Client surface. New UE behavior belongs in SAL
@@ -28,11 +29,14 @@ and its interface cards rather than in parallel compatibility tools.
 
 ## Calls and Interfaces Are Different
 
-The six MCP calls describe transport and session boundaries. The six active
+The seven MCP calls describe transport, session, and resident workflow
+boundaries. The six active
 interface modules—Asset, Blueprint, Class, Graph, StateTree, and Widget—describe
 the UE objects and operations carried through `sal_query` and `sal_patch`.
 
-`sal_schema` connects the two layers by exposing the active interface catalog.
+`sal_schema` connects the call and interface layers by exposing the active
+interface catalog. `agent_skill` supplies workflow policy for composing the
+same calls without adding UE capabilities or a separate host installation.
 
 ## Result Model
 

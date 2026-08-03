@@ -12,30 +12,35 @@ Canonical user documentation:
 - Quickstart: https://loomle.ai/quickstart.html
 - Core concepts: https://loomle.ai/concepts/
 - MCP calls: https://loomle.ai/calls/
+- Agent Skill call: https://loomle.ai/calls/agent-skill.html
 - Interfaces: https://loomle.ai/tools/
 - Workflows: https://loomle.ai/workflows/
+- Blueprint formatting workflow:
+  https://loomle.ai/workflows/blueprint-format-graph.html
 - Source: https://github.com/loomle/loomle
 
 Availability and installation:
 
-- Loomle 0.7.0 is available from GitHub Releases:
-  https://github.com/loomle/loomle/releases/tag/v0.7.0
+- Loomle 0.7.2 is available from GitHub Releases:
+  https://github.com/loomle/loomle/releases/tag/v0.7.2
 - Supported targets are Unreal Engine 5.7 on Apple Silicon macOS
   (`darwin-arm64`) and x64 Windows (`win32-x64`).
-- Each platform archive contains the complete engine plugin, including the
-  matching self-contained Client.
+- One `loomle-bridge-0.7.2.zip` archive contains the complete engine plugin,
+  including native binaries and self-contained Clients for both supported
+  platforms.
 - The current Fab listing still distributes 0.6 and must not be used with the
   0.7 documentation:
   https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428
 - The plugin contains the Bridge and self-contained Client at
   `Resources/Loomle/<platform-arch>/loomle(.exe)`.
 - No website installer, Python, uv, Node.js, global Loomle install, separate
-  project Client, or session-attachment daemon is required.
+  project Client, host-specific Skill installation, or session-attachment
+  daemon is required.
 - When upgrading from 0.6, close Unreal Editor and remove or move the old
   `<Project>/Plugins/LoomleBridge` out of every affected project's `Plugins`
   directory. A project plugin shadows the engine plugin.
 
-Six public MCP tools:
+Seven public MCP tools:
 
 - `status({})`: report Client/update status and bound session/Bridge health.
 - `project`: inspect projects and bind one MCP session to one project.
@@ -43,8 +48,23 @@ Six public MCP tools:
 - `sal_patch({ text })`: dry-run or apply one ordered SAL Patch Text.
 - `sal_schema({})`: return the active interface-module index.
 - `sal_schema({ module })`: return one static interface card.
+- `agent_skill({})`: list resident Loomle workflow Skills and their trigger
+  descriptions.
+- `agent_skill({ name })`: load one exact resident Skill and all of its
+  Markdown guidance.
 - `editor_context({})`: return the current UE interaction target as canonical
   SAL Result Text.
+
+MCP-managed Agent Skills:
+
+- The `agent_skill` tool description exposes resident Skill names and trigger
+  descriptions to the model automatically.
+- When a task matches a Skill, the agent should load that exact Skill before
+  planning the specialized workflow.
+- `format-unreal-blueprints` formats and audits Blueprint K2 graphs using live
+  node bounds and pin geometry.
+- Skills guide use of existing Loomle tools. They grant no capabilities and
+  have no separate install, update, or configuration lifecycle.
 
 Six active SAL interfaces:
 
@@ -58,14 +78,15 @@ Six active SAL interfaces:
 Recommended workflow:
 
 1. Call `status({})` once.
-2. Bind one project when the session is unbound.
-3. Locate the exact flat Domain Target.
-4. Query a compact view.
-5. Discover static or dynamic schema only when needed.
-6. Use a UE Palette capability before creation.
-7. Dry-run the complete Patch.
-8. Apply the same authored Patch and read back.
-9. Compile and save through the owning asset.
+2. If the task matches a resident Skill, load it before planning.
+3. Bind one project when the session is unbound.
+4. Locate the exact flat Domain Target.
+5. Query a compact view.
+6. Discover static or dynamic schema only when needed.
+7. Use a UE Palette capability before creation.
+8. Dry-run the complete Patch.
+9. Apply the same authored Patch and read back.
+10. Compile and save through the owning asset.
 
 Every Query or Patch declares one flat
 `target { domain: asset|blueprint|class|graph|state_tree|widget, ... }`.

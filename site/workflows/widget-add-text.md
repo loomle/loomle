@@ -2,7 +2,7 @@
 layout: default
 title: Add Widget Text
 parent: Workflows
-nav_order: 3
+nav_order: 4
 ---
 
 # Add Widget Text
