@@ -68,14 +68,17 @@ interface card states the exact subjects that accept it.
 
 ## Install
 
-Loomle 0.7.2 is available from
-[GitHub Releases](https://github.com/loomle/loomle/releases/tag/v0.7.2)
+The latest stable Loomle release is available from
+[GitHub Releases](https://github.com/loomle/loomle/releases/latest)
 for Unreal Engine 5.7:
 
 | Package | Contents |
 | --- | --- |
-| `loomle-bridge-0.7.2.zip` | Complete Mac Apple Silicon and Windows x64 plugin |
-| `loomle-bridge-0.7.2-source.zip` | Cross-platform Fab source package |
+| `loomle-bridge.zip` | Complete Mac Apple Silicon and Windows x64 plugin |
+| `loomle-bridge-source.zip` | Cross-platform source package |
+
+These stable filenames always resolve through the latest final GitHub Release.
+That release also retains immutable, versioned copies of both archives.
 
 The public
 [Fab listing](https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428)

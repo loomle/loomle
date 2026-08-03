@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, initial-scale=1">
+  <title>Loomle MCP — Local Architecture and Multiple Projects</title>
+  <link rel="stylesheet" href="./fab-gallery.css">
+  <style>
+    .intro {
+      display: grid;
+      height: 236px;
+      margin-top: 48px;
+      grid-template-columns: 0.98fr 1.02fr;
+      gap: 110px;
+      align-items: start;
+    }
+
+    .intro h1 {
+      margin-top: 13px;
+      color: #f3f0e9;
+      font-size: 68px;
+    }
+
+    .intro .headline-sub {
+      color: #ddd9d0;
+      font-size: 42px;
+    }
+
+    .intro-copy {
+      padding-top: 30px;
+    }
+
+    .architecture {
+      height: 545px;
+      margin-top: 26px;
+    }
+
+    .pipeline {
+      display: grid;
+      height: 155px;
+      grid-template-columns: 1fr 70px 1fr 70px 1fr;
+      align-items: stretch;
+    }
+
+    .arch-box {
+      display: flex;
+      padding: 24px;
+      flex-direction: column;
+      justify-content: center;
+      border: 1px solid var(--dark-line);
+      background: var(--ink-card);
+    }
+
+    .arch-box small {
+      color: var(--copper);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+      letter-spacing: 0.09em;
+    }
+
+    .arch-box strong {
+      margin-top: 16px;
+      color: #e7e3db;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 29px;
+      font-weight: 400;
+      letter-spacing: -0.025em;
+    }
+
+    .arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--copper);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 34px;
+    }
+
+    .discovery {
+      display: flex;
+      height: 82px;
+      margin: 24px 0;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #50524c;
+      background: #242521;
+      color: #d8d5cd;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 18px;
+      letter-spacing: 0.075em;
+    }
+
+    .discovery b {
+      margin-right: 18px;
+      color: var(--green);
+      font-weight: 600;
+    }
+
+    .projects {
+      display: grid;
+      height: 210px;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    .project {
+      display: flex;
+      padding: 23px 25px;
+      flex-direction: column;
+      border: 1px solid var(--dark-line);
+      background: #292a26;
+    }
+
+    .project.active {
+      border-color: #6e8568;
+      background: #20271f;
+    }
+
+    .project small {
+      color: #888b83;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+    }
+
+    .project.active small {
+      color: var(--green);
+    }
+
+    .project strong {
+      margin-top: 24px;
+      color: #e1ded6;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 30px;
+      font-weight: 400;
+    }
+
+    .project span {
+      margin-top: auto;
+      color: #9b9d95;
+      font-size: 17px;
+    }
+
+    .facts {
+      display: grid;
+      height: 108px;
+      margin-top: 26px;
+      grid-template-columns: 1fr 1fr;
+      border-top: 1px solid var(--dark-line);
+    }
+
+    .fact {
+      display: flex;
+      align-items: center;
+      color: #96988f;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 14px;
+      letter-spacing: 0.055em;
+      line-height: 1.55;
+    }
+
+    .fact:last-child {
+      justify-content: flex-end;
+      text-align: right;
+    }
+
+    .fact strong {
+      margin-right: 13px;
+      color: var(--brass);
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <main class="page dark">
+    <header class="brandbar">
+      <div class="brand">
+        <img src="./loomle-mark.svg" alt="">
+        <span>LOOMLE</span>
+      </div>
+      <div class="section-no">06 / LOCAL ARCHITECTURE</div>
+    </header>
+
+    <section class="intro">
+      <div>
+        <div class="kicker">LOOMLE CLIENT + LOOMLE BRIDGE</div>
+        <h1>
+          Local. Native.
+          <span class="headline-sub">Self-contained.</span>
+        </h1>
+      </div>
+      <div class="intro-copy">
+        <div class="anti-tool"></div>
+        <p class="lede">
+          <strong style="color:#ece8df">Configure once. Work across projects.</strong>
+          Configure the bundled Loomle Client once in your MCP host. It discovers
+          multiple live Loomle-enabled Unreal projects, binds one explicitly for
+          the current session, and switches projects without separate MCP
+          configurations.
+        </p>
+      </div>
+    </section>
+
+    <section class="architecture">
+      <div class="pipeline">
+        <div class="arch-box">
+          <small>AI HOST</small>
+          <strong>Codex / Claude / MCP Host</strong>
+        </div>
+        <div class="arrow">→</div>
+        <div class="arch-box">
+          <small>CONFIGURE ONCE</small>
+          <strong>One Loomle MCP Configuration</strong>
+        </div>
+        <div class="arrow">→</div>
+        <div class="arch-box">
+          <small>BUNDLED PROCESS</small>
+          <strong>Self-contained Loomle Client</strong>
+        </div>
+      </div>
+
+      <div class="discovery">
+        <b>ONE ACTIVE BINDING PER SESSION</b>
+        DISCOVER LIVE PROJECTS · EXPLICIT, STICKY PROJECT SELECTION
+      </div>
+
+      <div class="projects">
+        <div class="project active">
+          <small>ACTIVE SESSION BINDING</small>
+          <strong>Unreal Project A</strong>
+          <span>Native Loomle Bridge + Live Unreal Editor</span>
+        </div>
+        <div class="project">
+          <small>AVAILABLE PROJECT</small>
+          <strong>Unreal Project B</strong>
+          <span>Switch without reconfiguring MCP</span>
+        </div>
+        <div class="project">
+          <small>AVAILABLE PROJECT</small>
+          <strong>Unreal Project C</strong>
+          <span>Switch without reconfiguring MCP</span>
+        </div>
+      </div>
+    </section>
+
+    <footer class="facts">
+      <div class="fact">
+        <strong>SELF-CONTAINED</strong>
+        NO PYTHON · NO NODE.JS · NO UV · NO BACKGROUND DAEMON
+      </div>
+      <div class="fact">
+        <strong>COMPATIBILITY</strong>
+        UE 5.7 · WINDOWS x64 · APPLE SILICON macOS · EDITOR-ONLY
+      </div>
+    </footer>
+  </main>
+</body>
+</html>

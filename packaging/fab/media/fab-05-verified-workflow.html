@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, initial-scale=1">
+  <title>Loomle MCP — Verified Editing Workflow</title>
+  <link rel="stylesheet" href="./fab-gallery.css">
+  <style>
+    .intro {
+      display: grid;
+      height: 215px;
+      margin-top: 48px;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 100px;
+      align-items: start;
+    }
+
+    .intro h1 {
+      margin-top: 13px;
+      font-size: 64px;
+    }
+
+    .intro-copy {
+      padding-top: 29px;
+    }
+
+    .workflow {
+      display: grid;
+      height: 440px;
+      margin-top: 28px;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      background: rgba(244, 241, 233, 0.9);
+      box-shadow: 12px 12px 0 var(--paper-deep);
+    }
+
+    .step {
+      position: relative;
+      display: flex;
+      min-width: 0;
+      padding: 27px 25px 32px;
+      flex-direction: column;
+      border-right: 1px solid var(--line);
+    }
+
+    .step:last-child {
+      border-right: 0;
+    }
+
+    .step .num {
+      color: var(--copper);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 15px;
+      letter-spacing: 0.08em;
+    }
+
+    .step h3 {
+      margin: 48px 0 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 35px;
+      font-weight: 400;
+      letter-spacing: -0.04em;
+      line-height: 1.02;
+    }
+
+    .step p {
+      margin: auto 0 0;
+      color: #62645e;
+      font-size: 18px;
+      line-height: 1.48;
+    }
+
+    .step::after {
+      position: absolute;
+      top: 42px;
+      right: -17px;
+      z-index: 2;
+      width: 34px;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      background: var(--paper-light);
+      color: var(--copper);
+      content: "→";
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 21px;
+      line-height: 31px;
+      text-align: center;
+    }
+
+    .step:last-child::after {
+      display: none;
+    }
+
+    .principles {
+      display: grid;
+      height: 185px;
+      margin-top: 40px;
+      grid-template-columns: repeat(4, 1fr);
+      border: 1px solid var(--ink);
+      background: var(--ink);
+      color: #ece9e1;
+    }
+
+    .principle {
+      padding: 25px 26px;
+      border-right: 1px solid #3a3c36;
+    }
+
+    .principle:last-child {
+      border-right: 0;
+    }
+
+    .principle strong {
+      display: block;
+      color: var(--brass);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+    }
+
+    .principle span {
+      display: block;
+      margin-top: 28px;
+      color: #c9c8c1;
+      font-size: 18px;
+      line-height: 1.35;
+    }
+  </style>
+</head>
+<body>
+  <main class="page paper">
+    <header class="brandbar">
+      <div class="brand">
+        <img src="./loomle-mark.svg" alt="">
+        <span>LOOMLE</span>
+      </div>
+      <div class="section-no">05 / VERIFIED EDITING</div>
+    </header>
+
+    <section class="intro">
+      <div>
+        <div class="kicker">STRUCTURED AGENT WORKFLOW</div>
+        <h1>From live context to verified change.</h1>
+      </div>
+      <div class="intro-copy">
+        <p class="lede">
+          Inspect before editing. Discover valid capabilities in the live target,
+          dry-run the real patch path, then apply and verify against Unreal
+          Editor state.
+        </p>
+      </div>
+    </section>
+
+    <section class="workflow">
+      <article class="step">
+        <span class="num">01 / CONTEXT</span>
+        <h3>Editor Context</h3>
+        <p>Start from the artist’s current Editor focus and selection.</p>
+      </article>
+      <article class="step">
+        <span class="num">02 / DISCOVER</span>
+        <h3>Schema + Palette</h3>
+        <p>Resolve the exact live capabilities available in the target.</p>
+      </article>
+      <article class="step">
+        <span class="num">03 / READ</span>
+        <h3>SAL Query</h3>
+        <p>Inspect structure, relationships, identities, and execution flow.</p>
+      </article>
+      <article class="step">
+        <span class="num">04 / PLAN</span>
+        <h3>Patch Dry Run</h3>
+        <p>Parse, resolve, validate, and plan without applying changes.</p>
+      </article>
+      <article class="step">
+        <span class="num">05 / VERIFY</span>
+        <h3>Apply + Read Back</h3>
+        <p>Apply the plan, then compile, save, and verify where supported.</p>
+      </article>
+    </section>
+
+    <section class="principles">
+      <div class="principle">
+        <strong>EXPLICIT TARGETS</strong>
+        <span>Every request declares its complete Unreal target.</span>
+      </div>
+      <div class="principle">
+        <strong>LIVE CAPABILITIES</strong>
+        <span>Agents discover valid operations before acting.</span>
+      </div>
+      <div class="principle">
+        <strong>ORDERED PATCHES</strong>
+        <span>Interdependent edits become one reviewable plan.</span>
+      </div>
+      <div class="principle">
+        <strong>READBACK VERIFICATION</strong>
+        <span>Applied changes are checked against live Editor state.</span>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

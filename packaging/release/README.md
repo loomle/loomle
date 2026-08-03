@@ -45,7 +45,11 @@ difference that is emitted as LF, and mechanically merges the fragments into one
 cross-platform source archive and one cross-platform complete plugin archive.
 No executable bytes are rebuilt or rewritten. It derives `v<product-version>`,
 requires an existing lightweight tag at the exact verified commit, and
-publishes only those two merged ZIPs and their SHA-256 sidecars. A trusted
+publishes those two merged ZIPs and their SHA-256 sidecars. Final releases also
+publish byte-identical stable aliases (`loomle-bridge.zip` and
+`loomle-bridge-source.zip`, with matching sidecars) so the website can use one
+`releases/latest/download/...` URL across versions. Prereleases do not publish
+stable aliases. A trusted
 maintainer pushes the exact tag before promotion because the Actions
 installation token cannot create a tag that exposes historical workflow-file
 changes and cannot reliably pass an older commit through
@@ -76,6 +80,9 @@ and publishes:
 
 - `loomle-bridge-<version>-source.zip` for the single Fab Project File Link;
 - `loomle-bridge-<version>.zip` as the single GitHub installation package.
+
+Fab always receives the immutable versioned source URL. The stable aliases are
+GitHub download names for the same bytes, not separately built packages.
 
 Release notes are checked in under `packaging/release/notes/` and named by the
 exact product version.

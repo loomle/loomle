@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, initial-scale=1">
+  <title>LOOMLE MCP for Unreal with SAL</title>
+  <style>
+    :root {
+      --ink: #171816;
+      --paper: #f4f1e9;
+      --copper: #bd4f32;
+      --paper-on-copper: #fffaf2;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 1920px;
+      height: 1080px;
+      margin: 0;
+      overflow: hidden;
+      background: var(--paper);
+    }
+
+    body {
+      color: var(--ink);
+      font-family: "Helvetica Neue", "Aptos", Arial, sans-serif;
+    }
+
+    .canvas {
+      position: relative;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      background:
+        linear-gradient(rgba(23, 24, 22, 0.022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(23, 24, 22, 0.022) 1px, transparent 1px),
+        var(--paper);
+      background-size: 48px 48px;
+    }
+
+    .upper {
+      position: relative;
+      height: 720px;
+      padding: 76px 120px 64px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 32px;
+      height: 90px;
+    }
+
+    .brand-mark {
+      width: 84px;
+      height: 84px;
+      flex: 0 0 auto;
+    }
+
+    .brand-name {
+      font-size: 68px;
+      font-weight: 750;
+      letter-spacing: 0.16em;
+      line-height: 1;
+    }
+
+    h1 {
+      margin: 94px 0 0;
+      text-align: center;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 170px;
+      font-weight: 400;
+      letter-spacing: -0.055em;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .with-sal {
+      position: absolute;
+      right: 0;
+      bottom: 72px;
+      left: 0;
+      color: var(--copper);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 72px;
+      font-weight: 700;
+      letter-spacing: 0.045em;
+      line-height: 1;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .lower {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 360px;
+      padding: 48px 96px;
+      background: var(--copper);
+      color: var(--paper-on-copper);
+    }
+
+    .sal-name {
+      display: flex;
+      justify-content: center;
+      gap: 0.34em;
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 104px;
+      font-weight: 400;
+      letter-spacing: -0.047em;
+      line-height: 1;
+      text-align: center;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <section class="upper">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 16 16" aria-label="Loomle">
+          <path
+            d="M6 0h2v1H6zM3 1h2v1H3zM6 1h2v1H6zM3 2h2v1H3zM6 2h2v1H6zM3 3h2v1H3zM6 3h2v1H6zM3 4h2v1H3zM6 4h2v1H6zM3 5h2v1H3zM6 5h2v1H6zM3 6h2v1H3zM6 6h2v1H6zM3 7h2v1H3zM6 7h2v1H6zM1 8h4v1H1zM6 8h2v1H6zM9 8h5v1H9zM1 9h4v1H1zM6 9h2v1H6zM9 9h5v1H9zM3 10h2v1H3zM6 10h2v1H6zM1 11h7v1H1zM9 11h6v1H9zM1 12h7v1H1zM9 12h6v1H9zM3 13h2v1H3zM3 14h2v1H3zM6 14h2v1H6zM6 15h2v1H6z"
+            fill="#bd4f32"
+            shape-rendering="crispEdges">
+          </path>
+        </svg>
+        <span class="brand-name">LOOMLE</span>
+      </div>
+
+      <h1>MCP FOR UNREAL</h1>
+
+      <div class="with-sal">WITH SAL</div>
+    </section>
+
+    <section class="lower">
+      <h2 class="sal-name">
+        <span>STRUCTURED</span>
+        <span>AGENT</span>
+        <span>LANGUAGE</span>
+      </h2>
+    </section>
+  </main>
+</body>
+</html>

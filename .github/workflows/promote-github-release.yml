@@ -262,6 +262,8 @@ jobs:
 
           source_archive="$release_root/assets/loomle-bridge-$VERSION-source.zip"
           plugin_archive="$release_root/assets/loomle-bridge-$VERSION.zip"
+          source_alias="$release_root/assets/loomle-bridge-source.zip"
+          plugin_alias="$release_root/assets/loomle-bridge.zip"
           (
             cd "$release_root/source"
             zip -qry "$source_archive" LoomleBridge
@@ -274,6 +276,15 @@ jobs:
             cd "$release_root/assets"
             sha256sum "$(basename "$source_archive")" > "$(basename "$source_archive").sha256"
             sha256sum "$(basename "$plugin_archive")" > "$(basename "$plugin_archive").sha256"
+          )
+          cp "$source_archive" "$source_alias"
+          cp "$plugin_archive" "$plugin_alias"
+          cmp -s "$source_archive" "$source_alias"
+          cmp -s "$plugin_archive" "$plugin_alias"
+          (
+            cd "$release_root/assets"
+            sha256sum "$(basename "$source_alias")" > "$(basename "$source_alias").sha256"
+            sha256sum "$(basename "$plugin_alias")" > "$(basename "$plugin_alias").sha256"
           )
 
           source_entries="$RUNNER_TEMP/merged-source.entries"
@@ -310,6 +321,10 @@ jobs:
           echo "source_sha_file=$source_archive.sha256" >> "$GITHUB_OUTPUT"
           echo "plugin_archive=$plugin_archive" >> "$GITHUB_OUTPUT"
           echo "plugin_sha_file=$plugin_archive.sha256" >> "$GITHUB_OUTPUT"
+          echo "source_alias=$source_alias" >> "$GITHUB_OUTPUT"
+          echo "source_alias_sha_file=$source_alias.sha256" >> "$GITHUB_OUTPUT"
+          echo "plugin_alias=$plugin_alias" >> "$GITHUB_OUTPUT"
+          echo "plugin_alias_sha_file=$plugin_alias.sha256" >> "$GITHUB_OUTPUT"
 
       - name: Require Exact Tag And New Release
         shell: bash
@@ -341,21 +356,38 @@ jobs:
           NOTES: ${{ steps.release.outputs.notes }}
           PLUGIN_ARCHIVE: ${{ steps.packages.outputs.plugin_archive }}
           PLUGIN_SHA_FILE: ${{ steps.packages.outputs.plugin_sha_file }}
+          PLUGIN_ALIAS: ${{ steps.packages.outputs.plugin_alias }}
+          PLUGIN_ALIAS_SHA_FILE: ${{ steps.packages.outputs.plugin_alias_sha_file }}
           SOURCE_ARCHIVE: ${{ steps.packages.outputs.source_archive }}
           SOURCE_SHA_FILE: ${{ steps.packages.outputs.source_sha_file }}
+          SOURCE_ALIAS: ${{ steps.packages.outputs.source_alias }}
+          SOURCE_ALIAS_SHA_FILE: ${{ steps.packages.outputs.source_alias_sha_file }}
           TAG: ${{ steps.release.outputs.tag }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
           channel_args=(--latest)
+          release_assets=(
+            "$SOURCE_ARCHIVE"
+            "$SOURCE_SHA_FILE"
+            "$PLUGIN_ARCHIVE"
+            "$PLUGIN_SHA_FILE"
+            "$SOURCE_ALIAS"
+            "$SOURCE_ALIAS_SHA_FILE"
+            "$PLUGIN_ALIAS"
+            "$PLUGIN_ALIAS_SHA_FILE"
+          )
           if [[ "$CHANNEL" == "prerelease" ]]; then
             channel_args=(--prerelease)
+            release_assets=(
+              "$SOURCE_ARCHIVE"
+              "$SOURCE_SHA_FILE"
+              "$PLUGIN_ARCHIVE"
+              "$PLUGIN_SHA_FILE"
+            )
           fi
           gh release create "$TAG" \
-            "$SOURCE_ARCHIVE" \
-            "$SOURCE_SHA_FILE" \
-            "$PLUGIN_ARCHIVE" \
-            "$PLUGIN_SHA_FILE" \
+            "${release_assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Loomle $VERSION" \
             --notes-file "$NOTES" \

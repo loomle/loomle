@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, initial-scale=1">
+  <title>Loomle MCP — Six Supported Unreal Domains</title>
+  <link rel="stylesheet" href="./fab-gallery.css">
+  <style>
+    .intro {
+      display: grid;
+      height: 235px;
+      margin-top: 48px;
+      grid-template-columns: 1.06fr 0.94fr;
+      gap: 110px;
+      align-items: start;
+    }
+
+    .intro h1 {
+      margin-top: 13px;
+      font-size: 68px;
+    }
+
+    .intro .headline-sub {
+      max-width: 820px;
+      color: #4f514c;
+      font-size: 38px;
+      line-height: 1.08;
+    }
+
+    .intro-copy {
+      padding-top: 35px;
+    }
+
+    .interfaces {
+      height: 570px;
+      margin-top: 27px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-rows: repeat(2, 1fr);
+      border-color: var(--line);
+      background: var(--line);
+      box-shadow: 12px 12px 0 var(--paper-deep);
+    }
+
+    .interface {
+      display: flex;
+      padding: 27px 30px;
+      flex-direction: column;
+    }
+
+    .interface h3 {
+      margin: 27px 0 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 40px;
+      font-weight: 400;
+      letter-spacing: -0.04em;
+    }
+
+    .interface p {
+      margin-top: auto;
+      font-size: 19px;
+    }
+
+    .native-strip {
+      height: 69px;
+      margin-top: 27px;
+      justify-content: center;
+      color: #545650;
+      font-size: 16px;
+      letter-spacing: 0.1em;
+    }
+  </style>
+</head>
+<body>
+  <main class="page paper">
+    <header class="brandbar">
+      <div class="brand">
+        <img src="./loomle-mark.svg" alt="">
+        <span>LOOMLE</span>
+      </div>
+      <div class="section-no">05 / SUPPORTED UNREAL DOMAINS</div>
+    </header>
+
+    <section class="intro">
+      <div>
+        <div class="kicker">LOOMLE MCP + SAL</div>
+        <h1>
+          Six supported domains.
+          <span class="headline-sub">Real Unreal objects. Native Unreal semantics.</span>
+        </h1>
+      </div>
+      <div class="intro-copy">
+        <p class="lede">
+          Three core SAL calls carry discovery, reading, and editing across six
+          Unreal domains. Each domain preserves native concepts, identities,
+          values, and execution paths.
+        </p>
+      </div>
+    </section>
+
+    <section class="card-grid interfaces">
+      <article class="feature-card paper-card interface">
+        <span class="num">01 / DOMAIN</span>
+        <h3>Asset</h3>
+        <p>Unreal assets, properties, identity, and save state.</p>
+      </article>
+      <article class="feature-card paper-card interface">
+        <span class="num">02 / DOMAIN</span>
+        <h3>Blueprint</h3>
+        <p>Blueprint structure, members, components, compile, and save.</p>
+      </article>
+      <article class="feature-card paper-card interface">
+        <span class="num">03 / DOMAIN</span>
+        <h3>Class</h3>
+        <p>Native and Blueprint class structure and semantics.</p>
+      </article>
+      <article class="feature-card paper-card interface">
+        <span class="num">04 / DOMAIN</span>
+        <h3>Graph</h3>
+        <p>Nodes, Pins, connections, Palettes, layout, and execution flow.</p>
+      </article>
+      <article class="feature-card paper-card interface">
+        <span class="num">05 / DOMAIN</span>
+        <h3>StateTree</h3>
+        <p>Hierarchy, schema, bindings, and compile state.</p>
+      </article>
+      <article class="feature-card paper-card interface">
+        <span class="num">06 / DOMAIN</span>
+        <h3>Widget</h3>
+        <p>WidgetBlueprint trees, Palettes, layout, and compile state.</p>
+      </article>
+    </section>
+
+    <footer class="footer-strip native-strip">
+      NATIVE NAMES · TYPES · VALUES · IDENTITIES · SEMANTICS
+    </footer>
+  </main>
+</body>
+</html>

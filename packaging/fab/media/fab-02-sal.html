@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, initial-scale=1">
+  <title>SAL — Structured Agent Language</title>
+  <link rel="stylesheet" href="./fab-gallery.css">
+  <style>
+    .intro {
+      display: grid;
+      height: 246px;
+      margin-top: 48px;
+      grid-template-columns: 1.08fr 0.92fr;
+      gap: 108px;
+      align-items: start;
+    }
+
+    .intro h1 {
+      margin-top: 14px;
+      font-size: 72px;
+    }
+
+    .intro .headline-sub {
+      max-width: 770px;
+      font-size: 35px;
+      letter-spacing: -0.035em;
+      line-height: 1.14;
+    }
+
+    .intro-copy {
+      padding-top: 29px;
+    }
+
+    .examples {
+      display: grid;
+      height: 610px;
+      margin-top: 27px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-rows: 300px 310px;
+      gap: 0;
+      box-shadow: 12px 12px 0 var(--paper-deep);
+    }
+
+    .object-card {
+      grid-column: 1 / -1;
+    }
+
+    .object-card pre {
+      font-size: 18px;
+      line-height: 1.52;
+    }
+
+    .examples .code-card:nth-child(2) {
+      border-top: 0;
+      border-right: 0;
+    }
+
+    .examples .code-card:nth-child(3) {
+      border-top: 0;
+    }
+  </style>
+</head>
+<body>
+  <main class="page paper">
+    <header class="brandbar">
+      <div class="brand">
+        <img src="./loomle-mark.svg" alt="">
+        <span>LOOMLE</span>
+      </div>
+      <div class="section-no">02 / STRUCTURED AGENT LANGUAGE</div>
+    </header>
+
+    <section class="intro">
+      <div>
+        <div class="kicker">HUMAN — AGENT — COMPUTER</div>
+        <h1>
+          SAL
+          <span class="headline-sub">A shared text language for collaboration on complex non-text objects.</span>
+        </h1>
+      </div>
+      <div class="intro-copy">
+        <p class="lede">
+          Structured Agent Language expresses Unreal object structure,
+          relationships, capabilities, and edits as compact, ordered, copyable
+          text—while preserving native names, values, identities, and semantics.
+        </p>
+      </div>
+    </section>
+
+    <section class="examples">
+      <article class="code-card object-card">
+        <div class="code-head">
+          <span>01 / OBJECT TEXT</span>
+          <span>STRUCTURE + RELATIONSHIPS</span>
+        </div>
+        <pre><span class="field">beginPlay</span> <span class="op">=</span> <span class="type">node</span> <span class="punct">{</span>
+  <span class="field">id</span><span class="punct">:</span> <span class="string">"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"</span><span class="punct">,</span>
+  <span class="field">type</span><span class="punct">:</span> <span class="string">"/Script/BlueprintGraph.K2Node_Event"</span>
+<span class="punct">}</span>
+
+<span class="field">beginPlay.then</span> <span class="op">-&gt;</span> <span class="field">validate.execute</span> <span class="op">/ then -&gt;</span> <span class="field">unlock.execute</span> <span class="op">/ then -&gt;</span> <span class="field">open.execute</span> <span class="op">/ then -&gt;</span> <span class="field">notify.execute</span>
+<span class="comment"># excerpt: Pin and intermediate Node bindings omitted</span></pre>
+      </article>
+
+      <article class="code-card">
+        <div class="code-head">
+          <span>02 / QUERY TEXT</span>
+          <span>DISCOVER + INSPECT</span>
+        </div>
+        <pre><span class="kw">query</span> <span class="field">eventGraph</span>
+<span class="kw">exec flow from pin</span> <span class="op">@node-guid/pin-guid</span> <span class="kw">depth</span> <span class="type">8</span>
+
+<span class="comment"># excerpt: target binding omitted</span></pre>
+      </article>
+
+      <article class="code-card">
+        <div class="code-head">
+          <span>03 / PATCH TEXT</span>
+          <span>MODIFY + VERIFY</span>
+        </div>
+        <pre><span class="kw">patch</span> <span class="field">eventGraph</span> <span class="kw">dry run</span>
+<span class="field">print</span> <span class="op">=</span> <span class="punct">{</span> <span class="field">palette</span><span class="punct">:</span> <span class="string">"returned-palette-entry-id"</span> <span class="punct">}</span>
+<span class="kw">add</span> <span class="field">print</span> <span class="op">@source-node-guid/source-pin-guid -&gt;</span> <span class="field">print.execute</span>
+<span class="kw">move</span> <span class="field">print</span> <span class="kw">to</span> <span class="punct">(</span><span class="type">640</span><span class="punct">,</span> <span class="type">320</span><span class="punct">)</span>
+
+<span class="comment"># excerpt: target binding omitted</span></pre>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

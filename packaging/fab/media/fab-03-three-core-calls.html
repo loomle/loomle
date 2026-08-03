@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, initial-scale=1">
+  <title>Loomle MCP — Three Core Calls</title>
+  <link rel="stylesheet" href="./fab-gallery.css">
+  <style>
+    .intro {
+      display: grid;
+      height: 250px;
+      margin-top: 49px;
+      grid-template-columns: 0.94fr 1.06fr;
+      gap: 112px;
+      align-items: start;
+    }
+
+    .intro h1 {
+      margin-top: 13px;
+      color: #f3f0e9;
+      font-size: 68px;
+    }
+
+    .intro .headline-sub {
+      color: #e5e1d8;
+      font-size: 44px;
+    }
+
+    .intro-copy {
+      padding-top: 25px;
+    }
+
+    .anti-tool {
+      margin-bottom: 17px;
+      padding-left: 20px;
+      border-left: 4px solid var(--copper);
+      color: #ece8df;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 29px;
+      letter-spacing: -0.025em;
+      line-height: 1.22;
+    }
+
+    .intro-copy .lede {
+      font-size: 20px;
+      line-height: 1.48;
+    }
+
+    .calls {
+      height: 430px;
+      margin-top: 22px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .call {
+      display: flex;
+      padding: 33px 34px 31px;
+      flex-direction: column;
+    }
+
+    .call-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .call h3 {
+      margin-top: 37px;
+      color: #f0ede6;
+      font-size: 34px;
+    }
+
+    .verb {
+      color: #777a72;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 14px;
+      letter-spacing: 0.09em;
+    }
+
+    .call p {
+      margin-top: auto;
+      max-width: 465px;
+      font-size: 21px;
+      line-height: 1.48;
+    }
+
+    .supporting {
+      display: grid;
+      height: 105px;
+      margin-top: 24px;
+      grid-template-columns: repeat(4, 1fr);
+      border: 1px solid var(--dark-line);
+    }
+
+    .supporting div {
+      display: flex;
+      padding: 19px 24px;
+      flex-direction: column;
+      justify-content: center;
+      border-right: 1px solid var(--dark-line);
+    }
+
+    .supporting div:last-child {
+      border-right: 0;
+    }
+
+    .supporting small {
+      color: #7e8079;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      letter-spacing: 0.09em;
+    }
+
+    .supporting strong {
+      margin-top: 8px;
+      color: #c8c7c1;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 17px;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <main class="page dark">
+    <header class="brandbar">
+      <div class="brand">
+        <img src="./loomle-mark.svg" alt="">
+        <span>LOOMLE</span>
+      </div>
+      <div class="section-no">03 / UNREAL ENGINE MCP</div>
+    </header>
+
+    <section class="intro">
+      <div>
+        <div class="kicker">COMPACT UNREAL OBJECT INTERFACE</div>
+        <h1>
+          Loomle MCP
+          <span class="headline-sub">Three core calls.<br>Every supported Unreal object.</span>
+        </h1>
+      </div>
+      <div class="intro-copy">
+        <div class="anti-tool">
+          One compact object interface—not another MCP tool for every capability.
+        </div>
+        <p class="lede">
+          SAL carries discovery, reading, and editing across supported Unreal
+          objects. The public interface stays compact as Loomle gains depth.
+        </p>
+      </div>
+    </section>
+
+    <section class="card-grid calls">
+      <article class="feature-card call">
+        <div class="call-head"><span class="num">01</span><span class="verb">DISCOVER</span></div>
+        <h3>sal_schema</h3>
+        <p>Discover the object model, domain guidance, and exact capabilities available in the live Editor.</p>
+      </article>
+      <article class="feature-card call">
+        <div class="call-head"><span class="num">02</span><span class="verb">READ</span></div>
+        <h3>sal_query</h3>
+        <p>Read live Unreal state, structure, relationships, execution flow, and precise layout geometry.</p>
+      </article>
+      <article class="feature-card call">
+        <div class="call-head"><span class="num">03</span><span class="verb">EDIT</span></div>
+        <h3>sal_patch</h3>
+        <p>Compose ordered Unreal edits, dry-run the plan, validate it, and apply it as one coherent change.</p>
+      </article>
+    </section>
+
+    <section class="supporting" aria-label="Supporting MCP calls">
+      <div><small>CONNECTION HEALTH</small><strong>status</strong></div>
+      <div><small>PROJECT BINDING</small><strong>project</strong></div>
+      <div><small>LIVE EDITOR FOCUS</small><strong>editor_context</strong></div>
+      <div><small>RESIDENT SKILLS</small><strong>agent_skill</strong></div>
+    </section>
+  </main>
+</body>
+</html>

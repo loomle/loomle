@@ -72,11 +72,15 @@ case "$command_name" in
   check)
     require_bundle
     bundle exec jekyll build --destination _site
-    stable_version="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "version")')"
     stable_release_url="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "releaseUrl")')"
     stable_archive_url="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "targets", "darwin-arm64", "assetUrl")')"
     windows_archive_url="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "targets", "win32-x64", "assetUrl")')"
+    latest_release_url="https://github.com/loomle/loomle/releases/latest"
+    latest_archive_url="$latest_release_url/download/loomle-bridge.zip"
+    latest_sha_url="$latest_archive_url.sha256"
     test "$stable_archive_url" = "$windows_archive_url"
+    test "$stable_release_url" = "$latest_release_url"
+    test "$stable_archive_url" = "$latest_archive_url"
     test -s _site/index.html
     test -s _site/assets/css/loomle.css
     test -s _site/assets/images/oasium-cover.webp
@@ -85,9 +89,12 @@ case "$command_name" in
     grep -q '<title>Quickstart | Loomle AI</title>' _site/quickstart.html
     grep -q '<title>Agent Skill | Loomle AI</title>' _site/calls/agent-skill.html
     grep -q '<title>Format a Blueprint Graph | Loomle AI</title>' _site/workflows/blueprint-format-graph.html
-    grep -Fq "Loomle ${stable_version} is available" _site/install.html
-    grep -Fq "$stable_release_url" _site/install.html
-    grep -Fq "$stable_archive_url" _site/install.html
+    grep -Fq "The latest stable Loomle release is available" _site/install.html
+    grep -Fq "$latest_release_url" _site/install.html
+    grep -Fq "$latest_archive_url" _site/install.html
+    grep -Fq "$latest_sha_url" _site/install.html
+    ! grep -Eq 'releases/(tag|download)/v[0-9]' install.md llms.txt
+    ! grep -Eq 'loomle-bridge-[0-9]+\.[0-9]+\.[0-9]+\.zip' install.md llms.txt
     grep -q 'Three core calls. Every supported Unreal object.' _site/index.html
     grep -q '<strong>sal_schema</strong>' _site/index.html
     grep -q '<strong>sal_query</strong>' _site/index.html

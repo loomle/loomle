@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, initial-scale=1">
+  <title>Loomle MCP — Six Calls</title>
+  <link rel="stylesheet" href="./fab-gallery.css">
+  <style>
+    .intro {
+      display: grid;
+      height: 273px;
+      margin-top: 49px;
+      grid-template-columns: 0.95fr 1.05fr;
+      gap: 112px;
+      align-items: start;
+    }
+
+    .intro h1 {
+      margin-top: 13px;
+      color: #f3f0e9;
+      font-size: 72px;
+    }
+
+    .intro .headline-sub {
+      color: #e5e1d8;
+      font-size: 49px;
+    }
+
+    .intro-copy {
+      padding-top: 27px;
+    }
+
+    .anti-tool {
+      margin-bottom: 17px;
+      padding-left: 20px;
+      border-left: 4px solid var(--copper);
+      color: #ece8df;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 29px;
+      letter-spacing: -0.025em;
+      line-height: 1.22;
+    }
+
+    .intro-copy .lede {
+      font-size: 20px;
+      line-height: 1.48;
+    }
+
+    .calls {
+      height: 590px;
+      margin-top: 20px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-rows: repeat(2, 1fr);
+    }
+
+    .call {
+      display: grid;
+      padding: 28px 30px;
+      grid-template-columns: 45px 1fr;
+      grid-template-rows: auto 1fr;
+      column-gap: 17px;
+    }
+
+    .call h3 {
+      font-size: 25px;
+    }
+
+    .call p {
+      grid-column: 2;
+      align-self: end;
+      max-width: 440px;
+      font-size: 20px;
+    }
+
+    .calls::after {
+      position: absolute;
+      content: "";
+    }
+  </style>
+</head>
+<body>
+  <main class="page dark">
+    <header class="brandbar">
+      <div class="brand">
+        <img src="./loomle-mark.svg" alt="">
+        <span>LOOMLE</span>
+      </div>
+      <div class="section-no">03 / UNREAL ENGINE MCP</div>
+    </header>
+
+    <section class="intro">
+      <div>
+        <div class="kicker">LOOMLE MCP</div>
+        <h1>
+          Six calls.
+          <span class="headline-sub">Unreal-scale reach.</span>
+        </h1>
+      </div>
+      <div class="intro-copy">
+        <div class="anti-tool">
+          One stable public interface—not hundreds of tool-per-action endpoints.
+        </div>
+        <p class="lede">
+          Tool-per-action MCP designs can grow into hundreds of tools as product
+          depth expands. Loomle keeps project binding, editor context,
+          discovery, reading, and editing behind six stable calls, while SAL
+          carries Unreal’s depth as structured Query and Patch Text.
+        </p>
+      </div>
+    </section>
+
+    <section class="card-grid calls">
+      <article class="feature-card call">
+        <span class="num">01</span>
+        <h3>status</h3>
+        <p>Inspect the Client, updates, session state, and Loomle Bridge health.</p>
+      </article>
+      <article class="feature-card call">
+        <span class="num">02</span>
+        <h3>project</h3>
+        <p>Bind or switch Unreal projects explicitly, with sticky per-session selection.</p>
+      </article>
+      <article class="feature-card call">
+        <span class="num">03</span>
+        <h3>editor_context</h3>
+        <p>Share the artist’s current Editor focus and selection with the agent.</p>
+      </article>
+      <article class="feature-card call">
+        <span class="num">04</span>
+        <h3>sal_schema</h3>
+        <p>Move from interface discovery to exact live capabilities before acting.</p>
+      </article>
+      <article class="feature-card call">
+        <span class="num">05</span>
+        <h3>sal_query</h3>
+        <p>Inspect live Unreal state, structure, relationships, and execution flow.</p>
+      </article>
+      <article class="feature-card call">
+        <span class="num">06</span>
+        <h3>sal_patch</h3>
+        <p>Compose ordered, interdependent edits ready to dry-run, validate, and apply.</p>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

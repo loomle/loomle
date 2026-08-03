@@ -180,9 +180,20 @@ loomle-fab-plugin-<platform-arch>.zip
 
 Both have SHA-256 sidecars and remain inputs to promotion only. Promotion
 extracts, validates, and mechanically combines them. The public GitHub Release
-contains only the two cross-platform archives and their sidecars:
+contains the two cross-platform archives and their sidecars:
 
 ```text
 loomle-bridge-<version>-source.zip
 loomle-bridge-<version>.zip
 ```
+
+Final releases additionally expose byte-identical stable download aliases:
+
+```text
+loomle-bridge-source.zip
+loomle-bridge.zip
+```
+
+These aliases exist so documentation can use GitHub's
+`releases/latest/download/...` route. Fab Project File Links remain pinned to
+the immutable `loomle-bridge-<version>-source.zip` asset.
