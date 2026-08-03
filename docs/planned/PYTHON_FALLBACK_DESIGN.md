@@ -3,10 +3,10 @@
 ## Status
 
 Loomle 0.7 does not currently expose Unreal-side Python. Its public Client has
-six tools, and its Bridge accepts only `sal.query`, `sal.patch`, and
+seven tools, and its Bridge accepts only `sal.query`, `sal.patch`, and
 `editor.context`.
 
-This document defines a planned seventh public tool, `python_execute`, backed
+This document defines a planned eighth public tool, `python_execute`, backed
 by the private Bridge operation `python.execute`. It is a high-privilege
 capability fallback for UE behavior that Loomle has not yet expressed through
 SAL. It is not implemented and is not part of the current public contract.

@@ -92,13 +92,14 @@ function assertUnresolvedResultFirstBlock(
   assert.equal(parsed.result?.object, undefined);
 }
 
-test("exposes only the six public Loomle tools", () => {
+test("exposes only the seven public Loomle tools", () => {
   assert.deepEqual(toolDefinitions.map((tool) => tool.name), [
     "status",
     "project",
     "sal_query",
     "sal_patch",
     "sal_schema",
+    "agent_skill",
     "editor_context",
   ]);
 });
@@ -180,9 +181,13 @@ test("keeps the resident guide only on sal_schema", () => {
   );
   assert.ok(
     toolDefinitions
-      .filter((tool) => tool.name !== "sal_schema")
+      .filter((tool) => !["sal_schema", "agent_skill"].includes(tool.name))
       .every((tool) => tool.description.length < 300),
   );
+  const agentSkill = toolDefinitions.find((tool) => tool.name === "agent_skill");
+  assert.match(agentSkill?.description ?? "", /format-unreal-blueprints/);
+  assert.match(agentSkill?.description ?? "", /near-human visual quality/);
+  assert.doesNotMatch(agentSkill?.description ?? "", /# Format Unreal Blueprints/);
 });
 
 test("project inspects or changes only the Client session binding", async () => {
@@ -567,6 +572,44 @@ test("sal_schema is local and does not call Bridge", async () => {
   assert.match(graph.content[0].text, /^# graph$/m);
   assert.equal(stateTree.isError, undefined);
   assert.match(stateTree.content[0].text, /^# state_tree$/m);
+  assert.equal(rpc.calls.length, 0);
+});
+
+test("agent_skill lists and loads the complete resident workflow without calling Bridge", async () => {
+  const rpc = new MockRpc(emptyObjectResult);
+  const service = new SalToolService(rpc);
+  const list = await service.call("agent_skill", {});
+  assert.equal(list.isError, undefined);
+  assert.match(list.content[0].text, /^agent_skills:$/m);
+  assert.match(list.content[0].text, /name: format-unreal-blueprints/);
+  assert.match(list.content[0].text, /near-human visual quality/);
+
+  const skill = await service.call("agent_skill", { name: "format-unreal-blueprints" });
+  assert.equal(skill.isError, undefined);
+  assert.deepEqual(
+    skill.content.map(({ text }) => /^file: ([^\n]+)$/m.exec(text)?.[1]),
+    [
+      "SKILL.md",
+      "references/golden-examples.md",
+      "references/layout-rules.md",
+      "references/loomle-sal-workflow.md",
+    ],
+  );
+  assert.match(allText(skill), /# Format Unreal Blueprints/);
+  assert.match(allText(skill), /# Blueprint K2 Layout Rules/);
+  assert.match(allText(skill), /# Loomle SAL Layout Workflow/);
+  assert.equal(rpc.calls.length, 0);
+});
+
+test("agent_skill rejects unknown names and extra arguments locally", async () => {
+  const rpc = new MockRpc(emptyObjectResult);
+  const service = new SalToolService(rpc);
+  const unknown = await service.call("agent_skill", { name: "missing" });
+  const extra = await service.call("agent_skill", { unexpected: true });
+  assert.equal(unknown.isError, true);
+  assert.match(unknown.content[0].text, /Unknown Loomle Agent Skill: missing/);
+  assert.equal(extra.isError, true);
+  assert.match(extra.content[0].text, /agent_skill does not accept: unexpected/);
   assert.equal(rpc.calls.length, 0);
 });
 

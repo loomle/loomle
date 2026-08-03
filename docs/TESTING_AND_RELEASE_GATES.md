@@ -131,9 +131,10 @@ that may later be published. It copies the authored host project to a temporary
 directory, installs the archive, starts one Editor process, and exercises this
 compact vertical workflow:
 
-1. initialize MCP and verify the six public tools;
+1. initialize MCP and verify the seven public tools;
 2. bind the copied project while it is offline;
-3. read local `sal_schema` and verify the six active interface modules;
+3. read local `sal_schema`, verify the six active interface modules, and load
+   the packaged `format-unreal-blueprints` Skill through `agent_skill`;
 4. start the Editor and observe the same project identity become ready;
 5. prove Game Thread admission with the exact read-only fixture Asset query,
    then inspect the fixture through Blueprint queries;

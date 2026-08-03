@@ -132,6 +132,7 @@ try {
       "sal_query",
       "sal_patch",
       "sal_schema",
+      "agent_skill",
       "editor_context",
     ]);
     assert.equal(
@@ -142,6 +143,14 @@ try {
       tools.tools.filter((tool) => tool.description?.includes(guide)).length,
       1,
     );
+
+    const skill = await client.callTool({
+      name: "agent_skill",
+      arguments: { name: "format-unreal-blueprints" },
+    });
+    assert.notEqual(skill.isError, true);
+    assert.match(JSON.stringify(skill), /# Format Unreal Blueprints/);
+    assert.match(JSON.stringify(skill), /# Blueprint K2 Layout Rules/);
 
     const schema = await client.callTool({ name: "sal_schema", arguments: {} });
     assert.notEqual(schema.isError, true);

@@ -85,6 +85,7 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
       "sal_query",
       "sal_patch",
       "sal_schema",
+      "agent_skill",
       "editor_context",
     ]);
     assert.equal(
@@ -95,6 +96,18 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
       tools.tools.filter((tool) => tool.description?.includes(guide)).length,
       1,
     );
+    assert.match(
+      tools.tools.find((tool) => tool.name === "agent_skill")?.description ?? "",
+      /format-unreal-blueprints/,
+    );
+
+    const skill = await client.callTool({
+      name: "agent_skill",
+      arguments: { name: "format-unreal-blueprints" },
+    });
+    assert.notEqual(skill.isError, true);
+    assert.match(JSON.stringify(skill), /# Format Unreal Blueprints/);
+    assert.match(JSON.stringify(skill), /# Blueprint K2 Layout Rules/);
 
     // A valid Query forces the embedded AJV validators to compile before the
     // isolated project lookup fails. This catches hidden package loads that a

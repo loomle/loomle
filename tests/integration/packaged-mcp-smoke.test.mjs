@@ -584,6 +584,16 @@ class FakePackagedHarness {
             "  Inspect Widgets.",
           ].join("\n"));
         }
+        if (name === "agent_skill") {
+          return textResult([
+            "agent_skill: format-unreal-blueprints",
+            "file: SKILL.md",
+            "",
+            "# Format Unreal Blueprints",
+            "",
+            "# Blueprint K2 Layout Rules",
+          ].join("\n"));
+        }
         if (name === "sal_query") {
           return harness.query(args.text);
         }

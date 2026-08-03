@@ -29,7 +29,7 @@ the editor and UE APIs as the source of truth.
 
 ## Current 0.7 Interface
 
-The standalone Client exposes six MCP tools:
+The standalone Client exposes seven MCP tools:
 
 - `status`: inspect the Client version, update availability, and bound session
   and Bridge health.
@@ -38,6 +38,8 @@ The standalone Client exposes six MCP tools:
 - `sal_query`: execute one self-contained SAL Query Text.
 - `sal_patch`: execute one ordered SAL Patch Text.
 - `sal_schema`: discover the resident SAL guide and the active interface cards.
+- `agent_skill`: discover and load MCP-managed Loomle workflow Skills without
+  a separate agent-specific installation.
 - `editor_context`: read the user's current Unreal interaction target as SAL
   Result Text.
 

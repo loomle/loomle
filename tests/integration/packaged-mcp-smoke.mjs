@@ -11,6 +11,7 @@ export const PUBLIC_TOOL_NAMES = Object.freeze([
   "sal_query",
   "sal_patch",
   "sal_schema",
+  "agent_skill",
   "editor_context",
 ]);
 
@@ -214,6 +215,16 @@ export async function runPackagedMcpSmoke(options = {}) {
         const word = new RegExp(`(^|[^A-Za-z0-9_])${name}([^A-Za-z0-9_]|$)`, "m");
         assert(word.test(schema), `sal_schema omitted required module ${name}`);
       }
+      const skill = await textCall(
+        session,
+        "agent_skill",
+        { name: "format-unreal-blueprints" },
+        "agent_skill",
+      );
+      assert(skill.includes("# Format Unreal Blueprints"),
+        "agent_skill omitted its primary instructions");
+      assert(skill.includes("# Blueprint K2 Layout Rules"),
+        "agent_skill omitted its required layout reference");
     });
 
     await step(PACKAGED_SMOKE_STEP_NAMES[3], async () => {

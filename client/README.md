@@ -15,7 +15,7 @@ duplicate either contract.
 
 ## Public Tools
 
-The Client exposes six MCP tools:
+The Client exposes seven MCP tools:
 
 - `status`: inspect Client identity and update availability plus the bound
   session and Bridge health;
@@ -25,18 +25,29 @@ The Client exposes six MCP tools:
 - `sal_patch`: parse, validate, execute, and format SAL Patch Text;
 - `sal_schema`: expose the resident SAL guide, then return the active interface
   index or one static interface when called;
+- `agent_skill`: list or load resident Loomle workflow Skills compiled from the
+  repository-root `skills/` source;
 - `editor_context`: discover the user's current UE interaction target.
 
-These six tools are the complete public Client surface. Additional UE behavior
-belongs in SAL and its interface cards rather than parallel compatibility
-tools.
+These seven tools are the complete public Client surface. Additional UE
+behavior belongs in SAL and its interface cards rather than parallel
+compatibility tools; `agent_skill` contains agent workflow policy and grants no
+new UE capability.
 
 The `sal_schema` tool description carries the resident guide from
 `@loomle/interfaces` exactly once. MCP server instructions remain empty because
-clients may expand them into every tool definition. The other five tool
-descriptions stay short and specific to their boundary. Calling `sal_schema` still
-returns only the active interface index or the requested static interface; it
-does not repeat the resident guide.
+clients may expand them into every tool definition. Each remaining description
+stays bounded to its own tool; `agent_skill` carries only Skill discovery
+metadata rather than complete instructions. Calling `sal_schema` still returns
+only the active interface index or the requested static interface; it does not
+repeat the resident guide.
+
+`agent_skill` is also local. Its description contains only resident Skill
+names and trigger descriptions. Calling it with an exact name returns that
+Skill's `SKILL.md` and Markdown references from the self-contained Client, so
+the workflow always matches the configured MCP version and needs no separate
+Codex, Claude, or Copilot Skill installation. The source and packaging contract
+is defined in [`../docs/MCP_AGENT_SKILLS.md`](../docs/MCP_AGENT_SKILLS.md).
 
 Query, Patch, and Editor Context return the same validated canonical Result
 Text in the first MCP text block. That block declares result context and

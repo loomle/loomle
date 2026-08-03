@@ -10,11 +10,13 @@
   "scripts": {
     "clean": "node scripts/clean.mjs",
     "check:version": "node ../packaging/tools/product-version.mjs check",
+    "generate:skills": "node scripts/generate-agent-skills.mjs",
+    "check:skills": "node scripts/check-agent-skills.mjs",
     "build:sal": "npm run build --workspace @loomle/sal",
     "build:interfaces": "npm run build --workspace @loomle/interfaces",
     "typecheck": "tsc -p tsconfig.json",
     "bundle": "node scripts/build.mjs",
-    "build": "npm run check:version && npm run clean && npm run build:sal && npm run build:interfaces && npm run typecheck && npm run bundle",
+    "build": "npm run check:version && npm run check:skills && npm run clean && npm run build:sal && npm run build:interfaces && npm run typecheck && npm run bundle",
     "build:test": "tsc -p tsconfig.test.json",
     "test": "npm run build && npm run build:test && node scripts/run-tests.mjs"
   },

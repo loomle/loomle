@@ -12,13 +12,16 @@ project to local AI coding agents through LOOMLE's MCP tools.
   packaged plugin.
 - `Resources/Loomle/<platform-arch>/loomle(.exe)`: self-contained Loomle Client
   used by Codex, Claude, and other MCP hosts through stdio.
+- `Resources/AgentSkills`: vendor-neutral source copies of the Loomle workflow
+  Skills embedded in that Client.
 
 ## Loomle Client
 
 The Fab package includes the matching platform Client under `Resources/Loomle`.
 It already contains SAL, the Loomle interface catalog, the MCP implementation,
-and its runtime dependencies. It does not require a separate Node.js, Python,
-`uv`, or repository installation.
+its MCP-managed Agent Skills, and its runtime dependencies. It does not require
+a separate Node.js, Python, `uv`, repository installation, or host-specific
+Skill installation.
 
 Typical command:
 

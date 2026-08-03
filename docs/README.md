@@ -19,6 +19,8 @@ and repository history instead of being duplicated on `main`.
 
 - `LOOMLE_070_REPOSITORY_AND_DISTRIBUTION.md`: canonical 0.7 component,
   artifact, Fab, and repository boundaries.
+- `MCP_AGENT_SKILLS.md`: MCP-owned Agent Skill discovery, loading, packaging,
+  and version-coherence contract.
 - `MUTATION_DRY_RUN_CONTRACT.md`: shared mutation validation, planning,
   revision, diff, and dry-run rules.
 - `SAL_OBJECT_AND_REFERENCE_MODEL.md`: implemented SAL v3 object expressions,
@@ -35,7 +37,7 @@ owners rather than under `docs/`:
 - `../interfaces/`: the six active Asset, Blueprint, Class, Graph, StateTree,
   and Widget interface cards, their shared reference-query contract, and the
   resident guide.
-- `../client/README.md`: current six-tool TypeScript Client boundary.
+- `../client/README.md`: current TypeScript Client tool boundary.
 
 ## Planned Designs
 

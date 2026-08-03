@@ -9,6 +9,10 @@ Loomle 0.7 has four product components:
 - `client/`: the standalone MCP Client that presents agent-facing tools;
 - `engine/LoomleBridge/`: the Unreal Engine plugin that performs UE work.
 
+The repository-root `skills/` tree is the canonical vendor-neutral workflow
+policy consumed by the Client and carried visibly in release packages. It is
+not a fifth runtime process or a host-specific installation.
+
 These components have different runtime boundaries and remain separate at the
 repository root. Packaging combines them only when producing release artifacts.
 
@@ -19,6 +23,7 @@ loomle/
   sal/
   interfaces/
   client/
+  skills/
   engine/LoomleBridge/
   packaging/
     client/
@@ -114,6 +119,7 @@ Schema into an internal TypeScript text module used by result validation.
 Static resources carried into the final Client are therefore:
 
 - the generated interface catalog;
+- the generated Agent Skill catalog, instructions, and Markdown references;
 - the generated runtime text of the normalized SAL JSON Schema;
 - any generated data required by the SAL SDK.
 
@@ -132,6 +138,10 @@ LoomleBridge/
   THIRD_PARTY_NOTICES.txt
   Source/
   Resources/
+    AgentSkills/
+      format-unreal-blueprints/
+        SKILL.md
+        references/
     Loomle/
       darwin-arm64/
         loomle
@@ -156,6 +166,12 @@ LoomleBridge/
 The per-target assembler still accepts only one canonical standalone Client
 program and has no alternative Client layout or script fallback. Its
 platform-specific trees are native QA fragments, not public packages.
+
+The Client's model-controlled `agent_skill` tool discovers and loads its
+embedded workflow copy. Users do not install the visible `Resources/AgentSkills`
+tree into a Codex, Claude, or Copilot directory. Client generation tests compare
+the embedded Markdown with repository `skills/`, while Fab and derivation tests
+preserve the visible copy from that same source.
 
 The Client discovers live Bridge records through `~/.loomle/state/runtimes`.
 That directory is runtime state, not a global Loomle installation and not a

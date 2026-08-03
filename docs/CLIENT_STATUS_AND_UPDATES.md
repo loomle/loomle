@@ -117,7 +117,7 @@ parallel version source is introduced.
 
 Tests must cover:
 
-- the six public MCP tools and empty `status` input;
+- the seven public MCP tools and empty `status` input;
 - Client identity on supported targets;
 - current, available, malformed, offline, and unsupported update states;
 - prerelease and stable channel selection;

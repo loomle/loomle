@@ -13,6 +13,9 @@ editor behavior intact.
 - `sal_patch({ text })` executes one ordered Patch Text.
 - `sal_schema({})` lists the six active Domain interface cards.
 - `sal_schema({ module: "graph" })` returns one static card.
+- `agent_skill({})` lists resident Loomle workflow Skills.
+- `agent_skill({ name: "format-unreal-blueprints" })` loads one Skill before
+  performing a matching specialized workflow.
 - `editor_context({})` returns the user's current UE context as SAL result
   text.
 

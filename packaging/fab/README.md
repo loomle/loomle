@@ -141,6 +141,11 @@ using the vendor-neutral Agent Skills format. Assembly copies that canonical
 tree into `Resources/AgentSkills`; each immediate child must be a directory
 with a non-empty `SKILL.md`. The packaged skill therefore travels with Loomle
 without making the source format specific to Codex, Claude, or another host.
+The same canonical Markdown is generated into the self-contained Client, whose
+model-controlled `agent_skill` MCP tool publishes trigger metadata and loads a
+matching workflow without a second host-specific Skill installation. Client
+tests compare every embedded Markdown file with its repository source, while
+assembly and derivation tests preserve the visible package copy.
 
 UE BuildPlugin consumes that same staging tree and produces the full GitHub
 plugin. The resulting tree must add the matching Mac dylib or Win64 DLL, mark

@@ -11,6 +11,7 @@ import {
   type TextResult,
 } from "@loomle/sal";
 import { catalog, guide } from "@loomle/interfaces";
+import { agentSkills } from "./generated/agent-skills.js";
 import type {
   ProjectController,
   ProjectReport,
@@ -29,6 +30,7 @@ export type PublicToolName =
   | "sal_query"
   | "sal_patch"
   | "sal_schema"
+  | "agent_skill"
   | "editor_context";
 
 export interface ToolDefinition {
@@ -54,6 +56,12 @@ export interface McpToolResult {
 }
 
 const interfaceNames = catalog.map(({ name }) => name);
+const agentSkillNames = agentSkills.map(({ name }) => name);
+const agentSkillDescription = [
+  "Load a Loomle Agent Skill when the task matches its description. Call with no arguments to list resident Skills or with one exact name to load its complete instructions and Markdown references.",
+  "Resident Skills:",
+  ...agentSkills.map(({ name, description }) => `- ${name}: ${description}`),
+].join("\n");
 
 export const toolDefinitions: readonly ToolDefinition[] = [
   {
@@ -106,6 +114,22 @@ export const toolDefinitions: readonly ToolDefinition[] = [
           type: "string",
           enum: [...interfaceNames],
           description: "Optional interface module.",
+        },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: "agent_skill",
+    description: agentSkillDescription,
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          enum: [...agentSkillNames],
+          description: "Optional exact resident Agent Skill name.",
         },
       },
       additionalProperties: false,
@@ -176,6 +200,9 @@ export class SalToolService {
         case "sal_schema":
           requireOnly(object, ["module"], name);
           return toMcpResult(await this.sal.schema(optionalString(object.module, "module")));
+        case "agent_skill":
+          requireOnly(object, ["name"], name);
+          return agentSkillResult(optionalString(object.name, "name"));
         case "editor_context":
           requireOnly(object, [], name);
           return toMcpResult(await objectResultToTextResult(
@@ -195,6 +222,33 @@ export class SalToolService {
   setMcpRoots(roots: readonly string[] | undefined, supported: boolean): void {
     this.rpc.setMcpRoots?.(roots, supported);
   }
+}
+
+function agentSkillResult(name: string | undefined): McpToolResult {
+  if (name === undefined) {
+    return {
+      content: [{
+        type: "text",
+        text: [
+          "agent_skills:",
+          ...agentSkills.flatMap((skill) => [
+            `- name: ${skill.name}`,
+            `  description: ${JSON.stringify(skill.description)}`,
+          ]),
+          "next: call agent_skill with one exact name when its description matches the task",
+        ].join("\n"),
+      }],
+    };
+  }
+
+  const skill = agentSkills.find((candidate) => candidate.name === name);
+  if (!skill) throw new ToolInputError(`Unknown Loomle Agent Skill: ${name}.`);
+  return {
+    content: skill.files.map((file) => ({
+      type: "text" as const,
+      text: `agent_skill: ${skill.name}\nfile: ${file.path}\n\n${file.text}`,
+    })),
+  };
 }
 
 function projectResult(report: ProjectReport): McpToolResult {
