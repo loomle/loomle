@@ -757,6 +757,7 @@ body:has(.loomle-home) .main-content main {
 .loom-principle h2,
 .loom-sal h2,
 .loom-interface h2,
+.loom-skills h2,
 .loom-oasium h2,
 .loom-start h2 {
   margin: 0;
@@ -770,7 +771,8 @@ body:has(.loomle-home) .main-content main {
 }
 
 .loom-principle p,
-.loom-interface-intro p {
+.loom-interface-intro p,
+.loom-skills-intro p {
   margin: 0;
   color: #5f615b;
   font-size: 1rem;
@@ -1033,6 +1035,82 @@ body:has(.loomle-home) .main-content main {
   color: #d1d2cc;
 }
 
+.loom-skills {
+  padding-top: clamp(5rem, 8vw, 7.5rem);
+  padding-bottom: clamp(5rem, 8vw, 7.5rem);
+  border-right: 1px solid $loom-line;
+  border-left: 1px solid $loom-line;
+  background:
+    radial-gradient(circle, rgba(23, 24, 22, 0.14) 0 1px, transparent 1.5px) right 4rem top 4rem / 18px 18px no-repeat,
+    $loom-paper;
+  color: $loom-ink;
+}
+
+.loom-skills-intro {
+  display: grid;
+  margin-top: 3rem;
+  grid-template-columns: 1.05fr 0.65fr;
+  gap: clamp(3rem, 8vw, 10rem);
+}
+
+.loom-skills-intro p {
+  font-size: var(--loom-type-body);
+}
+
+.loom-skill-proofs {
+  display: grid;
+  margin-top: clamp(4rem, 7vw, 6rem);
+  gap: 2rem;
+}
+
+.loom-skill-proof {
+  margin: 0;
+}
+
+.loom-skill-proof figcaption {
+  display: flex;
+  min-height: 48px;
+  padding: 0 1rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  border: 1px solid #3a3c36;
+  border-bottom: 0;
+  background: $loom-ink;
+  color: #d8d6cf;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: var(--loom-type-control);
+}
+
+.loom-skill-proof figcaption span {
+  color: $loom-copper;
+  font-size: var(--loom-type-micro);
+  letter-spacing: 0.08em;
+}
+
+.loom-skill-proof figcaption strong {
+  font-weight: 400;
+}
+
+.loom-skill-proof-frame {
+  overflow: hidden;
+  aspect-ratio: 1393 / 445;
+  border: 1px solid #3a3c36;
+  background: #171815;
+  box-shadow: 12px 12px 0 $loom-paper-deep;
+}
+
+.loom-skill-proof-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+  transform: translateY(-38.66%);
+}
+
+.loom-skill-proof-after .loom-skill-proof-frame {
+  box-shadow: 12px 12px 0 rgba(189, 79, 50, 0.2);
+}
+
 .loom-oasium {
   display: grid;
   padding-top: 6.5rem;
@@ -1215,6 +1293,7 @@ body:has(.loomle-home) .main-content main {
   .loom-principle-grid,
   .loom-sal-intro,
   .loom-interface-intro,
+  .loom-skills-intro,
   .loom-oasium {
     grid-template-columns: 1fr;
   }
@@ -1362,6 +1441,7 @@ body:has(.loomle-home) .main-content main {
   .loom-principle,
   .loom-sal,
   .loom-interface,
+  .loom-skills,
   .loom-oasium,
   .loom-start {
     padding-top: 4.25rem;
@@ -1393,6 +1473,23 @@ body:has(.loomle-home) .main-content main {
 
   .loom-call-grid a {
     min-height: 125px;
+  }
+
+  .loom-skill-proof figcaption {
+    align-items: flex-start;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.35rem;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .loom-skill-proof-frame {
+    box-shadow: 7px 7px 0 $loom-paper-deep;
+  }
+
+  .loom-skill-proof-after .loom-skill-proof-frame {
+    box-shadow: 7px 7px 0 rgba(189, 79, 50, 0.2);
   }
 
   .loom-specimen-key {

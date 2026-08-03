@@ -88,8 +88,15 @@ case "$command_name" in
     grep -Fq "Loomle ${stable_version} is available" _site/install.html
     grep -Fq "$stable_release_url" _site/install.html
     grep -Fq "$stable_archive_url" _site/install.html
-    grep -q 'Seven calls. Unreal-scale reach.' _site/index.html
-    grep -q '<strong>agent_skill</strong>' _site/index.html
+    grep -q 'Three core calls. Every supported Unreal object.' _site/index.html
+    grep -q '<strong>sal_schema</strong>' _site/index.html
+    grep -q '<strong>sal_query</strong>' _site/index.html
+    grep -q '<strong>sal_patch</strong>' _site/index.html
+    grep -q '03 / RESIDENT AGENT SKILLS' _site/index.html
+    grep -q 'Domain expertise, loaded on demand.' _site/index.html
+    grep -q 'class="loom-skill-proofs"' _site/index.html
+    grep -q 'assets/images/blueprint-layout-before.png' _site/index.html
+    grep -q 'assets/images/blueprint-layout-after.png' _site/index.html
     grep -q 'seven public Loomle MCP tools' _site/calls/index.html
     grep -q 'Seven public MCP tools:' _site/llms.txt
     grep -q 'format-unreal-blueprints' _site/llms.txt
@@ -110,13 +117,13 @@ case "$command_name" in
     grep -q 'SAL — Structured Agent Language' _site/index.html
     grep -q 'class="loom-heading-title"' _site/index.html
     grep -q 'class="loom-heading-description"' _site/index.html
-    grep -q 'native Loomle Bridge' _site/index.html
-    grep -q 'artist’s current Editor focus' _site/index.html
-    grep -q 'Domain cards' _site/index.html
-    grep -q '<code>with schema</code>' _site/index.html
-    grep -q 'precise control over scope, depth, and detail' _site/index.html
-    grep -q 'complex, interdependent Unreal edits' _site/index.html
-    grep -q '03 / PLAYERS–AGENTS–WORLDS' _site/index.html
+    ! grep -q '<strong>status</strong>' _site/index.html
+    ! grep -q '<strong>project</strong>' _site/index.html
+    ! grep -q '<strong>editor_context</strong>' _site/index.html
+    ! grep -q '<strong>agent_skill</strong>' _site/index.html
+    grep -q 'Compose ordered Unreal edits' _site/index.html
+    grep -q '04 / PLAYERS–AGENTS–WORLDS' _site/index.html
+    grep -q '05 / START CREATING' _site/index.html
     grep -q 'assets/images/oasium-cover.webp' _site/index.html
     grep -q 'https://oasium.io/' _site/index.html
     grep -q 'class="loom-mobile-menu"' _site/index.html

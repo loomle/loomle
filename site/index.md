@@ -167,33 +167,64 @@ move print to (640, 320)
         <div class="loom-heading-block">
           <h2>
             <span class="loom-heading-title">Loomle MCP</span>
-            <span class="loom-heading-description">Seven calls. Unreal-scale reach.</span>
+            <span class="loom-heading-description">Three core calls. Every supported Unreal object.</span>
           </h2>
           <a class="loom-text-link loom-text-link-dark" href="/calls/">Explore Loomle MCP →</a>
         </div>
         <p>
-          Loomle MCP connects agents to the live Unreal Editor through a
-          bundled local Client and native Loomle Bridge. Seven stable calls
-          handle project binding, editor context, discovery, reading, and
-          editing, while SAL carries the depth of Unreal without turning every
-          capability into another tool.
+          SAL gives agents one compact object interface to Unreal Engine
+          instead of adding another MCP tool for every capability.
+          <code>sal_schema</code>, <code>sal_query</code>, and
+          <code>sal_patch</code> carry discovery, reading, and editing across
+          every supported Unreal object.
         </p>
       </div>
 
       <div class="loom-call-grid">
-        <a href="/calls/status.html"><span>01</span><strong>status</strong><small>Inspect the Client, updates, session state, and Loomle Bridge health.</small></a>
-        <a href="/calls/project.html"><span>02</span><strong>project</strong><small>Work safely across multiple Unreal projects through explicit, sticky per-session binding.</small></a>
-        <a href="/calls/editor-context.html"><span>03</span><strong>editor_context</strong><small>Share the artist’s current Editor focus and selection with an agent, so both can continue creating from the same context.</small></a>
-        <a href="/calls/schema.html"><span>04</span><strong>sal_schema</strong><small>Guide agents from broad discovery to exact action through three schema layers: the resident guide, Domain cards, and exact live capabilities discovered with <code>with schema</code>.</small></a>
-        <a href="/calls/agent-skill.html"><span>05</span><strong>agent_skill</strong><small>Discover and load resident Loomle workflow guidance without a separate host-specific Skill installation.</small></a>
-        <a href="/calls/sal.html"><span>06</span><strong>sal_query</strong><small>SAL Query Text lets agents discover objects and inspect live Unreal state, structure, relationships, and execution flow with precise control over scope, depth, and detail.</small></a>
-        <a href="/calls/sal.html"><span>07</span><strong>sal_patch</strong><small>SAL Patch Text lets agents compose complex, interdependent Unreal edits into one ordered batch—ready to dry-run, validate, and apply.</small></a>
+        <a href="/calls/schema.html"><span>01</span><strong>sal_schema</strong><small>Discover the object model, domain guidance, and exact capabilities available in the live Editor.</small></a>
+        <a href="/calls/sal.html"><span>02</span><strong>sal_query</strong><small>Read live Unreal state, structure, relationships, execution flow, and precise layout geometry.</small></a>
+        <a href="/calls/sal.html"><span>03</span><strong>sal_patch</strong><small>Compose ordered Unreal edits, dry-run the plan, validate it, and apply it as one coherent change.</small></a>
+      </div>
+    </section>
+
+    <section class="loom-skills" id="skills">
+      <div class="loom-section-label">03 / RESIDENT AGENT SKILLS</div>
+      <div class="loom-skills-intro">
+        <div class="loom-heading-block">
+          <h2>
+            <span class="loom-heading-title">Agent Skills</span>
+            <span class="loom-heading-description">Domain expertise, loaded on demand.</span>
+          </h2>
+          <a class="loom-text-link" href="/calls/agent-skill.html">Explore Resident Skills →</a>
+        </div>
+        <p>
+          Resident Skills are discovered and loaded through MCP. They teach
+          agents how to combine the three core calls with domain-specific
+          judgment—from reading exact pin geometry to dry-running, moving, and
+          verifying a Blueprint graph. The comparison below uses the same nodes
+          and links; only their layout changes.
+        </p>
+      </div>
+
+      <div class="loom-skill-proofs" aria-label="Blueprint layout before and after">
+        <figure class="loom-skill-proof">
+          <figcaption><span>BEFORE</span><strong>Syntax-valid, visually loose.</strong></figcaption>
+          <div class="loom-skill-proof-frame">
+            <img src="/assets/images/blueprint-layout-before.png" alt="Blueprint damage handling branch before applying the layout skill" width="1393" height="776" loading="lazy">
+          </div>
+        </figure>
+        <figure class="loom-skill-proof loom-skill-proof-after">
+          <figcaption><span>AFTER</span><strong>Structured by the Blueprint layout skill.</strong></figcaption>
+          <div class="loom-skill-proof-frame">
+            <img src="/assets/images/blueprint-layout-after.png" alt="The same Blueprint damage handling branch after applying the layout skill" width="1393" height="776" loading="lazy">
+          </div>
+        </figure>
       </div>
     </section>
 
     <section class="loom-oasium">
       <div class="loom-oasium-copy">
-        <div class="loom-section-label">03 / PLAYERS–AGENTS–WORLDS</div>
+        <div class="loom-section-label">04 / PLAYERS–AGENTS–WORLDS</div>
         <h2>
           <span class="loom-heading-title">OASIUM</span>
           <span class="loom-heading-description">
@@ -211,7 +242,7 @@ move print to (640, 320)
 
     <section class="loom-start">
       <div>
-        <div class="loom-section-label">04 / START CREATING</div>
+        <div class="loom-section-label">05 / START CREATING</div>
         <h2>Bring AI agents into your Unreal workflow.</h2>
       </div>
       <div class="loom-start-actions">
