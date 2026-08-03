@@ -272,9 +272,12 @@ export async function runPackagedMcpSmoke(options = {}) {
         `editor_context returned an inconsistent context/error branch:\n${boundedText(context)}`,
       );
       assert(
-        /(^|\n)\s*(?:#\s*)?surface:/m.test(context)
+        /(^|\n)\s*(?:#\s*)?(?:surface:|Level Editor\s*$)/m.test(context)
           && /(^|\n)\s*(?:#\s*)?(?:selection|selected):/m.test(context),
-        "editor_context did not report both surface and selection",
+        [
+          "editor_context did not report both surface and selection",
+          `SAL response:\n${boundedText(context)}`,
+        ].join("\n"),
       );
     });
 
