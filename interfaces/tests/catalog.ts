@@ -79,7 +79,7 @@ assert.match(guide, /binding is sticky/);
 assert.match(guide, /sal_query\(\{ text \}\)/);
 assert.match(guide, /editor\(\{\}\)/);
 assert.match(guide, /operation: "open" \| "close"/);
-assert.match(guide, /editor_context\(\{\}\)/);
+assert.doesNotMatch(guide, /editor_context/);
 assert.match(guide, /## Schema Discovery/);
 assert.match(guide, /operation-less form is the shared exact-target read/);
 assert.deepEqual(

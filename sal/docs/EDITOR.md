@@ -12,8 +12,8 @@ The public operations are:
 - `open`: ensure the requested Blueprint or Graph is open and focused;
 - `close`: ensure the requested Blueprint Editor or Graph document is closed.
 
-The existing `editor_context` tool remains as a compatibility alias for
-`editor({})` during migration.
+`editor` is the sole public Editor tool. Context observation is its default
+operation rather than a second public tool.
 
 ## Public Input
 
@@ -41,9 +41,9 @@ implicit open.
 presentation, not authored UObject or Asset state, and their contract is an
 idempotent requested postcondition. Native close confirmation is never bypassed.
 
-The unified tool annotations are `readOnlyHint: false`,
-`destructiveHint: false`, and `idempotentHint: true`. The compatibility
-`editor_context` alias remains read-only.
+The tool annotations are `readOnlyHint: false`, `destructiveHint: false`, and
+`idempotentHint: true` because one schema includes both observation and
+presentation-changing operations.
 
 ## Target Text
 
@@ -114,8 +114,8 @@ The public result has at most three independent MCP text blocks:
 2. Editor outcome metadata for `open` and `close`;
 3. SAL diagnostics when present.
 
-`context` preserves the existing `editor_context` result exactly and does not
-add metadata merely to restate that observation occurred.
+`context` returns the ordinary context Result Text and does not add metadata
+merely to restate that observation occurred.
 
 Successful Graph open example, first block:
 

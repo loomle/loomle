@@ -29,7 +29,7 @@ the editor and UE APIs as the source of truth.
 
 ## Current 0.7 Interface
 
-The standalone Client exposes eight MCP tools:
+The standalone Client exposes seven MCP tools:
 
 - `status`: inspect the Client version, update availability, and bound session
   and Bridge health.
@@ -43,7 +43,6 @@ The standalone Client exposes eight MCP tools:
 - `editor`: observe the current Unreal interaction with empty arguments, or
   open, focus, and close an exact Blueprint or Graph from canonical SAL Target
   Text.
-- `editor_context`: compatibility alias for `editor({})` during migration.
 
 The current public SAL modules are Asset, Blueprint, Class, Graph, StateTree,
 and Widget. They cover Asset Registry discovery, Blueprint declarations and

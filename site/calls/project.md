@@ -60,9 +60,8 @@ If no step is unambiguous, the session remains unbound and the agent calls
 ## Local Schema Still Works
 
 `sal_schema` reads the Client's local interface catalog and remains available
-without a bound or online project. `sal_query`, `sal_patch`, `editor`, and its
-`editor_context` compatibility alias require the bound project to resolve to
-one healthy Editor runtime.
+without a bound or online project. `sal_query`, `sal_patch`, and `editor`
+require the bound project to resolve to one healthy Editor runtime.
 
 Project binding selects where UE work runs. It does not create hidden SAL
 aliases or retarget the explicit Domain Targets inside Query and Patch Text.

@@ -3,13 +3,13 @@ layout: default
 title: MCP Calls
 nav_order: 5
 has_children: true
-description: The eight public Loomle MCP tools and the boundary each one owns.
+description: The seven public Loomle MCP tools and the boundary each one owns.
 permalink: /calls/
 ---
 
 # MCP Calls
 
-The Loomle Client exposes eight public MCP tools. Client status, project
+The Loomle Client exposes seven public MCP tools. Client status, project
 selection, and Editor presentation are separate calls; rich authored UE-domain
 reads and mutations flow through SAL.
 
@@ -21,8 +21,7 @@ reads and mutations flow through SAL.
 | `sal_patch` | one `text` value | Parse, validate, execute, and format ordered Patch Text. |
 | `sal_schema` | empty or one `module` | Return the active module index or one static interface card. |
 | [`agent_skill`](agent-skill.html) | empty or one `name` | Discover or load resident Loomle workflow guidance. |
-| [`editor`](editor-context.html) | empty, `context`, `open`, or `close` | Read context or idempotently open, focus, and close exact Blueprint presentations. |
-| `editor_context` | empty | Compatibility alias for `editor({})`. |
+| [`editor`](editor.html) | empty, `context`, `open`, or `close` | Read context or idempotently open, focus, and close exact Blueprint presentations. |
 
 These are the complete public Client surface. Authored UObject behavior belongs
 in SAL and its interface cards; transient Blueprint presentation belongs to
@@ -30,7 +29,7 @@ in SAL and its interface cards; transient Blueprint presentation belongs to
 
 ## Calls and Interfaces Are Different
 
-The eight MCP calls describe transport, session, and resident workflow
+The seven MCP calls describe transport, session, and resident workflow
 boundaries. The six active
 interface modules—Asset, Blueprint, Class, Graph, StateTree, and Widget—describe
 the UE objects and operations carried through `sal_query` and `sal_patch`.

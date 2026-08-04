@@ -600,7 +600,7 @@ class FakePackagedHarness {
         if (name === "sal_patch") {
           return harness.patch(args.text, requestSignal);
         }
-        if (name === "editor" || name === "editor_context") {
+        if (name === "editor") {
           return {
             ...textBlocks(
               [

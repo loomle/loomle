@@ -3,10 +3,10 @@
 ## Status
 
 Loomle 0.7 does not currently expose Unreal-side Python. Its public Client has
-eight tools, and its Bridge accepts only `sal.query`, `sal.patch`,
+seven tools, and its Bridge accepts only `sal.query`, `sal.patch`,
 `editor.context`, `editor.open`, and `editor.close`.
 
-This document defines a planned ninth public tool, `python_execute`, backed
+This document defines a planned eighth public tool, `python_execute`, backed
 by the private Bridge operation `python.execute`. It is a high-privilege
 capability fallback for UE behavior that Loomle has not yet expressed through
 SAL. It is not implemented and is not part of the current public contract.
@@ -422,9 +422,9 @@ incompatible even if their other tool names overlap.
 ## Runtime Preflight and Execution
 
 The Client applies the same sticky project binding and live runtime selection
-used by `sal_query`, `sal_patch`, and `editor` (including the
-`editor_context` compatibility alias). The tool is unavailable when the bound
-project is offline, starting, unresponsive, ambiguous, or protocol-incompatible.
+used by `sal_query`, `sal_patch`, and `editor`. The tool is unavailable when
+the bound project is offline, starting, unresponsive, ambiguous, or
+protocol-incompatible.
 
 The initial implementation rejects execution while PIE or another play session
 is active. The fallback targets Unreal Editor automation, and arbitrary Python
@@ -605,7 +605,7 @@ The first implementation changes:
 - the diagnostic catalog entries for the new `runtime.python_*` codes;
 - current Client, interface-guide, lifecycle, dry-run-policy, coverage, and
   release-test documentation;
-- packaged end-to-end expectations from eight to nine public tools.
+- packaged end-to-end expectations from seven to eight public tools.
 
 It does not restore:
 
@@ -623,7 +623,7 @@ It does not restore:
 
 Tests must prove:
 
-- exactly nine public tools are listed and `python_execute` has destructive,
+- exactly eight public tools are listed and `python_execute` has destructive,
   non-read-only, non-idempotent annotations;
 - `reason`, `mode`, code size, unknown fields, and empty inputs are validated;
 - the bound project and healthy runtime are resolved before dispatch;
@@ -678,7 +678,7 @@ harness.
 
 The exact release archive must:
 
-1. list all nine public tools;
+1. list all eight public tools;
 2. report a ready bound Editor;
 3. execute one non-mutating `exec` script that imports `unreal` and logs a
    deterministic value;

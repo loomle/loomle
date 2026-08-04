@@ -44,7 +44,7 @@ Use these guides before a domain workflow when the underlying step is
 unfamiliar:
 
 - [Project Binding](../calls/project.html)
-- [Editor](../calls/editor-context.html)
+- [Editor](../calls/editor.html)
 - [SAL Working Model](../concepts/sal.html)
 - [Targets and Stable References](../concepts/identity.html)
 - [Schema Discovery](../concepts/schema.html)

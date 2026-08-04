@@ -104,9 +104,9 @@ case "$command_name" in
     grep -q 'class="loom-skill-proofs"' _site/index.html
     grep -q 'assets/images/blueprint-layout-before.png' _site/index.html
     grep -q 'assets/images/blueprint-layout-after.png' _site/index.html
-    grep -q 'eight public Loomle MCP tools' _site/calls/index.html
-    grep -q 'Eight public MCP tools:' _site/llms.txt
-    grep -Fq 'editor({})' _site/calls/editor-context.html
+    grep -q 'seven public Loomle MCP tools' _site/calls/index.html
+    grep -q 'Seven public MCP tools:' _site/llms.txt
+    grep -Fq 'editor({})' _site/calls/editor.html
     grep -q 'format-unreal-blueprints' _site/llms.txt
     ! grep -Eq 'loomle-fab-plugin-(darwin-arm64|win32-x64)' install.md llms.txt
     grep -q 'class="loom-sal"' _site/index.html
@@ -127,7 +127,6 @@ case "$command_name" in
     grep -q 'class="loom-heading-description"' _site/index.html
     ! grep -q '<strong>status</strong>' _site/index.html
     ! grep -q '<strong>project</strong>' _site/index.html
-    ! grep -q '<strong>editor_context</strong>' _site/index.html
     ! grep -q '<strong>agent_skill</strong>' _site/index.html
     grep -q 'Compose ordered Unreal edits' _site/index.html
     grep -q '04 / PLAYERS–AGENTS–WORLDS' _site/index.html

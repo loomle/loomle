@@ -32,8 +32,7 @@ export type PublicToolName =
   | "sal_patch"
   | "sal_schema"
   | "agent_skill"
-  | "editor"
-  | "editor_context";
+  | "editor";
 
 export interface ToolDefinition {
   name: PublicToolName;
@@ -159,12 +158,6 @@ export const toolDefinitions: readonly ToolDefinition[] = [
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   },
-  {
-    name: "editor_context",
-    description: "Compatibility alias for editor({}). Return the user's current Unreal Editor interaction target as canonical SAL Result Text.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-  },
 ];
 
 export class SalToolService {
@@ -228,17 +221,12 @@ export class SalToolService {
           return agentSkillResult(optionalString(object.name, "name"));
         case "editor":
           return await this.callEditor(object, signal);
-        case "editor_context":
-          requireOnly(object, [], name);
-          return toMcpResult(await objectResultToTextResult(
-            await this.rpc.invoke("editor.context", {}, signal),
-          ));
         default:
           return toolFailure("tool.unknown", `Unknown Loomle tool: ${name}.`);
       }
     } catch (error) {
       if (name === "project") return projectFailureFromError(error);
-      if (name === "editor" || name === "editor_context") {
+      if (name === "editor") {
         return toMcpResult(editorTextFailureFromError(error));
       }
       return isResultTool(name)
@@ -702,8 +690,7 @@ function editorTextFailureFromError(error: unknown): TextResult {
 function isResultTool(name: string): boolean {
   return name === "sal_query"
     || name === "sal_patch"
-    || name === "editor"
-    || name === "editor_context";
+    || name === "editor";
 }
 
 function errorCode(error: unknown): string {

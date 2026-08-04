@@ -65,9 +65,3 @@ vetoes the presentation change, Loomle retains that exact Target, reports
 Context does not create persistent SAL aliases and does not replace the
 session's `project` binding. Copy a returned canonical Target into each
 following `sal_query`, `sal_patch`, or `editor` request.
-
-## Compatibility Alias
-
-`editor_context({})` remains a read-only compatibility alias for `editor({})`
-during migration. It returns the same context result but does not support
-`open` or `close`.

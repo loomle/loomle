@@ -92,7 +92,7 @@ function assertUnresolvedResultFirstBlock(
   assert.equal(parsed.result?.object, undefined);
 }
 
-test("exposes the unified editor tool and editor_context compatibility alias", () => {
+test("exposes the unified editor tool", () => {
   assert.deepEqual(toolDefinitions.map((tool) => tool.name), [
     "status",
     "project",
@@ -101,7 +101,6 @@ test("exposes the unified editor tool and editor_context compatibility alias", (
     "sal_schema",
     "agent_skill",
     "editor",
-    "editor_context",
   ]);
   const editor = toolDefinitions.find((tool) => tool.name === "editor");
   assert.deepEqual(editor?.annotations, {
@@ -573,7 +572,7 @@ test("does not expose arbitrary exception codes as public diagnostics", async ()
   const error = Object.assign(new Error("unexpected client failure"), {
     code: "dependency.private_code",
   });
-  const result = await new SalToolService(new ThrowingRpc(error)).call("editor_context", {});
+  const result = await new SalToolService(new ThrowingRpc(error)).call("editor", {});
 
   assert.equal(result.isError, true);
   assertUnresolvedResultFirstBlock(result);
@@ -631,7 +630,7 @@ test("agent_skill rejects unknown names and extra arguments locally", async () =
   assert.equal(rpc.calls.length, 0);
 });
 
-test("editor_context formats the same validated ObjectResult", async () => {
+test("editor context formats the validated ObjectResult", async () => {
   const rpc = new MockRpc({
     targetContext: "exact_target",
     target: {
@@ -653,7 +652,7 @@ test("editor_context formats the same validated ObjectResult", async () => {
     },
     diagnostics: [],
   });
-  const result = await new SalToolService(rpc).call("editor_context", {});
+  const result = await new SalToolService(rpc).call("editor", {});
 
   assert.equal(result.isError, undefined);
   assert.equal(result.content[0].text, [
@@ -666,7 +665,7 @@ test("editor_context formats the same validated ObjectResult", async () => {
   assert.deepEqual(rpc.calls, [{ tool: "editor.context", args: {} }]);
 });
 
-test("editor defaults to context and preserves editor_context output exactly", async () => {
+test("editor defaults to context and matches the explicit context operation", async () => {
   const response = {
     targetContext: "exact_target",
     target: { alias: "editorTarget", target: graphTarget.target },
@@ -675,18 +674,12 @@ test("editor defaults to context and preserves editor_context output exactly", a
   };
   const defaultRpc = new MockRpc(response);
   const explicitRpc = new MockRpc(response);
-  const compatibilityRpc = new MockRpc(response);
   const defaultResult = await new SalToolService(defaultRpc).call("editor", {});
   const explicitResult = await new SalToolService(explicitRpc).call("editor", {
     operation: "context",
   });
-  const compatibilityResult = await new SalToolService(compatibilityRpc).call(
-    "editor_context",
-    {},
-  );
 
-  assert.deepEqual(defaultResult, compatibilityResult);
-  assert.deepEqual(explicitResult, compatibilityResult);
+  assert.deepEqual(defaultResult, explicitResult);
   assert.equal(defaultResult.content.length, 1);
   assert.deepEqual(defaultRpc.calls, [{ tool: "editor.context", args: {} }]);
   assert.deepEqual(explicitRpc.calls, [{ tool: "editor.context", args: {} }]);
@@ -848,13 +841,8 @@ test("editor context also gives presentation-specific retry guidance", async () 
     true,
   );
   const result = await new SalToolService(new ThrowingRpc(error)).call("editor", {});
-  const compatibility = await new SalToolService(new ThrowingRpc(error)).call(
-    "editor_context",
-    {},
-  );
 
   assert.equal(result.isError, true);
-  assert.deepEqual(result, compatibility);
   assertUnresolvedResultFirstBlock(result);
   assert.equal(result.content.length, 2);
   assert.match(result.content[1].text, /Call editor with no arguments/);
@@ -900,7 +888,7 @@ test("empty result envelopes remain valid SAL Result Text", async () => {
       "objects",
     ],
   ] as const) {
-    const result = await new SalToolService(new MockRpc(response)).call("editor_context", {});
+    const result = await new SalToolService(new MockRpc(response)).call("editor", {});
     assert.match(result.content[0].text, /^result (?:domain_root|exact_target)\n/);
     assert.match(result.content[0].text, new RegExp(`\\n${section}$`));
     assert.deepEqual(parseSalResultText(result.content[0].text).diagnostics, []);
@@ -909,7 +897,7 @@ test("empty result envelopes remain valid SAL Result Text", async () => {
 
 test("rejects extra public tool arguments", async () => {
   const rpc = new MockRpc(emptyObjectResult);
-  const result = await new SalToolService(rpc).call("editor_context", { target: "guess" });
+  const result = await new SalToolService(rpc).call("editor", { unexpected: true });
   assert.equal(result.isError, true);
   assertUnresolvedResultFirstBlock(result);
   assert.match(laterText(result), /tool\.invalid_arguments/);

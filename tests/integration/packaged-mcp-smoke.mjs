@@ -13,7 +13,6 @@ export const PUBLIC_TOOL_NAMES = Object.freeze([
   "sal_schema",
   "agent_skill",
   "editor",
-  "editor_context",
 ]);
 
 export const PACKAGED_SMOKE_STEP_NAMES = Object.freeze([
@@ -23,7 +22,7 @@ export const PACKAGED_SMOKE_STEP_NAMES = Object.freeze([
   "start_editor_and_wait_ready",
   "query_fixture_asset_and_blueprint",
   "blueprint_mutation_round_trip",
-  "read_editor_context",
+  "read_editor",
   "reconnect_client",
   "stop_editor_and_wait_offline",
 ]);
@@ -290,26 +289,6 @@ export async function runPackagedMcpSmoke(options = {}) {
           "editor context did not report both surface and selection",
           `SAL response:\n${boundedText(context)}`,
         ].join("\n"),
-      );
-
-      const compatibilityResponse = await session.callTool(
-        "editor_context",
-        {},
-      );
-      const compatibilityContext = requireToolText(
-        compatibilityResponse,
-        "editor_context",
-        { allowError: true },
-      );
-      const compatibilityResult = salResult(
-        compatibilityContext,
-        "editor_context",
-      );
-      assert(
-        compatibilityResult.targetContext === result.targetContext
-          && (compatibilityResponse?.isError === true)
-            === (response?.isError === true),
-        "editor_context compatibility alias diverged from editor context",
       );
     });
 

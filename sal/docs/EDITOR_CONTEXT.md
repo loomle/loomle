@@ -3,9 +3,8 @@
 ## Status And Intent
 
 `editor({})` is a read-only observation of the user's latest meaningful UE
-Editor interaction. `editor_context({})` remains a compatibility alias during
-migration. Both return the smallest exact SAL Target and, when available, one
-exact selected object or relationship.
+Editor interaction. It returns the smallest exact SAL Target and, when
+available, one exact selected object or relationship.
 
 It is not a second object model, a selection snapshot API, a generic Details
 reflection API, or a source of implicit mutation scope.
@@ -472,8 +471,8 @@ Acceptance verifies:
 ### Implementation Audit — 2026-07-31
 
 The Provider registry, tracker, result projection, private `editor.context`
-RPC, public `editor({})`, and the `editor_context` compatibility alias remain
-the implementation path covered by this design.
+RPC, and public `editor({})` remain the implementation path covered by this
+design.
 
 A live UE 5.7 standalone Blueprint interaction exposed an ordering gap: the
 visible `BP_LoomleE2E / EventGraph` surface returned Unknown

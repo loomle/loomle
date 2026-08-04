@@ -20,7 +20,6 @@ editor behavior intact.
 - `editor({ operation: "open" | "close", target })` idempotently controls one
   exact Blueprint Editor or Graph document. `target` is one bare canonical SAL
   Target expression encoded as the JSON string value.
-- `editor_context({})` is the read-only compatibility alias for `editor({})`.
 
 The tool-call wrapper is not SAL syntax.
 

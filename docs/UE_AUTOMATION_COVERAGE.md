@@ -318,7 +318,7 @@ and proves:
   close all preserve the exact canonical SAL Target and terminal status.
 
 A separate live MCP acceptance call against `/Users/gao/Dev/LoomleLab` then
-verified the eight-tool public inventory, empty-argument versus explicit
+verified the seven-tool public inventory, empty-argument versus explicit
 `context` equivalence, canonical Blueprint Target discovery, and the public
 `editor` lifecycle `already_closed -> opened -> already_focused -> closed ->
 already_closed`. The acceptance changed only transient Editor presentation and

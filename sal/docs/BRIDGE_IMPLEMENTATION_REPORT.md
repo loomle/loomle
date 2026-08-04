@@ -11,11 +11,12 @@ kind-prefixed references, and native-Class capability composition to:
 - Target-relative native identity paths;
 - independent cross-Domain Target handoffs.
 
-Protocol v3, the SAL Core, Client, Bridge source, all six Domain cards,
-generated artifacts, examples, and site implement this destination contract.
-The compatibility reader is confined to explicitly opted-in direct TypeScript
-parser calls; MCP tools and the default SDK facade are strict. The v3 Bridge
-accepts only the normalized model described below.
+This SAL model was introduced with protocol v3. The SAL Core, current
+protocol-v4 Client and Bridge, all six Domain cards, generated artifacts,
+examples, and site implement the destination contract. The compatibility
+reader is confined to explicitly opted-in direct TypeScript parser calls; MCP
+tools and the default SDK facade are strict. The protocol-v4 Bridge accepts
+only the normalized model described below.
 
 ## Required Runtime Shape
 
@@ -144,10 +145,11 @@ No nested Target or hidden adapter composition remains.
 ## Compatibility Boundary
 
 Only callers that explicitly enable compatibility on the direct TypeScript
-parser may submit the previous text syntax during protocol v3. MCP tools and
-the default SDK facade are strict. Lowering occurs before schema validation and
-Domain planning and accepts fused references only when their complete native
-identity shape is unambiguous in the already selected active Domain.
+parser may submit the previous text syntax through the reader-only migration
+window introduced with protocol v3 and extended through protocol v4. MCP tools
+and the default SDK facade are strict. Lowering occurs before schema validation
+and Domain planning and accepts fused references only when their complete
+native identity shape is unambiguous in the already selected active Domain.
 Under-scoped owner identities, target-self fused references, and forms
 requiring UE-assisted recovery fail. The protocol v4 Bridge rejects legacy
 Call objects, fused kind references, and implicit Domain selection.
