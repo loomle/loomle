@@ -8,7 +8,7 @@ description: Check status, bind a project, inspect a Blueprint, dry-run a SAL pa
 # Quickstart
 
 This guide completes one read-and-edit workflow. It assumes that the matching
-Loomle 0.8 plugin is installed, `LoomleBridge` is enabled, the MCP host launches
+Loomle 0.7 plugin is installed, `LoomleBridge` is enabled, the MCP host launches
 the bundled Client, and the target Unreal project is open.
 
 {: .note }

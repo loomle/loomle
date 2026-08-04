@@ -275,7 +275,7 @@ source. Its top-level `version` is the product version, while
 Client–Bridge contract. `sal/`, `interfaces/`, and `client/` are private
 implementation workspaces and keep the non-product package version `0.0.0`.
 The initial incompatible 0.7 contract used version `2`; later SAL v3 releases
-used version `3`, and the 0.8 Editor transport uses version `4`. Version `1`
+used version `3`, and the current Editor transport uses version `4`. Version `1`
 belongs to the 0.6 Client–Bridge contract. Distinct protocol versions must
 never be treated as compatible by tool-name overlap.
 

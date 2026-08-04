@@ -69,4 +69,4 @@ package save. An exact Asset result may instead supply a canonical related
 Target and explicit handoff; when present, copy that returned Target rather
 than reconstructing it. Asset creation, rename, move, duplicate, delete,
 metadata mutation, and bulk package operations are not part of the current
-0.8 interface.
+0.7 interface.

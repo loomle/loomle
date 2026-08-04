@@ -1,6 +1,6 @@
 # Loomle Client
 
-This directory contains the standalone TypeScript MCP Client for Loomle 0.8.
+This directory contains the standalone TypeScript MCP Client for Loomle 0.7.
 
 The workspace package version is intentionally `0.0.0`. The product version
 comes only from the repository root and is compiled into the MCP Server through
@@ -111,6 +111,6 @@ npm run test:executable
 ```
 
 The accepted executable targets are `darwin-arm64` and `win32-x64`. Fab
-assembly and release signing are separate 0.8 release work. Client behavior is
+assembly and release signing are separate 0.7 release work. Client behavior is
 covered by focused component tests and the same-commit packaged UE Automation
 and end-to-end release gates.
