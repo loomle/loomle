@@ -3,7 +3,7 @@ layout: default
 title: Interfaces
 nav_order: 6
 has_children: true
-description: The six active Loomle 0.7 SAL interface modules and their UE ownership boundaries.
+description: The six active Loomle 0.8 SAL interface modules and their UE ownership boundaries.
 permalink: /tools/
 ---
 
@@ -13,7 +13,7 @@ Interfaces describe the UE objects and operations carried through `sal_query`
 and `sal_patch`. They are separate from the Client's
 [seven public MCP calls](../calls/).
 
-Loomle 0.7 has six active interface modules:
+Loomle 0.8 has six active interface modules:
 
 | Domain | Owns | Canonical exact Target |
 | --- | --- | --- |

@@ -18,7 +18,7 @@ sal_schema({})
 ```
 
 The result lists only modules supported by the installed Client and Bridge
-contract. Loomle 0.7 currently defines:
+contract. Loomle 0.8 currently defines:
 
 ```text
 asset

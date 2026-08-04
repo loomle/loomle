@@ -31,7 +31,7 @@ Availability and installation:
 - Stable download URL:
   https://github.com/loomle/loomle/releases/latest/download/loomle-bridge.zip
 - The current Fab listing still distributes 0.6 and must not be used with the
-  0.7 documentation:
+  0.8 documentation:
   https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428
 - The plugin contains the Bridge and self-contained Client at
   `Resources/Loomle/<platform-arch>/loomle(.exe)`.

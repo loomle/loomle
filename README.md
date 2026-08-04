@@ -27,7 +27,7 @@ the editor and UE APIs as the source of truth.
 - Native compiler and object health diagnostics stay adjacent to the objects
   they describe.
 
-## Current 0.7 Interface
+## Current 0.8 Interface
 
 The standalone Client exposes seven MCP tools:
 
@@ -83,7 +83,7 @@ That release also retains immutable, versioned copies of both archives.
 
 The public
 [Fab listing](https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428)
-still distributes Loomle 0.6. Do not use that package with the 0.7
+still distributes Loomle 0.6. Do not use that package with the 0.8
 documentation.
 
 The complete archive contains both native targets and their matching Clients:

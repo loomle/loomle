@@ -371,8 +371,10 @@ A candidate can be promoted only when the same commit passes:
 6. an explicit platform signing and trust declaration in the release notes.
 
 The release workflow consumes both already-tested native archives and their
-matching result files. It must never rebuild, resign, or recompress after these
-gates.
+matching result files. It must never rebuild, resign, or rewrite verified
+native executable bytes after these gates. Promotion may mechanically merge
+the verified platform fragments and create cross-platform ZIP containers under
+the checked-in merge contract.
 
 The Mac Apple Silicon and Windows x64 workflows implement the same native
 sequence. GitHub prereleases and final releases may publish the unsigned

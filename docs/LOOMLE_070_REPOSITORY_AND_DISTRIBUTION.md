@@ -274,9 +274,10 @@ source. Its top-level `version` is the product version, while
 `loomle.protocolVersion` is the independent positive integer for the private
 Client–Bridge contract. `sal/`, `interfaces/`, and `client/` are private
 implementation workspaces and keep the non-product package version `0.0.0`.
-The incompatible 0.7 contract uses version `2`; version `1` belongs to the 0.6
-Client–Bridge contract and must never be treated as compatible by tool-name
-overlap.
+The initial incompatible 0.7 contract used version `2`; later SAL v3 releases
+used version `3`, and the 0.8 Editor transport uses version `4`. Version `1`
+belongs to the 0.6 Client–Bridge contract. Distinct protocol versions must
+never be treated as compatible by tool-name overlap.
 
 The version generator derives and checks four runtime values:
 
@@ -332,8 +333,10 @@ create a tag, GitHub Release, latest alias, or public Fab submission. The
 separate manual promotion workflow requires one successful Mac run and one
 successful Windows run from the same exact commit. It verifies and may publish
 both exact BuildPlugin ZIPs, both Fab source ZIPs, and their SHA-256 sidecars as
-one GitHub prerelease or final release. It cannot build, sign, or recompress any
-candidate.
+one GitHub prerelease or final release. It cannot build or sign candidates or
+rewrite verified native executable bytes. It may mechanically merge the
+verified platform fragments and create cross-platform release ZIPs under the
+checked-in merge contract.
 
 ## Verification Boundary
 

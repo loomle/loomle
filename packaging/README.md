@@ -1,6 +1,6 @@
 # Packaging Layer
 
-This directory owns the Loomle 0.7 executable and Fab artifact path.
+This directory owns the Loomle 0.8 executable and Fab artifact path.
 
 Current responsibilities:
 

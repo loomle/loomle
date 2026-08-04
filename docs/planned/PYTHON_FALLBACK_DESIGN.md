@@ -2,7 +2,7 @@
 
 ## Status
 
-Loomle 0.7 does not currently expose Unreal-side Python. Its public Client has
+Loomle 0.8 does not currently expose Unreal-side Python. Its public Client has
 seven tools, and its Bridge accepts only `sal.query`, `sal.patch`,
 `editor.context`, `editor.open`, and `editor.close`.
 

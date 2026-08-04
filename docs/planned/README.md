@@ -1,7 +1,7 @@
 # Planned Designs
 
 Documents in this directory describe capabilities that are not part of the
-current 0.7 public interface. Each document records verified UE 5.7 behavior,
+current 0.8 public interface. Each document records verified UE 5.7 behavior,
 the current SAL boundary, and the unresolved questions that require discussion
 before implementation.
 

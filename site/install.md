@@ -2,7 +2,7 @@
 layout: default
 title: Install
 nav_order: 2
-description: Install Loomle 0.7 for Unreal Engine 5.7 on macOS or Windows and connect an MCP host.
+description: Install Loomle 0.8 for Unreal Engine 5.7 on macOS or Windows and connect an MCP host.
 ---
 
 # Install
@@ -16,8 +16,8 @@ Loomle Clients for both supported platforms.
 
 {: .warning }
 > The public [Fab listing](https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428)
-> still distributes Loomle 0.6. Do not use that package with the 0.7
-> documentation. The same 0.7 package will move to Fab after its Fab release is
+> still distributes Loomle 0.6. Do not use that package with the 0.8
+> documentation. The same 0.8 package will move to Fab after its Fab release is
 > ready.
 
 ## Compatibility
@@ -34,7 +34,7 @@ this release.
 
 Unreal gives a project plugin precedence over an engine plugin with the same
 name. An old Loomle 0.6 copy can therefore silently hide the newly installed
-0.7 plugin.
+0.8 plugin.
 
 Before installing or updating Loomle:
 
