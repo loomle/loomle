@@ -2,16 +2,16 @@
   "schemaVersion": 1,
   "channels": {
     "stable": {
-      "version": "0.7.3",
+      "version": "0.8.0",
       "releaseUrl": "https://github.com/loomle/loomle/releases/latest",
       "targets": {
         "darwin-arm64": {
           "assetUrl": "https://github.com/loomle/loomle/releases/latest/download/loomle-bridge.zip",
-          "sha256": "a3cc9c2fcfbb56b759c860536cf28f521b5c211e30a5fc89f620799181e3b4b7"
+          "sha256": "f40fef8fa48aa4c5791d9563e9f787d70bdca674234b68d9f825bc0344d6ca53"
         },
         "win32-x64": {
           "assetUrl": "https://github.com/loomle/loomle/releases/latest/download/loomle-bridge.zip",
-          "sha256": "a3cc9c2fcfbb56b759c860536cf28f521b5c211e30a5fc89f620799181e3b4b7"
+          "sha256": "f40fef8fa48aa4c5791d9563e9f787d70bdca674234b68d9f825bc0344d6ca53"
         }
       }
     },
