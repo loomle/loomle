@@ -92,7 +92,7 @@ function assertUnresolvedResultFirstBlock(
   assert.equal(parsed.result?.object, undefined);
 }
 
-test("exposes only the seven public Loomle tools", () => {
+test("exposes the unified editor tool and editor_context compatibility alias", () => {
   assert.deepEqual(toolDefinitions.map((tool) => tool.name), [
     "status",
     "project",
@@ -100,8 +100,19 @@ test("exposes only the seven public Loomle tools", () => {
     "sal_patch",
     "sal_schema",
     "agent_skill",
+    "editor",
     "editor_context",
   ]);
+  const editor = toolDefinitions.find((tool) => tool.name === "editor");
+  assert.deepEqual(editor?.annotations, {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+  });
+  assert.deepEqual(
+    (editor?.inputSchema.properties as Record<string, { enum?: string[] }>).operation.enum,
+    ["context", "open", "close"],
+  );
 });
 
 test("status reports identity, binding, Bridge health, and Windows update guidance", async () => {
@@ -532,14 +543,21 @@ test("arbitrary diagnostic text cannot break the SAL comment envelope", async ()
   assert.match(allText(result), /^# ###$/m);
 });
 
-test("preserves Runtime RPC detail and retry guidance after unresolved Result Text", async () => {
+test("sal_patch preserves Runtime RPC detail and mutation retry guidance", async () => {
   const rpc = new ThrowingRpc(new RuntimeRpcError(
     "resolution.target_not_found",
     "TARGET_NOT_FOUND",
     true,
     "The selected Graph no longer exists.",
   ));
-  const result = await new SalToolService(rpc).call("editor_context", {});
+  const result = await new SalToolService(rpc).call("sal_patch", {
+    text: [
+      `door = target { domain: blueprint, asset: ${JSON.stringify(blueprintAsset)}, id: ${JSON.stringify(blueprintId)} }`,
+      "",
+      "patch door",
+      "set door.BlueprintDescription = \"Door\"",
+    ].join("\n"),
+  });
   const text = laterText(result);
 
   assert.equal(result.isError, true);
@@ -646,6 +664,224 @@ test("editor_context formats the same validated ObjectResult", async () => {
     "# Blueprint Graph",
   ].join("\n"));
   assert.deepEqual(rpc.calls, [{ tool: "editor.context", args: {} }]);
+});
+
+test("editor defaults to context and preserves editor_context output exactly", async () => {
+  const response = {
+    targetContext: "exact_target",
+    target: { alias: "editorTarget", target: graphTarget.target },
+    object: { statements: [{ kind: "comment", text: "Blueprint Graph" }] },
+    diagnostics: [],
+  };
+  const defaultRpc = new MockRpc(response);
+  const explicitRpc = new MockRpc(response);
+  const compatibilityRpc = new MockRpc(response);
+  const defaultResult = await new SalToolService(defaultRpc).call("editor", {});
+  const explicitResult = await new SalToolService(explicitRpc).call("editor", {
+    operation: "context",
+  });
+  const compatibilityResult = await new SalToolService(compatibilityRpc).call(
+    "editor_context",
+    {},
+  );
+
+  assert.deepEqual(defaultResult, compatibilityResult);
+  assert.deepEqual(explicitResult, compatibilityResult);
+  assert.equal(defaultResult.content.length, 1);
+  assert.deepEqual(defaultRpc.calls, [{ tool: "editor.context", args: {} }]);
+  assert.deepEqual(explicitRpc.calls, [{ tool: "editor.context", args: {} }]);
+});
+
+test("editor open parses a canonical SAL Target and formats the terminal outcome", async () => {
+  const rpc = new MockRpc({
+    subject: {
+      targetContext: "exact_target",
+      target: { alias: "editorTarget", target: graphTarget.target },
+      diagnostics: [],
+    },
+    outcome: { operation: "open", status: "opened" },
+  });
+  const controller = new AbortController();
+  const result = await new SalToolService(rpc).call("editor", {
+    operation: "open",
+    target: [
+      "target {",
+      "  domain: graph,",
+      `  asset: ${JSON.stringify(blueprintAsset)},`,
+      `  blueprintId: ${JSON.stringify(blueprintId)},`,
+      `  id: ${JSON.stringify(graphId)}`,
+      "}",
+    ].join("\n"),
+  }, controller.signal);
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content.length, 2);
+  assert.equal(result.content[0].text, [
+    "result exact_target",
+    `target editorTarget = target {domain: graph, asset: ${JSON.stringify(blueprintAsset)}, blueprintId: ${JSON.stringify(blueprintId)}, id: ${JSON.stringify(graphId)}}`,
+    "no_objects",
+  ].join("\n"));
+  assert.equal(result.content[1].text, [
+    "###",
+    "Editor result",
+    "operation: open",
+    "status: opened",
+    "###",
+  ].join("\n"));
+  assert.deepEqual(rpc.calls, [{
+    tool: "editor.open",
+    args: { target: graphTarget.target },
+    signal: controller.signal,
+  }]);
+});
+
+test("editor close preserves exact content identity when already closed", async () => {
+  const rpc = new MockRpc({
+    subject: {
+      targetContext: "exact_target",
+      target: { alias: "editorTarget", target: blueprintTarget.target },
+      diagnostics: [],
+    },
+    outcome: { operation: "close", status: "already_closed" },
+  });
+  const result = await new SalToolService(rpc).call("editor", {
+    operation: "close",
+    target: `target { domain: blueprint, asset: ${JSON.stringify(blueprintAsset)}, id: ${JSON.stringify(blueprintId)} }`,
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.match(result.content[0].text, /^result exact_target$/m);
+  assert.match(result.content[1].text, /^operation: close$/m);
+  assert.match(result.content[1].text, /^status: already_closed$/m);
+  assert.deepEqual(rpc.calls, [{
+    tool: "editor.close",
+    args: { target: blueprintTarget.target },
+  }]);
+});
+
+test("editor rejects invalid argument combinations before calling Bridge", async () => {
+  for (const args of [
+    { target: "target { domain: blueprint }" },
+    { operation: "context", target: "target { domain: blueprint }" },
+    { operation: "open" },
+    { operation: "close", target: "" },
+    { operation: "focus" },
+    { operation: "open", target: "target { domain: blueprint }", dryRun: true },
+  ]) {
+    const rpc = new MockRpc(emptyObjectResult);
+    const result = await new SalToolService(rpc).call("editor", args);
+    assert.equal(result.isError, true);
+    assertUnresolvedResultFirstBlock(result);
+    assert.match(laterText(result), /tool\.invalid_arguments/);
+    assert.equal(rpc.calls.length, 0);
+  }
+});
+
+test("editor rejects non-canonical Target Text locally with a failed outcome", async () => {
+  for (const target of [
+    `door = target { domain: blueprint, asset: ${JSON.stringify(blueprintAsset)}, id: ${JSON.stringify(blueprintId)} }`,
+    `target { domain: blueprint, asset: ${JSON.stringify(blueprintAsset)} }`,
+    "target { domain: asset, path: \"/Game/BP_Door.BP_Door\" }",
+  ]) {
+    const rpc = new MockRpc(emptyObjectResult);
+    const result = await new SalToolService(rpc).call("editor", {
+      operation: "open",
+      target,
+    });
+    assert.equal(result.isError, true);
+    assertUnresolvedResultFirstBlock(result);
+    assert.equal(result.content.length, 3);
+    assert.match(result.content[1].text, /^operation: open$/m);
+    assert.match(result.content[1].text, /^status: failed$/m);
+    assert.match(result.content[2].text, /ERROR language\./);
+    assert.equal(rpc.calls.length, 0);
+  }
+});
+
+test("editor keeps an exact Target when a control operation fails", async () => {
+  const rpc = new MockRpc({
+    subject: {
+      targetContext: "exact_target",
+      target: { alias: "editorTarget", target: graphTarget.target },
+      diagnostics: [{
+        severity: "error",
+        code: "runtime.editor_blocked_by_modal",
+        message: "A modal window blocks Graph focus.",
+      }],
+    },
+    outcome: { operation: "open", status: "failed" },
+  });
+  const result = await new SalToolService(rpc).call("editor", {
+    operation: "open",
+    target: `target { domain: graph, asset: ${JSON.stringify(blueprintAsset)}, blueprintId: ${JSON.stringify(blueprintId)}, id: ${JSON.stringify(graphId)} }`,
+  });
+
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /^result exact_target$/m);
+  assert.match(result.content[1].text, /^status: failed$/m);
+  assert.match(result.content[2].text, /ERROR runtime\.editor_blocked_by_modal/);
+});
+
+test("editor gives presentation-specific retry guidance for runtime failures", async () => {
+  const rpc = new ThrowingRpc(new RuntimeRpcError(
+    "runtime.connection_closed",
+    "The Editor response was lost.",
+    true,
+  ));
+  const result = await new SalToolService(rpc).call("editor", {
+    operation: "open",
+    target: `target { domain: blueprint, asset: ${JSON.stringify(blueprintAsset)}, id: ${JSON.stringify(blueprintId)} }`,
+  });
+
+  assert.equal(result.isError, true);
+  assertUnresolvedResultFirstBlock(result);
+  assert.match(result.content[1].text, /^status: failed$/m);
+  assert.match(result.content[2].text, /Call editor with no arguments/);
+  assert.match(result.content[2].text, /idempotent requested postconditions/);
+  assert.doesNotMatch(result.content[2].text, /blindly replay a Patch/);
+});
+
+test("editor context also gives presentation-specific retry guidance", async () => {
+  const error = new RuntimeRpcError(
+    "runtime.connection_closed",
+    "The Editor is offline.",
+    true,
+  );
+  const result = await new SalToolService(new ThrowingRpc(error)).call("editor", {});
+  const compatibility = await new SalToolService(new ThrowingRpc(error)).call(
+    "editor_context",
+    {},
+  );
+
+  assert.equal(result.isError, true);
+  assert.deepEqual(result, compatibility);
+  assertUnresolvedResultFirstBlock(result);
+  assert.equal(result.content.length, 2);
+  assert.match(result.content[1].text, /Call editor with no arguments/);
+  assert.doesNotMatch(result.content[1].text, /blindly replay a Patch/);
+});
+
+test("editor fails closed on malformed or expanded private wrappers", async () => {
+  const subject = {
+    targetContext: "exact_target",
+    target: { alias: "editorTarget", target: blueprintTarget.target },
+    diagnostics: [],
+  };
+  for (const response of [
+    { subject, outcome: { operation: "close", status: "opened" } },
+    { subject, outcome: { operation: "close", status: "closed", phase: "done" } },
+    { subject, outcome: { operation: "close", status: "closed" }, operationId: "private" },
+  ]) {
+    const result = await new SalToolService(new MockRpc(response)).call("editor", {
+      operation: "close",
+      target: `target { domain: blueprint, asset: ${JSON.stringify(blueprintAsset)}, id: ${JSON.stringify(blueprintId)} }`,
+    });
+
+    assert.equal(result.isError, true);
+    assertUnresolvedResultFirstBlock(result);
+    assert.match(result.content[1].text, /^status: failed$/m);
+    assert.match(result.content[2].text, /ERROR runtime\.client_error/);
+  }
 });
 
 test("empty result envelopes remain valid SAL Result Text", async () => {

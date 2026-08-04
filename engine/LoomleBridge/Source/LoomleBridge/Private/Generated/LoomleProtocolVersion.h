@@ -5,5 +5,5 @@
 
 namespace Loomle::Protocol
 {
-inline constexpr int32 Version = 3;
+inline constexpr int32 Version = 4;
 }

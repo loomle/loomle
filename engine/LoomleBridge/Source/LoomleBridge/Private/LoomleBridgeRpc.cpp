@@ -6,6 +6,7 @@
 #include "Async/Future.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
+#include "EditorControl/EditorControlService.h"
 #include "EditorContext/EditorContextService.h"
 #include "Generated/LoomleProtocolVersion.h"
 #include "HAL/PlatformTime.h"
@@ -25,6 +26,8 @@ namespace
 constexpr const TCHAR* SalQueryTool = TEXT("sal.query");
 constexpr const TCHAR* SalPatchTool = TEXT("sal.patch");
 constexpr const TCHAR* EditorContextTool = TEXT("editor.context");
+constexpr const TCHAR* EditorOpenTool = TEXT("editor.open");
+constexpr const TCHAR* EditorCloseTool = TEXT("editor.close");
 
 using FCondensedJsonWriter = TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>;
 
@@ -344,7 +347,12 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
         StringValues({TEXT("ping"), TEXT("rpc.health"), TEXT("rpc.capabilities"), TEXT("rpc.invoke"), TEXT("rpc.cancel")}));
     Result->SetArrayField(
         TEXT("tools"),
-        StringValues({SalQueryTool, SalPatchTool, EditorContextTool}));
+        StringValues({
+            SalQueryTool,
+            SalPatchTool,
+            EditorContextTool,
+            EditorOpenTool,
+            EditorCloseTool}));
     return Result;
 }
 
@@ -576,6 +584,21 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(
     if (Name == EditorContextTool)
     {
         return Loomle::EditorContext::FEditorContextService::Get().BuildResult();
+    }
+    if (Name == EditorOpenTool || Name == EditorCloseTool)
+    {
+        TSharedPtr<FJsonObject> DispatchError;
+        TSharedPtr<FJsonObject> Result =
+            Loomle::EditorControl::FEditorControlService::Execute(
+                Name == EditorOpenTool ? TEXT("open") : TEXT("close"),
+                Arguments,
+                DispatchError);
+        if (DispatchError.IsValid())
+        {
+            bOutIsError = true;
+            return DispatchError;
+        }
+        return Result;
     }
 
     bOutIsError = true;

@@ -298,6 +298,32 @@ fixtures prove:
   while an unsaved temporary World returns `unresolved_target`, explains the
   missing persistent Asset identity, and directs the agent to save the map.
 
+## Blueprint And Graph Editor Control Audit
+
+The August 4 rendered UE 5.7 arm64 run passed
+`Loomle.EditorControl.NativeBlueprintGraph` 1/1. The test creates a transient
+Actor Blueprint, drives only UE's native Blueprint Editor and document APIs,
+and proves:
+
+- exact Graph open establishes the owning Major Tab, exact foreground document
+  tab, active normal window, exact `SGraphEditor`, focused Graph, and keyboard
+  FocusPath;
+- repeated Graph open returns `already_focused`, while close and repeated close
+  return `closed` and `already_closed` without deleting the Graph;
+- document close is verified from the native `SDockTab` detachment state rather
+  than a stale `FDocumentTracker` weak entry;
+- Blueprint close observes `FBlueprintEditor::IsEditorClosing()` rather than
+  delayed `UAssetEditorSubsystem` bookkeeping; and
+- Blueprint close, repeated close, reopen, repeated focused open, and final
+  close all preserve the exact canonical SAL Target and terminal status.
+
+A separate live MCP acceptance call against `/Users/gao/Dev/LoomleLab` then
+verified the eight-tool public inventory, empty-argument versus explicit
+`context` equivalence, canonical Blueprint Target discovery, and the public
+`editor` lifecycle `already_closed -> opened -> already_focused -> closed ->
+already_closed`. The acceptance changed only transient Editor presentation and
+did not save or modify the fixture asset.
+
 The test uses a real rendered standalone Blueprint window and verifies fixture
 cleanup after closing it. Widget Designer and Details-panel focus/selection
 recovery remain the primary Editor Context coverage gaps.

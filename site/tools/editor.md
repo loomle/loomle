@@ -1,13 +1,14 @@
 ---
 layout: default
-title: Editor Context
+title: Editor
 nav_exclude: true
 permalink: /tools/editor.html
 ---
 
-# Editor Context
+# Editor
 
-Editor Context is one of Loomle's seven public MCP calls rather than a SAL
-interface module.
+Editor is one of Loomle's eight public MCP calls rather than a SAL interface
+module. It reads current context and controls transient Blueprint presentation;
+it does not author UObject state.
 
-Continue to [MCP Calls: Editor Context](../calls/editor-context.html).
+Continue to [MCP Calls: Editor](../calls/editor-context.html).

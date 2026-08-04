@@ -5,7 +5,8 @@
 One Loomle MCP process is one agent session. The session binds to one Unreal
 project, while the Editor process serving that project is a replaceable
 runtime. Project selection is Client control-plane state; it is not SAL syntax
-and is not repeated on `sal_query`, `sal_patch`, or `editor_context`.
+and is not repeated on `sal_query`, `sal_patch`, `editor`, or the
+`editor_context` compatibility alias.
 
 ```text
 MCP session
@@ -133,7 +134,7 @@ the same project matching rules are applied.
   "uproject": "/path/to/Game/Game.uproject",
   "endpoint": "<unique-local-endpoint>",
   "pid": 1234,
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "startedAt": "<utc-time>"
 }
 ```

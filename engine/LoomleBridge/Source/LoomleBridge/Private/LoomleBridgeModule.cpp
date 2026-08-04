@@ -849,7 +849,7 @@ FString FLoomleBridgeModule::GetSetupPanelSetupPrompt() const
     return FString::Printf(
         TEXT("Set up only the requesting MCP host and preserve unrelated configuration. "
              "Use command \"%s\" with the single argument \"mcp\".\n\n%s\n\n"
-             "Then connect to the open Unreal project and call editor_context before making changes."),
+             "Then connect to the open Unreal project and call editor with no arguments before making changes."),
         *ClientPath,
         *FString::Join(HostInstructions, TEXT("\n\n")));
 }

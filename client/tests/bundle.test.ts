@@ -86,6 +86,7 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
       "sal_patch",
       "sal_schema",
       "agent_skill",
+      "editor",
       "editor_context",
     ]);
     assert.equal(

@@ -260,6 +260,35 @@ bool FLoomleBridgeRpcProtocolBoundaryTest::RunTest(const FString& Parameters)
                 *FString::Printf(TEXT("%s advertises the generated protocolVersion"), *Method),
                 ActualVersion,
                 static_cast<double>(Loomle::Protocol::Version));
+            if (Method == TEXT("rpc.capabilities"))
+            {
+                const TArray<TSharedPtr<FJsonValue>>* Tools = nullptr;
+                TestTrue(
+                    TEXT("RPC capabilities advertise private tools"),
+                    (*Result)->TryGetArrayField(TEXT("tools"), Tools)
+                        && Tools != nullptr);
+                if (Tools != nullptr)
+                {
+                    for (const FString& Tool : {
+                             FString(TEXT("editor.open")),
+                             FString(TEXT("editor.close"))})
+                    {
+                        TestTrue(
+                            *FString::Printf(
+                                TEXT("RPC capabilities advertise %s"),
+                                *Tool),
+                            Tools->ContainsByPredicate(
+                                [&Tool](
+                                    const TSharedPtr<FJsonValue>& Value)
+                                {
+                                    FString Text;
+                                    return Value.IsValid()
+                                        && Value->TryGetString(Text)
+                                        && Text == Tool;
+                                }));
+                    }
+                }
+            }
         }
     }
 
@@ -484,6 +513,192 @@ bool FLoomleBridgeRpcEditorContextTest::RunTest(
         Loomle::Sal::FSalJson::ValidateResult(
             *Payload,
             ValidationError));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FLoomleBridgeRpcEditorControlResolutionTest,
+    "Loomle.Runtime.Rpc.EditorControlResolutionBoundary",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FLoomleBridgeRpcEditorControlResolutionTest::RunTest(
+    const FString& Parameters)
+{
+    FLoomleBridgeModule Module;
+    FLoomleBridgeRpcTestAccess::InitializeRequestCancellation(Module);
+    FLoomleBridgeRpcTestAccess::SetBridgeLifecycle(
+        Module,
+        ELoomleBridgeLifecycle::Ready);
+
+    const FString Params = FString::Printf(
+        TEXT(
+            "{\"protocolVersion\":%d,"
+            "\"tool\":\"editor.open\","
+            "\"args\":{\"target\":{"
+            "\"kind\":\"target\","
+            "\"domain\":\"blueprint\","
+            "\"asset\":\"/Game/LoomleTests/MissingEditorTarget.MissingEditorTarget\","
+            "\"id\":\"11111111-2222-3333-4444-555555555555\"}}}"),
+        Loomle::Protocol::Version);
+    const TSharedPtr<FJsonObject> Response = ParseResponse(
+        *this,
+        FLoomleBridgeRpcTestAccess::Handle(
+            Module,
+            MakeRequest(TEXT("rpc.invoke"), Params)));
+    if (!Response.IsValid())
+    {
+        return false;
+    }
+    TestFalse(
+        TEXT("A syntactically valid unresolved Editor Target is not an RPC error"),
+        Response->HasField(TEXT("error")));
+
+    const TSharedPtr<FJsonObject>* Result = nullptr;
+    const TSharedPtr<FJsonObject>* Payload = nullptr;
+    const TSharedPtr<FJsonObject>* Subject = nullptr;
+    const TSharedPtr<FJsonObject>* Outcome = nullptr;
+    TestTrue(
+        TEXT("Editor control returns its RPC result envelope"),
+        Response->TryGetObjectField(TEXT("result"), Result)
+            && Result != nullptr
+            && (*Result).IsValid());
+    if (Result == nullptr || !(*Result).IsValid())
+    {
+        return false;
+    }
+    TestTrue(
+        TEXT("Editor control returns its private payload"),
+        (*Result)->TryGetObjectField(TEXT("payload"), Payload)
+            && Payload != nullptr
+            && (*Payload).IsValid());
+    if (Payload == nullptr || !(*Payload).IsValid())
+    {
+        return false;
+    }
+    TestTrue(
+        TEXT("Editor control keeps the SAL subject separate"),
+        (*Payload)->TryGetObjectField(TEXT("subject"), Subject)
+            && Subject != nullptr
+            && (*Subject).IsValid());
+    TestTrue(
+        TEXT("Editor control keeps transient outcome metadata separate"),
+        (*Payload)->TryGetObjectField(TEXT("outcome"), Outcome)
+            && Outcome != nullptr
+            && (*Outcome).IsValid());
+    if (Subject == nullptr
+        || !(*Subject).IsValid()
+        || Outcome == nullptr
+        || !(*Outcome).IsValid())
+    {
+        return false;
+    }
+
+    FString TargetContext;
+    FString Operation;
+    FString Status;
+    TestTrue(
+        TEXT("Missing content identity returns unresolved_target"),
+        (*Subject)->TryGetStringField(
+            TEXT("targetContext"),
+            TargetContext));
+    TestEqual(
+        TEXT("Missing content identity uses unresolved_target"),
+        TargetContext,
+        FString(TEXT("unresolved_target")));
+    TestTrue(
+        TEXT("Editor outcome identifies open"),
+        (*Outcome)->TryGetStringField(TEXT("operation"), Operation));
+    TestEqual(
+        TEXT("Editor outcome preserves the requested operation"),
+        Operation,
+        FString(TEXT("open")));
+    TestTrue(
+        TEXT("Unresolved Editor Target has a failed outcome"),
+        (*Outcome)->TryGetStringField(TEXT("status"), Status));
+    TestEqual(
+        TEXT("Unresolved Editor Target reports failed"),
+        Status,
+        FString(TEXT("failed")));
+
+    const TArray<TSharedPtr<FJsonValue>>* Diagnostics = nullptr;
+    TestTrue(
+        TEXT("Unresolved Editor Target returns diagnostics"),
+        (*Subject)->TryGetArrayField(
+            TEXT("diagnostics"),
+            Diagnostics)
+            && Diagnostics != nullptr
+            && !Diagnostics->IsEmpty());
+    if (Diagnostics != nullptr && !Diagnostics->IsEmpty())
+    {
+        const TSharedPtr<FJsonObject>* Diagnostic = nullptr;
+        const TArray<TSharedPtr<FJsonValue>>* Path = nullptr;
+        TestTrue(
+            TEXT("Editor resolution diagnostic is an object"),
+            (*Diagnostics)[0].IsValid()
+                && (*Diagnostics)[0]->TryGetObject(Diagnostic)
+                && Diagnostic != nullptr
+                && (*Diagnostic).IsValid());
+        TestTrue(
+            TEXT("Editor resolution diagnostic points to public target"),
+            Diagnostic != nullptr
+                && (*Diagnostic)->TryGetArrayField(TEXT("path"), Path)
+                && Path != nullptr
+                && Path->Num() == 1
+                && (*Path)[0].IsValid()
+                && (*Path)[0]->AsString() == TEXT("target"));
+    }
+
+    TSharedPtr<FJsonObject> ValidationError;
+    TestTrue(
+        TEXT("Editor control subject satisfies the SAL Result schema"),
+        Loomle::Sal::FSalJson::ValidateResult(
+            *Subject,
+            ValidationError));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FLoomleBridgeRpcEditorControlCanonicalInputTest,
+    "Loomle.Runtime.Rpc.EditorControlCanonicalInput",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FLoomleBridgeRpcEditorControlCanonicalInputTest::RunTest(
+    const FString& Parameters)
+{
+    FLoomleBridgeModule Module;
+    FLoomleBridgeRpcTestAccess::InitializeRequestCancellation(Module);
+    FLoomleBridgeRpcTestAccess::SetBridgeLifecycle(
+        Module,
+        ELoomleBridgeLifecycle::Ready);
+
+    const FString Params = FString::Printf(
+        TEXT(
+            "{\"protocolVersion\":%d,"
+            "\"tool\":\"editor.close\","
+            "\"args\":{\"target\":{"
+            "\"kind\":\"target\","
+            "\"domain\":\"graph\","
+            "\"asset\":\"/Game/LoomleTests/Any.Any\","
+            "\"id\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\"}}}"),
+        Loomle::Protocol::Version);
+    const TSharedPtr<FJsonObject> Response = ParseResponse(
+        *this,
+        FLoomleBridgeRpcTestAccess::Handle(
+            Module,
+            MakeRequest(TEXT("rpc.invoke"), Params)));
+    if (!Response.IsValid())
+    {
+        return false;
+    }
+    TestTrue(
+        TEXT("Bridge rejects a non-canonical Graph Target at the RPC boundary"),
+        Response->HasField(TEXT("error")));
+    TestEqual(
+        TEXT("Non-canonical private Editor Target uses tool.invalid_arguments"),
+        RpcDiagnosticCode(*this, Response),
+        FString(TEXT("tool.invalid_arguments")));
     return true;
 }
 

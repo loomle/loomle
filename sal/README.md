@@ -81,8 +81,11 @@ SAL Text
   authored-reference query, scope, result, and completeness design.
 - [`docs/SDK_DESIGN.md`](docs/SDK_DESIGN.md): implemented SDK and executor
   boundary.
+- [`docs/EDITOR.md`](docs/EDITOR.md): unified public Editor context and
+  Blueprint/Graph presentation-control contract.
 - [`docs/EDITOR_CONTEXT.md`](docs/EDITOR_CONTEXT.md): confirmed design for
-  exact Unreal Editor interaction discovery and SAL handoff.
+  exact Unreal Editor interaction discovery, provider tracking, and SAL
+  handoff.
 - [`docs/DIAGNOSTICS.md`](docs/DIAGNOSTICS.md): diagnostic layers and repair
   guidance.
 - [`docs/DOMAINS.md`](docs/DOMAINS.md): domain ownership rules.

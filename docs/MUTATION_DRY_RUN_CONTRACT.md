@@ -1,7 +1,11 @@
 # Mutation Dry Run Contract
 
 SAL mutation interfaces give agents one consistent meaning for `dryRun`.
-This contract applies to every `sal.patch` provider that can change UE state.
+This contract applies to every `sal.patch` provider that can change authored UE
+object or Asset state. Idempotent Editor presentation controls such as opening,
+focusing, or requesting the native close of an editor surface are outside this
+contract: they expose a requested postcondition and verification result rather
+than a speculative authored-state edit plan.
 
 ## Intent
 

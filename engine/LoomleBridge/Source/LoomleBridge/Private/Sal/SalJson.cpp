@@ -2402,6 +2402,22 @@ bool ValidateResultContext(
 }
 }
 
+bool FSalJson::ValidateCanonicalTarget(
+    const TSharedPtr<FJsonObject>& Target,
+    FString& OutMessage)
+{
+    OutMessage.Reset();
+    if (ValidateNormalizedTarget(Target, true, OutMessage))
+    {
+        return true;
+    }
+    if (OutMessage.IsEmpty())
+    {
+        OutMessage = TEXT("Target must be one canonical normalized Target value.");
+    }
+    return false;
+}
+
 bool FSalJson::DecodeQuery(
     const TSharedPtr<FJsonObject>& Arguments,
     FSalQuery& OutQuery,

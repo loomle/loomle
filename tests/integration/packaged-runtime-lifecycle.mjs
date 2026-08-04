@@ -29,6 +29,8 @@ const requiredBridgeTools = Object.freeze([
   "sal.query",
   "sal.patch",
   "editor.context",
+  "editor.open",
+  "editor.close",
 ]);
 const scenarioTimeoutMs = 5_000;
 

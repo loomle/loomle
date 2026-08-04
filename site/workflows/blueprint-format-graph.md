@@ -28,7 +28,7 @@ Open the intended Blueprint Graph, select the region when the request is
 selection-scoped, and call:
 
 ```text
-editor_context({})
+editor({})
 ```
 
 Copy the returned exact Graph Target and StableRefs. Do not infer a selected

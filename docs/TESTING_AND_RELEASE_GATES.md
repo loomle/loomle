@@ -131,7 +131,7 @@ that may later be published. It copies the authored host project to a temporary
 directory, installs the archive, starts one Editor process, and exercises this
 compact vertical workflow:
 
-1. initialize MCP and verify the seven public tools;
+1. initialize MCP and verify the eight public tools;
 2. bind the copied project while it is offline;
 3. read local `sal_schema`, verify the six active interface modules, and load
    the packaged `format-unreal-blueprints` Skill through `agent_skill`;
@@ -140,7 +140,8 @@ compact vertical workflow:
    then inspect the fixture through Blueprint queries;
 6. dry-run a Blueprint description edit and prove the fixture is unchanged;
 7. apply the edit, read it back, and restore the authored value;
-8. read `editor_context`, reconnect the Client, then stop the Editor and
+8. read context through `editor({})`, verify the `editor_context` compatibility
+   alias, reconnect the Client, then stop the Editor and
    observe the same project become offline.
 
 This suite is intentionally small. Domain combinations and native edge cases

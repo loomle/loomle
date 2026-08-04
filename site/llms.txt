@@ -42,7 +42,7 @@ Availability and installation:
   `<Project>/Plugins/LoomleBridge` out of every affected project's `Plugins`
   directory. A project plugin shadows the engine plugin.
 
-Seven public MCP tools:
+Eight public MCP tools:
 
 - `status({})`: report Client/update status and bound session/Bridge health.
 - `project`: inspect projects and bind one MCP session to one project.
@@ -54,8 +54,12 @@ Seven public MCP tools:
   descriptions.
 - `agent_skill({ name })`: load one exact resident Skill and all of its
   Markdown guidance.
-- `editor_context({})`: return the current UE interaction target as canonical
-  SAL Result Text.
+- `editor({})`: return the current UE interaction target as canonical SAL
+  Result Text.
+- `editor({ operation: "open" | "close", target })`: idempotently open, focus,
+  or close one exact Blueprint Editor or Graph document using a bare canonical
+  SAL Target expression.
+- `editor_context({})`: compatibility alias for `editor({})`.
 
 MCP-managed Agent Skills:
 

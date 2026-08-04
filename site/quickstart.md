@@ -67,7 +67,7 @@ Users do not install a separate Skill in the MCP host.
 Open or select the asset you want to discuss, then call:
 
 ```text
-editor_context({})
+editor({})
 ```
 
 The first result block is canonical SAL Result Text. It declares

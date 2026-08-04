@@ -12,6 +12,7 @@ export const PUBLIC_TOOL_NAMES = Object.freeze([
   "sal_patch",
   "sal_schema",
   "agent_skill",
+  "editor",
   "editor_context",
 ]);
 
@@ -261,17 +262,17 @@ export async function runPackagedMcpSmoke(options = {}) {
     ));
 
     await step(PACKAGED_SMOKE_STEP_NAMES[6], async () => {
-      publicTool("editor_context");
-      const response = await session.callTool("editor_context", {});
+      publicTool("editor");
+      const response = await session.callTool("editor", {});
       const context = requireToolText(
         response,
-        "editor_context",
+        "editor",
         { allowError: true },
       );
-      const result = salResult(context, "editor_context");
+      const result = salResult(context, "editor");
       assert(
         result.object,
-        "editor_context omitted ordered Object Text",
+        "editor omitted ordered context Object Text",
       );
       assert(
         (response?.isError === true
@@ -280,15 +281,35 @@ export async function runPackagedMcpSmoke(options = {}) {
         || (response?.isError !== true
           && (result.targetContext === "exact_target"
             || result.targetContext === "domain_root")),
-        `editor_context returned an inconsistent context/error branch:\n${boundedText(context)}`,
+        `editor returned an inconsistent context/error branch:\n${boundedText(context)}`,
       );
       assert(
         /(^|\n)\s*(?:#\s*)?(?:surface:|Level Editor\s*$)/m.test(context)
           && /(^|\n)\s*(?:#\s*)?(?:selection|selected):/m.test(context),
         [
-          "editor_context did not report both surface and selection",
+          "editor context did not report both surface and selection",
           `SAL response:\n${boundedText(context)}`,
         ].join("\n"),
+      );
+
+      const compatibilityResponse = await session.callTool(
+        "editor_context",
+        {},
+      );
+      const compatibilityContext = requireToolText(
+        compatibilityResponse,
+        "editor_context",
+        { allowError: true },
+      );
+      const compatibilityResult = salResult(
+        compatibilityContext,
+        "editor_context",
+      );
+      assert(
+        compatibilityResult.targetContext === result.targetContext
+          && (compatibilityResponse?.isError === true)
+            === (response?.isError === true),
+        "editor_context compatibility alias diverged from editor context",
       );
     });
 

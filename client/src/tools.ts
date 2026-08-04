@@ -1,6 +1,7 @@
 import {
   createSal,
   objectResultToTextResult,
+  parseCanonicalTargetText,
   unresolvedTextResult,
   type Diagnostic,
   type PatchResult,
@@ -31,6 +32,7 @@ export type PublicToolName =
   | "sal_patch"
   | "sal_schema"
   | "agent_skill"
+  | "editor"
   | "editor_context";
 
 export interface ToolDefinition {
@@ -137,8 +139,29 @@ export const toolDefinitions: readonly ToolDefinition[] = [
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
   {
+    name: "editor",
+    description: "Observe or control the Unreal Blueprint Editor. Call with no arguments for current context, or use open/close with one bare canonical SAL Blueprint or Graph Target expression.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operation: {
+          type: "string",
+          enum: ["context", "open", "close"],
+          description: "Defaults to context when omitted. A target without an explicit open or close operation is invalid.",
+        },
+        target: {
+          type: "string",
+          minLength: 1,
+          description: "One bare canonical SAL Blueprint or Graph Target expression. Required for open and close; invalid for context.",
+        },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  },
+  {
     name: "editor_context",
-    description: "Return the user's current Unreal Editor interaction target. The first text block is canonical SAL Result Text with exact Target context when available.",
+    description: "Compatibility alias for editor({}). Return the user's current Unreal Editor interaction target as canonical SAL Result Text.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
@@ -203,6 +226,8 @@ export class SalToolService {
         case "agent_skill":
           requireOnly(object, ["name"], name);
           return agentSkillResult(optionalString(object.name, "name"));
+        case "editor":
+          return await this.callEditor(object, signal);
         case "editor_context":
           requireOnly(object, [], name);
           return toMcpResult(await objectResultToTextResult(
@@ -213,6 +238,9 @@ export class SalToolService {
       }
     } catch (error) {
       if (name === "project") return projectFailureFromError(error);
+      if (name === "editor" || name === "editor_context") {
+        return toMcpResult(editorTextFailureFromError(error));
+      }
       return isResultTool(name)
         ? resultToolFailureFromError(error)
         : toolFailureFromError(error);
@@ -222,6 +250,84 @@ export class SalToolService {
   setMcpRoots(roots: readonly string[] | undefined, supported: boolean): void {
     this.rpc.setMcpRoots?.(roots, supported);
   }
+
+  private async callEditor(
+    object: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<McpToolResult> {
+    requireOnly(object, ["operation", "target"], "editor");
+    const operation = optionalEditorOperation(object.operation);
+
+    if (operation === undefined) {
+      if (object.target !== undefined) {
+        throw new ToolInputError("editor requires an explicit open or close operation when target is provided.");
+      }
+      return toMcpResult(await objectResultToTextResult(
+        await this.rpc.invoke("editor.context", {}, signal),
+      ));
+    }
+
+    if (operation === "context") {
+      if (object.target !== undefined) {
+        throw new ToolInputError("editor context does not accept target.");
+      }
+      return toMcpResult(await objectResultToTextResult(
+        await this.rpc.invoke("editor.context", {}, signal),
+      ));
+    }
+
+    const targetText = optionalString(object.target, "target");
+    if (targetText === undefined) {
+      throw new ToolInputError(`editor ${operation} requires target.`);
+    }
+
+    const parsed = parseCanonicalTargetText(targetText);
+    if (parsed.target === undefined) {
+      return editorControlMcpResult(
+        unresolvedTextResult(parsed.diagnostics),
+        { operation, status: "failed" },
+      );
+    }
+
+    try {
+      const response = requireEditorControlResult(
+        await this.rpc.invoke(`editor.${operation}`, { target: parsed.target }, signal),
+        operation,
+      );
+      const subject = await objectResultToTextResult(response.subject);
+      if (response.outcome.status === "failed"
+        && !subject.diagnostics.some(({ severity }) => severity === "error")) {
+        throw new Error("Editor control returned failed without an error diagnostic.");
+      }
+      if (response.outcome.status !== "failed"
+        && subject.diagnostics.some(({ severity }) => severity === "error")) {
+        throw new Error("Editor control returned a successful status with an error diagnostic.");
+      }
+      if (response.outcome.status !== "failed"
+        && subject.targetContext !== "exact_target") {
+        throw new Error("Editor control returned a successful status without an exact Target.");
+      }
+      return editorControlMcpResult(subject, response.outcome);
+    } catch (error) {
+      return editorControlMcpResult(
+        editorTextFailureFromError(error),
+        { operation, status: "failed" },
+      );
+    }
+  }
+}
+
+type EditorOperation = "context" | EditorControlOperation;
+type EditorControlOperation = "open" | "close";
+type EditorOpenStatus = "opened" | "focused" | "already_focused" | "failed";
+type EditorCloseStatus = "closed" | "already_closed" | "failed";
+type EditorControlOutcome =
+  | { operation: "open"; status: EditorOpenStatus }
+  | { operation: "close"; status: EditorCloseStatus };
+
+interface EditorControlResult {
+  subject: unknown;
+  outcome: EditorControlOutcome;
 }
 
 function agentSkillResult(name: string | undefined): McpToolResult {
@@ -402,6 +508,70 @@ function optionalString(value: unknown, name: string): string | undefined {
   return value;
 }
 
+function optionalEditorOperation(value: unknown): EditorOperation | undefined {
+  if (value === undefined) return undefined;
+  if (value === "context" || value === "open" || value === "close") return value;
+  throw new ToolInputError("operation must be context, open, or close.");
+}
+
+function requireEditorControlResult(
+  value: unknown,
+  expectedOperation: EditorControlOperation,
+): EditorControlResult {
+  if (!isRecord(value)
+    || !hasExactKeys(value, ["subject", "outcome"])
+    || !isRecord(value.outcome)
+    || !hasExactKeys(value.outcome, ["operation", "status"])) {
+    throw new Error("Editor control returned an invalid result wrapper.");
+  }
+  if (value.outcome.operation !== expectedOperation) {
+    throw new Error("Editor control returned an outcome for the wrong operation.");
+  }
+  const allowedStatuses = expectedOperation === "open"
+    ? new Set<unknown>(["opened", "focused", "already_focused", "failed"])
+    : new Set<unknown>(["closed", "already_closed", "failed"]);
+  if (!allowedStatuses.has(value.outcome.status)) {
+    throw new Error("Editor control returned an invalid terminal status.");
+  }
+  return value as unknown as EditorControlResult;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  const keys = Object.keys(value);
+  return keys.length === expected.length && expected.every((key) => keys.includes(key));
+}
+
+function editorControlMcpResult(
+  subject: TextResult,
+  outcome: EditorControlOutcome,
+): McpToolResult {
+  const text = subject.text ?? "result unresolved_target\nno_objects";
+  const content: McpTextContent[] = [
+    { type: "text", text },
+    {
+      type: "text",
+      text: salComment([
+        "Editor result",
+        `operation: ${outcome.operation}`,
+        `status: ${outcome.status}`,
+      ].join("\n")),
+    },
+  ];
+  if (subject.diagnostics.length > 0) {
+    content.push({ type: "text", text: formatDiagnostics(subject.diagnostics) });
+  }
+  const isError = subject.isError === true
+    || subject.diagnostics.some(({ severity }) => severity === "error");
+  return {
+    content,
+    ...(isError ? { isError: true } : {}),
+  };
+}
+
 function formatDiagnostics(diagnostics: readonly Diagnostic[]): string {
   const text = ["SAL diagnostics", ...diagnostics.map((diagnostic) => {
     const lines = [
@@ -484,6 +654,10 @@ function toolFailureFromError(error: unknown): McpToolResult {
 }
 
 function resultToolFailureFromError(error: unknown): McpToolResult {
+  return toMcpResult(resultTextFailureFromError(error));
+}
+
+function resultTextFailureFromError(error: unknown): TextResult {
   const message = error instanceof Error ? error.message : String(error);
   if (!(error instanceof RuntimeRpcError)) {
     const diagnostic: Diagnostic = {
@@ -491,7 +665,7 @@ function resultToolFailureFromError(error: unknown): McpToolResult {
       code: errorCode(error),
       message,
     };
-    return toMcpResult(unresolvedTextResult([diagnostic]));
+    return unresolvedTextResult([diagnostic]);
   }
 
   const lines = [message];
@@ -505,12 +679,30 @@ function resultToolFailureFromError(error: unknown): McpToolResult {
       suggestion: "Re-check the current Editor and object state before retrying. Never blindly replay a Patch after a lost response.",
     } : {}),
   };
-  return toMcpResult(unresolvedTextResult([diagnostic]));
+  return unresolvedTextResult([diagnostic]);
+}
+
+function editorTextFailureFromError(error: unknown): TextResult {
+  if (!(error instanceof RuntimeRpcError)) return resultTextFailureFromError(error);
+
+  const lines = [error.message];
+  if (error.detail !== undefined) lines.push(`  detail: ${error.detail}`);
+  lines.push(`  retryable: ${error.retryable}`);
+  const diagnostic: Diagnostic = {
+    severity: "error",
+    code: String(error.code),
+    message: lines.join("\n"),
+    ...(error.retryable ? {
+      suggestion: "Call editor with no arguments to re-read the current presentation before retrying. Open and close are idempotent requested postconditions.",
+    } : {}),
+  };
+  return unresolvedTextResult([diagnostic]);
 }
 
 function isResultTool(name: string): boolean {
   return name === "sal_query"
     || name === "sal_patch"
+    || name === "editor"
     || name === "editor_context";
 }
 

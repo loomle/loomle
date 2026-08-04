@@ -600,7 +600,7 @@ class FakePackagedHarness {
         if (name === "sal_patch") {
           return harness.patch(args.text, requestSignal);
         }
-        if (name === "editor_context") {
+        if (name === "editor" || name === "editor_context") {
           return {
             ...textBlocks(
               [
@@ -613,7 +613,7 @@ class FakePackagedHarness {
                 "###",
                 "SAL diagnostics",
                 "ERROR resolution.unresolved_target: Editor Context has no exact supported Domain Target.",
-                "  domain: editor_context",
+                "  domain: editor",
                 "###",
               ].join("\n"),
             ),

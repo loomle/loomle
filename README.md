@@ -29,7 +29,7 @@ the editor and UE APIs as the source of truth.
 
 ## Current 0.7 Interface
 
-The standalone Client exposes seven MCP tools:
+The standalone Client exposes eight MCP tools:
 
 - `status`: inspect the Client version, update availability, and bound session
   and Bridge health.
@@ -40,8 +40,10 @@ The standalone Client exposes seven MCP tools:
 - `sal_schema`: discover the resident SAL guide and the active interface cards.
 - `agent_skill`: discover and load MCP-managed Loomle workflow Skills without
   a separate agent-specific installation.
-- `editor_context`: read the user's current Unreal interaction target as SAL
-  Result Text.
+- `editor`: observe the current Unreal interaction with empty arguments, or
+  open, focus, and close an exact Blueprint or Graph from canonical SAL Target
+  Text.
+- `editor_context`: compatibility alias for `editor({})` during migration.
 
 The current public SAL modules are Asset, Blueprint, Class, Graph, StateTree,
 and Widget. They cover Asset Registry discovery, Blueprint declarations and
@@ -128,7 +130,9 @@ Full instructions: https://loomle.ai/install.html
 3. Call `status` once to inspect Client, update, session, and Bridge health.
 4. If the session is unbound, call `project` to inspect or bind the intended
    project.
-5. Call `editor_context` to begin from the user's current editor state.
+5. Call `editor({})` to begin from the user's current editor state; use
+   `editor({ operation: "open" | "close", target })` for exact Blueprint or
+   Graph presentation control.
 6. Use `sal_schema` when the target module or exact operation is unfamiliar.
 7. Inspect with `sal_query`, dry-run changes with `sal_patch`, then apply and
    finalize through the owning asset.

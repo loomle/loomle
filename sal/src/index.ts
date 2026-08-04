@@ -191,10 +191,13 @@ export interface SalExecutor {
   patch?(object: Patch, options?: SalExecutionOptions): Promise<PatchResult>;
 }
 
-export { formatSalObject } from "./formatter.js";
+export { formatSalObject, formatTargetExpression } from "./formatter.js";
 export {
+  parseCanonicalTargetText,
   parseSalObject,
   parseSalResultText,
+  type CanonicalEditorTarget,
+  type ParseCanonicalTargetTextResult,
   type ParsedResultText,
   type ParseResultTextResult,
   type ParseSalOptions,

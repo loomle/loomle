@@ -18,9 +18,10 @@ relevant UE source and then designing Loomle's expression of that behavior.
 ## Public Protocol Naming
 
 Public MCP tool names use readable snake_case: `sal_query`, `sal_patch`,
-`sal_schema`, `editor_context`, and `project`. Private Bridge RPC tool names use dotted
-transport names such as `sal.query` and `editor.context`; they are not public
-MCP tools. Public enum-like protocol values, including `view`, `operation`,
+`sal_schema`, `editor`, the compatibility alias `editor_context`, and `project`.
+Private Bridge RPC tool names use dotted transport names such as `sal.query`,
+`editor.context`, `editor.open`, and `editor.close`; they are not public MCP
+tools. Public enum-like protocol values, including `view`, `operation`,
 `kind`, `reason`, and error code fragments, use readable snake_case, such as
 `exec_flow`, `data_flow`, and `open_exec_output`.
 

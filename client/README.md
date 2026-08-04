@@ -15,7 +15,7 @@ duplicate either contract.
 
 ## Public Tools
 
-The Client exposes seven MCP tools:
+The Client exposes eight MCP tools:
 
 - `status`: inspect Client identity and update availability plus the bound
   session and Bridge health;
@@ -27,9 +27,11 @@ The Client exposes seven MCP tools:
   index or one static interface when called;
 - `agent_skill`: list or load resident Loomle workflow Skills compiled from the
   repository-root `skills/` source;
-- `editor_context`: discover the user's current UE interaction target.
+- `editor`: observe the current UE interaction target, or idempotently open,
+  focus, and close an exact Blueprint Editor or Blueprint Graph document;
+- `editor_context`: compatibility alias for `editor({})` during migration.
 
-These seven tools are the complete public Client surface. Additional UE
+These eight tools are the complete public Client surface. Additional UE
 behavior belongs in SAL and its interface cards rather than parallel
 compatibility tools; `agent_skill` contains agent workflow policy and grants no
 new UE capability.
@@ -49,11 +51,15 @@ the workflow always matches the configured MCP version and needs no separate
 Codex, Claude, or Copilot Skill installation. The source and packaging contract
 is defined in [`../docs/MCP_AGENT_SKILLS.md`](../docs/MCP_AGENT_SKILLS.md).
 
-Query, Patch, and Editor Context return the same validated canonical Result
-Text in the first MCP text block. That block declares result context and
-Targets, then contains ordered Object Text or ends with `no_objects`. Mutation
-metadata and diagnostics use later independent SAL-comment text blocks; they
-are not appended to or parsed as part of the first Result Text block.
+Query, Patch, and Editor return the same validated canonical Result Text in the
+first MCP text block. That block declares result context and Targets, then
+contains ordered Object Text or ends with `no_objects`. Editor open/close
+outcomes, mutation metadata, and diagnostics use later independent SAL-comment
+text blocks; they are not appended to or parsed as part of the first Result
+Text block. `editor({})`, explicit `context`, and `editor_context({})` preserve
+the same context result without redundant outcome metadata.
+The Target, operation, result, and error contract is defined in
+[`../sal/docs/EDITOR.md`](../sal/docs/EDITOR.md).
 
 ## Project Binding And Runtime Liveness
 

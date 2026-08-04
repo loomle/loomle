@@ -19,7 +19,13 @@ import {
   type RuntimeIdentity,
 } from "./runtime-rpc.js";
 
-const requiredTools = ["sal.query", "sal.patch", "editor.context"] as const;
+const requiredTools = [
+  "sal.query",
+  "sal.patch",
+  "editor.context",
+  "editor.open",
+  "editor.close",
+] as const;
 
 export type ProjectStatus =
   | "ready"

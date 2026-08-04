@@ -147,7 +147,7 @@ Keep the target Unreal project open, then:
 2. If the session is unbound, call `project({})`.
 3. Use a returned `projectId` with
    `project({ projectId: "<id>" })`.
-4. Call `editor_context({})`.
+4. Call `editor({})`.
 5. Call `sal_schema({})` and confirm that the interface index is available.
 6. Call `agent_skill({})` and confirm that the resident Skill catalog is
    available.

@@ -38,7 +38,7 @@ session:
   status: ready
 bridge:
   version: 0.7.0-rc.3
-  protocolVersion: 3
+  protocolVersion: 4
   plugin: "C:/.../Engine/Plugins/Marketplace/LoomleBridge"
 ```
 
@@ -117,7 +117,7 @@ parallel version source is introduced.
 
 Tests must cover:
 
-- the seven public MCP tools and empty `status` input;
+- the eight public MCP tools and empty `status` input;
 - Client identity on supported targets;
 - current, available, malformed, offline, and unsupported update states;
 - prerelease and stable channel selection;

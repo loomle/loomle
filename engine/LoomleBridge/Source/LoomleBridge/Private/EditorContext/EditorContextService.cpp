@@ -94,7 +94,7 @@ struct FContextOutput
 
     void Error(const FString& Code, const FString& Message, const FString& Ref = FString())
     {
-        FSalDiagnosticBuilder Diagnostic = FSalDiagnostics::Error(Code, Message).Interface(TEXT("editor_context"));
+        FSalDiagnosticBuilder Diagnostic = FSalDiagnostics::Error(Code, Message).Interface(TEXT("editor"));
         if (!Ref.IsEmpty())
         {
             Diagnostic.Ref(Ref);
@@ -112,7 +112,7 @@ struct FContextOutput
             FSalDiagnostics::Error(
                 TEXT("resolution.unresolved_target"),
                 Message)
-            .Interface(TEXT("editor_context"))
+            .Interface(TEXT("editor"))
             .Suggestion(Suggestion);
         if (!Ref.IsEmpty())
         {
@@ -160,7 +160,7 @@ struct FContextOutput
                 FSalDiagnostics::Error(
                     TEXT("resolution.unresolved_target"),
                     TEXT("Editor Context has no exact supported Domain Target."))
-                    .Interface(TEXT("editor_context"))
+                    .Interface(TEXT("editor"))
                     .Build());
         }
 
@@ -1465,7 +1465,7 @@ bool EmitWorldOwner(FContextOutput& Out, UWorld* World)
             *PackageName));
         Out.Unresolved(
             TEXT("The Level Editor map has no registered persistent Asset Target."),
-            TEXT("Save the current map, then retry editor_context."),
+            TEXT("Save the current map, then retry editor with no arguments."),
             PackageName);
     }
     return false;

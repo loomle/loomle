@@ -6,8 +6,8 @@ description: Format and audit Unreal Engine Blueprint K2 graphs through Loomle u
 # Format Unreal Blueprints
 
 Format Blueprint K2 graphs as readable semantic diagrams. Preserve behavior and
-use Loomle's public `editor_context`, `sal_query`, `sal_schema`, and `sal_patch`
-tools without depending on an agent-specific tool-call syntax.
+use Loomle's public `editor`, `sal_query`, `sal_schema`, and `sal_patch` tools
+without depending on an agent-specific tool-call syntax.
 
 ## Read the required guidance
 
@@ -19,7 +19,7 @@ tools without depending on an agent-specific tool-call syntax.
 
 ## Follow this workflow
 
-1. Read `editor_context` and resolve the exact Blueprint Graph and intended
+1. Call `editor` with no arguments and resolve the exact Blueprint Graph and intended
    selection. If selection is unavailable, say so and obtain an unambiguous
    graph or node identity before changing anything.
 2. Query the selected region and its connected context `with layout`. Collect

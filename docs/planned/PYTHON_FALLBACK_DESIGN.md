@@ -3,10 +3,10 @@
 ## Status
 
 Loomle 0.7 does not currently expose Unreal-side Python. Its public Client has
-seven tools, and its Bridge accepts only `sal.query`, `sal.patch`, and
-`editor.context`.
+eight tools, and its Bridge accepts only `sal.query`, `sal.patch`,
+`editor.context`, `editor.open`, and `editor.close`.
 
-This document defines a planned eighth public tool, `python_execute`, backed
+This document defines a planned ninth public tool, `python_execute`, backed
 by the private Bridge operation `python.execute`. It is a high-privilege
 capability fallback for UE behavior that Loomle has not yet expressed through
 SAL. It is not implemented and is not part of the current public contract.
@@ -389,7 +389,7 @@ It is invoked through the existing `rpc.invoke` envelope:
 
 ```json
 {
-  "protocolVersion": 3,
+  "protocolVersion": 5,
   "tool": "python.execute",
   "args": {
     "reason": "The current interfaces do not expose the Level Editor viewport FOV.",
@@ -414,17 +414,17 @@ distinction prevents an ordinary Python exception from being confused with
 transport failure and preserves evidence of partial effects.
 
 Adding a private operation changes the Client-Bridge contract. Implementation
-therefore increments `loomle.protocolVersion` from `2` to `3`, regenerates both
+therefore increments `loomle.protocolVersion` from `4` to `5`, regenerates both
 Client and Bridge version sources, and adds `python.execute` to
-`rpc.capabilities`. A version-2 Client and version-3 Bridge remain explicitly
+`rpc.capabilities`. A version-4 Client and version-5 Bridge remain explicitly
 incompatible even if their other tool names overlap.
 
 ## Runtime Preflight and Execution
 
 The Client applies the same sticky project binding and live runtime selection
-used by `sal_query`, `sal_patch`, and `editor_context`. The tool is unavailable
-when the bound project is offline, starting, unresponsive, ambiguous, or
-protocol-incompatible.
+used by `sal_query`, `sal_patch`, and `editor` (including the
+`editor_context` compatibility alias). The tool is unavailable when the bound
+project is offline, starting, unresponsive, ambiguous, or protocol-incompatible.
 
 The initial implementation rejects execution while PIE or another play session
 is active. The fallback targets Unreal Editor automation, and arbitrary Python
@@ -605,7 +605,7 @@ The first implementation changes:
 - the diagnostic catalog entries for the new `runtime.python_*` codes;
 - current Client, interface-guide, lifecycle, dry-run-policy, coverage, and
   release-test documentation;
-- packaged end-to-end expectations from six to seven public tools.
+- packaged end-to-end expectations from eight to nine public tools.
 
 It does not restore:
 
@@ -623,7 +623,7 @@ It does not restore:
 
 Tests must prove:
 
-- exactly seven public tools are listed and `python_execute` has destructive,
+- exactly nine public tools are listed and `python_execute` has destructive,
   non-read-only, non-idempotent annotations;
 - `reason`, `mode`, code size, unknown fields, and empty inputs are validated;
 - the bound project and healthy runtime are resolved before dispatch;
@@ -678,7 +678,7 @@ harness.
 
 The exact release archive must:
 
-1. list all seven public tools;
+1. list all nine public tools;
 2. report a ready bound Editor;
 3. execute one non-mutating `exec` script that imports `unreal` and logs a
    deterministic value;

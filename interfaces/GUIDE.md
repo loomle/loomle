@@ -16,8 +16,11 @@ editor behavior intact.
 - `agent_skill({})` lists resident Loomle workflow Skills.
 - `agent_skill({ name: "format-unreal-blueprints" })` loads one Skill before
   performing a matching specialized workflow.
-- `editor_context({})` returns the user's current UE context as SAL result
-  text.
+- `editor({})` returns the user's current UE context as SAL Result Text.
+- `editor({ operation: "open" | "close", target })` idempotently controls one
+  exact Blueprint Editor or Graph document. `target` is one bare canonical SAL
+  Target expression encoded as the JSON string value.
+- `editor_context({})` is the read-only compatibility alias for `editor({})`.
 
 The tool-call wrapper is not SAL syntax.
 
@@ -312,6 +315,7 @@ constructors, or fused kind references. MCP tools and the default SDK facade do
 not enable it. The reader lowers only forms that are unambiguous in the active
 Domain. Under-scoped owner identities, target-self fused references, ambiguous
 or mixed Domains, and any form that would require UE-assisted recovery are
-rejected. The protocol v3 Bridge rejects normalized legacy shapes, current
-formatters never emit them, and the compatibility reader is removed with
-protocol v4 unless a later release note explicitly extends the window.
+rejected. The protocol v4 Bridge rejects normalized legacy shapes and current
+formatters never emit them. Protocol v4 explicitly extends this reader-only
+migration window because the Editor transport addition does not change SAL
+syntax; removal requires a later incompatible protocol and release note.

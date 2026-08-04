@@ -915,8 +915,9 @@ canonicalized during lowering. Under-scoped owner identities, target-self
 fused references, and forms that would require a name lookup or UE-assisted
 recovery are rejected with migration guidance.
 
-The protocol v3 Bridge rejects normalized legacy Call and fused-reference
+The protocol v4 Bridge rejects normalized legacy Call and fused-reference
 shapes; compatibility never changes Domain execution semantics. Current
-formatters never emit the legacy spellings. The compatibility reader is
-removed with protocol v4 unless a later release note explicitly extends the
-window.
+formatters never emit the legacy spellings. Protocol v4 explicitly extends the
+reader-only migration window because its Editor transport addition does not
+change SAL syntax; removal requires a later incompatible protocol and release
+note.

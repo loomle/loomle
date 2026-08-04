@@ -149,7 +149,7 @@ the default SDK facade are strict. Lowering occurs before schema validation and
 Domain planning and accepts fused references only when their complete native
 identity shape is unambiguous in the already selected active Domain.
 Under-scoped owner identities, target-self fused references, and forms
-requiring UE-assisted recovery fail. The protocol v3 Bridge rejects legacy
+requiring UE-assisted recovery fail. The protocol v4 Bridge rejects legacy
 Call objects, fused kind references, and implicit Domain selection.
 
 Ambiguous legacy StateTree/Asset or Widget/Blueprint requests fail. Only
@@ -158,9 +158,10 @@ callee is never discarded. A mixed legacy Patch is never split into several
 new requests, and explicit-v3/legacy Target mixtures or declarations outside
 the selected Target's alias-dependency closure are rejected.
 
-The new formatter emits only the destination model. The compatibility reader
-is removed with protocol v4 unless a later release note explicitly extends the
-window.
+The new formatter emits only the destination model. Protocol v4 explicitly
+extends the reader-only migration window because its Editor transport addition
+does not change SAL syntax; removal requires a later incompatible protocol and
+release note.
 
 ## Verification Matrix
 

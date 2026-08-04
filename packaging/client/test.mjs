@@ -133,6 +133,7 @@ try {
       "sal_patch",
       "sal_schema",
       "agent_skill",
+      "editor",
       "editor_context",
     ]);
     assert.equal(

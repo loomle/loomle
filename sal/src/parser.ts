@@ -103,6 +103,16 @@ export interface ParseResultTextResult {
   diagnostics: ParseResult["diagnostics"];
 }
 
+export type CanonicalEditorTarget = Extract<
+  CanonicalTarget,
+  { domain: "blueprint" | "graph" }
+>;
+
+export interface ParseCanonicalTargetTextResult {
+  target?: CanonicalEditorTarget;
+  diagnostics: ParseResult["diagnostics"];
+}
+
 interface ParsedPrelude {
   targets: Map<string, TargetBinding>;
   legacyCalls: Map<string, LegacyCall>;
@@ -127,6 +137,57 @@ export function parseSalObject(text: string, options: ParseSalOptions = {}): Par
       return { object: parseQuery(lines, requestIndex, prelude, options), diagnostics: [] };
     }
     return { object: parsePatch(lines, requestIndex, prelude, options), diagnostics: [] };
+  } catch (error) {
+    if (error instanceof ParseError) {
+      return {
+        diagnostics: [{ severity: "error", code: error.code, message: error.message, span: error.span }],
+      };
+    }
+    throw error;
+  }
+}
+
+/**
+ * Parses the deliberately narrow standalone Target expression accepted by
+ * Editor controls. This is not a general SAL document parser: aliases,
+ * requests, discovery Targets, and non-Blueprint/Graph Domains are rejected.
+ */
+export function parseCanonicalTargetText(text: string): ParseCanonicalTargetTextResult {
+  try {
+    const lines = preprocessLines(text);
+    if (lines.length === 0) {
+      throw new ParseError(
+        "language.invalid_target",
+        "Expected exactly one bare canonical Blueprint or Graph Target expression.",
+        { line: 1, column: 1 },
+      );
+    }
+    if (lines.length !== 1 || lines[0].kind !== "code") {
+      throw new ParseError(
+        "language.invalid_target",
+        "Expected exactly one bare canonical Blueprint or Graph Target expression without aliases, requests, or comments.",
+        spanForLine(lines.length > 1 ? lines[1] : lines[0]),
+      );
+    }
+
+    const target = parseTargetExpression(lines[0].text, lines[0]);
+    if (target.domain !== "blueprint" && target.domain !== "graph") {
+      throw new ParseError(
+        "language.invalid_target_domain",
+        "Editor Target domain must be blueprint or graph.",
+        spanForLine(lines[0]),
+      );
+    }
+    if (!isCanonicalEditorTarget(target)) {
+      throw new ParseError(
+        "language.incomplete_target",
+        target.domain === "blueprint"
+          ? "Canonical Blueprint Target requires asset and id."
+          : "Canonical Graph Target requires asset, blueprintId, and id without name.",
+        spanForLine(lines[0]),
+      );
+    }
+    return { target, diagnostics: [] };
   } catch (error) {
     if (error instanceof ParseError) {
       return {
@@ -590,6 +651,10 @@ function isCanonicalTarget(target: Target): target is CanonicalTarget {
     case "widget":
       return typeof target.id === "string";
   }
+}
+
+function isCanonicalEditorTarget(target: Target): target is CanonicalEditorTarget {
+  return (target.domain === "blueprint" || target.domain === "graph") && isCanonicalTarget(target);
 }
 
 function lowerLegacyTarget(

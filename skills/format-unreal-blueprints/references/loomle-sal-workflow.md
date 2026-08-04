@@ -5,13 +5,13 @@ the SAL text shown here is portable.
 
 ## 1. Resolve the active target
 
-Call `editor_context` first. Copy the canonical exact Graph Target and stable
-node references from the result.
+Call `editor` with no arguments first. Copy the canonical exact Graph Target
+and stable node references from the result.
 
 If the active surface is a graph but selection is unavailable, do not invent a
 selected node. Ask for an exact node identity or use another unambiguous query
-the user has authorized. Do not launch, focus, or manipulate the editor UI just
-to acquire geometry unless the user explicitly authorizes UI control.
+the user has authorized. Do not open, focus, or close an Editor presentation
+just to acquire geometry unless the user explicitly authorizes UI control.
 
 Use `sal_schema` with module `graph` when an operation or result field is
 unclear. Do not guess Graph syntax, palette identities, pins, or operations.

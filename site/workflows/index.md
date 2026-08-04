@@ -12,7 +12,7 @@ permalink: /workflows/
 Loomle workflows follow one inspect-and-verify loop:
 
 1. Bind one project with `project`.
-2. Locate the real UE target with `editor_context` or an exact Asset Path.
+2. Locate the real UE target with `editor({})` or an exact Asset Path.
 3. Read a compact summary, collection, tree, context, or flow.
 4. Load a static interface card or exact dynamic schema only when needed.
 5. Search the target Palette before creating a UE object.
@@ -44,7 +44,7 @@ Use these guides before a domain workflow when the underlying step is
 unfamiliar:
 
 - [Project Binding](../calls/project.html)
-- [Editor Context](../calls/editor-context.html)
+- [Editor](../calls/editor-context.html)
 - [SAL Working Model](../concepts/sal.html)
 - [Targets and Stable References](../concepts/identity.html)
 - [Schema Discovery](../concepts/schema.html)

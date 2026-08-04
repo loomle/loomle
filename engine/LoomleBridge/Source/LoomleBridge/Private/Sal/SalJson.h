@@ -12,6 +12,16 @@ namespace Loomle::Sal
 class FSalJson
 {
 public:
+    /**
+     * Validates one standalone canonical normalized Target value.
+     *
+     * This is the private JSON counterpart of canonical SAL Target Text. It
+     * intentionally accepts no binding alias or Query/Patch envelope.
+     */
+    static bool ValidateCanonicalTarget(
+        const TSharedPtr<FJsonObject>& Target,
+        FString& OutMessage);
+
     static bool DecodeQuery(
         const TSharedPtr<FJsonObject>& Arguments,
         FSalQuery& OutQuery,

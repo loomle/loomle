@@ -232,6 +232,8 @@ limited to shapes that are complete and unambiguous in the active Domain;
 unused Target declarations, explicit-v3/legacy Target mixtures, under-scoped
 owner identities, target-self fused references, and forms that would require
 UE-assisted recovery are rejected. Only `object(...)` may become an untagged
-object. The Bridge rejects normalized legacy shapes and current formatters emit
-only the explicit model above. The compatibility reader is removed with
-protocol v4 unless a later release note explicitly extends the window.
+object. The protocol v4 Bridge rejects normalized legacy shapes and current
+formatters emit only the explicit model above. Protocol v4 explicitly extends
+the reader-only migration window because its Editor transport addition does
+not change SAL syntax; removal requires a later incompatible protocol and
+release note.
