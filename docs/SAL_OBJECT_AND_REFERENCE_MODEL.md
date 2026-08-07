@@ -1338,6 +1338,17 @@ and any destination supply the real creation information.
 Palette IDs remain opaque. A string prefix may aid diagnostics but cannot
 select a Domain.
 
+For Graph creation, a Palette identity is resolved in the exact live Graph
+Target that produced it. Native dry-run preflight may execute the creation
+against an isolated Blueprint sandbox, but the sandbox is not a second
+capability-discovery environment. Blueprint-owned `UFunction` and `FProperty`
+actions are remapped to the corresponding sandbox member before UE materializes
+the Node; native and external actions retain their original UE identity. A
+missing action reports `resolution.palette_not_found`, while an action that is
+present but cannot materialize a Node reports
+`resolution.palette_not_spawnable`. Exact Palette schema advertises `bind` and
+`add` only for an action that can materialize in the current Graph context.
+
 ### Mutation Scope
 
 Resolving a StableRef proves identity, not mutation authority.

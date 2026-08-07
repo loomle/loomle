@@ -194,6 +194,17 @@ ordinary Blueprints and Animation Blueprints. The test removes the temporary
 Nodes before fixture cleanup. The complete 129-test run passed without a
 failure, crash report, or runner-classified log hazard.
 
+## Widget Blueprint Member Palette Sandbox Audit
+
+The August 7 Issue #187 regression proves that two distinct Widget Blueprint
+self-functions and one Designer-generated Widget member Getter can be discovered
+through Graph Palette search, replayed through exact Palette schema, validated in
+the isolated Graph dry-run sandbox, and created by live Graph Patch without
+losing their UE self-member identity. Dry run leaves the live function Graph
+unchanged, live apply adds exactly the requested three Nodes, and one Undo removes
+them atomically. The final macOS arm64 Graph robustness run passed all 9 tests
+with no warning or failure.
+
 ## SAL v3 Object And Target Migration Audit
 
 The SAL v3 migration raises the source suite from 129 to 135 tests. The added

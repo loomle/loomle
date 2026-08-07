@@ -7,6 +7,7 @@
 #include "BlueprintActionMenuItem.h"
 #include "BlueprintActionMenuUtils.h"
 #include "BlueprintBoundEventNodeSpawner.h"
+#include "BlueprintFunctionNodeSpawner.h"
 #include "BlueprintNodeSignature.h"
 #include "BlueprintNodeSpawner.h"
 #include "BlueprintVariableNodeSpawner.h"
@@ -104,6 +105,10 @@ TSharedPtr<FEdGraphSchemaAction> ResolvePaletteAction(
     const FSalResolvedTarget& Target,
     const FString& Id,
     bool* OutAmbiguous = nullptr);
+TSharedPtr<FEdGraphSchemaAction> RetargetPaletteAction(
+    const TSharedPtr<FEdGraphSchemaAction>& Action,
+    const FSalResolvedTarget& CapabilityTarget,
+    const FSalResolvedTarget& MutationTarget);
 UEdGraphNode* TemplateForAction(const TSharedPtr<FEdGraphSchemaAction>& Action, UEdGraph* Graph);
 bool ImportPinType(const FString& Text, FEdGraphPinType& OutType);
 bool IsExecPin(const UEdGraphPin* Pin);
@@ -154,6 +159,7 @@ struct FGraphMoveEffect
 struct FPatchState
 {
     const FSalResolvedTarget& Target;
+    const FSalResolvedTarget& CapabilityTarget;
     bool bApply = false;
     TMap<FString, FNodeDefinition> Definitions;
     TMap<FString, UEdGraphNode*> LocalNodes;
@@ -169,8 +175,13 @@ struct FPatchState
     FPatchState(
         const FSalResolvedTarget& InTarget,
         const bool bInApply,
-        const TArray<FGraphMoveEffect>* InExpectedMoveEffects = nullptr)
+        const TArray<FGraphMoveEffect>* InExpectedMoveEffects = nullptr,
+        const FSalResolvedTarget* InCapabilityTarget = nullptr)
         : Target(InTarget)
+        , CapabilityTarget(
+            InCapabilityTarget != nullptr
+                ? *InCapabilityTarget
+                : InTarget)
         , bApply(bInApply)
         , ExpectedMoveEffects(InExpectedMoveEffects)
     {
@@ -611,13 +622,12 @@ bool RegisterDefinition(FPatchState& State, const TSharedPtr<FJsonObject>& Bindi
     FString Palette;
     (*Args)->TryGetStringField(TEXT("palette"), Palette);
     bool bPaletteAmbiguous = false;
-    TSharedPtr<FEdGraphSchemaAction> Action =
+    TSharedPtr<FEdGraphSchemaAction> CapabilityAction =
         ResolvePaletteAction(
-            State.Target,
+            State.CapabilityTarget,
             Palette,
             &bPaletteAmbiguous);
-    UEdGraphNode* Template = TemplateForAction(Action, State.Target.Graph);
-    if (!Action.IsValid() || Template == nullptr)
+    if (!CapabilityAction.IsValid())
     {
         AddPatchError(
             State,
@@ -626,7 +636,23 @@ bool RegisterDefinition(FPatchState& State, const TSharedPtr<FJsonObject>& Bindi
                 : TEXT("resolution.palette_not_found"),
             bPaletteAmbiguous
                 ? TEXT("Palette identity matches multiple active Node creation actions in the current Graph context.")
-                : TEXT("Palette entry is not available or not spawnable in the current Graph context."),
+                : TEXT("Palette entry is not available in the current Graph context."),
+            TEXT("binding"),
+            Palette);
+        return false;
+    }
+    TSharedPtr<FEdGraphSchemaAction> Action =
+        RetargetPaletteAction(
+            CapabilityAction,
+            State.CapabilityTarget,
+            State.Target);
+    UEdGraphNode* Template = TemplateForAction(Action, State.Target.Graph);
+    if (!Action.IsValid() || Template == nullptr)
+    {
+        AddPatchError(
+            State,
+            TEXT("resolution.palette_not_spawnable"),
+            TEXT("Palette entry is available but cannot create a Node in the current Graph context."),
             TEXT("binding"),
             Palette);
         return false;
@@ -3522,7 +3548,11 @@ TSharedPtr<FJsonObject> FSalGraphInterface::Patch(const FSalPatch& Patch, const 
     {
         return GraphErrorResult(TEXT("capability.operation_unavailable"), SandboxError, TEXT("patch"));
     }
-    FPatchState Preflight(SandboxTarget, true);
+    FPatchState Preflight(
+        SandboxTarget,
+        true,
+        nullptr,
+        &Target);
     bool bValid = false;
     {
         FScopedTransaction SandboxTransaction(LOCTEXT("SalGraphDryRun", "SAL Graph Dry Run"));
@@ -6225,6 +6255,148 @@ TSharedPtr<FEdGraphSchemaAction> ResolvePaletteAction(
             OutAmbiguous);
 }
 
+bool IsBlueprintOwnedClass(
+    const UClass* Class,
+    const UBlueprint* Blueprint)
+{
+    return Class != nullptr
+        && Blueprint != nullptr
+        && (Class == Blueprint->GeneratedClass
+            || Class == Blueprint->SkeletonGeneratedClass
+            || Class->ClassGeneratedBy == Blueprint);
+}
+
+TArray<UClass*, TInlineAllocator<2>> CorrespondingBlueprintClasses(
+    const UClass* SourceClass,
+    const FSalResolvedTarget& CapabilityTarget,
+    const FSalResolvedTarget& MutationTarget)
+{
+    TArray<UClass*, TInlineAllocator<2>> Classes;
+    if (SourceClass == CapabilityTarget.Blueprint->GeneratedClass)
+    {
+        Classes.Add(MutationTarget.Blueprint->GeneratedClass.Get());
+        Classes.AddUnique(
+            MutationTarget.Blueprint->SkeletonGeneratedClass.Get());
+    }
+    else
+    {
+        Classes.Add(
+            MutationTarget.Blueprint->SkeletonGeneratedClass.Get());
+        Classes.AddUnique(MutationTarget.Blueprint->GeneratedClass.Get());
+    }
+    Classes.Remove(nullptr);
+    return Classes;
+}
+
+TSharedPtr<FEdGraphSchemaAction> RetargetPaletteAction(
+    const TSharedPtr<FEdGraphSchemaAction>& Action,
+    const FSalResolvedTarget& CapabilityTarget,
+    const FSalResolvedTarget& MutationTarget)
+{
+    if (!Action.IsValid()
+        || CapabilityTarget.Blueprint == nullptr
+        || MutationTarget.Blueprint == nullptr
+        || CapabilityTarget.Blueprint == MutationTarget.Blueprint
+        || Action->GetTypeId()
+            != FBlueprintActionMenuItem::StaticGetTypeId())
+    {
+        return Action;
+    }
+
+    const FBlueprintActionMenuItem* Item =
+        static_cast<const FBlueprintActionMenuItem*>(Action.Get());
+    const UBlueprintNodeSpawner* RawAction = Item->GetRawAction();
+    if (const UBlueprintFunctionNodeSpawner* FunctionSpawner =
+            Cast<UBlueprintFunctionNodeSpawner>(RawAction))
+    {
+        const UFunction* SourceFunction = FunctionSpawner->GetFunction();
+        const UClass* SourceClass =
+            SourceFunction != nullptr
+                ? SourceFunction->GetOwnerClass()
+                : nullptr;
+        if (!IsBlueprintOwnedClass(
+                SourceClass,
+                CapabilityTarget.Blueprint))
+        {
+            return Action;
+        }
+        for (UClass* TargetClass : CorrespondingBlueprintClasses(
+                 SourceClass,
+                 CapabilityTarget,
+                 MutationTarget))
+        {
+            UFunction* TargetFunction =
+                TargetClass != nullptr && SourceFunction != nullptr
+                    ? TargetClass->FindFunctionByName(
+                        SourceFunction->GetFName())
+                    : nullptr;
+            if (TargetFunction == nullptr
+                || !IsBlueprintOwnedClass(
+                    TargetFunction->GetOwnerClass(),
+                    MutationTarget.Blueprint))
+            {
+                continue;
+            }
+            UBlueprintFunctionNodeSpawner* TargetSpawner =
+                UBlueprintFunctionNodeSpawner::Create(
+                    TSubclassOf<UK2Node_CallFunction>(
+                        FunctionSpawner->NodeClass.Get()),
+                    TargetFunction);
+            return MakeShared<FBlueprintActionMenuItem>(
+                TargetSpawner);
+        }
+        return nullptr;
+    }
+
+    if (const UBlueprintVariableNodeSpawner* VariableSpawner =
+            Cast<UBlueprintVariableNodeSpawner>(RawAction))
+    {
+        const FProperty* SourceProperty =
+            VariableSpawner->GetVarProperty();
+        const UClass* SourceClass =
+            SourceProperty != nullptr
+                ? SourceProperty->GetOwnerClass()
+                : nullptr;
+        if (!IsBlueprintOwnedClass(
+                SourceClass,
+                CapabilityTarget.Blueprint))
+        {
+            return Action;
+        }
+        for (UClass* TargetClass : CorrespondingBlueprintClasses(
+                 SourceClass,
+                 CapabilityTarget,
+                 MutationTarget))
+        {
+            FProperty* TargetProperty =
+                TargetClass != nullptr && SourceProperty != nullptr
+                    ? FindFProperty<FProperty>(
+                        TargetClass,
+                        SourceProperty->GetFName())
+                    : nullptr;
+            if (TargetProperty == nullptr
+                || !IsBlueprintOwnedClass(
+                    TargetProperty->GetOwnerClass(),
+                    MutationTarget.Blueprint))
+            {
+                continue;
+            }
+            UBlueprintVariableNodeSpawner* TargetSpawner =
+                UBlueprintVariableNodeSpawner::CreateFromMemberOrParam(
+                    TSubclassOf<UK2Node_Variable>(
+                        VariableSpawner->NodeClass.Get()),
+                    TargetProperty,
+                    nullptr,
+                    TargetClass);
+            return MakeShared<FBlueprintActionMenuItem>(
+                TargetSpawner);
+        }
+        return nullptr;
+    }
+
+    return Action;
+}
+
 UEdGraphNode* TemplateForAction(const TSharedPtr<FEdGraphSchemaAction>& Action, UEdGraph* Graph)
 {
     if (!Action.IsValid() || Action->GetTypeId() != FBlueprintActionMenuItem::StaticGetTypeId())
@@ -6233,11 +6405,22 @@ UEdGraphNode* TemplateForAction(const TSharedPtr<FEdGraphSchemaAction>& Action, 
     }
     const FBlueprintActionMenuItem* Item = static_cast<const FBlueprintActionMenuItem*>(Action.Get());
     const UBlueprintNodeSpawner* Spawner = Item->GetRawAction();
+    const UBlueprintFunctionNodeSpawner* FunctionSpawner =
+        Cast<UBlueprintFunctionNodeSpawner>(Spawner);
+    const UFunction* Function =
+        FunctionSpawner != nullptr
+            ? FunctionSpawner->GetFunction()
+            : nullptr;
+    const bool bBlueprintOwnedFunction =
+        Function != nullptr
+        && Cast<UBlueprintGeneratedClass>(
+            Function->GetOwnerClass()) != nullptr;
     UEdGraphNode* Template = nullptr;
     if (Spawner != nullptr
         && Graph != nullptr
         && Graph->IsIn(GetTransientPackage())
-        && Cast<UBlueprintVariableNodeSpawner>(Spawner) != nullptr)
+        && (Cast<UBlueprintVariableNodeSpawner>(Spawner) != nullptr
+            || bBlueprintOwnedFunction))
     {
         IBlueprintNodeBinder::FBindingSet Bindings;
         Template =
@@ -6347,6 +6530,7 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
     struct FMatch
     {
         TSharedPtr<FEdGraphSchemaAction> Action;
+        UEdGraphNode* Template;
         int32 Index;
         int32 TitleRank;
         float Weight;
@@ -6395,6 +6579,13 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
             }
             continue;
         }
+        UEdGraphNode* Template = nullptr;
+        if (bExact)
+        {
+            Template = TemplateForAction(
+                Action,
+                Target.Graph);
+        }
         const float Weight = FilterTerms.IsEmpty() || ActionSchema == nullptr
             ? 0.0f
             : ActionSchema->GetActionFilteredWeight(
@@ -6404,6 +6595,7 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
                 Context.Pins);
         Matches.Add({
             Action,
+            Template,
             Index,
             ActionTitleRank(Action, Text),
             Weight,
@@ -6457,6 +6649,15 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
             ExactId,
             TEXT("Run palette entries again after the conflicting creation capabilities are refreshed."));
     }
+    if (bExact && Matches[0].Template == nullptr)
+    {
+        return GraphErrorResult(
+            TEXT("resolution.palette_not_spawnable"),
+            TEXT("Palette entry is available but cannot create a Node in the current Graph context."),
+            TEXT("palette"),
+            ExactId,
+            TEXT("Choose another Palette entry that advertises bind and add."));
+    }
 
     FSalObjectBuilder Out;
     FSalPage Page;
@@ -6467,12 +6668,18 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
     {
         const FMatch& Match = Matches[MatchIndex];
         const FString Label = Match.Action->GetMenuDescription().ToString();
+        UEdGraphNode* MatchTemplate =
+            Match.Template != nullptr
+                ? Match.Template
+                : TemplateForAction(
+                    Match.Action,
+                    Target.Graph);
         const FString Alias = Out.UniqueAlias(Label.IsEmpty() ? TEXT("entry") : Label);
         TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
         Args->SetStringField(TEXT("palette"), PaletteId(Match.Action, Context.Descriptor));
-        if (UEdGraphNode* Template = TemplateForAction(Match.Action, Target.Graph))
+        if (MatchTemplate != nullptr)
         {
-            Args->SetStringField(TEXT("type"), NodeType(Template));
+            Args->SetStringField(TEXT("type"), NodeType(MatchTemplate));
         }
         Out.AddLocalBinding(Alias, Value::Call(TEXT("node"), Args));
         if (!Label.IsEmpty()) Out.AddComment(Label);
@@ -6480,10 +6687,10 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
         if (!Category.IsEmpty()) Out.AddComment(FString::Printf(TEXT("Category: %s"), *Category));
         if (bExact)
         {
-            if (UEdGraphNode* Template = TemplateForAction(Match.Action, Target.Graph))
+            if (MatchTemplate != nullptr)
             {
                 TSet<FString> UsedMembers;
-                for (UEdGraphPin* Pin : Template->Pins)
+                for (UEdGraphPin* Pin : MatchTemplate->Pins)
                 {
                     const FString NativeName = Pin != nullptr ? Pin->PinName.ToString() : TEXT("pin");
                     const FString Member = UniqueMemberAlias(NativeName, UsedMembers);
@@ -6499,7 +6706,7 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
             if (HasDetail(Query, TEXT("schema")))
             {
                 TArray<FString> Fields = {TEXT("palette, type, future pins: read only")};
-                if (Cast<UK2Node_Timeline>(TemplateForAction(Match.Action, Target.Graph)) != nullptr)
+                if (Cast<UK2Node_Timeline>(MatchTemplate) != nullptr)
                 {
                     Fields.Add(TEXT("TimelineName: required creation field"));
                     Fields.Add(TEXT("TimelineLength, LengthMode, bAutoPlay, bLoop, bReplicated, bIgnoreTimeDilation, MetaDataArray, TimelineTickGroup: optional creation fields"));

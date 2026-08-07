@@ -13,6 +13,11 @@
 #include "Animation/Skeleton.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "BlueprintActionDatabase.h"
+#include "Blueprint/UserWidget.h"
+#include "Blueprint/WidgetBlueprintGeneratedClass.h"
+#include "Blueprint/WidgetTree.h"
+#include "Components/Button.h"
+#include "Components/CanvasPanel.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "EdGraph/EdGraph.h"
@@ -40,6 +45,7 @@
 #include "PackageTools.h"
 #include "UObject/Package.h"
 #include "UObject/UObjectGlobals.h"
+#include "WidgetBlueprint.h"
 
 namespace
 {
@@ -1200,6 +1206,164 @@ private:
     bool bCleaned = false;
 };
 
+class FWidgetMemberPaletteFixture
+{
+public:
+    FWidgetMemberPaletteFixture()
+    {
+        const FString Token =
+            FGuid::NewGuid().ToString(EGuidFormats::Digits);
+        const FString AssetName =
+            TEXT("WBP_MemberPalette_") + Token;
+        Package = CreatePackage(*FString::Printf(
+            TEXT("/Game/LoomleTests/%s"),
+            *AssetName));
+        Blueprint = Package != nullptr
+            ? Cast<UWidgetBlueprint>(
+                FKismetEditorUtilities::CreateBlueprint(
+                    UUserWidget::StaticClass(),
+                    Package,
+                    FName(*AssetName),
+                    BPTYPE_Normal,
+                    UWidgetBlueprint::StaticClass(),
+                    UWidgetBlueprintGeneratedClass::StaticClass(),
+                    NAME_None))
+            : nullptr;
+        if (Blueprint == nullptr)
+        {
+            return;
+        }
+
+        TargetGraph = AddFunctionGraph(TargetFunctionName);
+        LoadPageGraph = AddFunctionGraph(LoadPageFunctionName);
+        SetActiveGraph = AddFunctionGraph(
+            SetActiveFunctionName);
+
+        UCanvasPanel* Root =
+            Blueprint->WidgetTree->ConstructWidget<UCanvasPanel>(
+                UCanvasPanel::StaticClass(),
+                TEXT("RootCanvas"));
+        MemberWidget =
+            Blueprint->WidgetTree->ConstructWidget<UButton>(
+                UButton::StaticClass(),
+                MemberWidgetName);
+        if (Root != nullptr && MemberWidget != nullptr)
+        {
+            Blueprint->WidgetTree->RootWidget = Root;
+            Root->AddChild(MemberWidget);
+            MemberWidget->bIsVariable = true;
+            Blueprint->OnVariableAdded(Root->GetFName());
+            Blueprint->OnVariableAdded(MemberWidgetName);
+        }
+
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(
+            Blueprint);
+        FKismetEditorUtilities::CompileBlueprint(Blueprint);
+        FBlueprintActionDatabase::Get().RefreshAssetActions(
+            Blueprint);
+        Package->SetDirtyFlag(false);
+    }
+
+    ~FWidgetMemberPaletteFixture()
+    {
+        FString Ignored;
+        Cleanup(Ignored);
+    }
+
+    FWidgetMemberPaletteFixture(
+        const FWidgetMemberPaletteFixture&) = delete;
+    FWidgetMemberPaletteFixture& operator=(
+        const FWidgetMemberPaletteFixture&) = delete;
+
+    bool IsValid() const
+    {
+        const UClass* Skeleton =
+            Blueprint != nullptr
+                ? Blueprint->SkeletonGeneratedClass.Get()
+                : nullptr;
+        const UClass* Generated =
+            Blueprint != nullptr
+                ? Blueprint->GeneratedClass.Get()
+                : nullptr;
+        return Package != nullptr
+            && Blueprint != nullptr
+            && TargetGraph != nullptr
+            && LoadPageGraph != nullptr
+            && SetActiveGraph != nullptr
+            && MemberWidget != nullptr
+            && Skeleton != nullptr
+            && Skeleton->FindFunctionByName(
+                LoadPageFunctionName) != nullptr
+            && Skeleton->FindFunctionByName(
+                SetActiveFunctionName) != nullptr
+            && ((Generated != nullptr
+                    && FindFProperty<FProperty>(
+                        Generated,
+                        MemberWidgetName) != nullptr)
+                || FindFProperty<FProperty>(
+                    Skeleton,
+                    MemberWidgetName) != nullptr);
+    }
+
+    bool Cleanup(FString& OutError)
+    {
+        if (bCleaned)
+        {
+            OutError.Reset();
+            return true;
+        }
+        bCleaned = true;
+        if (Blueprint != nullptr)
+        {
+            FBlueprintActionDatabase::Get().ClearAssetActions(
+                Blueprint);
+        }
+        UPackage* PackageToUnload = Package;
+        MemberWidget = nullptr;
+        SetActiveGraph = nullptr;
+        LoadPageGraph = nullptr;
+        TargetGraph = nullptr;
+        Blueprint = nullptr;
+        Package = nullptr;
+        return RobustGraphUnloadPackage(
+            PackageToUnload,
+            OutError);
+    }
+
+    UPackage* Package = nullptr;
+    UWidgetBlueprint* Blueprint = nullptr;
+    UEdGraph* TargetGraph = nullptr;
+    UEdGraph* LoadPageGraph = nullptr;
+    UEdGraph* SetActiveGraph = nullptr;
+    UButton* MemberWidget = nullptr;
+    const FName TargetFunctionName = TEXT("ShowBottomBackpack");
+    const FName LoadPageFunctionName = TEXT("LoadPage");
+    const FName SetActiveFunctionName = TEXT("SetActiveNavItem");
+    const FName MemberWidgetName = TEXT("BottomBackpackNavItem");
+
+private:
+    UEdGraph* AddFunctionGraph(const FName Name)
+    {
+        UEdGraph* Graph =
+            FBlueprintEditorUtils::CreateNewGraph(
+                Blueprint,
+                Name,
+                UEdGraph::StaticClass(),
+                UEdGraphSchema_K2::StaticClass());
+        if (Graph != nullptr)
+        {
+            FBlueprintEditorUtils::AddFunctionGraph(
+                Blueprint,
+                Graph,
+                true,
+                static_cast<UClass*>(nullptr));
+        }
+        return Graph;
+    }
+
+    bool bCleaned = false;
+};
+
 FString RobustGraphFindPaletteId(
     const TSharedPtr<FJsonObject>& Result,
     const FString& ExpectedType)
@@ -1886,6 +2050,228 @@ bool RobustGraphRunVariablePaletteIdentityCase(
                     Removed,
                     TEXT("applied")));
     }
+    Transactions.Restore();
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphWidgetMemberPaletteSandboxTest,
+    "Loomle.Sal.Robustness.Graph.WidgetMemberPaletteSandbox",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphWidgetMemberPaletteSandboxTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(
+            *this,
+            TEXT("Widget member Palette sandbox coverage")))
+    {
+        return false;
+    }
+    FWidgetMemberPaletteFixture Fixture;
+    if (!TestTrue(
+            TEXT("Widget member Palette fixture is valid"),
+            Fixture.IsValid()))
+    {
+        return false;
+    }
+    const FSalResolvedTarget Target =
+        RobustGraphTarget(
+            Fixture.Blueprint,
+            Fixture.TargetGraph);
+    const FString CallType =
+        TEXT("/Script/BlueprintGraph.K2Node_CallFunction");
+    const FString GetterType =
+        TEXT("/Script/BlueprintGraph.K2Node_VariableGet");
+
+    auto FindFunctionPalette =
+        [&Target, &CallType](const FString& Text)
+        {
+            FSalQuery Query =
+                RobustGraphQuery(TEXT("palette_entries"));
+            Query.Operation->SetStringField(TEXT("text"), Text);
+            Query.PageLimit = 20;
+            return RobustGraphFindPaletteId(
+                FSalGraphInterface::Query(Query, Target),
+                CallType);
+        };
+    const FString LoadPagePalette =
+        FindFunctionPalette(TEXT("Load Page"));
+    const FString SetActivePalette =
+        FindFunctionPalette(TEXT("Set Active Nav Item"));
+    const FString WidgetGetterPalette =
+        RobustGraphFindVariablePaletteId(
+            Target,
+            TEXT("Get"),
+            Fixture.MemberWidgetName,
+            GetterType);
+    TestFalse(
+        TEXT("Widget Blueprint discovers Load Page function action"),
+        LoadPagePalette.IsEmpty());
+    TestFalse(
+        TEXT("Widget Blueprint discovers Set Active Nav Item function action"),
+        SetActivePalette.IsEmpty());
+    TestFalse(
+        TEXT("Widget Blueprint discovers generated Widget Getter action"),
+        WidgetGetterPalette.IsEmpty());
+    TestNotEqual(
+        TEXT("Distinct Widget Blueprint functions have distinct Palette identities"),
+        LoadPagePalette,
+        SetActivePalette);
+    if (LoadPagePalette.IsEmpty()
+        || SetActivePalette.IsEmpty()
+        || WidgetGetterPalette.IsEmpty()
+        || LoadPagePalette == SetActivePalette)
+    {
+        return false;
+    }
+
+    for (const FString& PaletteId :
+         {LoadPagePalette,
+          SetActivePalette,
+          WidgetGetterPalette})
+    {
+        FSalQuery Exact =
+            RobustGraphQuery(TEXT("palette"));
+        Exact.Operation->SetStringField(
+            TEXT("id"),
+            PaletteId);
+        Exact.With.Add(TEXT("schema"));
+        const TSharedPtr<FJsonObject> Result =
+            FSalGraphInterface::Query(Exact, Target);
+        TestFalse(
+            *FString::Printf(
+                TEXT("Exact Widget member Palette schema resolves [%s]"),
+                *RobustGraphDiagnosticsText(Result)),
+            RobustGraphHasError(Result));
+        TestTrue(
+            TEXT("Spawnable exact Widget member Palette advertises bind and add"),
+            RobustGraphHasComment(
+                Result,
+                TEXT("bind { palette: ... } then add or insert")));
+    }
+
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(
+            TEXT("Widget member Palette test isolates Undo history"),
+            Transactions.Initialize()))
+    {
+        return false;
+    }
+    FSalPatch Patch;
+    Patch.Alias = TEXT("graph");
+    Patch.bDryRun = true;
+    Patch.Statements = {
+        RobustGraphBinding(
+            TEXT("LoadPage"),
+            LoadPagePalette,
+            CallType),
+        RobustGraphUnary(
+            TEXT("add"),
+            RobustGraphLocal(TEXT("LoadPage"))),
+        RobustGraphBinding(
+            TEXT("SetActive"),
+            SetActivePalette,
+            CallType),
+        RobustGraphUnary(
+            TEXT("add"),
+            RobustGraphLocal(TEXT("SetActive"))),
+        RobustGraphBinding(
+            TEXT("WidgetGetter"),
+            WidgetGetterPalette,
+            GetterType),
+        RobustGraphUnary(
+            TEXT("add"),
+            RobustGraphLocal(TEXT("WidgetGetter")))};
+
+    const int32 OriginalNodeCount =
+        Fixture.TargetGraph->Nodes.Num();
+    const TSharedPtr<FJsonObject> DryRun =
+        FSalGraphInterface::Patch(Patch, Target);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Widget member Palette dry run resolves through sandbox [%s]"),
+            *RobustGraphDiagnosticsText(DryRun)),
+        RobustGraphResultBool(DryRun, TEXT("valid")));
+    TestEqual(
+        TEXT("Widget member Palette dry run leaves live Graph unchanged"),
+        Fixture.TargetGraph->Nodes.Num(),
+        OriginalNodeCount);
+    if (!RobustGraphResultBool(DryRun, TEXT("valid")))
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    Patch.bDryRun = false;
+    const TSharedPtr<FJsonObject> Applied =
+        FSalGraphInterface::Patch(Patch, Target);
+    const bool bApplied =
+        RobustGraphResultBool(Applied, TEXT("valid"))
+        && RobustGraphResultBool(Applied, TEXT("applied"));
+    TestTrue(
+        *FString::Printf(
+            TEXT("Widget member Palette live Patch applies [%s]"),
+            *RobustGraphDiagnosticsText(Applied)),
+        bApplied);
+    if (!bApplied)
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    auto ResolveNode =
+        [&Fixture, &Applied](const FString& Alias)
+            -> UEdGraphNode*
+        {
+            FGuid Guid;
+            return FGuid::Parse(
+                    RobustGraphResolvedRef(Applied, Alias),
+                    Guid)
+                ? FRobustGraphFixture::FindNodeByGuid(
+                    Fixture.TargetGraph,
+                    Guid)
+                : nullptr;
+        };
+    UK2Node_CallFunction* LoadPageNode =
+        Cast<UK2Node_CallFunction>(
+            ResolveNode(TEXT("LoadPage")));
+    UK2Node_CallFunction* SetActiveNode =
+        Cast<UK2Node_CallFunction>(
+            ResolveNode(TEXT("SetActive")));
+    UK2Node_VariableGet* WidgetGetterNode =
+        Cast<UK2Node_VariableGet>(
+            ResolveNode(TEXT("WidgetGetter")));
+    TestTrue(
+        TEXT("Load Page Node retains self function identity"),
+        LoadPageNode != nullptr
+            && LoadPageNode->GetFunctionName()
+                == Fixture.LoadPageFunctionName
+            && LoadPageNode->FunctionReference.IsSelfContext());
+    TestTrue(
+        TEXT("Set Active Nav Item Node retains self function identity"),
+        SetActiveNode != nullptr
+            && SetActiveNode->GetFunctionName()
+                == Fixture.SetActiveFunctionName
+            && SetActiveNode->FunctionReference.IsSelfContext());
+    TestTrue(
+        TEXT("Widget Getter retains generated self member identity"),
+        WidgetGetterNode != nullptr
+            && WidgetGetterNode->VariableReference.GetMemberName()
+                == Fixture.MemberWidgetName
+            && WidgetGetterNode->VariableReference.IsSelfContext());
+    TestEqual(
+        TEXT("Live Widget member Patch adds exactly three Nodes"),
+        Fixture.TargetGraph->Nodes.Num(),
+        OriginalNodeCount + 3);
+    TestTrue(
+        TEXT("Undo removes the Widget member Nodes atomically"),
+        GEditor->UndoTransaction(false));
+    TestEqual(
+        TEXT("Undo restores the original Widget function Graph"),
+        Fixture.TargetGraph->Nodes.Num(),
+        OriginalNodeCount);
     Transactions.Restore();
     return true;
 }
