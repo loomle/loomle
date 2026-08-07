@@ -100,8 +100,8 @@ exact product version.
 - `0.6` is the maintenance line rooted at `v0.6.24`. It accepts only
   compatible fixes and produces any future `v0.6.x` releases.
 - `main` is the `0.7` development line. Development builds use a prerelease
-  product version; the current release commit uses `0.7.7` and is tagged
-  `v0.7.7`.
+  product version; the current release commit uses `0.7.8` and is tagged
+  `v0.7.8`.
 
 Product versions and RPC protocol compatibility remain independent. Change the
 protocol version only when compatibility actually changes.

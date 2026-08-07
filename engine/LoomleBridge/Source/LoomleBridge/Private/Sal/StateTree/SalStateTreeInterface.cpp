@@ -6899,7 +6899,7 @@ bool FSalStateTreeInterface::LowerStableReference(
             OutMessage = TEXT("StateTree identity component must be a valid non-zero Guid.");
             return false;
         }
-        const FString Id = GuidText(Guid);
+        const FString Id = StateTreeRead::GuidText(Guid);
         for (const TCHAR* Kind : {
                  TEXT("state"),
                  TEXT("node"),
@@ -6923,7 +6923,7 @@ bool FSalStateTreeInterface::LowerStableReference(
         }
         Candidates.Add({
             TEXT("parameter"),
-            ParameterIdentityText(ContainerGuid, PropertyGuid)});
+            StateTreeRead::ParameterIdentityText(ContainerGuid, PropertyGuid)});
     }
 
     FReadContext Context;
@@ -6934,7 +6934,7 @@ bool FSalStateTreeInterface::LowerStableReference(
         TSharedPtr<FJsonObject> Ref = MakeShared<FJsonObject>();
         Ref->SetStringField(TEXT("kind"), Candidate.Key);
         Ref->SetStringField(TEXT("id"), Candidate.Value);
-        FReferenceSubject Subject;
+        StateTreeRead::FReferenceSubject Subject;
         FString Code;
         FString Message;
         if (ResolveReferenceSubject(
