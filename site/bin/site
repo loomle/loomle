@@ -81,6 +81,7 @@ case "$command_name" in
     legacy_windows_archive_url="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "targets", "win32-x64", "assetUrl")')"
     legacy_mac_sha="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "targets", "darwin-arm64", "sha256")')"
     legacy_windows_sha="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "targets", "win32-x64", "sha256")')"
+    legacy_prerelease="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "prerelease").nil? ? "null" : "non-null"')"
     test -s _site/index.html
     test -s _site/assets/css/loomle.css
     test -s _site/assets/images/oasium-cover.webp
@@ -95,15 +96,13 @@ case "$command_name" in
     grep -Fq "$latest_sha_url" _site/install.html
     test -s releases.json
     test -s _site/releases.json
-    case "$legacy_manifest_version" in
-      0.7.6|0.7.7) ;;
-      *) echo "Legacy migration manifest must remain on 0.7.6 or its final 0.7.7 state." >&2; exit 1 ;;
-    esac
+    test "$legacy_manifest_version" = "0.7.7"
     test "$legacy_release_url" = "$latest_release_url"
     test "$legacy_mac_archive_url" = "$latest_archive_url"
     test "$legacy_windows_archive_url" = "$latest_archive_url"
     test "$legacy_mac_sha" = "$legacy_windows_sha"
     [[ "$legacy_mac_sha" =~ ^[0-9a-f]{64}$ ]]
+    test "$legacy_prerelease" = "null"
     ! grep -Eq 'releases/(tag|download)/v[0-9]' install.md llms.txt
     ! grep -Eq 'loomle-bridge-[0-9]+\.[0-9]+\.[0-9]+\.zip' install.md llms.txt
     grep -q 'Three core calls. Every supported Unreal object.' _site/index.html
