@@ -1,7 +1,11 @@
 import { productVersion } from "./generated/product-version.js";
 import type { SessionStatusController, SessionStatusReport } from "./runtime.js";
 
-export const releaseManifestUrl = "https://loomle.ai/releases.json";
+export const latestReleaseApiUrl = "https://api.github.com/repos/loomle/loomle/releases/latest";
+
+const githubRepositoryUrl = "https://github.com/loomle/loomle";
+const githubApiVersion = "2022-11-28";
+const supportedReleaseTargets = new Set(["darwin-arm64", "win32-x64"]);
 
 export interface ClientIdentity {
   version: string;
@@ -43,23 +47,11 @@ interface StatusServiceOptions {
   updateChecker?: UpdateChecker;
 }
 
-interface ManifestTarget {
-  assetUrl: string;
-  sha256: string;
-}
-
-interface ManifestRelease {
+interface GitHubRelease {
   version: string;
   releaseUrl: string;
-  targets: Record<string, ManifestTarget>;
-}
-
-interface ReleaseManifest {
-  schemaVersion: 1;
-  channels: {
-    stable: ManifestRelease | null;
-    prerelease: ManifestRelease | null;
-  };
+  assetUrl: string;
+  sha256: string;
 }
 
 interface FetchResponse {
@@ -68,16 +60,16 @@ interface FetchResponse {
   json(): Promise<unknown>;
 }
 
-type FetchManifest = (
+type FetchRelease = (
   url: string,
-  init: { signal: AbortSignal },
+  init: { signal: AbortSignal; headers: Readonly<Record<string, string>> },
 ) => Promise<FetchResponse>;
 
-interface ReleaseManifestCheckerOptions {
-  manifestUrl?: string;
+interface GitHubReleaseCheckerOptions {
+  latestReleaseUrl?: string;
   timeoutMs?: number;
   cacheTtlMs?: number;
-  fetchManifest?: FetchManifest;
+  fetchRelease?: FetchRelease;
   now?: () => number;
 }
 
@@ -98,7 +90,7 @@ export class ClientStatusService implements StatusProvider {
       ...(target ? { target } : {}),
       executable: options.executable ?? process.execPath,
     };
-    this.checker = options.updateChecker ?? new ReleaseManifestChecker();
+    this.checker = options.updateChecker ?? new GitHubReleaseChecker();
   }
 
   async report(): Promise<ClientStatusReport> {
@@ -120,61 +112,69 @@ export class ClientStatusService implements StatusProvider {
   }
 }
 
-export class ReleaseManifestChecker implements UpdateChecker {
-  private readonly manifestUrl: string;
+export class GitHubReleaseChecker implements UpdateChecker {
+  private readonly latestReleaseUrl: string;
   private readonly timeoutMs: number;
   private readonly cacheTtlMs: number;
-  private readonly fetchManifest: FetchManifest;
+  private readonly fetchRelease: FetchRelease;
   private readonly now: () => number;
-  private cache?: { expiresAt: number; manifest: ReleaseManifest };
+  private cache?: { expiresAt: number; release: GitHubRelease };
 
-  constructor(options: ReleaseManifestCheckerOptions = {}) {
-    this.manifestUrl = options.manifestUrl ?? releaseManifestUrl;
+  constructor(options: GitHubReleaseCheckerOptions = {}) {
+    this.latestReleaseUrl = options.latestReleaseUrl ?? latestReleaseApiUrl;
     this.timeoutMs = options.timeoutMs ?? 2_000;
     this.cacheTtlMs = options.cacheTtlMs ?? 6 * 60 * 60 * 1_000;
-    this.fetchManifest = options.fetchManifest ?? ((url, init) => fetch(url, init));
+    this.fetchRelease = options.fetchRelease ?? ((url, init) => fetch(url, init));
     this.now = options.now ?? Date.now;
   }
 
   async check(version: string, target: string | undefined): Promise<UpdateReport> {
-    if (!target) return unknownUpdate("unsupported_target");
+    if (!target || !supportedReleaseTargets.has(target)) return unknownUpdate("unsupported_target");
     const current = parseVersion(version);
     if (!current) return unknownUpdate("invalid_client_version");
 
-    let manifest: ReleaseManifest;
+    let release: GitHubRelease;
     try {
-      manifest = await this.loadManifest();
+      release = await this.loadRelease();
     } catch (error) {
       return unknownUpdate(errorReason(error));
     }
 
-    const channel = current.prerelease ? manifest.channels.prerelease : manifest.channels.stable;
-    if (!channel) return unknownUpdate("channel_unpublished");
-    const available = parseVersion(channel.version);
-    if (!available) return unknownUpdate("invalid_release_version");
-    const asset = channel.targets[target];
-    if (!asset) return unknownUpdate("unsupported_target");
+    const available = parseVersion(release.version);
+    if (!available || available.prerelease) return unknownUpdate("invalid_release_version");
     if (compareVersions(available, current) <= 0) return { status: "current" };
     return {
       status: "available",
-      version: channel.version,
-      releaseUrl: channel.releaseUrl,
-      assetUrl: asset.assetUrl,
-      sha256: asset.sha256,
+      version: release.version,
+      releaseUrl: release.releaseUrl,
+      assetUrl: release.assetUrl,
+      sha256: release.sha256,
     };
   }
 
-  private async loadManifest(): Promise<ReleaseManifest> {
-    if (this.cache && this.cache.expiresAt > this.now()) return this.cache.manifest;
+  private async loadRelease(): Promise<GitHubRelease> {
+    if (this.cache && this.cache.expiresAt > this.now()) return this.cache.release;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await this.fetchManifest(this.manifestUrl, { signal: controller.signal });
-      if (!response.ok) throw new Error(`manifest_http_${response.status}`);
-      const manifest = parseManifest(await response.json());
-      if (!manifest) throw new Error("invalid_release_manifest");
-      this.cache = { expiresAt: this.now() + this.cacheTtlMs, manifest };
-      return manifest;
+      const response = await this.fetchRelease(this.latestReleaseUrl, {
+        signal: controller.signal,
+        headers: {
+          Accept: "application/vnd.github+json",
+          "User-Agent": `loomle-client/${productVersion}`,
+          "X-GitHub-Api-Version": githubApiVersion,
+        },
+      });
+      if (!response.ok) throw new Error(`github_release_http_${response.status}`);
+      const release = parseGitHubRelease(await response.json());
+      if (!release) throw new Error("invalid_github_release");
+      this.cache = { expiresAt: this.now() + this.cacheTtlMs, release };
+      return release;
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error("github_release_timeout");
+      }
+      throw error;
     } finally {
       clearTimeout(timeout);
     }
@@ -190,44 +190,46 @@ export function platformTarget(
   return undefined;
 }
 
-function parseManifest(value: unknown): ReleaseManifest | undefined {
-  if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.channels)) {
-    return undefined;
-  }
-  const stable = parseRelease(value.channels.stable);
-  const prerelease = parseRelease(value.channels.prerelease);
-  if (stable === undefined || prerelease === undefined) return undefined;
-  return {
-    schemaVersion: 1,
-    channels: { stable, prerelease },
-  };
-}
-
-function parseRelease(value: unknown): ManifestRelease | null | undefined {
-  if (value === null) return null;
+function parseGitHubRelease(value: unknown): GitHubRelease | undefined {
   if (!isRecord(value)
-    || typeof value.version !== "string"
-    || typeof value.releaseUrl !== "string"
-    || !parseVersion(value.version)
-    || !isHttpsUrl(value.releaseUrl)
-    || !isRecord(value.targets)) {
+    || value.draft !== false
+    || value.prerelease !== false
+    || typeof value.tag_name !== "string"
+    || typeof value.html_url !== "string"
+    || !Array.isArray(value.assets)) {
     return undefined;
   }
-  const targets: Record<string, ManifestTarget> = {};
-  for (const [target, candidate] of Object.entries(value.targets)) {
-    if (!isRecord(candidate)
-      || typeof candidate.assetUrl !== "string"
-      || !isHttpsUrl(candidate.assetUrl)
-      || typeof candidate.sha256 !== "string"
-      || !/^[0-9a-f]{64}$/i.test(candidate.sha256)) {
-      return undefined;
-    }
-    targets[target] = {
-      assetUrl: candidate.assetUrl,
-      sha256: candidate.sha256,
-    };
+
+  const tagMatch = /^v(\d+\.\d+\.\d+)$/.exec(value.tag_name);
+  if (!tagMatch) return undefined;
+  const version = tagMatch[1];
+  const assetName = `loomle-bridge-${version}.zip`;
+  const expectedReleaseUrl = `${githubRepositoryUrl}/releases/tag/${value.tag_name}`;
+  const expectedAssetUrl = `${githubRepositoryUrl}/releases/download/${value.tag_name}/${assetName}`;
+  if (value.html_url !== expectedReleaseUrl) return undefined;
+
+  const matches = value.assets.filter((candidate) => (
+    isRecord(candidate) && candidate.name === assetName
+  ));
+  if (matches.length !== 1) return undefined;
+  const asset = matches[0];
+  if (asset.state !== "uploaded"
+    || typeof asset.browser_download_url !== "string"
+    || asset.browser_download_url !== expectedAssetUrl
+    || typeof asset.digest !== "string"
+    || !/^sha256:[0-9a-f]{64}$/i.test(asset.digest)
+    || typeof asset.size !== "number"
+    || !Number.isSafeInteger(asset.size)
+    || asset.size <= 0) {
+    return undefined;
   }
-  return { version: value.version, releaseUrl: value.releaseUrl, targets };
+
+  return {
+    version,
+    releaseUrl: value.html_url,
+    assetUrl: asset.browser_download_url,
+    sha256: asset.digest.slice("sha256:".length).toLowerCase(),
+  };
 }
 
 interface ParsedVersion {
@@ -279,7 +281,6 @@ function unknownUpdate(reason: string): UpdateReport {
 
 function errorReason(error: unknown): string {
   if (error instanceof Error) {
-    if (error.name === "AbortError") return "manifest_timeout";
     return error.message.replaceAll(/\s+/g, "_").toLowerCase();
   }
   return String(error).replaceAll(/\s+/g, "_").toLowerCase();
@@ -287,12 +288,4 @@ function errorReason(error: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isHttpsUrl(value: string): boolean {
-  try {
-    return new URL(value).protocol === "https:";
-  } catch {
-    return false;
-  }
 }

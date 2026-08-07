@@ -21,8 +21,10 @@ updates. It may complete Loomle's normal automatic binding rules, but only
 `project` explicitly binds or switches a project.
 
 If the session is unbound, continue with [`project`](project.html). Update
-discovery is informational: offline access or an unavailable release manifest
-reports `unknown` without blocking SAL or project operations.
+discovery is informational: offline access or unavailable GitHub Release
+metadata reports `unknown` without blocking SAL or project operations. Loomle
+reads the latest stable GitHub Release directly; the website is not an update
+manifest.
 
 When an update is available, Loomle asks the agent to get user approval, close
 affected Unreal Editors, replace the complete plugin, and restart the MCP

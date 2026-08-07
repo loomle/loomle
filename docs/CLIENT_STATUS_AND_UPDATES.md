@@ -54,20 +54,24 @@ update rather than terminating processes by a broad executable name.
 
 ## Update Discovery
 
-The public machine-readable source is:
+The Client reads GitHub's public latest-release endpoint directly:
 
 ```text
-https://loomle.ai/releases.json
+https://api.github.com/repos/loomle/loomle/releases/latest
 ```
 
-It contains one current release per channel and exact target asset URLs and
-SHA-256 values. A prerelease Client follows the `prerelease` channel; a stable
-Client follows `stable`. The release process updates this file only after the
-referenced GitHub Release exists.
+Every Client compares against the latest published stable release, including a
+Client whose current version is a prerelease. The Client derives the available
+version from `tag_name`, selects the exact versioned
+`loomle-bridge-<version>.zip` asset, and reads its download URL and GitHub
+SHA-256 `digest` from that same Release response. It does not use the website
+as a release manifest and does not follow a separate prerelease update channel.
 
-The Client validates the manifest shape, compares semantic versions, applies a
-short network timeout, and caches the result in-process. Unsupported targets,
-offline use, malformed content, and timeouts return `unknown`; project binding,
+The Client requires a non-draft, non-prerelease Release, an exact stable tag and
+GitHub URL, and one uploaded versioned asset with a non-empty size and SHA-256
+digest. It compares semantic versions, applies a short network timeout, and
+caches the result in-process. Unsupported targets, offline use, malformed
+content, GitHub rate limiting, and timeouts return `unknown`; project binding,
 SAL schema, and UE operations remain unaffected.
 
 ## Agent Guidance
@@ -120,7 +124,8 @@ Tests must cover:
 - the seven public MCP tools and empty `status` input;
 - Client identity on supported targets;
 - current, available, malformed, offline, and unsupported update states;
-- prerelease and stable channel selection;
+- prerelease Clients upgrading directly to the latest stable release;
+- exact GitHub Release, versioned asset, URL, and digest validation;
 - Windows-only Client-stop guidance;
 - bound ready, bound offline, and unbound session reports;
 - preservation of Bridge version and plugin path from native records; and

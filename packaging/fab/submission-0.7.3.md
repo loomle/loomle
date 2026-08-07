@@ -86,9 +86,11 @@ platform-native local RPC transport.
 The Client runs only when invoked by the MCP host. It does not install files,
 register an auto-start item, create a system service, or maintain a background
 daemon. It exits when its MCP process ends. Its only outbound network request
-is a short HTTPS read of `https://loomle.ai/releases.json` when the user or
-agent calls `status`, used solely to report whether a newer Loomle release is
-available. No project content is sent with that request, and Loomle includes no
+is a short HTTPS read of GitHub's public
+`https://api.github.com/repos/loomle/loomle/releases/latest` endpoint when the
+user or agent calls `status`, used solely to report whether a newer stable
+Loomle release is available and to obtain that Release asset's GitHub SHA-256
+digest. No project content is sent with that request, and Loomle includes no
 telemetry or analytics reporting.
 
 Both executable builds are produced from the Client source in the Loomle

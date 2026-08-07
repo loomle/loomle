@@ -49,8 +49,12 @@ publishes those two merged ZIPs and their SHA-256 sidecars. Final releases also
 publish byte-identical stable aliases (`loomle-bridge.zip` and
 `loomle-bridge-source.zip`, with matching sidecars) so the website can use one
 `releases/latest/download/...` URL across versions. Prereleases do not publish
-stable aliases. A trusted
-maintainer pushes the exact tag before promotion because the Actions
+stable aliases. The Client reads GitHub's public latest-release API directly
+and binds `tag_name`, the versioned plugin asset URL, and that asset's GitHub
+SHA-256 digest from one Release response. A successful final promotion is
+therefore the complete update-publication step; there is no website release
+manifest or follow-up version-and-hash commit. A trusted maintainer pushes the
+exact tag before promotion because the Actions
 installation token cannot create a tag that exposes historical workflow-file
 changes and cannot reliably pass an older commit through
 `gh release create --target`.
