@@ -74,6 +74,11 @@ caches the result in-process. Unsupported targets, offline use, malformed
 content, GitHub rate limiting, and timeouts return `unknown`; project binding,
 SAL schema, and UE operations remain unaffected.
 
+`https://loomle.ai/releases.json` remains only as a frozen migration bridge for
+Clients through 0.7.6. After the 0.7.7 release assets exist, it is published one
+last time pointing to 0.7.7 and is never advanced again. Current Clients do not
+read that website file.
+
 ## Agent Guidance
 
 The permanent tool description only asks the agent to call `status` once before

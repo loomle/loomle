@@ -24,7 +24,8 @@ If the session is unbound, continue with [`project`](project.html). Update
 discovery is informational: offline access or unavailable GitHub Release
 metadata reports `unknown` without blocking SAL or project operations. Loomle
 reads the latest stable GitHub Release directly; the website is not an update
-manifest.
+manifest for current Clients. A frozen website manifest exists only to move
+Clients through 0.7.6 onto the GitHub-native updater in 0.7.7.
 
 When an update is available, Loomle asks the agent to get user approval, close
 affected Unreal Editors, replace the complete plugin, and restart the MCP

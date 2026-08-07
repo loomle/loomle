@@ -1,4 +1,4 @@
-# Fab 0.7.3 Resubmission Copy
+# Fab 0.7.7 Submission Copy
 
 ## Listing title
 
@@ -28,10 +28,10 @@ SAL—Structured Agent Language—and three core object calls:
 
 Resident Agent Skills are discovered and loaded through the same MCP
 connection. They add domain-specific workflow guidance without requiring a
-separate Codex-, Claude-, or host-specific Skill installation. Loomle 0.7.3
+separate Codex-, Claude-, or host-specific Skill installation. Loomle 0.7.7
 includes `format-unreal-blueprints`, which uses live node and Pin geometry,
-move-only dry runs, and post-apply readback to improve Blueprint Graph layout
-without changing graph behavior.
+move-only dry runs, post-apply readback, and explicitly authorized topology
+follow-ups to improve Blueprint Graph layout without changing graph behavior.
 
 The current SAL interface supports Asset, Blueprint, Class, Graph, StateTree,
 and Widget domains while preserving native Unreal names, values, identities,
@@ -55,14 +55,17 @@ required.
 
 ## Version notes
 
-Loomle 0.7.3 makes professional Agent Skills native to Loomle MCP.
+Loomle 0.7.7 makes GitHub Releases the continuing source for Client update
+discovery and includes the latest Blueprint editing reliability improvements.
 
-- Adds the read-only `agent_skill` call for discovering and loading resident
-  workflow guidance on demand.
-- Includes the `format-unreal-blueprints` Skill with live geometry reading,
-  move-only dry runs, absolute placement, and readback verification.
-- Organizes the Unreal object workflow around three core SAL calls:
-  `sal_schema`, `sal_query`, and `sal_patch`.
+- Discovers the latest stable version, exact versioned plugin asset, and
+  SHA-256 digest directly from one public GitHub Release response.
+- Fixes Blueprint-owned function and designer-member Palette actions during
+  Graph Patch sandbox validation and application.
+- Preserves Pin identity across Blueprint node reconstruction so later
+  operations in the same patch can still address reconstructed Pins.
+- Expands the resident Blueprint-formatting Skill with measured local getters,
+  reroute-node topology, exact-edge rewiring, and post-change validation.
 - Keeps Skills vendor-neutral and available through MCP without a separate
   host-specific installation.
 - Supports Unreal Engine 5.7 on Apple Silicon macOS and x64 Windows.
@@ -86,9 +89,11 @@ platform-native local RPC transport.
 The Client runs only when invoked by the MCP host. It does not install files,
 register an auto-start item, create a system service, or maintain a background
 daemon. It exits when its MCP process ends. Its only outbound network request
-is a short HTTPS read of `https://loomle.ai/releases.json` when the user or
-agent calls `status`, used solely to report whether a newer Loomle release is
-available. No project content is sent with that request, and Loomle includes no
+is a short HTTPS read of GitHub's public
+`https://api.github.com/repos/loomle/loomle/releases/latest` endpoint when the
+user or agent calls `status`, used solely to report whether a newer stable
+Loomle release is available and to obtain that Release asset's GitHub SHA-256
+digest. No project content is sent with that request, and Loomle includes no
 telemetry or analytics reporting.
 
 Both executable builds are produced from the Client source in the Loomle

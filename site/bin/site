@@ -75,6 +75,12 @@ case "$command_name" in
     latest_release_url="https://github.com/loomle/loomle/releases/latest"
     latest_archive_url="$latest_release_url/download/loomle-bridge.zip"
     latest_sha_url="$latest_archive_url.sha256"
+    legacy_manifest_version="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "version")')"
+    legacy_release_url="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "releaseUrl")')"
+    legacy_mac_archive_url="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "targets", "darwin-arm64", "assetUrl")')"
+    legacy_windows_archive_url="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "targets", "win32-x64", "assetUrl")')"
+    legacy_mac_sha="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "targets", "darwin-arm64", "sha256")')"
+    legacy_windows_sha="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "targets", "win32-x64", "sha256")')"
     test -s _site/index.html
     test -s _site/assets/css/loomle.css
     test -s _site/assets/images/oasium-cover.webp
@@ -87,8 +93,17 @@ case "$command_name" in
     grep -Fq "$latest_release_url" _site/install.html
     grep -Fq "$latest_archive_url" _site/install.html
     grep -Fq "$latest_sha_url" _site/install.html
-    test ! -e releases.json
-    test ! -e _site/releases.json
+    test -s releases.json
+    test -s _site/releases.json
+    case "$legacy_manifest_version" in
+      0.7.6|0.7.7) ;;
+      *) echo "Legacy migration manifest must remain on 0.7.6 or its final 0.7.7 state." >&2; exit 1 ;;
+    esac
+    test "$legacy_release_url" = "$latest_release_url"
+    test "$legacy_mac_archive_url" = "$latest_archive_url"
+    test "$legacy_windows_archive_url" = "$latest_archive_url"
+    test "$legacy_mac_sha" = "$legacy_windows_sha"
+    [[ "$legacy_mac_sha" =~ ^[0-9a-f]{64}$ ]]
     ! grep -Eq 'releases/(tag|download)/v[0-9]' install.md llms.txt
     ! grep -Eq 'loomle-bridge-[0-9]+\.[0-9]+\.[0-9]+\.zip' install.md llms.txt
     grep -q 'Three core calls. Every supported Unreal object.' _site/index.html

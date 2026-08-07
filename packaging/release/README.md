@@ -52,9 +52,13 @@ publish byte-identical stable aliases (`loomle-bridge.zip` and
 stable aliases. The Client reads GitHub's public latest-release API directly
 and binds `tag_name`, the versioned plugin asset URL, and that asset's GitHub
 SHA-256 digest from one Release response. A successful final promotion is
-therefore the complete update-publication step; there is no website release
-manifest or follow-up version-and-hash commit. A trusted maintainer pushes the
-exact tag before promotion because the Actions
+therefore the complete update-publication step for Clients beginning with
+0.7.7. As a one-time migration exception, after 0.7.7 promotion a maintainer
+updates the legacy website manifest from 0.7.6 to 0.7.7 with the published
+stable-alias SHA-256, then freezes that file permanently. This lets older
+Clients discover the first GitHub-native updater without making the website a
+continuing release source. A trusted maintainer pushes the exact tag before
+promotion because the Actions
 installation token cannot create a tag that exposes historical workflow-file
 changes and cannot reliably pass an older commit through
 `gh release create --target`.
@@ -96,8 +100,8 @@ exact product version.
 - `0.6` is the maintenance line rooted at `v0.6.24`. It accepts only
   compatible fixes and produces any future `v0.6.x` releases.
 - `main` is the `0.7` development line. Development builds use a prerelease
-  product version; the current release commit uses `0.7.6` and is tagged
-  `v0.7.6`.
+  product version; the current release commit uses `0.7.7` and is tagged
+  `v0.7.7`.
 
 Product versions and RPC protocol compatibility remain independent. Change the
 protocol version only when compatibility actually changes.
