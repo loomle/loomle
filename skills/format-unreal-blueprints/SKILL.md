@@ -15,7 +15,10 @@ without depending on an agent-specific tool-call syntax.
 - Read [loomle-sal-workflow.md](references/loomle-sal-workflow.md) before
   querying or moving nodes.
 - Read [golden-examples.md](references/golden-examples.md) when choosing between
-  Helixing and left-side parameter layout or calibrating compactness.
+  Helixing and left-side parameter layout, evaluating local getter duplication,
+  planning reroutes, or calibrating compactness.
+- Read [topology-followups.md](references/topology-followups.md) only after the
+  user explicitly authorizes a reported getter-duplication or reroute change.
 
 ## Follow this workflow
 
@@ -37,8 +40,9 @@ without depending on an agent-specific tool-call syntax.
    the opening manually. Without confirmation or live geometry, perform only
    conservative rough placement and label it as such.
 4. Partition the graph into execution spines, branch lanes, consumer-owned data
-   trees, shared data providers, comments, and knots. Preserve existing local
-   human layout exemplars that satisfy the hard constraints.
+   trees, cheap variable getters, potentially expensive pure calls, shared data
+   providers, comments, and knots. Preserve existing local human layout
+   exemplars that satisfy the hard constraints.
 5. Fix the execution structure first. Align connected execution pins rather
    than node tops and keep the expected continuation path straight when the
    graph semantics make that path clear.
@@ -69,9 +73,14 @@ Graph that is still needed for measured verification.
 - Do not add `NOT`, `Sequence`, reroute, getter, comment, or knot nodes merely
   to improve appearance.
 - Do not change defaults, pin links, function purity, or execution semantics.
-- Report topology improvements separately. In particular, ordinary variable
-  getters may sometimes be duplicated to shorten wires, but expensive pure
+- Report topology improvements separately with the exact affected consumers or
+  edges and a measured rationale. In particular, ordinary variable getters may
+  sometimes be duplicated to shorten distant fan-out, but expensive pure
   functions must not be duplicated as a cosmetic shortcut.
+- If the user explicitly authorizes a reported getter or reroute change, treat
+  it as a separate topology workflow and follow
+  [topology-followups.md](references/topology-followups.md). Never silently
+  expand move-only formatting into node creation or rewiring.
 - Keep compile and save operations separate from the move-only patch. Finalize
   the owning asset only when the user's requested workflow requires it.
 

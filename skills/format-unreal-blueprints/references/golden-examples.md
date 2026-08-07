@@ -64,3 +64,60 @@ data is shared, the downward tree collides with another branch lane, tall nodes
 make the stack dominate the execution block, or pin-ordered nesting cannot
 avoid crossings. Preserve strict left-to-right dependency layers and keep the
 execution spine pin-aligned.
+
+## Local getters for distant consumers
+
+One `Get AvatarItems` variable getter originally fed three consumers:
+
+```text
+Get AvatarItems
+├─ Is Valid Index
+├─ Get (a copy)
+└─ For Each Loop with Break
+```
+
+Keeping one shared getter was semantically valid, but the consumers occupied
+different local blocks and the fan-out produced long, crossing wires. Compare
+that layout with this topology candidate:
+
+```text
+Is Valid Index          Get (a copy)          For Each Loop with Break
+└─ Get AvatarItems      └─ Get AvatarItems    └─ Get AvatarItems
+```
+
+Each cheap getter is immediately adjacent to and visually owned by one
+consumer. Prefer this candidate when measured placement removes crossings,
+node-body hits, and ambiguous fan-out enough to justify two additional nodes.
+Do not copy this pattern onto a pure function call whose cost or evaluation
+behavior has not been established. In a move-only request, report this exact
+candidate instead of creating it.
+
+## Rerouting a loop-break return
+
+An inner Branch deliberately returned execution to
+`For Each Loop with Break.Break`. Three existing knots made the long
+backtracking spline mostly rectangular, but live geometry showed that its last
+vertical segment remained obstructed:
+
+```text
+vertical segment anchor X: approximately 2100
+Get AvatarItems visual X range: 2080..2212
+```
+
+That segment proxy passed through the getter body. A fourth knot shifted the
+vertical segment to approximately X 2037, outside the measured getter bounds,
+then used a short horizontal segment into `Break`:
+
+```text
+inner Branch
+    └─ knot ─ knot
+                  │
+             knot │
+                  │  clear of Get AvatarItems
+             knot └────────────> Break
+```
+
+The fourth knot is justified because three knots fail the hard node-hit check.
+The values are measured evidence from one graph, not reusable coordinates.
+For another graph, derive every corner from its current anchors and bounds,
+check each segment independently, and choose the smallest valid knot count.

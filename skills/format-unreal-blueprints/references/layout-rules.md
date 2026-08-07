@@ -6,9 +6,10 @@
 2. Semantic partitioning
 3. Execution layout
 4. Data layout candidates
-5. Branches, comments, and reroutes
-6. Geometry and scoring
-7. Community basis
+5. Shared getter fan-out
+6. Branches, comments, and reroutes
+7. Geometry and scoring
+8. Community basis
 
 ## Priority model
 
@@ -36,13 +37,20 @@ Classify nodes before placing them:
   multi-exec node.
 - **Consumer-owned data tree**: pure upstream nodes used only by one local
   consumer.
+- **Cheap variable getter**: an ordinary variable read that may be repeated
+  locally when separate consumers would otherwise create distant fan-out.
+- **Potentially expensive pure call**: a function or operation whose cost,
+  side effects, evaluation behavior, or project semantics are not proven safe
+  to duplicate.
 - **Shared provider**: a data node whose output feeds multiple consumers or a
   distant region.
 - **Structural presentation**: comments and knots that describe or route an
   existing region.
 
 Do not force a shared provider into one consumer's local block. Do not let a
-consumer-owned data tree dictate the position of the execution spine.
+consumer-owned data tree dictate the position of the execution spine. Classify
+getters and pure calls from their returned Graph semantics, not their title,
+color, compact appearance, or an assumed cost.
 
 ## Execution layout
 
@@ -117,6 +125,27 @@ Allow small local leaves to Helix below a consumer while keeping a large or
 shared data chain on the left. Treat each resulting block as a separate region
 and re-run collision and ownership checks.
 
+## Shared getter fan-out
+
+When one ordinary variable getter feeds multiple distant consumers, compare
+two topology candidates in addition to the move-only layout candidates:
+
+1. Preserve one shared getter and place it where its fan-out is least
+   ambiguous.
+2. Give each local consumer its own duplicate getter and place that getter
+   inside the consumer-owned data block.
+
+Prefer the duplicated candidate only when it materially reduces long wires,
+unrelated node-body hits, crossings, or visually ambiguous fan-out without
+invading neighboring lanes. Count the additional nodes and resulting block
+area as costs; duplication is not automatically better.
+
+Do not generalize this candidate to pure function calls. Unless exact Graph
+semantics and project knowledge establish that duplication is acceptable,
+preserve a pure call as one provider and solve its layout through placement or
+rerouting. During move-only formatting, report a preferred getter-duplication
+candidate with its consumers and measured rationale rather than creating it.
+
 ## Branches, comments, and reroutes
 
 - Keep branch outputs visually separated; include each output's data block in
@@ -125,9 +154,22 @@ and re-run collision and ownership checks.
   Lay out contained nodes first, then size or move the comment with consistent
   padding when comments are explicitly in scope.
 - Recommend reroutes only for long edges, obstacle avoidance, delayed fan-out,
-  or unavoidable backtracking. Do not equate reroute count with quality.
+  or unavoidable backtracking. Treat deliberate loop-back execution as
+  semantic flow that may need a routed return path rather than forcing it into
+  left-to-right execution.
+- Plan a rerouted path as ordered anchor-to-corner and corner-to-anchor segment
+  proxies. Choose each corner from measured pin `placementAnchor` values and
+  node `visualBounds`, then test every segment proxy against unrelated node
+  bodies with positive clearance.
+- Prefer the minimum knot count among geometrically valid, unambiguous paths.
+  Allow an additional knot when a nominal rectangular path leaves a vertical
+  or horizontal segment crossing a node body. Knot count is not itself a
+  quality metric.
+- Re-query after creating or moving knots. Their measured pin anchors, not the
+  requested node positions alone, determine the actual route.
 - In move-only work, report a needed reroute, duplicated getter, comment, or
-  refactor without creating it.
+  refactor without creating it. Name the exact edge, proposed path, obstacle,
+  and expected readability improvement.
 
 ## Geometry and scoring
 
