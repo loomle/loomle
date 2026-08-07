@@ -5,13 +5,26 @@ the SAL text shown here is portable.
 
 ## 1. Resolve the active target
 
-Call `editor` with no arguments first. Copy the canonical exact Graph Target
-and stable node references from the result.
+Call `editor` with no arguments first. When it returns the intended Graph,
+copy its canonical exact Graph Target and stable node references.
+
+If the intended Graph is not the active surface, resolve its canonical Target
+through the owning Blueprint interface before requesting permission to open
+it. Start from an authorized Blueprint Asset Path, query its `summary` to obtain
+the exact Blueprint identity, then query `graphs` or an exact `graph <name>`.
+Copy the returned Graph Target with its `asset`, `blueprintId`, and `id`; never
+construct these identities from a display name or stale remembered GUID.
 
 If the active surface is a graph but selection is unavailable, do not invent a
 selected node. Ask for an exact node identity or use another unambiguous query
-the user has authorized. Do not open, focus, or close an Editor presentation
-just to acquire geometry unless the user explicitly authorizes UI control.
+the user has authorized.
+
+Live geometry may require opening or focusing the exact Graph presentation.
+Before calling `editor` with `operation: "open"`, tell the user which Blueprint
+Graph will be opened and ask for confirmation. A formatting request does not by
+itself authorize changing the visible Editor presentation. Once confirmed,
+perform the open operation yourself; do not ask the user to navigate there
+manually. Do not close a presentation after measurement unless the user asks.
 
 Use `sal_schema` with module `graph` when an operation or result field is
 unclear. Do not guess Graph syntax, palette identities, pins, or operations.
@@ -53,9 +66,33 @@ Proceed with near-human placement only when:
 - the response has no `capability.layout_geometry_unavailable` warning.
 
 Stored `at` is authoritative stored position. Stored `size`, when present, is
-not a rendered-size substitute. If the precise-use gate fails, ask the user to
-open and synchronize the exact Blueprint graph and retry. Rough placement may
-use stored facts conservatively, but must not be described as polished.
+not a rendered-size substitute.
+
+If the precise-use gate fails, inspect the diagnostic reason. When opening or
+focusing the exact Graph can resolve it:
+
+1. Ask the user to confirm opening the named exact Graph.
+2. After confirmation, pass its bare canonical Target text to `editor`:
+
+   ```text
+   editor({
+     operation: "open",
+     target: "target { domain: graph, asset: \"/Game/BP_Example.BP_Example\", blueprintId: \"11111111-1111-1111-1111-111111111111\", id: \"22222222-2222-2222-2222-222222222222\" }"
+   })
+   ```
+
+3. Require a successful terminal Editor result.
+4. Call `editor` with no arguments and verify that its exact Graph Target
+   matches the requested Target.
+5. Retry the same `with layout` query. If the surface is still synchronizing,
+   re-read context and retry once more rather than opening additional windows.
+
+`editor open` establishes and focuses the real UE Graph presentation; it does
+not prove that geometry is authoritative. Apply the complete precise-use gate
+to the new Query result. If an active drag or other user interaction blocks
+capture, ask the user to finish that interaction and then retry. Without user
+confirmation or live geometry, rough placement may use stored facts
+conservatively but must not be described as polished.
 
 ## 3. Build an explicit absolute plan
 
@@ -110,8 +147,10 @@ persistence.
 
 ## 5. Handle failure without guessing
 
-- On `capability.layout_geometry_unavailable`, retain stored facts, explain why
-  they support only rough placement, and request the exact graph be opened.
+- On `capability.layout_geometry_unavailable`, retain stored facts and inspect
+  the reason. Ask permission to open or focus the exact Graph when that can fix
+  the reason; after confirmation, use `editor open` yourself and re-run the
+  precise-use gate.
 - On an unresolved target or reference, re-read context or query stable
   identities; do not substitute display names.
 - On a dry-run validation error, change the plan and dry-run again.

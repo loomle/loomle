@@ -19,16 +19,22 @@ without depending on an agent-specific tool-call syntax.
 
 ## Follow this workflow
 
-1. Call `editor` with no arguments and resolve the exact Blueprint Graph and intended
-   selection. If selection is unavailable, say so and obtain an unambiguous
-   graph or node identity before changing anything.
+1. Call `editor` with no arguments first. Resolve the exact Blueprint Graph
+   from that context or, when it is not the active surface, from an exact
+   Blueprint `graphs` query. Never construct Graph identity from a display name.
+   If selection is unavailable, say so and obtain an unambiguous graph or node
+   identity before changing anything.
 2. Query the selected region and its connected context `with layout`. Collect
    every page or neighboring query needed to understand the layout; query
    pagination does not limit which exact nodes a later patch may move.
 3. Require authoritative live `visualBounds` for nodes and measured pin
    `placementAnchor` values for precise work. If Loomle reports
-   `capability.layout_geometry_unavailable`, ask the user to open and
-   synchronize the exact graph, then retry. Without live geometry, perform only
+   `capability.layout_geometry_unavailable` and opening or focusing the exact
+   Graph can resolve the reported reason, tell the user which Graph you need to
+   open and ask for confirmation. After confirmation, call `editor` with
+   `operation: "open"` and the canonical exact Graph Target, verify that the
+   same Graph is focused, and retry the query. Do not ask the user to perform
+   the opening manually. Without confirmation or live geometry, perform only
    conservative rough placement and label it as such.
 4. Partition the graph into execution spines, branch lanes, consumer-owned data
    trees, shared data providers, comments, and knots. Preserve existing local
@@ -52,6 +58,10 @@ without depending on an agent-specific tool-call syntax.
 10. Apply the same absolute plan, then repeat the relevant query `with layout`
     and audit the measured result. Treat verification as incomplete until the
     readback matches the requested stored positions and the visual constraints.
+
+Keep a Graph opened for geometry measurement open after the workflow unless
+the user asks you to close it. Do not restore presentation state by closing a
+Graph that is still needed for measured verification.
 
 ## Keep move-only scope
 

@@ -24,15 +24,17 @@ installed Loomle version.
 
 ## 2. Resolve the Exact Graph and Selection
 
-Open the intended Blueprint Graph, select the region when the request is
-selection-scoped, and call:
+Call Editor context first to resolve the intended Blueprint Graph and, when the
+request is selection-scoped, its selected region:
 
 ```text
 editor({})
 ```
 
 Copy the returned exact Graph Target and StableRefs. Do not infer a selected
-node from the visible UI when selection is unavailable.
+node from the visible UI when selection is unavailable. If the intended Graph
+is not the active surface, resolve its canonical Target through an exact
+Blueprint `graphs` query. Never construct Graph identity from its display name.
 
 ## 3. Read Semantics and Live Layout
 
@@ -58,9 +60,14 @@ define the nodes a later Patch may move.
 Near-human placement requires finite live `visualBounds` for applicable nodes
 and measured pin `placementAnchor` values. Stored `at` is the authoritative
 stored position; stored `size` is not rendered collision geometry. If Loomle
-reports `capability.layout_geometry_unavailable`, open and synchronize the
-exact Graph and retry. Without live geometry, only conservative rough placement
-is justified.
+reports `capability.layout_geometry_unavailable`, inspect its reason. If the
+exact Graph needs to be opened or focused, the agent first names that Graph and
+asks the user for confirmation. After confirmation, the agent calls `editor`
+with `operation: "open"` and the canonical exact Graph Target, verifies the
+focused context, and retries the same Query. `editor open` establishes the real
+Graph presentation but does not itself prove that geometry is authoritative;
+the retried result must still pass the complete live-geometry gate. Without
+confirmation or live geometry, only conservative rough placement is justified.
 
 ## 4. Plan the Layout
 

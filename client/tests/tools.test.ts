@@ -615,6 +615,9 @@ test("agent_skill lists and loads the complete resident workflow without calling
   assert.match(allText(skill), /# Format Unreal Blueprints/);
   assert.match(allText(skill), /# Blueprint K2 Layout Rules/);
   assert.match(allText(skill), /# Loomle SAL Layout Workflow/);
+  assert.match(allText(skill), /ask for confirmation/);
+  assert.match(allText(skill), /operation: "open"/);
+  assert.match(allText(skill), /does\s+not prove that geometry is authoritative/);
   assert.equal(rpc.calls.length, 0);
 });
 
