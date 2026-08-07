@@ -885,6 +885,15 @@ The Bridge duplicates the complete owning Blueprint, isolates generated
 Classes, Timeline Templates, and internal Curves, and executes the same native
 edit functions. Transient ids never escape.
 
+Native Graph Schema and Node edit calls are Pin-lifetime boundaries: their
+synchronous callbacks may reconstruct or remove Pins before the call returns.
+Preflight and live apply retain Pin identity, not a raw `UEdGraphPin*`, across
+such a boundary. Each following statement and each step of a compound operation
+resolves the current Pin from its owning Node and `PinId`; member references on
+Node aliases resolve against the Node's current Pins. If the Pin no longer
+exists or cannot be resolved uniquely, the Patch returns a structured
+resolution or validation diagnostic and never dereferences the retired Pin.
+
 Live apply requires one top-level transaction. Failure closes and explicitly
 undoes it; cancel is not rollback. An all-no-op Patch does not dirty the asset.
 

@@ -98,6 +98,12 @@ surface must map to native tests that cover:
   admitted requests;
 - every previously observed crash or corruption regression.
 
+Graph mutation regressions must include native callbacks that reconstruct or
+remove Pins. At minimum they cover a single stable-reference Edge disconnect,
+ordered disconnect/reconnect planning, and same-Patch Node-alias connections;
+dry-run must preserve the source Graph and return a plan or diagnostic without
+terminating the Editor.
+
 Complete Bridge coverage means complete operation and state coverage. It does
 not mean enumerating every UE Node class, reflected property type, palette
 entry, or project asset. Generic reflected behavior uses representative native

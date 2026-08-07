@@ -27,6 +27,8 @@
 #include "K2Node_CallFunction.h"
 #include "K2Node_CustomEvent.h"
 #include "K2Node_IfThenElse.h"
+#include "K2Node_MacroInstance.h"
+#include "K2Node_MakeArray.h"
 #include "K2Node_VariableGet.h"
 #include "K2Node_VariableSet.h"
 #include "Kismet/KismetMathLibrary.h"
@@ -604,6 +606,64 @@ UK2Node_CallFunction* RobustGraphAddNot(
     Node->NodePosY = Position.Y;
     Graph->AddNode(Node, false, false);
     Node->SetFromFunction(Function);
+    Node->AllocateDefaultPins();
+    return Node;
+}
+
+UK2Node_MacroInstance* RobustGraphAddForEachLoopWithBreak(
+    UEdGraph* Graph,
+    const FIntPoint Position)
+{
+    UBlueprint* StandardMacros = LoadObject<UBlueprint>(
+        nullptr,
+        TEXT("/Engine/EditorBlueprintResources/StandardMacros.StandardMacros"));
+    UEdGraph* MacroGraph = nullptr;
+    if (StandardMacros != nullptr)
+    {
+        for (UEdGraph* Candidate : StandardMacros->MacroGraphs)
+        {
+            if (Candidate != nullptr
+                && Candidate->GetFName() == FName(TEXT("ForEachLoopWithBreak")))
+            {
+                MacroGraph = Candidate;
+                break;
+            }
+        }
+    }
+    if (Graph == nullptr || MacroGraph == nullptr)
+    {
+        return nullptr;
+    }
+
+    UK2Node_MacroInstance* Node = NewObject<UK2Node_MacroInstance>(
+        Graph,
+        NAME_None,
+        RF_Transactional);
+    Node->SetMacroGraph(MacroGraph);
+    Node->CreateNewGuid();
+    Node->NodePosX = Position.X;
+    Node->NodePosY = Position.Y;
+    Graph->AddNode(Node, false, false);
+    Node->AllocateDefaultPins();
+    return Node;
+}
+
+UK2Node_MakeArray* RobustGraphAddMakeArray(
+    UEdGraph* Graph,
+    const FIntPoint Position)
+{
+    if (Graph == nullptr)
+    {
+        return nullptr;
+    }
+    UK2Node_MakeArray* Node = NewObject<UK2Node_MakeArray>(
+        Graph,
+        NAME_None,
+        RF_Transactional);
+    Node->CreateNewGuid();
+    Node->NodePosX = Position.X;
+    Node->NodePosY = Position.Y;
+    Graph->AddNode(Node, false, false);
     Node->AllocateDefaultPins();
     return Node;
 }
@@ -2058,6 +2118,206 @@ bool FSalRobustGraphNodeLifecycleTest::RunTest(
         TEXT("Undo creation returns Node count to baseline"),
         Fixture.Graph->Nodes.Num(),
         OriginalNodeCount);
+    Transactions.Restore();
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphPinLifetimeDisconnectTest,
+    "Loomle.Sal.Robustness.Graph.PinLifetimeDisconnect",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphPinLifetimeDisconnectTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(
+            *this,
+            TEXT("Graph Pin lifetime disconnect regression")))
+    {
+        return false;
+    }
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(
+            TEXT("Pin lifetime regression isolates Undo history"),
+            Transactions.Initialize()))
+    {
+        return false;
+    }
+    FRobustGraphFixture Fixture;
+    if (!TestTrue(TEXT("Pin lifetime fixture is valid"), Fixture.IsValid()))
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    UK2Node_MacroInstance* ForEachLoop =
+        RobustGraphAddForEachLoopWithBreak(
+            Fixture.Graph,
+            FIntPoint(350, 500));
+    UK2Node_MakeArray* ArrayValue = RobustGraphAddMakeArray(
+        Fixture.Graph,
+        FIntPoint(100, 700));
+    UEdGraphPin* ArrayInput = ArrayValue != nullptr
+        ? ArrayValue->FindPin(TEXT("[0]"), EGPD_Input)
+        : nullptr;
+    if (!TestNotNull(
+            TEXT("Pin lifetime fixture creates a Make Array input"),
+            ArrayInput))
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    const UEdGraphSchema_K2* Schema = GetDefault<UEdGraphSchema_K2>();
+    if (!TestTrue(
+            TEXT("Pin lifetime fixture resolves the Make Array element type"),
+            Schema != nullptr
+                && Schema->TryCreateConnection(
+                    Fixture.NotOutput,
+                    ArrayInput)))
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    UEdGraphPin* ArrayOutput = ArrayValue->GetOutputPin();
+    UEdGraphPin* MacroArray = ForEachLoop != nullptr
+        ? ForEachLoop->FindPin(TEXT("Array"), EGPD_Input)
+        : nullptr;
+    if (!TestNotNull(
+            TEXT("Typed Make Array exposes its current output"),
+            ArrayOutput)
+        || !TestNotNull(
+            TEXT("ForEachLoopWithBreak exposes its Array input"),
+            MacroArray)
+        || !TestTrue(
+            TEXT("Pin lifetime fixture connects the typed macro Array"),
+            Schema->TryCreateConnection(
+                ArrayOutput,
+                MacroArray)))
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    UEdGraphPin* MacroExec = ForEachLoop->FindPin(
+        TEXT("Exec"),
+        EGPD_Input);
+    if (!TestNotNull(
+            TEXT("ForEachLoopWithBreak exposes its execution input"),
+            MacroExec)
+        || !TestTrue(
+            TEXT("Pin lifetime fixture creates the macro execution Edge"),
+            Schema->TryCreateConnection(
+                Fixture.LooseEntry->GetThenPin(),
+                MacroExec)))
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    UEdGraphPin* SourceExec = Fixture.LooseEntry->GetThenPin();
+    MacroExec = ForEachLoop->FindPin(TEXT("Exec"), EGPD_Input);
+    if (!TestTrue(
+            TEXT("Macro execution Edge is authoritative after native callbacks"),
+            SourceExec != nullptr
+                && MacroExec != nullptr
+                && SourceExec->LinkedTo.Contains(MacroExec)))
+    {
+        Transactions.Restore();
+        return false;
+    }
+    const FGuid SourcePinId = SourceExec->PinId;
+    const FGuid MacroPinId = MacroExec->PinId;
+    const int32 OriginalNodeCount = Fixture.Graph->Nodes.Num();
+    Fixture.Package->SetDirtyFlag(false);
+    const bool bWasDirty = Fixture.Package->IsDirty();
+    const FSalResolvedTarget Target =
+        RobustGraphTarget(Fixture.Blueprint, Fixture.Graph);
+
+    auto EdgeIsConnected = [&Fixture, ForEachLoop]()
+    {
+        UEdGraphPin* CurrentSource = Fixture.LooseEntry->GetThenPin();
+        UEdGraphPin* CurrentTarget = ForEachLoop->FindPin(
+            TEXT("Exec"),
+            EGPD_Input);
+        return CurrentSource != nullptr
+            && CurrentTarget != nullptr
+            && CurrentSource->LinkedTo.Contains(CurrentTarget);
+    };
+
+    FSalPatch Disconnect;
+    Disconnect.Alias = TEXT("graph");
+    Disconnect.bDryRun = true;
+    Disconnect.Statements = {
+        RobustGraphEdgeOperation(
+            TEXT("disconnect"),
+            RobustGraphTyped(TEXT("pin"), SourcePinId),
+            RobustGraphTyped(TEXT("pin"), MacroPinId))};
+    const TSharedPtr<FJsonObject> DryRun =
+        FSalGraphInterface::Patch(Disconnect, Target);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Single stable-reference disconnect dry run survives native Pin reconstruction [%s]"),
+            *RobustGraphDiagnosticsText(DryRun)),
+        RobustGraphResultBool(DryRun, TEXT("valid"))
+            && RobustGraphResultBool(DryRun, TEXT("dryRun"))
+            && !RobustGraphResultBool(DryRun, TEXT("applied")));
+    TestTrue(
+        TEXT("Single disconnect dry run preserves the source Edge"),
+        EdgeIsConnected());
+    TestEqual(
+        TEXT("Single disconnect dry run preserves source Node count"),
+        Fixture.Graph->Nodes.Num(),
+        OriginalNodeCount);
+    TestEqual(
+        TEXT("Single disconnect dry run preserves source dirty state"),
+        Fixture.Package->IsDirty(),
+        bWasDirty);
+
+    FSalPatch Reorder = Disconnect;
+    Reorder.Statements.Add(
+        RobustGraphEdgeOperation(
+            TEXT("connect"),
+            RobustGraphTyped(TEXT("pin"), SourcePinId),
+            RobustGraphTyped(TEXT("pin"), MacroPinId)));
+    const TSharedPtr<FJsonObject> Reordered =
+        FSalGraphInterface::Patch(Reorder, Target);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Ordered stable-reference disconnect/reconnect re-resolves reconstructed Pins [%s]"),
+            *RobustGraphDiagnosticsText(Reordered)),
+        RobustGraphResultBool(Reordered, TEXT("valid"))
+            && RobustGraphResultBool(Reordered, TEXT("dryRun"))
+            && !RobustGraphResultBool(Reordered, TEXT("applied")));
+    TestTrue(
+        TEXT("Disconnect/reconnect dry run preserves the source Edge"),
+        EdgeIsConnected());
+    TestEqual(
+        TEXT("Disconnect/reconnect dry run preserves source dirty state"),
+        Fixture.Package->IsDirty(),
+        bWasDirty);
+
+    Disconnect.bDryRun = false;
+    const TSharedPtr<FJsonObject> Applied =
+        FSalGraphInterface::Patch(Disconnect, Target);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Live stable-reference disconnect survives native Pin reconstruction [%s]"),
+            *RobustGraphDiagnosticsText(Applied)),
+        RobustGraphResultBool(Applied, TEXT("valid"))
+            && RobustGraphResultBool(Applied, TEXT("applied")));
+    TestFalse(
+        TEXT("Live disconnect removes the macro execution Edge"),
+        EdgeIsConnected());
+    TestTrue(
+        TEXT("Undo restores the reconstructed macro execution Edge"),
+        GEditor->UndoTransaction(false));
+    TestTrue(
+        TEXT("Macro execution Edge is present after Undo"),
+        EdgeIsConnected());
+
     Transactions.Restore();
     return true;
 }

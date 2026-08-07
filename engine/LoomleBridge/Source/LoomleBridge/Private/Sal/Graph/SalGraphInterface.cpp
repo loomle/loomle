@@ -125,6 +125,7 @@ struct FGraphObjectRef
     UEdGraphPin* Pin = nullptr;
     UEdGraph* Graph = nullptr;
     bool bPinAmbiguous = false;
+    bool bPinMissing = false;
 
     bool IsValid() const { return Node != nullptr || Pin != nullptr || Graph != nullptr; }
 };
@@ -156,9 +157,9 @@ struct FPatchState
     bool bApply = false;
     TMap<FString, FNodeDefinition> Definitions;
     TMap<FString, UEdGraphNode*> LocalNodes;
-    TMap<FString, UEdGraphPin*> LocalPins;
+    TMap<FString, FEdGraphPinReference> LocalPins;
     TSet<UEdGraphNode*> TouchedNodes;
-    TSet<UEdGraphPin*> TouchedPins;
+    TSet<FEdGraphPinReference> TouchedPins;
     TSharedPtr<FJsonObject> ResolvedRefs = MakeShared<FJsonObject>();
     TArray<TSharedPtr<FJsonObject>> Diagnostics;
     TArray<FGraphMoveEffect> MoveEffects;
@@ -175,6 +176,27 @@ struct FPatchState
     {
     }
 };
+
+struct FCapturedGraphPin
+{
+    FEdGraphPinReference Reference;
+    TWeakObjectPtr<UEdGraphNode> Owner;
+
+    explicit FCapturedGraphPin(UEdGraphPin* Pin)
+        : Reference(Pin)
+        , Owner(Pin != nullptr ? Pin->GetOwningNodeUnchecked() : nullptr)
+    {
+    }
+};
+
+void MarkCapturedPinTouched(FPatchState& State, const FCapturedGraphPin& Pin)
+{
+    State.TouchedPins.Add(Pin.Reference);
+    if (UEdGraphNode* Owner = Pin.Owner.Get())
+    {
+        State.TouchedNodes.Add(Owner);
+    }
+}
 
 void AddPatchError(
     FPatchState& State,
@@ -471,7 +493,11 @@ FGraphObjectRef ResolveSimpleRef(FPatchState& State, const TSharedPtr<FJsonObjec
             return Result;
         }
         Result.Node = State.LocalNodes.FindRef(Alias);
-        Result.Pin = State.LocalPins.FindRef(Alias);
+        if (const FEdGraphPinReference* LocalPin = State.LocalPins.Find(Alias))
+        {
+            Result.Pin = LocalPin->Get();
+            Result.bPinMissing = Result.Pin == nullptr;
+        }
         if (Result.Pin != nullptr && Result.Node == nullptr) Result.Node = Result.Pin->GetOwningNode();
         return Result;
     }
@@ -484,6 +510,11 @@ FGraphObjectRef ResolveSimpleRef(FPatchState& State, const TSharedPtr<FJsonObjec
         if (OwnerRef.bPinAmbiguous)
         {
             Result.bPinAmbiguous = true;
+            return Result;
+        }
+        if (OwnerRef.bPinMissing)
+        {
+            Result.bPinMissing = true;
             return Result;
         }
         if (OwnerRef.Node != nullptr && Path.Num() == 1)
@@ -515,12 +546,14 @@ bool ResolveRequiredRef(
         State,
         Out.bPinAmbiguous
             ? TEXT("resolution.pin_ambiguous")
-            : Kind == TEXT("pin")
+            : (Kind == TEXT("pin") || Out.bPinMissing)
                 ? TEXT("resolution.pin_not_found")
                 : TEXT("resolution.object_not_found"),
         Out.bPinAmbiguous
             ? TEXT("PinId matches multiple Pins in the bound Graph.")
-            : TEXT("Patch reference could not be resolved in the bound Graph or prior Patch statements."),
+            : Out.bPinMissing
+                ? TEXT("A Pin produced by an earlier Patch statement no longer exists in the current provisional Graph state.")
+                : TEXT("Patch reference could not be resolved in the bound Graph or prior Patch statements."),
         Operation,
         Id);
     return false;
@@ -814,21 +847,21 @@ bool ApplyConnect(FPatchState& State, UEdGraphPin* From, UEdGraphPin* To, const 
     }
     if (!State.bApply || PinsAreLinked(From, To)) return true;
     const UEdGraphSchema* Schema = From->GetSchema();
+    const FCapturedGraphPin CapturedFrom(From);
+    const FCapturedGraphPin CapturedTo(To);
     TSet<UEdGraphNode*> NodesBefore;
     if (State.Target.Graph != nullptr) for (UEdGraphNode* Existing : State.Target.Graph->Nodes) if (Existing != nullptr) NodesBefore.Add(Existing);
     for (UEdGraphPin* Existing : From->LinkedTo) if (Existing != nullptr && Existing->GetOwningNode() != nullptr) State.TouchedNodes.Add(Existing->GetOwningNode());
     for (UEdGraphPin* Existing : To->LinkedTo) if (Existing != nullptr && Existing->GetOwningNode() != nullptr) State.TouchedNodes.Add(Existing->GetOwningNode());
-    From->GetOwningNode()->Modify();
-    To->GetOwningNode()->Modify();
+    if (UEdGraphNode* Owner = CapturedFrom.Owner.Get()) Owner->Modify();
+    if (UEdGraphNode* Owner = CapturedTo.Owner.Get()) Owner->Modify();
     if (Schema == nullptr || !Schema->TryCreateConnection(From, To))
     {
         AddPatchError(State, TEXT("validation.connect_failed"), TEXT("UE Graph Schema rejected the connection during apply."), Operation);
         return false;
     }
-    State.TouchedPins.Add(From);
-    State.TouchedPins.Add(To);
-    State.TouchedNodes.Add(From->GetOwningNode());
-    State.TouchedNodes.Add(To->GetOwningNode());
+    MarkCapturedPinTouched(State, CapturedFrom);
+    MarkCapturedPinTouched(State, CapturedTo);
     if (State.Target.Graph != nullptr)
     {
         for (UEdGraphNode* Existing : State.Target.Graph->Nodes)
@@ -901,13 +934,13 @@ bool HandleConnectLike(FPatchState& State, const TSharedPtr<FJsonObject>& Operat
     {
         const UEdGraphSchema* Schema = From->GetSchema();
         if (Schema == nullptr) return false;
-        From->GetOwningNode()->Modify();
-        To->GetOwningNode()->Modify();
+        const FCapturedGraphPin CapturedFrom(From);
+        const FCapturedGraphPin CapturedTo(To);
+        if (UEdGraphNode* Owner = CapturedFrom.Owner.Get()) Owner->Modify();
+        if (UEdGraphNode* Owner = CapturedTo.Owner.Get()) Owner->Modify();
         Schema->BreakSinglePinLink(From, To);
-        State.TouchedPins.Add(From);
-        State.TouchedPins.Add(To);
-        State.TouchedNodes.Add(From->GetOwningNode());
-        State.TouchedNodes.Add(To->GetOwningNode());
+        MarkCapturedPinTouched(State, CapturedFrom);
+        MarkCapturedPinTouched(State, CapturedTo);
         ++State.ChangedOps;
     }
     return true;
@@ -922,20 +955,20 @@ bool HandleBreak(FPatchState& State, const TSharedPtr<FJsonObject>& Operation)
     {
         const UEdGraphSchema* Schema = Pin->GetSchema();
         if (Schema == nullptr) return false;
+        const FCapturedGraphPin CapturedPin(Pin);
         TArray<UEdGraphPin*> Linked = Pin->LinkedTo;
-        Pin->GetOwningNode()->Modify();
+        if (UEdGraphNode* Owner = CapturedPin.Owner.Get()) Owner->Modify();
+        MarkCapturedPinTouched(State, CapturedPin);
         for (UEdGraphPin* Other : Linked)
         {
             if (Other != nullptr)
             {
-                Other->GetOwningNode()->Modify();
-                State.TouchedPins.Add(Other);
-                State.TouchedNodes.Add(Other->GetOwningNode());
+                const FCapturedGraphPin CapturedOther(Other);
+                if (UEdGraphNode* Owner = CapturedOther.Owner.Get()) Owner->Modify();
+                MarkCapturedPinTouched(State, CapturedOther);
             }
         }
         Schema->BreakPinLinks(*Pin, true);
-        State.TouchedPins.Add(Pin);
-        State.TouchedNodes.Add(Pin->GetOwningNode());
         ++State.ChangedOps;
     }
     return true;
@@ -1170,6 +1203,7 @@ bool SetPinField(FPatchState& State, UEdGraphPin* Pin, const FString& Field, con
     }
 
     const UEdGraphSchema* Schema = Pin->GetSchema();
+    const FCapturedGraphPin CapturedPin(Pin);
     if (Field == TEXT("DefaultValue"))
     {
         const FString NewValue = bReset ? Pin->AutogeneratedDefaultValue : Text;
@@ -1221,8 +1255,7 @@ bool SetPinField(FPatchState& State, UEdGraphPin* Pin, const FString& Field, con
         OutError = TEXT("Structural Pin flags are readable native state, not generic writable fields.");
         return false;
     }
-    State.TouchedPins.Add(Pin);
-    State.TouchedNodes.Add(Pin->GetOwningNode());
+    MarkCapturedPinTouched(State, CapturedPin);
     ++State.ChangedOps;
     return true;
 }
@@ -1664,6 +1697,18 @@ bool HandleInsert(FPatchState& State, const TSharedPtr<FJsonObject>& Operation)
     }
     UEdGraphNode* NewNode = MaterializeDefinition(State, Alias, TEXT("insert"));
     if (NewNode == nullptr) return false;
+    From = nullptr;
+    To = nullptr;
+    if (!ResolvePinRef(State, FromRef, TEXT("insert"), From)
+        || !ResolvePinRef(State, ToRef, TEXT("insert"), To))
+    {
+        return false;
+    }
+    if (!PinsAreLinked(From, To))
+    {
+        AddPatchError(State, TEXT("resolution.edge_not_found"), TEXT("The Edge selected for insert changed while the Node was materialized."), TEXT("insert"));
+        return false;
+    }
     UEdGraphPin* Input = nullptr;
     UEdGraphPin* Output = nullptr;
     if (!ResolvePinRef(State, InputRef, TEXT("insert"), Input) || !ResolvePinRef(State, OutputRef, TEXT("insert"), Output)) return false;
@@ -1677,13 +1722,48 @@ bool HandleInsert(FPatchState& State, const TSharedPtr<FJsonObject>& Operation)
     {
         const UEdGraphSchema* Schema = From->GetSchema();
         if (Schema == nullptr) return false;
+        const FCapturedGraphPin CapturedFrom(From);
+        const FCapturedGraphPin CapturedTo(To);
+        if (UEdGraphNode* Owner = CapturedFrom.Owner.Get()) Owner->Modify();
+        if (UEdGraphNode* Owner = CapturedTo.Owner.Get()) Owner->Modify();
         Schema->BreakSinglePinLink(From, To);
-        if (!ApplyConnect(State, From, Input, TEXT("insert")) || !ApplyConnect(State, Output, To, TEXT("insert")))
+        MarkCapturedPinTouched(State, CapturedFrom);
+        MarkCapturedPinTouched(State, CapturedTo);
+
+        auto RestoreOriginalEdge = [&State, &FromRef, &ToRef, NewNode]()
         {
-            // All compatibility checks ran before the old Edge was broken. Restore it if an
-            // unexpected native apply failure still occurs.
-            Schema->TryCreateConnection(From, To);
-            if (NewNode->CanUserDeleteNode()) FBlueprintEditorUtils::RemoveNode(State.Target.Blueprint, NewNode, true);
+            if (IsValid(NewNode) && NewNode->CanUserDeleteNode())
+            {
+                FBlueprintEditorUtils::RemoveNode(State.Target.Blueprint, NewNode, true);
+            }
+            UEdGraphPin* RestoreFrom = ResolveSimpleRef(State, FromRef).Pin;
+            UEdGraphPin* RestoreTo = ResolveSimpleRef(State, ToRef).Pin;
+            const UEdGraphSchema* RestoreSchema = RestoreFrom != nullptr ? RestoreFrom->GetSchema() : nullptr;
+            if (RestoreSchema != nullptr && RestoreTo != nullptr)
+            {
+                // Restoration is best effort; the outer atomic transaction remains the
+                // authority if a native apply diverges from successful preflight.
+                RestoreSchema->TryCreateConnection(RestoreFrom, RestoreTo);
+            }
+        };
+
+        From = nullptr;
+        Input = nullptr;
+        if (!ResolvePinRef(State, FromRef, TEXT("insert"), From)
+            || !ResolvePinRef(State, InputRef, TEXT("insert"), Input)
+            || !ApplyConnect(State, From, Input, TEXT("insert")))
+        {
+            RestoreOriginalEdge();
+            return false;
+        }
+
+        Output = nullptr;
+        To = nullptr;
+        if (!ResolvePinRef(State, OutputRef, TEXT("insert"), Output)
+            || !ResolvePinRef(State, ToRef, TEXT("insert"), To)
+            || !ApplyConnect(State, Output, To, TEXT("insert")))
+        {
+            RestoreOriginalEdge();
             return false;
         }
     }
@@ -1774,7 +1854,7 @@ bool BindInvokeOutputs(
             return false;
         }
         UsedPins.Add(Match);
-        State.LocalPins.Add(Alias, Match);
+        State.LocalPins.Add(Alias, FEdGraphPinReference(Match));
         if (State.bApply)
         {
             State.ResolvedRefs->SetObjectField(
@@ -3326,7 +3406,7 @@ TSharedPtr<FJsonObject> BuildGraphPlan(
                 UEdGraphPin* SandboxPin = SandboxOwner != nullptr
                     ? SandboxOwner->FindPinById(LivePin->PinId)
                     : nullptr;
-                if (SandboxPin != nullptr && Preflight.TouchedPins.Contains(SandboxPin))
+                if (SandboxPin != nullptr && Preflight.TouchedPins.Contains(FEdGraphPinReference(SandboxPin)))
                 {
                     Effects.Add(MakeShared<FJsonValueString>(TEXT("touched @") + PinIdentityPath(LivePin)));
                 }

@@ -328,6 +328,26 @@ The test uses a real rendered standalone Blueprint window and verifies fixture
 cleanup after closing it. Widget Designer and Details-panel focus/selection
 recovery remain the primary Editor Context coverage gaps.
 
+## Graph Pin Lifetime Audit
+
+The August 7 UE 5.7 arm64 audit adds
+`Loomle.Sal.Robustness.Graph.PinLifetimeDisconnect` for the native Pin
+reconstruction reported in issue 185. Its fixture connects a typed array and an
+execution Edge to `ForEachLoopWithBreak`, whose disconnect callback
+synchronously reconstructs the macro instance. The test proves that:
+
+- one stable-reference disconnect dry-run completes without a crash and leaves
+  the source Edge, Node count, Package dirty state, and transaction history
+  unchanged;
+- an ordered disconnect/reconnect dry-run re-resolves the reconstructed Pins
+  between statements; and
+- live disconnect applies as one transaction and one Undo restores the Edge.
+
+The same-source incremental arm64 build succeeded. Targeted validation passed
+the new regression 1/1, all eight `Loomle.Sal.Robustness.Graph` tests, Graph
+dry-run sandbox isolation 1/1, and both normalized public Patch dry-run tests.
+This was a focused regression audit rather than a complete native-suite run.
+
 ## Release Gate
 
 An active public operation must have a matrix entry and a named native test.

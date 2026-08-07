@@ -30,6 +30,13 @@ Mutation tools should follow this internal path:
 Real edits and dry runs should share steps 1-4. The real edit path should not
 re-interpret the original request differently from the dry-run path.
 
+Native UE edit and validation calls are object-lifecycle boundaries. A call may
+synchronously reconstruct or remove Nodes, Pins, or other provisional objects
+before returning. Planning code may retain stable identity and an owner captured
+before the call, but it must not dereference a pre-call raw object pointer after
+the boundary. A later operation re-resolves the current object; failure to do so
+returns a structured diagnostic rather than an assertion or process exit.
+
 Code should route mutation responses through the shared `LoomleMutation` helper
 in `engine/LoomleBridge/Source/LoomleBridge/Private/LoomleMutationResult.h`
 rather than rebuilding `isError`, `valid`, `applied`, `planned`,
