@@ -40,6 +40,7 @@
 #include "K2Node_BaseMCDelegate.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_CommutativeAssociativeBinaryOperator.h"
+#include "K2Node_ComponentBoundEvent.h"
 #include "K2Node_Composite.h"
 #include "K2Node_CustomEvent.h"
 #include "K2Node_DoOnceMultiInput.h"
@@ -109,7 +110,14 @@ TSharedPtr<FEdGraphSchemaAction> RetargetPaletteAction(
     const TSharedPtr<FEdGraphSchemaAction>& Action,
     const FSalResolvedTarget& CapabilityTarget,
     const FSalResolvedTarget& MutationTarget);
-UEdGraphNode* TemplateForAction(const TSharedPtr<FEdGraphSchemaAction>& Action, UEdGraph* Graph);
+UEdGraphNode* TemplateForAction(
+    const TSharedPtr<FEdGraphSchemaAction>& Action,
+    UEdGraph* Graph,
+    const TArray<FFieldVariant>* SelectedObjects = nullptr);
+UEdGraphNode* TemplateForPaletteAction(
+    const TSharedPtr<FEdGraphSchemaAction>& Action,
+    const FSalResolvedTarget& Target,
+    const FString& Palette);
 bool ImportPinType(const FString& Text, FEdGraphPinType& OutType);
 bool IsExecPin(const UEdGraphPin* Pin);
 FString GraphPlanRef(const TSharedPtr<FJsonObject>& Ref);
@@ -646,7 +654,10 @@ bool RegisterDefinition(FPatchState& State, const TSharedPtr<FJsonObject>& Bindi
             CapabilityAction,
             State.CapabilityTarget,
             State.Target);
-    UEdGraphNode* Template = TemplateForAction(Action, State.Target.Graph);
+    UEdGraphNode* Template = TemplateForPaletteAction(
+        Action,
+        State.Target,
+        Palette);
     if (!Action.IsValid() || Template == nullptr)
     {
         AddPatchError(
@@ -5968,6 +5979,68 @@ void BuildActionMenu(
     {
         Target.Graph->GetSchema()->InsertAdditionalActions(Context.Blueprints, Context.Graphs, Context.Pins, Builder);
     }
+
+    UWidgetBlueprint* WidgetBlueprint =
+        Cast<UWidgetBlueprint>(Target.Blueprint);
+    FObjectProperty* WidgetProperty =
+        SelectedObjects.Num() == 1
+            ? CastField<FObjectProperty>(
+                SelectedObjects[0].ToField())
+            : nullptr;
+    UClass* WidgetClass =
+        WidgetProperty != nullptr
+            ? WidgetProperty->PropertyClass
+            : nullptr;
+    const UEdGraphSchema_K2* K2Schema =
+        Cast<UEdGraphSchema_K2>(
+            Target.Graph != nullptr
+                ? Target.Graph->GetSchema()
+                : nullptr);
+    if (WidgetBlueprint == nullptr
+        || WidgetClass == nullptr
+        || !WidgetClass->IsChildOf<UWidget>()
+        || K2Schema == nullptr
+        || K2Schema->GetGraphType(Target.Graph) != GT_Ubergraph)
+    {
+        return;
+    }
+
+    IBlueprintNodeBinder::FBindingSet Bindings;
+    Bindings.Add(FBindingObject(WidgetProperty));
+    for (TFieldIterator<FMulticastDelegateProperty> PropertyIt(
+             WidgetClass,
+             EFieldIteratorFlags::IncludeSuper);
+         PropertyIt;
+         ++PropertyIt)
+    {
+        FMulticastDelegateProperty* Delegate = *PropertyIt;
+        if (Delegate == nullptr
+            || !K2Schema->CanUserKismetAccessVariable(
+                Delegate,
+                WidgetClass,
+                UEdGraphSchema_K2::MustBeDelegate))
+        {
+            continue;
+        }
+        UBlueprintBoundEventNodeSpawner* Spawner =
+            UBlueprintBoundEventNodeSpawner::Create(
+                UK2Node_ComponentBoundEvent::StaticClass(),
+                Delegate);
+        if (Spawner == nullptr
+            || !Spawner->IsBindingCompatible(
+                FBindingObject(WidgetProperty)))
+        {
+            continue;
+        }
+        const FBlueprintActionUiSpec UiSpec =
+            Spawner->GetUiSpec(Context, Bindings);
+        Builder.AddAction(
+            MakeShared<FBlueprintActionMenuItem>(
+                Spawner,
+                UiSpec,
+                Bindings,
+                UiSpec.Category));
+    }
 }
 
 FString VariablePaletteActionToken(
@@ -6155,9 +6228,16 @@ void BuildActionFilterTerms(
     for (FString& Term : OutTerms)
     {
         Term.ToLowerInline();
-        FString Sanitized =
-            FName::NameToDisplayString(Term, false);
-        Sanitized.ReplaceInline(TEXT(" "), TEXT(""));
+        FString Sanitized;
+        Sanitized.Reserve(Term.Len());
+        for (const TCHAR Character : Term)
+        {
+            if (FChar::IsAlnum(Character))
+            {
+                Sanitized.AppendChar(
+                    FChar::ToLower(Character));
+            }
+        }
         OutSanitizedTerms.Add(MoveTemp(Sanitized));
     }
 }
@@ -6172,10 +6252,29 @@ bool ActionMatches(
         return false;
     }
     const FString& SearchText = Action->GetFullSearchText();
+    FString SanitizedSearchText;
     for (int32 Index = 0; Index < Terms.Num(); ++Index)
     {
-        if (!SearchText.Contains(Terms[Index], ESearchCase::CaseSensitive)
-            && !SearchText.Contains(
+        if (SearchText.Contains(
+                Terms[Index],
+                ESearchCase::CaseSensitive))
+        {
+            continue;
+        }
+        if (SanitizedSearchText.IsEmpty())
+        {
+            SanitizedSearchText.Reserve(SearchText.Len());
+            for (const TCHAR Character : SearchText)
+            {
+                if (FChar::IsAlnum(Character))
+                {
+                    SanitizedSearchText.AppendChar(
+                        FChar::ToLower(Character));
+                }
+            }
+        }
+        if (SanitizedTerms[Index].IsEmpty()
+            || !SanitizedSearchText.Contains(
                 SanitizedTerms[Index],
                 ESearchCase::CaseSensitive))
         {
@@ -6397,7 +6496,10 @@ TSharedPtr<FEdGraphSchemaAction> RetargetPaletteAction(
     return Action;
 }
 
-UEdGraphNode* TemplateForAction(const TSharedPtr<FEdGraphSchemaAction>& Action, UEdGraph* Graph)
+UEdGraphNode* TemplateForAction(
+    const TSharedPtr<FEdGraphSchemaAction>& Action,
+    UEdGraph* Graph,
+    const TArray<FFieldVariant>* SelectedObjects)
 {
     if (!Action.IsValid() || Action->GetTypeId() != FBlueprintActionMenuItem::StaticGetTypeId())
     {
@@ -6416,7 +6518,37 @@ UEdGraphNode* TemplateForAction(const TSharedPtr<FEdGraphSchemaAction>& Action, 
         && Cast<UBlueprintGeneratedClass>(
             Function->GetOwnerClass()) != nullptr;
     UEdGraphNode* Template = nullptr;
-    if (Spawner != nullptr
+    if (Cast<UBlueprintBoundEventNodeSpawner>(Spawner) != nullptr
+        && SelectedObjects != nullptr
+        && !SelectedObjects->IsEmpty()
+        && Graph != nullptr)
+    {
+        IBlueprintNodeBinder::FBindingSet Bindings;
+        for (const FFieldVariant& SelectedObject :
+             *SelectedObjects)
+        {
+            Bindings.Add(FBindingObject(SelectedObject));
+        }
+        UBlueprint* Blueprint =
+            FBlueprintEditorUtils::FindBlueprintForGraph(Graph);
+        UEdGraph* TemplateGraph =
+            Blueprint != nullptr
+                ? NewObject<UEdGraph>(
+                    Blueprint,
+                    Graph->GetClass(),
+                    NAME_None,
+                    RF_Transient)
+                : nullptr;
+        if (TemplateGraph != nullptr)
+        {
+            TemplateGraph->Schema = Graph->Schema;
+            Template = Spawner->Invoke(
+                TemplateGraph,
+                Bindings,
+                FVector2D::ZeroVector);
+        }
+    }
+    else if (Spawner != nullptr
         && Graph != nullptr
         && Graph->IsIn(GetTransientPackage())
         && (Cast<UBlueprintVariableNodeSpawner>(Spawner) != nullptr
@@ -6441,6 +6573,30 @@ UEdGraphNode* TemplateForAction(const TSharedPtr<FEdGraphSchemaAction>& Action, 
         Template->AllocateDefaultPins();
     }
     return Template;
+}
+
+UEdGraphNode* TemplateForPaletteAction(
+    const TSharedPtr<FEdGraphSchemaAction>& Action,
+    const FSalResolvedTarget& Target,
+    const FString& Palette)
+{
+    FString Token;
+    FString Descriptor;
+    FPaletteContextData Context;
+    FString Message;
+    if (SplitPaletteId(Palette, Token, Descriptor)
+        && BuildPaletteContextFromDescriptor(
+            Target,
+            Descriptor,
+            Context,
+            Message))
+    {
+        return TemplateForAction(
+            Action,
+            Target.Graph,
+            &Context.SelectedObjects);
+    }
+    return TemplateForAction(Action, Target.Graph);
 }
 
 const UK2Node_Event* ExistingBoundEvent(
@@ -6584,7 +6740,8 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
         {
             Template = TemplateForAction(
                 Action,
-                Target.Graph);
+                Target.Graph,
+                &Context.SelectedObjects);
         }
         const float Weight = FilterTerms.IsEmpty() || ActionSchema == nullptr
             ? 0.0f
@@ -6673,7 +6830,8 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
                 ? Match.Template
                 : TemplateForAction(
                     Match.Action,
-                    Target.Graph);
+                    Target.Graph,
+                    &Context.SelectedObjects);
         const FString Alias = Out.UniqueAlias(Label.IsEmpty() ? TEXT("entry") : Label);
         TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
         Args->SetStringField(TEXT("palette"), PaletteId(Match.Action, Context.Descriptor));
@@ -7697,6 +7855,27 @@ bool FSalGraphInterface::LowerStableReference(
                     if (Component != nullptr && Component->VariableGuid == FirstGuid)
                     {
                         Candidates.Add({TEXT("owner_component"), GuidText(FirstGuid)});
+                    }
+                }
+            }
+            if (UWidgetBlueprint* WidgetBlueprint =
+                    Cast<UWidgetBlueprint>(Target.Blueprint))
+            {
+                for (UWidget* Widget :
+                     WidgetBlueprint->GetAllSourceWidgets())
+                {
+                    const FGuid* WidgetGuid =
+                        Widget != nullptr
+                            ? WidgetBlueprint
+                                ->WidgetVariableNameToGuidMap.Find(
+                                    Widget->GetFName())
+                            : nullptr;
+                    if (WidgetGuid != nullptr
+                        && *WidgetGuid == FirstGuid)
+                    {
+                        Candidates.Add({
+                            TEXT("widget"),
+                            GuidText(FirstGuid)});
                     }
                 }
             }

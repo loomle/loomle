@@ -1273,7 +1273,7 @@ the Target shape or introduce a nested Domain.
 | Asset | none | none |
 | Blueprint | combined Variable, Dispatcher, Graph, SCS Component, and referenceable Node sets | `GraphGuid/VarGuid` |
 | Class | none in the current StableRef contract | none |
-| Graph | current-Graph Nodes plus explicitly declared owning-Blueprint declarations and, for a top-level Function Graph, its local Variables | `NodeGuid/PinId`; an outer top-level Function scope uses `GraphGuid/VarGuid` |
+| Graph | current-Graph Nodes plus explicitly declared owning-Blueprint declarations; an owning Widget Blueprint also contributes authored Widgets for Widget-event Palette context; a top-level Function Graph contributes its local Variables | `NodeGuid/PinId`; an outer top-level Function scope uses `GraphGuid/VarGuid` |
 | StateTree | combined State, Node, Transition, and Context sets | `ContainerGuid/PropertyGuid` |
 | Widget | authored Widgets only | none currently |
 
@@ -1283,6 +1283,13 @@ declared by the active Domain.
 Graph's owning-Blueprint declarations are read and relationship capabilities
 of Graph Domain. They do not authorize Blueprint mutation. Widget Domain does
 not inherit Blueprint Domain identity sets.
+
+When the owning Blueprint is a Widget Blueprint, Graph Domain accepts one
+unique authored `@WidgetGuid` as the object context of `palette entries ...
+where widget = ...`. This is the explicit Widget-to-Graph event handoff
+advertised by Widget schema. It neither makes the Widget Graph-owned nor
+authorizes Widget mutation; the reference is consumed only as native Palette
+selection context, and duplicate identity still fails closed.
 
 ### Operation Ownership
 

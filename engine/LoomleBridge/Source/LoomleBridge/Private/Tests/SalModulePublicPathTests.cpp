@@ -9,6 +9,7 @@
 #include "SalStateTreeTestSchema.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "BlueprintActionDatabase.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetBlueprintGeneratedClass.h"
 #include "Blueprint/WidgetTree.h"
@@ -429,6 +430,94 @@ FString PublicPathFirstPaletteId(
         }
     }
     return FString();
+}
+
+FString PublicPathPaletteIdForType(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& ExpectedType)
+{
+    const TSharedPtr<FJsonObject>* Object = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* Statements = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetObjectField(TEXT("object"), Object)
+        || Object == nullptr
+        || !(*Object)->TryGetArrayField(TEXT("statements"), Statements)
+        || Statements == nullptr)
+    {
+        return FString();
+    }
+    for (const TSharedPtr<FJsonValue>& Value : *Statements)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        const TSharedPtr<FJsonObject>* Expression = nullptr;
+        const TSharedPtr<FJsonObject>* Fields = nullptr;
+        FString Type;
+        FString Palette;
+        if (Value.IsValid()
+            && Value->TryGetObject(Statement)
+            && Statement != nullptr
+            && (*Statement)->TryGetObjectField(
+                TEXT("value"),
+                Expression)
+            && Expression != nullptr
+            && (*Expression)->TryGetObjectField(
+                TEXT("fields"),
+                Fields)
+            && Fields != nullptr
+            && (*Fields)->TryGetStringField(TEXT("type"), Type)
+            && Type == ExpectedType
+            && (*Fields)->TryGetStringField(
+                TEXT("palette"),
+                Palette)
+            && !Palette.IsEmpty())
+        {
+            return Palette;
+        }
+    }
+    return FString();
+}
+
+FString PublicPathPaletteEntriesSummary(
+    const TSharedPtr<FJsonObject>& Result)
+{
+    const TSharedPtr<FJsonObject>* Object = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* Statements = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetObjectField(TEXT("object"), Object)
+        || Object == nullptr
+        || !(*Object)->TryGetArrayField(TEXT("statements"), Statements)
+        || Statements == nullptr)
+    {
+        return TEXT("<missing statements>");
+    }
+    TArray<FString> Entries;
+    for (const TSharedPtr<FJsonValue>& Value : *Statements)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        const TSharedPtr<FJsonObject>* Expression = nullptr;
+        const TSharedPtr<FJsonObject>* Fields = nullptr;
+        FString Type;
+        FString Palette;
+        if (Value.IsValid()
+            && Value->TryGetObject(Statement)
+            && Statement != nullptr
+            && (*Statement)->TryGetObjectField(
+                TEXT("value"),
+                Expression)
+            && Expression != nullptr
+            && (*Expression)->TryGetObjectField(
+                TEXT("fields"),
+                Fields)
+            && Fields != nullptr
+            && (*Fields)->TryGetStringField(TEXT("palette"), Palette))
+        {
+            (*Fields)->TryGetStringField(TEXT("type"), Type);
+            Entries.Add(Type + TEXT(" | ") + Palette);
+        }
+    }
+    return Entries.IsEmpty()
+        ? TEXT("<none>")
+        : FString::Join(Entries, TEXT(" || "));
 }
 
 TSharedRef<FJsonObject> PublicPathClassDefaultDryRunArguments(
@@ -1265,6 +1354,16 @@ public:
                 Root->bIsVariable = false;
                 Blueprint->WidgetTree->RootWidget = Root;
                 Blueprint->OnVariableAdded(RootName);
+                EventButton = Blueprint->WidgetTree
+                    ->ConstructWidget<UButton>(
+                        UButton::StaticClass(),
+                        EventButtonName);
+                if (EventButton != nullptr)
+                {
+                    EventButton->bIsVariable = true;
+                    Root->AddChild(EventButton);
+                    Blueprint->OnVariableAdded(EventButtonName);
+                }
                 FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(
                     Blueprint);
                 FKismetEditorUtilities::CompileBlueprint(Blueprint);
@@ -1273,6 +1372,14 @@ public:
                 RootId =
                     Blueprint->WidgetVariableNameToGuidMap.FindRef(
                         RootName);
+                EventButton = Cast<UButton>(
+                    Blueprint->WidgetTree->FindWidget(
+                        EventButtonName));
+                EventButtonId =
+                    Blueprint->WidgetVariableNameToGuidMap.FindRef(
+                        EventButtonName);
+                FBlueprintActionDatabase::Get().RefreshAssetActions(
+                    Blueprint);
             }
         }
         if (Package != nullptr)
@@ -1298,8 +1405,14 @@ public:
         UPackage* PackageToUnload = Package;
         if (Blueprint != nullptr)
         {
+            FBlueprintActionDatabase::Get().ClearAssetActions(
+                Blueprint);
+        }
+        if (Blueprint != nullptr)
+        {
             Blueprint->ClearFlags(RF_Public | RF_Standalone);
         }
+        EventButton = nullptr;
         Root = nullptr;
         EventGraph = nullptr;
         Blueprint = nullptr;
@@ -1314,6 +1427,8 @@ public:
         return Blueprint != nullptr
             && Root != nullptr
             && RootId.IsValid()
+            && EventButton != nullptr
+            && EventButtonId.IsValid()
             && EventGraph != nullptr
             && EventGraph->GraphGuid.IsValid()
             && Blueprint->GeneratedClass != nullptr
@@ -1321,11 +1436,14 @@ public:
     }
 
     static const FName RootName;
+    static const FName EventButtonName;
     UPackage* Package = nullptr;
     UWidgetBlueprint* Blueprint = nullptr;
     UCanvasPanel* Root = nullptr;
+    UButton* EventButton = nullptr;
     UEdGraph* EventGraph = nullptr;
     FGuid RootId;
+    FGuid EventButtonId;
 
 private:
     bool bCleaned = false;
@@ -1333,6 +1451,8 @@ private:
 
 const FName FPublicPathWidgetFixture::RootName(
     TEXT("PublicPathRoot"));
+const FName FPublicPathWidgetFixture::EventButtonName(
+    TEXT("PublicPathEventButton"));
 
 class FPublicPathStateTreeFixture
 {
@@ -1907,7 +2027,7 @@ bool FSalModuleQueryRoutingMatrixTest::RunTest(
         PublicPathHasError(Widget));
     TestTrue(
         TEXT("Composed Widget Query reports authored Widget counts"),
-        PublicPathHasComment(Widget, TEXT("widgets: 1")));
+        PublicPathHasComment(Widget, TEXT("widgets: 2")));
 
     TSharedRef<FJsonObject> WidgetSchemaArguments =
         PublicPathQueryArguments(
@@ -1974,7 +2094,7 @@ bool FSalModuleQueryRoutingMatrixTest::RunTest(
         PublicPathHasError(WidgetAsBlueprint));
     TestFalse(
         TEXT("Blueprint Domain does not implicitly compose Widget summary"),
-        PublicPathHasComment(WidgetAsBlueprint, TEXT("widgets: 1")));
+        PublicPathHasComment(WidgetAsBlueprint, TEXT("widgets:")));
 
     const TSharedPtr<FJsonObject> StateTreeAsAsset =
         FSalModule::BuildQueryResult(
@@ -2040,6 +2160,150 @@ bool FSalModuleQueryRoutingMatrixTest::RunTest(
                 *ValidationError),
             bValid);
     }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalModuleWidgetEventPaletteStableReferencePublicPathTest,
+    "Loomle.Sal.PublicPath.Query.WidgetEventPaletteStableReference",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalModuleWidgetEventPaletteStableReferencePublicPathTest::RunTest(
+    const FString& Parameters)
+{
+    if (GEditor == nullptr
+        || GEditor->IsPlaySessionInProgress()
+        || GEditor->IsTransactionActive())
+    {
+        AddError(
+            TEXT("Widget event Palette regression requires an idle Editor outside PIE and transactions."));
+        return false;
+    }
+
+    FPublicPathWidgetFixture Fixture;
+    if (!TestTrue(
+            TEXT("Widget event Palette fixture is valid"),
+            Fixture.IsValid()))
+    {
+        return false;
+    }
+
+    TSharedRef<FJsonObject> Operation =
+        PublicPathOperation(TEXT("palette_entries"));
+    Operation->SetStringField(TEXT("text"), TEXT("OnClicked"));
+    TSharedRef<FJsonObject> Where = MakeShared<FJsonObject>();
+    Where->SetStringField(TEXT("kind"), TEXT("eq"));
+    TSharedRef<FJsonObject> WidgetField = MakeShared<FJsonObject>();
+    WidgetField->SetArrayField(
+        TEXT("path"),
+        {MakeShared<FJsonValueString>(TEXT("widget"))});
+    Where->SetObjectField(TEXT("field"), WidgetField);
+    Where->SetObjectField(
+        TEXT("value"),
+        PublicPathStableReference(
+            FString(),
+            Fixture.EventButtonId));
+    TSharedRef<FJsonObject> QueryArguments =
+        PublicPathQueryArguments(
+            TEXT("event_graph"),
+            PublicPathGraphCall(
+                Fixture.Blueprint->GetPathName(),
+                Fixture.Blueprint->GetBlueprintGuid(),
+                Fixture.EventGraph),
+            Operation);
+    QueryArguments->GetObjectField(TEXT("object"))
+        ->SetObjectField(TEXT("where"), Where);
+
+    const TSharedPtr<FJsonObject> Palette =
+        FSalModule::BuildQueryResult(QueryArguments);
+    TestFalse(
+        *FString::Printf(
+            TEXT("Graph accepts the owning WidgetBlueprint WidgetGuid as Palette context: %s"),
+            *PublicPathDiagnosticSummary(Palette)),
+        PublicPathHasError(Palette));
+    const FString EventPaletteId =
+        PublicPathPaletteIdForType(
+            Palette,
+            TEXT("/Script/BlueprintGraph.K2Node_ComponentBoundEvent"));
+    TestFalse(
+        *FString::Printf(
+            TEXT("Contextual OnClicked discovery returns a ComponentBoundEvent Palette entry: %s"),
+            *PublicPathPaletteEntriesSummary(Palette)),
+        EventPaletteId.IsEmpty());
+    TestTrue(
+        TEXT("OnClicked Palette identity preserves its Widget context descriptor"),
+        EventPaletteId.Contains(
+            TEXT(";widget.")
+            + Fixture.EventButtonId.ToString(
+                EGuidFormats::DigitsWithHyphensLower)));
+    if (EventPaletteId.IsEmpty())
+    {
+        return false;
+    }
+
+    TSharedRef<FJsonObject> CreationFields =
+        MakeShared<FJsonObject>();
+    CreationFields->SetStringField(
+        TEXT("palette"),
+        EventPaletteId);
+    const TSharedRef<FJsonObject> CreationTarget =
+        PublicPathLocalReference(TEXT("button_clicked"));
+    const int32 OriginalNodeCount =
+        Fixture.EventGraph->Nodes.Num();
+    const bool bDirtyBefore = Fixture.Package->IsDirty();
+    const TSharedPtr<FJsonObject> DryRun =
+        FSalModule::BuildPatchResult(
+            PublicPathPatchArguments(
+                TEXT("event_graph"),
+                PublicPathGraphCall(
+                    Fixture.Blueprint->GetPathName(),
+                    Fixture.Blueprint->GetBlueprintGuid(),
+                    Fixture.EventGraph),
+                {
+                    PublicPathStatement(
+                        PublicPathCreationBinding(
+                            CreationTarget,
+                            CreationFields)),
+                    PublicPathStatement(
+                        PublicPathAddStatement(
+                            CreationTarget))
+                }));
+    TestTrue(
+        *FString::Printf(
+            TEXT("Schema-advertised OnClicked Palette entry supports creation-only dry run: %s"),
+            *PublicPathDiagnosticSummary(DryRun)),
+        PublicPathResultBool(DryRun, TEXT("valid"))
+            && PublicPathResultBool(DryRun, TEXT("dryRun"))
+            && !PublicPathResultBool(
+                DryRun,
+                TEXT("applied"),
+                true));
+    TestEqual(
+        TEXT("OnClicked dry run preserves the live EventGraph"),
+        Fixture.EventGraph->Nodes.Num(),
+        OriginalNodeCount);
+    TestEqual(
+        TEXT("OnClicked dry run preserves Package dirty state"),
+        Fixture.Package->IsDirty(),
+        bDirtyBefore);
+
+    FString PaletteValidation;
+    FString DryRunValidation;
+    TestTrue(
+        *FString::Printf(
+            TEXT("Widget event Palette result satisfies the outgoing contract: %s"),
+            *PaletteValidation),
+        IsValidPublicPathOutgoingResult(
+            Palette,
+            PaletteValidation));
+    TestTrue(
+        *FString::Printf(
+            TEXT("Widget event dry-run result satisfies the outgoing contract: %s"),
+            *DryRunValidation),
+        IsValidPublicPathOutgoingResult(
+            DryRun,
+            DryRunValidation));
     return true;
 }
 
