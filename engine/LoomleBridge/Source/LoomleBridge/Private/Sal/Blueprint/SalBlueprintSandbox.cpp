@@ -1040,6 +1040,42 @@ void MarkTransientSandboxOwnedObjects(UObject* Root)
         true);
 #endif
 }
+
+class FScopedBlueprintDuplicationSourceRetention
+{
+public:
+    explicit FScopedBlueprintDuplicationSourceRetention(
+        UBlueprint* Source)
+    {
+        if (Source == nullptr)
+        {
+            return;
+        }
+        RetainedObjects.Emplace(Source);
+        ForEachObjectWithOuter(
+            Source,
+            [this](UObject* Object)
+            {
+                if (Object != nullptr)
+                {
+                    RetainedObjects.Emplace(Object);
+                }
+            },
+#if UE_VERSION_NEWER_THAN_OR_EQUAL(5, 8, 0)
+            EGetObjectsFlags::IncludeNestedObjects);
+#else
+            true);
+#endif
+    }
+
+private:
+    // StaticDuplicateObject retains a non-auto-removing annotation for every
+    // duplicated source object until all duplicate PostDuplicate callbacks
+    // finish. Blueprint PostDuplicate can synchronously compile and collect
+    // garbage, so every possible annotation key needs external lifetime
+    // assurance for the exact duration of that native call.
+    TArray<TStrongObjectPtr<UObject>> RetainedObjects;
+};
 }
 
 bool ValidateBlueprintModificationClassState(
@@ -1132,6 +1168,8 @@ TStrongObjectPtr<UBlueprint> MakeBlueprintSandbox(
             | FBlueprintDuplicationScopeFlags::TheSameNodeGuid
             | FBlueprintDuplicationScopeFlags::
                 ValidatePinsUsingSourceClass);
+        const FScopedBlueprintDuplicationSourceRetention
+            RetainDuplicationSourceObjects(Source);
         Copy = Cast<UBlueprint>(StaticDuplicateObject(
             Source,
             TransientPackage,

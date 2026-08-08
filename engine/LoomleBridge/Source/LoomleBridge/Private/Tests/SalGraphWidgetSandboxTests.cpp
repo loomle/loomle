@@ -5,6 +5,7 @@
 #include "Sal/Graph/SalGraphInterface.h"
 #include "Sal/Widget/SalWidgetInterface.h"
 #include "LoomleTestObjectIteration.h"
+#include "SalWidgetBlueprintDuplicationGCTestTypes.h"
 
 #include "Animation/WidgetAnimation.h"
 #include "Blueprint/BlueprintExtension.h"
@@ -1419,6 +1420,143 @@ bool FSalWidgetDryRunSandboxIsolationTest::RunTest(
             *CleanupError),
         bCleaned);
     return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalWidgetSandboxNestedCompilationGCTest,
+    "Loomle.Sal.Graph.Mutation.WidgetSandboxNestedCompilationGC",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalWidgetSandboxNestedCompilationGCTest::RunTest(
+    const FString& Parameters)
+{
+    const FString Token =
+        FGuid::NewGuid().ToString(EGuidFormats::Digits);
+    UPackage* Package = CreatePackage(*FString::Printf(
+        TEXT("/Game/LoomleTests/SalWidgetSandboxGC_%s"),
+        *Token));
+    USalWidgetBlueprintDuplicationGCTest* Blueprint =
+        Cast<USalWidgetBlueprintDuplicationGCTest>(
+            FKismetEditorUtilities::CreateBlueprint(
+                UUserWidget::StaticClass(),
+                Package,
+                *FString::Printf(
+                    TEXT("WBP_SandboxGC_%s"),
+                    *Token),
+                BPTYPE_Normal,
+                USalWidgetBlueprintDuplicationGCTest::StaticClass(),
+                UWidgetBlueprintGeneratedClass::StaticClass(),
+                NAME_None));
+    USalWidgetBlueprintDuplicationGCProbe* CollectionProbe = nullptr;
+    ON_SCOPE_EXIT
+    {
+        USalWidgetBlueprintDuplicationGCTest::DisarmSourceRelease();
+        if (Blueprint != nullptr
+            && IsValid(CollectionProbe))
+        {
+            Blueprint->CollectionProbe = CollectionProbe;
+        }
+        UPackage* PackageToUnload = Package;
+        if (Blueprint != nullptr)
+        {
+            Blueprint->ClearFlags(RF_Public | RF_Standalone);
+        }
+        CollectionProbe = nullptr;
+        Blueprint = nullptr;
+        Package = nullptr;
+        FString CleanupError;
+        const bool bCleaned = UnloadSandboxTestPackage(
+            PackageToUnload,
+            CleanupError);
+        TestTrue(
+            *FString::Printf(
+                TEXT("Widget nested-GC fixture unloads cleanly: %s"),
+                *CleanupError),
+            bCleaned);
+    };
+
+    TestNotNull(
+        TEXT("Widget nested-GC Blueprint exists"),
+        Blueprint);
+    if (Blueprint == nullptr)
+    {
+        return false;
+    }
+    UEdGraph* Graph =
+        FBlueprintEditorUtils::FindEventGraph(Blueprint);
+    CollectionProbe = NewObject<
+        USalWidgetBlueprintDuplicationGCProbe>(
+        Blueprint,
+        TEXT("AnnotatedCollectionProbe"),
+        RF_Transactional);
+    Blueprint->CollectionProbe = CollectionProbe;
+    if (Package != nullptr)
+    {
+        Package->SetDirtyFlag(false);
+    }
+    TestNotNull(TEXT("Widget nested-GC Graph exists"), Graph);
+    TestNotNull(
+        TEXT("Widget nested-GC source probe exists"),
+        CollectionProbe);
+    if (Graph == nullptr || CollectionProbe == nullptr)
+    {
+        return false;
+    }
+
+    UClass* SourceClass = Blueprint->GeneratedClass.Get();
+    UObject* SourceCDO =
+        SourceClass != nullptr
+            ? SourceClass->GetDefaultObject(false)
+            : nullptr;
+    USalWidgetBlueprintDuplicationGCTest::ArmSourceRelease(
+        Blueprint);
+    TStrongObjectPtr<UBlueprint> SandboxOwner;
+    FSalResolvedTarget SandboxTarget;
+    FString SandboxError;
+    const bool bBuilt =
+        FSalGraphInterface::BuildSandboxTargetForTesting(
+            GraphTarget(Blueprint, Graph),
+            SandboxOwner,
+            SandboxTarget,
+            SandboxError);
+    USalWidgetBlueprintDuplicationGCTest::DisarmSourceRelease();
+    const bool bProbeSurvived = IsValid(CollectionProbe);
+    if (bProbeSurvived)
+    {
+        Blueprint->CollectionProbe = CollectionProbe;
+    }
+
+    TestTrue(
+        *FString::Printf(
+            TEXT("Widget Graph sandbox survives nested compile-time GC: %s"),
+            *SandboxError),
+        bBuilt);
+    TestTrue(
+        TEXT("Duplicate callback released the source probe before compilation"),
+        USalWidgetBlueprintDuplicationGCTest::WasSourceReleased());
+    TestTrue(
+        TEXT("Source probe survives until duplication annotations are destroyed"),
+        bProbeSurvived);
+    TestTrue(
+        TEXT("Source probe reference is restored"),
+        Blueprint->CollectionProbe == CollectionProbe);
+    TestTrue(
+        TEXT("Nested-GC sandbox preserves source Generated Class"),
+        Blueprint->GeneratedClass == SourceClass);
+    TestTrue(
+        TEXT("Nested-GC sandbox preserves source CDO"),
+        SourceClass != nullptr
+            && SourceClass->GetDefaultObject(false) == SourceCDO);
+    TestFalse(
+        TEXT("Nested-GC sandbox preserves source dirty state"),
+        Package->IsDirty());
+    TestTrue(
+        TEXT("Nested-GC sandbox resolves the copied Graph"),
+        SandboxTarget.Graph != nullptr
+            && SandboxTarget.Graph != Graph
+            && SandboxTarget.Graph->GraphGuid == Graph->GraphGuid);
+    return bBuilt;
 }
 
 #endif

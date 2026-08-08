@@ -225,8 +225,17 @@ is never rewritten. PinId uniqueness is checked within one owning Node,
 matching UE's Pin lookup scope; reuse on another Node or Graph must not block
 unrelated Blueprint, Graph, or Widget preflight. The copied Blueprint is held
 by a strong object reference through the entire preflight and sheds its copied
-standalone flag only after native duplication has completed, so neither
-compile-time GC nor a long Editor session can invalidate or leak the sandbox.
+standalone flag only after native duplication has completed. During
+`StaticDuplicateObject` itself, UE keeps a non-auto-removing source-to-copy
+annotation map alive through every copied object's `PostDuplicate`. Blueprint
+`PostDuplicate` may synchronously compile and collect garbage before that map
+is destroyed. The sandbox must therefore strongly retain the source Blueprint
+and every currently nested source object for exactly the native duplication
+call, then release them only after `StaticDuplicateObject` returns. This keeps
+annotation keys alive without replacing, delaying, or weakening UE's native
+duplication and compilation lifecycle. Together the source-graph guard and the
+copied-Blueprint guard ensure that neither compile-time GC nor a long Editor
+session can invalidate or leak the sandbox.
 Compiler-error status alone is allowed: agents must remain able to repair a
 broken Blueprint.
 
@@ -238,7 +247,10 @@ the valid Classes produced by UE.
 
 Native tests must cover ordinary Blueprint and Widget Blueprint Class Settings,
 dry-run source isolation, real apply and undo, a cold generated Class, and a
-loaded descendant boundary. Graph, Pin, Variable/Dispatcher, SCS, Timeline, and
+loaded descendant boundary. A Widget Blueprint regression must make one
+annotated nested source object unreachable immediately before the duplicate's
+native `PostDuplicate` compilation, proving that nested compile-time GC cannot
+delete an annotation key. Graph, Pin, Variable/Dispatcher, SCS, Timeline, and
 Widget identities must survive the sandbox unchanged. A reconstructed
 `UK2Node_PromotableOperator` tolerance Pin is the canonical dynamic-Pin
 regression: dry-run must restore its source `@NodeGuid/PinId`, while ambiguous structural
