@@ -3,6 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Sal/Class/SalClassInterface.h"
+#include "LoomleTestObjectIteration.h"
 #include "SalClassSparseTestTypes.h"
 #include "SalTestObjectModel.h"
 #include "Tests/LoomleTestEditorState.h"
@@ -302,7 +303,7 @@ bool UnloadClassDefaultsTestPackage(
             Object->ClearFlags(RF_Public | RF_Standalone);
             return true;
         },
-        true);
+        Loomle::Tests::IncludeNestedObjects);
 
     CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
     if (FindPackage(nullptr, *PackageName) != nullptr)
@@ -581,7 +582,7 @@ void PrepareClassPackageForCollection(UPackage* Package)
             Object->ClearFlags(RF_Public | RF_Standalone);
             return true;
         },
-        true);
+        Loomle::Tests::IncludeNestedObjects);
 }
 
 class FClassPersistenceFixture

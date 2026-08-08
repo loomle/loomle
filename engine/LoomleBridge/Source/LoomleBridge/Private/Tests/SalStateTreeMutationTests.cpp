@@ -4,6 +4,7 @@
 
 #include "Sal/SalModel.h"
 #include "Sal/StateTree/SalStateTreeInterface.h"
+#include "LoomleTestObjectIteration.h"
 #include "SalStateTreeTestSchema.h"
 
 #include "Conditions/StateTreeCommonConditions.h"
@@ -1306,7 +1307,7 @@ bool FSalStateTreeMutationCompileDryRunTest::RunTest(const FString& Parameters)
             {
                 VerifyTransientFlags(Object);
             },
-            true);
+            Loomle::Tests::IncludeNestedObjects);
     }
     TestTrue(
         TEXT("Compile dry run produced an inspectable transient copy"),

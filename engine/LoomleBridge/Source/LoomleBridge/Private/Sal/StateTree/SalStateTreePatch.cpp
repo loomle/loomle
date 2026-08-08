@@ -8128,6 +8128,11 @@ bool CompileStateTree(FPatchContext& Context)
     const FString BeforeEditorDataClass = Context.Data.GetClass()->GetPathName();
     Context.Tree.Modify();
     Context.Data.Modify();
+    // UE 5.8 validates Bindings before its EditorSchema repairs Tasks. A first
+    // validation pass makes the subsequent native compile observe the repaired
+    // authored structure and remove any Binding targets invalidated by it. On
+    // UE 5.7 the same pass is idempotent with CompileStateTree's validation.
+    UStateTreeEditingSubsystem::ValidateStateTree(&Context.Tree);
     FInspectableStateTreeCompilerLog Log;
     Context.bCompileSucceeded = UStateTreeEditingSubsystem::CompileStateTree(&Context.Tree, Log);
     Context.bCompiled = true;

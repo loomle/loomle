@@ -3,6 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Sal/Reference/SalReferenceInterface.h"
+#include "LoomleTestObjectIteration.h"
 #include "SalTestObjectModel.h"
 #include "Tests/LoomleTestEditorState.h"
 
@@ -308,7 +309,7 @@ private:
                 Inner->ClearFlags(RF_Public | RF_Standalone);
                 return true;
             },
-            true);
+            Loomle::Tests::IncludeNestedObjects);
     }
 
     static void UnregisterLoadedAsset(

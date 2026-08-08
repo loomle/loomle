@@ -42,6 +42,7 @@
 #include "LoomleMutationTransaction.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/Crc.h"
+#include "Misc/EngineVersionComparison.h"
 #include "Misc/PackageName.h"
 #include "Misc/PathViews.h"
 #include "Modules/ModuleManager.h"
@@ -2337,12 +2338,12 @@ bool RegisterCreatedWidgets(
         return false;
     }
     if (Primary->GetName() != Alias
-        && !Primary->Rename(*Alias, Blueprint->WidgetTree, REN_Test | REN_DontCreateRedirectors | REN_ForceNoResetLoaders))
+        && !Primary->Rename(*Alias, Blueprint->WidgetTree, REN_Test | REN_DontCreateRedirectors))
     {
         OutError = FString::Printf(TEXT("Widget object name is unavailable: %s."), *Alias);
         return false;
     }
-    if (Primary->GetName() != Alias && !Primary->Rename(*Alias, Blueprint->WidgetTree, REN_DontCreateRedirectors | REN_ForceNoResetLoaders))
+    if (Primary->GetName() != Alias && !Primary->Rename(*Alias, Blueprint->WidgetTree, REN_DontCreateRedirectors))
     {
         OutError = FString::Printf(TEXT("UE could not assign Widget name %s."), *Alias);
         return false;
@@ -3293,12 +3294,12 @@ bool ApplyReplace(FWidgetPatchContext& Context, const TSharedPtr<FJsonObject>& S
     const FName OldName = Target->GetFName();
     const FName CreatedName = Replacement->GetFName();
     Context.Blueprint->OnVariableRemoved(CreatedName);
-    if (!Target->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_ForceNoResetLoaders))
+    if (!Target->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors))
     {
         OutError = TEXT("UE could not move the replaced Widget out of the WidgetTree.");
         return false;
     }
-    if (!Replacement->Rename(*OldName.ToString(), Context.Blueprint->WidgetTree, REN_DontCreateRedirectors | REN_ForceNoResetLoaders))
+    if (!Replacement->Rename(*OldName.ToString(), Context.Blueprint->WidgetTree, REN_DontCreateRedirectors))
     {
         OutError = TEXT("UE could not preserve the replaced Widget name.");
         return false;
@@ -3420,7 +3421,7 @@ bool ApplyRename(FWidgetPatchContext& Context, UWidget* Widget, const TSharedPtr
     const EValidatorResult NameResult = NameValidator.IsValid(NewFName);
     if ((NameResult != EValidatorResult::Ok && !bBindWidget)
         || (NewFName != OldName
-            && !Widget->Rename(*NewName, Context.Blueprint->WidgetTree, REN_Test | REN_DontCreateRedirectors | REN_ForceNoResetLoaders)))
+            && !Widget->Rename(*NewName, Context.Blueprint->WidgetTree, REN_Test | REN_DontCreateRedirectors)))
     {
         OutError = NameResult != EValidatorResult::Ok && !bBindWidget
             ? INameValidatorInterface::GetErrorString(NewName, NameResult)
@@ -3452,7 +3453,7 @@ bool ApplyRename(FWidgetPatchContext& Context, UWidget* Widget, const TSharedPtr
     {
         Widget->SetDisplayLabel(DisplayName);
         if (NewFName != OldName
-            && !Widget->Rename(*NewName, Context.Blueprint->WidgetTree, REN_DontCreateRedirectors | REN_ForceNoResetLoaders))
+            && !Widget->Rename(*NewName, Context.Blueprint->WidgetTree, REN_DontCreateRedirectors))
         {
             OutError = TEXT("UE could not rename the Widget.");
             return false;
@@ -4375,7 +4376,11 @@ void MarkWidgetSandboxSubtree(UObject* Root)
         {
             Mark(Object);
         },
+#if UE_VERSION_NEWER_THAN_OR_EQUAL(5, 8, 0)
+        EGetObjectsFlags::IncludeNestedObjects);
+#else
         true);
+#endif
 }
 
 bool ValidateWidgetBindingsAndGuids(

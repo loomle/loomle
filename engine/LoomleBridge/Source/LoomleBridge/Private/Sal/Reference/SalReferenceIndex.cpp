@@ -11,6 +11,7 @@
 #include "Engine/Blueprint.h"
 #include "FindInBlueprintManager.h"
 #include "Misc/PackageName.h"
+#include "Serialization/CustomVersion.h"
 #include "Serialization/MemoryReader.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -690,7 +691,7 @@ public:
 bool DecodeEncodedIndex(
     const FString& Encoded,
     const bool bVersioned,
-    const int32 EditorObjectVersion,
+    const FCustomVersionContainer& CustomVersions,
     TSharedPtr<FJsonObject>& OutRoot,
     TMap<int32, FText>& OutLookup,
     FString& OutError)
@@ -723,10 +724,7 @@ bool DecodeEncodedIndex(
     }
 
     FBoundedFiBMemoryReader LookupReader(LookupBytes);
-    LookupReader.SetCustomVersion(
-        FEditorObjectVersion::GUID,
-        EditorObjectVersion,
-        TEXT("Dev-Editor"));
+    LookupReader.SetCustomVersions(CustomVersions);
     LookupReader << OutLookup;
     if (LookupReader.IsError() || LookupReader.Tell() != LookupReader.TotalSize())
     {
@@ -746,22 +744,33 @@ bool DecodeEncodedIndex(
     return true;
 }
 
-bool ReadEditorObjectVersion(IAssetRegistry& Registry, const FAssetData& Data, int32& OutVersion)
+bool ReadCustomVersions(
+    IAssetRegistry& Registry,
+    const FAssetData& Data,
+    FCustomVersionContainer& OutVersions)
 {
     const TOptional<FAssetPackageData> PackageData = Registry.GetAssetPackageDataCopy(Data.PackageName);
     if (!PackageData.IsSet())
     {
         return false;
     }
+    OutVersions.Empty();
+    bool bHasEditorObjectVersion = false;
     for (const UE::AssetRegistry::FPackageCustomVersion& Version : PackageData->GetCustomVersions())
     {
+        if (Version.Version < 0)
+        {
+            OutVersions.Empty();
+            return false;
+        }
+        OutVersions.SetVersion(Version.Key, Version.Version, NAME_None);
         if (Version.Key == FEditorObjectVersion::GUID)
         {
-            OutVersion = Version.Version;
-            return OutVersion >= 0;
+            bHasEditorObjectVersion = true;
         }
     }
-    return false;
+    OutVersions.SortByKey();
+    return bHasEditorObjectVersion;
 }
 
 struct FCandidateLineage
@@ -888,13 +897,13 @@ FReferenceIndexScanResult FSalReferenceIndex::ScanAsset(
     if (FiBVersion < EFiBVersion::FIB_VER_LATEST)
     {
         Result.Status = EReferenceIndexScanStatus::Outdated;
-        Result.Message = TEXT("The FiB index predates the latest UE 5.7 format required to cover variable references in every indexed Graph category.");
+        Result.Message = TEXT("The FiB index predates the latest format required to cover variable references in every indexed Graph category.");
         return Result;
     }
     if (FiBVersion > EFiBVersion::FIB_VER_LATEST)
     {
         Result.Status = EReferenceIndexScanStatus::Corrupt;
-        Result.Message = TEXT("The FiB index uses a newer format than this UE 5.7 Bridge can decode safely.");
+        Result.Message = TEXT("The FiB index uses a newer format than this Bridge can decode safely.");
         return Result;
     }
     FString LayoutError;
@@ -905,11 +914,11 @@ FReferenceIndexScanResult FSalReferenceIndex::ScanAsset(
         return Result;
     }
 
-    int32 EditorObjectVersion = -1;
-    if (!ReadEditorObjectVersion(Registry, Data, EditorObjectVersion))
+    FCustomVersionContainer CustomVersions;
+    if (!ReadCustomVersions(Registry, Data, CustomVersions))
     {
         Result.Status = EReferenceIndexScanStatus::Corrupt;
-        Result.Message = TEXT("The Blueprint package summary has no readable editor object version for FiB decoding.");
+        Result.Message = TEXT("The Blueprint package summary has no complete custom-version context for FiB decoding.");
         return Result;
     }
     TMap<int32, FText> Lookup;
@@ -918,7 +927,7 @@ FReferenceIndexScanResult FSalReferenceIndex::ScanAsset(
     if (!DecodeEncodedIndex(
             Encoded,
             bVersioned,
-            EditorObjectVersion,
+            CustomVersions,
             Root,
             Lookup,
             DecodeError))

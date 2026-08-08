@@ -4,6 +4,7 @@
 
 #include "Sal/Graph/SalGraphInterface.h"
 #include "Sal/Widget/SalWidgetInterface.h"
+#include "LoomleTestObjectIteration.h"
 
 #include "Animation/WidgetAnimation.h"
 #include "Blueprint/BlueprintExtension.h"
@@ -411,7 +412,7 @@ bool UnloadSandboxTestPackage(
             Object->ClearFlags(RF_Public | RF_Standalone);
             return true;
         },
-        true);
+        Loomle::Tests::IncludeNestedObjects);
 
     CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
     if (FindPackage(nullptr, *PackageName) != nullptr)

@@ -178,7 +178,7 @@ test("rejects a raw source plugin directory before launching Unreal", async () =
       validatePluginDirectoryCandidate(pluginDir, "darwin-arm64"),
       (error) => error instanceof RunnerUsageError
         && /not compiled for darwin-arm64/.test(error.message)
-        && /UnrealEditor-LoomleBridge\.dylib/.test(error.message)
+        && /UnrealEditor\.modules/.test(error.message)
         && /not raw source/.test(error.message),
     );
   } finally {
@@ -210,18 +210,28 @@ test("accepts a compiled plugin directory and validates every Mac Editor module"
     }, null, 2)}\n`,
   );
   await writeFile(
-    join(binariesDir, "UnrealEditor-LoomleBridge.dylib"),
+    join(binariesDir, "libUnrealEditor-LoomleBridge.dylib"),
     "compiled LoomleBridge",
+  );
+  await writeFile(
+    join(binariesDir, "UnrealEditor.modules"),
+    `${JSON.stringify({
+      BuildId: "test-build",
+      Modules: {
+        LoomleBridge: "libUnrealEditor-LoomleBridge.dylib",
+        LoomleEditorTools: "libUnrealEditor-LoomleEditorTools.dylib",
+      },
+    }, null, 2)}\n`,
   );
 
   try {
     await assert.rejects(
       validatePluginDirectoryCandidate(pluginDir, "darwin-arm64"),
-      /UnrealEditor-LoomleEditorTools\.dylib/,
+      /libUnrealEditor-LoomleEditorTools\.dylib/,
     );
 
     await writeFile(
-      join(binariesDir, "UnrealEditor-LoomleEditorTools.dylib"),
+      join(binariesDir, "libUnrealEditor-LoomleEditorTools.dylib"),
       "compiled LoomleEditorTools",
     );
     assert.equal(
@@ -264,6 +274,15 @@ test("accepts a compiled Win64 plugin and its target-bundled Client", async () =
     join(binariesDir, "UnrealEditor-LoomleBridge.dll"),
     "compiled LoomleBridge",
   );
+  await writeFile(
+    join(binariesDir, "UnrealEditor.modules"),
+    `${JSON.stringify({
+      BuildId: "test-build",
+      Modules: {
+        LoomleBridge: "UnrealEditor-LoomleBridge.dll",
+      },
+    }, null, 2)}\n`,
+  );
   await writeFile(clientPath, "windows client");
 
   try {
@@ -305,6 +324,15 @@ test("packaged candidate requires VersionName and its target-bundled Client", as
     recursive: true,
   });
   await writeFile(binaryPath, "compiled");
+  await writeFile(
+    join(pluginDir, "Binaries", "Mac", "UnrealEditor.modules"),
+    `${JSON.stringify({
+      BuildId: "test-build",
+      Modules: {
+        LoomleBridge: "UnrealEditor-LoomleBridge.dylib",
+      },
+    }, null, 2)}\n`,
+  );
   await writeFile(clientPath, "#!/bin/sh\nexit 0\n");
   await chmod(clientPath, 0o755);
   const descriptor = {

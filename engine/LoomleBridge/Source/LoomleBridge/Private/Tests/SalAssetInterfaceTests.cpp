@@ -3,6 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Sal/Asset/SalAssetInterface.h"
+#include "LoomleTestObjectIteration.h"
 #include "SalTestObjectModel.h"
 
 #include "Algo/Reverse.h"
@@ -348,7 +349,7 @@ void PrepareAssetPackageForCollection(UPackage* Package)
             Object->ClearFlags(RF_Public | RF_Standalone);
             return true;
         },
-        true);
+        Loomle::Tests::IncludeNestedObjects);
 }
 
 class FAssetCollectionFixture

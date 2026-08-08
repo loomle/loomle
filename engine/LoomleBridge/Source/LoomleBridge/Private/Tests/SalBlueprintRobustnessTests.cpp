@@ -3,6 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Sal/Blueprint/SalBlueprintInterface.h"
+#include "LoomleTestObjectIteration.h"
 #include "SalTestObjectModel.h"
 #include "Tests/LoomleTestEditorState.h"
 
@@ -395,7 +396,7 @@ void RobustBlueprintPreparePackageForCollection(UPackage* Package)
             Object->ClearFlags(RF_Public | RF_Standalone);
             return true;
         },
-        true);
+        Loomle::Tests::IncludeNestedObjects);
 }
 
 class FRobustBlueprintFixture

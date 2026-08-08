@@ -5,6 +5,7 @@
 #include "Sal/SalJson.h"
 #include "Sal/SalModule.h"
 #include "Sal/Graph/SalGraphInterface.h"
+#include "LoomleTestObjectIteration.h"
 #include "SalStateTreeTestSchema.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -1006,7 +1007,7 @@ bool UnloadPublicPathFixturePackage(
             Object->ClearFlags(RF_Public | RF_Standalone);
             return true;
         },
-        true);
+        Loomle::Tests::IncludeNestedObjects);
 
     CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
     if (FindPackage(nullptr, *PackageName) != nullptr)

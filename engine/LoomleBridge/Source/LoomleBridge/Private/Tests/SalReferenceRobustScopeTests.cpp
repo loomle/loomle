@@ -3,6 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Sal/Reference/SalReferenceInterface.h"
+#include "LoomleTestObjectIteration.h"
 #include "SalTestObjectModel.h"
 
 #include "Components/SceneComponent.h"
@@ -470,7 +471,7 @@ public:
                     Object->ClearFlags(RF_Public | RF_Standalone);
                     return true;
                 },
-                true);
+                Loomle::Tests::IncludeNestedObjects);
         }
         CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
     }

@@ -3,6 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Sal/StateTree/SalStateTreeInterface.h"
+#include "LoomleTestObjectIteration.h"
 #include "SalStateTreeRobustTestTypes.h"
 #include "SalTestObjectModel.h"
 #include "Tests/LoomleTestEditorState.h"
@@ -354,7 +355,7 @@ public:
                 Object->ClearFlags(RF_Public | RF_Standalone);
                 return true;
             },
-            true);
+            Loomle::Tests::IncludeNestedObjects);
         Asset = nullptr;
         Data = nullptr;
         Schema = nullptr;
@@ -423,7 +424,7 @@ public:
                     Object->ClearFlags(RF_Public | RF_Standalone);
                     return true;
                 },
-                true);
+                Loomle::Tests::IncludeNestedObjects);
         }
         Asset = nullptr;
         Data = nullptr;

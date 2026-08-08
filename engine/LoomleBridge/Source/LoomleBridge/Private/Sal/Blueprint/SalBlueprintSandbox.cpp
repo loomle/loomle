@@ -15,6 +15,7 @@
 #include "K2Node_Variable.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "BlueprintEditorSettings.h"
+#include "Misc/EngineVersionComparison.h"
 #include "UObject/UObjectHash.h"
 #include "UObject/UnrealType.h"
 
@@ -1033,7 +1034,11 @@ void MarkTransientSandboxOwnedObjects(UObject* Root)
         {
             MarkTransient(Object);
         },
+#if UE_VERSION_NEWER_THAN_OR_EQUAL(5, 8, 0)
+        EGetObjectsFlags::IncludeNestedObjects);
+#else
         true);
+#endif
 }
 }
 

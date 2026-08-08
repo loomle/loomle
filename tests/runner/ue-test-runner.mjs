@@ -49,7 +49,6 @@ const TARGETS = new Map([
     hostPlatform: "darwin",
     unrealPlatform: "Mac",
     binariesDirectory: "Mac",
-    moduleBinaryName: (moduleName) => `UnrealEditor-${moduleName}.dylib`,
     bundledClientPath: join(
       "Resources",
       "Loomle",
@@ -66,7 +65,6 @@ const TARGETS = new Map([
     hostPlatform: "win32",
     unrealPlatform: "Win64",
     binariesDirectory: "Win64",
-    moduleBinaryName: (moduleName) => `UnrealEditor-${moduleName}.dll`,
     bundledClientPath: join(
       "Resources",
       "Loomle",
@@ -1922,11 +1920,52 @@ async function validatePluginDescriptorCandidate(descriptorPath, target) {
   }
 
   const pluginRoot = dirname(descriptorPath);
+  const relativeManifestPath = join(
+    "Binaries",
+    targetSpec.binariesDirectory,
+    "UnrealEditor.modules",
+  );
+  const manifestPath = join(pluginRoot, relativeManifestPath);
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new RunnerUsageError([
+        `plugin candidate is not compiled for ${target}; missing ${relativeManifestPath}.`,
+        "Pass BuildPlugin output or a compiled HostProject plugin directory, not raw source.",
+      ].join(" "));
+    }
+    throw new RunnerUsageError(
+      `invalid compiled module manifest ${manifestPath}: ${error.message}`,
+    );
+  }
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)
+      || !manifest.Modules || typeof manifest.Modules !== "object"
+      || Array.isArray(manifest.Modules)) {
+    throw new RunnerUsageError(
+      `compiled module manifest must declare a Modules object: ${manifestPath}`,
+    );
+  }
+
   for (const moduleName of requiredModules.keys()) {
+    const binaryName = typeof manifest.Modules[moduleName] === "string"
+      ? manifest.Modules[moduleName].trim()
+      : "";
+    if (!binaryName) {
+      throw new RunnerUsageError(
+        `compiled module manifest does not name ${moduleName}: ${manifestPath}`,
+      );
+    }
+    if (basename(binaryName) !== binaryName) {
+      throw new RunnerUsageError(
+        `compiled module manifest has an unsafe binary path for ${moduleName}: ${binaryName}`,
+      );
+    }
     const relativeBinaryPath = join(
       "Binaries",
       targetSpec.binariesDirectory,
-      targetSpec.moduleBinaryName(moduleName),
+      binaryName,
     );
     try {
       await assertFile(

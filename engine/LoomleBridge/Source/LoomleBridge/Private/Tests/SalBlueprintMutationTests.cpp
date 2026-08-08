@@ -3,6 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Sal/Blueprint/SalBlueprintInterface.h"
+#include "LoomleTestObjectIteration.h"
 #include "Tests/LoomleTestEditorState.h"
 
 #include "Blueprint/UserWidget.h"
@@ -62,7 +63,7 @@ bool UnloadBlueprintMutationTestPackage(
             Object->ClearFlags(RF_Public | RF_Standalone);
             return true;
         },
-        true);
+        Loomle::Tests::IncludeNestedObjects);
 
     CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
     if (FindPackage(nullptr, *PackageName) != nullptr)

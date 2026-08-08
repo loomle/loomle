@@ -6,6 +6,7 @@
 #include "Sal/SalObjectBuilder.h"
 #include "Sal/SalTargetResolver.h"
 #include "Sal/StateTree/SalStateTreeInterface.h"
+#include "Misc/EngineVersionComparison.h"
 #include "SalStateTreeTestSchema.h"
 #include "SalTestObjectModel.h"
 
@@ -1415,7 +1416,11 @@ bool FSalStateTreeNodesCollectionAndExactReadTest::RunTest(const FString& Parame
     Transition.bDelayTransition = true;
     Transition.DelayDuration = 1.25f;
     SetNamedNode(
+#if UE_VERSION_NEWER_THAN_OR_EQUAL(5, 8, 0)
+        Transition.AddConditionWithOuter<FStateTreeConditionBase>(Tree.Root),
+#else
         Transition.AddCondition<FStateTreeConditionBase>(),
+#endif
         TransitionConditionId,
         FName(TEXT("Transition Ready")));
     AddNamedNode<FStateTreeTaskBase>(

@@ -3,6 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Sal/Blueprint/SalBlueprintInterface.h"
+#include "LoomleTestObjectIteration.h"
 #include "Tests/LoomleTestEditorState.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -48,7 +49,7 @@ void PreparePersistencePackageForCollection(UPackage* Package)
             Object->ClearFlags(RF_Public | RF_Standalone);
             return true;
         },
-        true);
+        Loomle::Tests::IncludeNestedObjects);
 }
 
 class FBlueprintPersistenceFixture
