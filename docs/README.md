@@ -51,9 +51,9 @@ UE research and explicitly identify the SAL/interface work still required:
 - `planned/blueprint/graph-layout.md`: automatic Blueprint graph formatting
   source facts and design questions. Current SAL supports stored layout reads
   and explicit movement, not automatic layout.
-- `planned/PYTHON_FALLBACK_DESIGN.md`: high-privilege Unreal Editor Python
-  fallback boundaries, schemas, side effects, lifecycle, and verification
-  requirements.
+- `planned/PYTHON_FALLBACK_DESIGN.md`: single-tool `python` `run`/`poll`
+  fallback contract, structured results, short inline completion window,
+  side-effect boundaries, lifecycle, and verification requirements.
 
 Future Material, PCG, runtime, and other domain documents should be added here
 until their interfaces are designed, confirmed, and implemented.

@@ -3,286 +3,288 @@
 ## Status
 
 Loomle 0.7 does not currently expose Unreal-side Python. Its public Client has
-seven tools, and its Bridge accepts only `sal.query`, `sal.patch`,
-`editor.context`, `editor.open`, and `editor.close`.
+seven tools, and its Bridge accepts only the implemented SAL and Editor
+operations.
 
-This document defines a planned eighth public tool, `python_execute`, backed
-by the private Bridge operation `python.execute`. It is a high-privilege
-capability fallback for UE behavior that Loomle has not yet expressed through
-SAL. It is not implemented and is not part of the current public contract.
+This document defines a planned eighth public tool, `python`. The tool has one
+primary `run` operation and one continuation-only `poll` operation. It is not
+implemented and is not part of the current public contract.
+
+The design is confirmed. Implementation still requires the Client, Bridge,
+protocol, diagnostics, tests, and release documentation described below.
 
 ## Decision
 
-`python_execute` runs full Unreal Editor Python, including `import unreal`.
-It does not reproduce UE 5.8's restricted Programmatic Toolset, whose Python
-script runs in UE's existing embedded CPython interpreter but receives
-restricted globals and can only combine already registered tools.
+`python` is Loomle's high-privilege escape hatch for Unreal Editor behavior
+that is already well served by UE Python but is not yet expressed through a
+structured Loomle interface.
 
-The distinction is intentional:
+It runs full embedded Unreal Python, including `import unreal`. It is not a
+second SAL orchestration language, and it does not reproduce UE 5.8's
+restricted Programmatic Toolset. An agent uses SAL when Loomle already exposes
+the required semantics and uses Python when the structured interface boundary
+does not cover the necessary native workflow.
 
-- the UE 5.8 Programmatic Toolset reduces round trips after an agent already
-  understands the available tool schemas;
-- Loomle's fallback reaches a native UE capability when no suitable structured
-  Loomle interface exists yet;
-- repeated fallback demand is evidence that Loomle should add or improve a
-  structured interface, not a reason to make Python the normal workflow.
+The public contract is deliberately small:
 
-The Client and Bridge never fall back automatically. A failed SAL request is
-not itself permission to run Python: invalid syntax, stale identity, invalid
-arguments, unavailable Editor state, and implementation bugs should be
-diagnosed through their owning interface. The agent selects
-`python_execute` only after identifying a concrete capability gap.
+```text
+python(operation: "run" | "poll")
+```
 
-## Intent
+- `run` supplies inline source that defines `run()` and normally returns its
+  structured result directly.
+- `poll` exists only when an earlier `run` exceeded Loomle's short inline
+  completion window and returned an `executionId` plus an exact continuation.
 
-The fallback should let an agent make forward progress when UE exposes a
-necessary Editor operation through Python but the active Loomle interface
-catalog does not.
+There is no caller-provided purpose or reason string. Natural-language intent
+is not machine-verifiable, does not constrain what the script can do, and
+would duplicate information already available to the agent and reviewing
+user. The source and its actual effects remain authoritative.
+
+## Intent and Boundary
+
+The fallback lets an agent complete a concrete UE Editor task without waiting
+for Loomle to model every mature Python-supported domain.
 
 Appropriate uses include:
 
-- inspecting an Editor subsystem that has no SAL Query surface;
-- invoking a UE-native editor operation that has no SAL Patch operation;
-- prototyping the smallest native workflow needed to understand a capability
-  before designing its structured interface;
-- repairing a project through a UE Python API while preserving UE's own object
-  model and implementation path.
+- creating or bulk-populating a `UDataTable` through its existing RowStruct;
+- creating and editing an instance of an existing `UDataAsset` subclass;
+- using a project or third-party plugin's documented Unreal Python API;
+- invoking an Editor subsystem or native operation that has no SAL surface;
+- performing project-specific batch repair or migration through UE's object
+  model.
 
 It should not be used:
 
-- to batch or branch over operations already covered by SAL;
+- to reimplement ordinary SAL query or patch composition;
 - as an automatic retry after a structured operation fails;
-- to bypass a native validation error returned by SAL;
-- to claim dry-run, atomicity, rollback, idempotency, or safe cancellation;
+- to bypass a validation error returned by the owning Loomle interface;
+- to claim dry-run, rollback, atomicity, idempotency, or safe cancellation;
 - as agent-local Python. It executes inside the bound Unreal Editor process.
+
+Repeated use in one stable workflow is product evidence for a structured
+Loomle interface only when that interface would materially add native
+identities, validation, dry-run, diff, revision, or Editor-specific diagnostic
+semantics. Python remains a permanent complement for mature open-ended UE
+domains rather than a temporary implementation defect that SAL must absorb in
+full.
 
 ## UE Source Basis
 
-The implementation target is UE 5.7. Relevant engine source is:
+The implementation target is UE 5.7. Relevant source is:
 
 - `Engine/Plugins/Experimental/PythonScriptPlugin/PythonScriptPlugin.uplugin`
 - `Engine/Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Public/IPythonScriptPlugin.h`
 - `Engine/Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Public/PythonScriptTypes.h`
 - `Engine/Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Private/PythonScriptPlugin.cpp`
 
-`IPythonScriptPlugin` is the native boundary. It reports configuration and
-initialization state, can force initialization at runtime, and executes an
-`FPythonCommandEx`.
+`IPythonScriptPlugin` is the supported native boundary. It reports whether
+Python is configured, available, and initialized; it can request runtime
+enablement; and it executes an `FPythonCommandEx`.
 
-`FPythonCommandEx` supplies the behavior Loomle needs:
+`FPythonCommandEx` supplies several useful native behaviors:
 
-- `ExecuteFile` runs a multiline script or a script file;
-- `EvaluateStatement` evaluates one expression and returns its Python
-  representation in `CommandResult`;
-- `Private` file scope gives a script a copied globals dictionary rather than
-  the shared console globals;
-- `Unattended` asks UE to suppress certain pieces of interactive UI, but does
-  not guarantee that the script or an invoked UE API cannot display or wait
-  for UI;
-- `LogOutput` captures ordered `Info`, `Warning`, and `Error` entries;
-- a failed command returns a Python exception trace in `CommandResult`.
+- `ExecuteFile` runs multiline source or a `.py` file;
+- `Private` file scope provides a fresh locals/globals dictionary based on
+  UE's default Python globals;
+- `Unattended` suppresses some interactive UI but cannot guarantee that an
+  invoked API will never display or wait for UI;
+- `LogOutput` captures ordered Python `Info`, `Warning`, and `Error` entries;
+- failure places a Python exception trace in `CommandResult`.
 
-Private file scope is namespace isolation, not a security sandbox. Imported
-modules, UE objects, packages, files, processes, network activity, and other
-process-global state remain reachable. The Python plugin executes code in the
-Editor process and holds the Python GIL while evaluating it.
+`Private` scope is namespace isolation, not a security sandbox. Imported
+modules, UObject state, packages, files, processes, network activity, module
+caches, and other process-global state remain reachable. UE evaluates the
+script inside the Editor process while holding the embedded interpreter's GIL.
 
-UE 5.8 provides useful precedent but a different boundary in
-`Engine/Plugins/Experimental/Toolsets/EditorToolset/Content/Python/editor_toolset/toolsets/programmatic.py`.
-Its `ProgrammaticToolset.execute_tool_script` does not start a separate Python
-process or subinterpreter. The toolset module itself imports `unreal`, then
-runs the agent script on a worker thread with `exec` and a custom globals
-dictionary in the same embedded interpreter. AST validation, a replacement
-`__import__`, a reduced builtins dictionary, and a read-only project-file
-opener constrain direct `unreal` imports and ordinary host access from the
-agent script. The injected `execute_tool` function marshals registered tool
-calls back to the Editor event loop and exchanges JSON-compatible dictionaries.
+UE 5.8's Programmatic Toolset is useful precedent for a different goal. It
+runs agent-authored Python in the same embedded interpreter but restricts
+imports and builtins, prevents direct `unreal` access, and injects an
+`execute_tool` function that marshals registered tools to the Editor thread.
+That design safely optimizes structured tool orchestration. Loomle does not
+adopt its capability restriction because this fallback exists specifically to
+reach UE APIs that have no registered structured tool.
 
-That is an orchestration restriction layer, not process isolation. Loomle
-adopts the useful temporary-file and explicit-result lessons where applicable,
-but not the restricted capability model: this fallback exists specifically
-for UE capabilities that have no registered structured tool.
+Loomle does adopt three useful principles from that design:
 
-## Topology
-
-```text
-MCP agent
-  -> python_execute
-      -> TypeScript Client project/runtime preflight
-          -> rpc.invoke(tool="python.execute")
-              -> Bridge Game Thread admission
-                  -> IPythonScriptPlugin::ExecPythonCommandEx
-                      -> UE Python API and Editor state
-```
-
-The public tool uses readable snake_case. The private transport operation keeps
-the existing dotted naming convention.
+- one named `run()` entry point;
+- an explicitly JSON-compatible returned dictionary;
+- asynchronous request completion must not imply that UE work is safely
+  cancellable.
 
 ## Public MCP Tool
 
 ### Name and annotations
 
-The public name is `python_execute`.
-
-Its MCP annotations are:
+The public tool is named `python`. Its annotations are conservative because
+MCP annotations apply to the whole tool rather than to an individual
+operation:
 
 ```json
 {
   "readOnlyHint": false,
   "destructiveHint": true,
-  "idempotentHint": false
+  "idempotentHint": false,
+  "openWorldHint": true
 }
 ```
 
-Every call receives destructive annotations, including `eval`, because a
-Python expression can invoke a mutating function.
+`poll` is read-only, but the combined tool must retain the destructive and
+open-world classification required by `run`.
 
-The permanent description should be concise and explicit:
+The permanent description should be concise:
 
-> Execute full Python inside the bound Unreal Editor only when no structured
-> Loomle interface covers the required UE capability. This can create
-> irreversible UE and external side effects and provides no dry run, rollback,
-> cancellation, or idempotency guarantee. State the missing Loomle capability
-> in `reason`.
+> Run full Python inside the bound Unreal Editor when no structured Loomle
+> interface covers the required UE capability. Use `run` normally. If it
+> returns a running execution, follow the returned `poll` continuation exactly
+> and never replay the script. Python provides no dry run, rollback, safe
+> cancellation, or idempotency guarantee.
 
-### Input
+### Input schema
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "required": ["reason", "code"],
-  "properties": {
-    "reason": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 512,
-      "description": "Concrete Loomle capability gap that requires Unreal-side Python."
-    },
-    "mode": {
-      "type": "string",
-      "enum": ["exec", "eval"],
-      "default": "exec"
-    },
-    "code": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 131072,
-      "description": "Inline Python source. This is never interpreted as a caller-supplied script path."
-    }
-  },
-  "additionalProperties": false
-}
-```
-
-`language` is not an input because the tool name fixes the language.
-`acknowledgeUnsafe` is not an input because a Boolean acknowledgement would be
-checkbox theater rather than a safety boundary.
-
-The first version intentionally has no `dryRun`, `timeout`, `file`, `args`,
-`cwd`, `environment`, `transaction`, `expectedRevision`, or background-job
-field. Adding any of those requires a separate design backed by real behavior.
-
-`reason` is operational evidence for interface demand. It must describe the
-missing capability rather than merely say that Python is easier. It is not
-injected into the Python namespace, and it is telemetry rather than user
-consent or a security boundary.
-
-### Execution modes
-
-`exec` executes multiline inline source. The Bridge writes the supplied source
-to a unique Loomle-owned temporary `.py` file below the project's `Saved`
-directory, invokes it with:
-
-```text
-ExecutionMode = ExecuteFile
-FileExecutionScope = Private
-Flags = Unattended
-```
-
-and removes the file on both success and ordinary failure. The caller cannot
-select a file path. A process crash can leave the temporary source behind, so
-callers must not place credentials or other secrets in fallback code.
-
-`eval` evaluates exactly one Python expression with
-`EvaluateStatement | Unattended` and returns UE's native Python
-representation. It is not a read-only mode. UE's native expression evaluator
-uses the interpreter's console context, so scripts must not depend on clean or
-persistent cross-call global state.
-
-Both modes have full process privileges. Private file scope does not restrict
-imports, filesystem access, subprocesses, network access, UE reflection, or
-mutation.
-
-### Result
-
-The public MCP result contains one text item holding a JSON object. JSON is
-used here because Python output is not SAL Object Text and must preserve native
-log entry boundaries without inventing another textual grammar.
-
-Successful `exec` example:
-
-```json
-{
-  "success": true,
-  "mode": "exec",
-  "result": "None",
-  "logs": [
+  "oneOf": [
     {
-      "type": "info",
-      "output": "updated 3 actors"
+      "properties": {
+        "operation": { "const": "run" },
+        "script": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 262144,
+          "description": "Inline Unreal Editor Python defining one synchronous run() entry point."
+        }
+      },
+      "required": ["operation", "script"],
+      "additionalProperties": false
+    },
+    {
+      "properties": {
+        "operation": { "const": "poll" },
+        "executionId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opaque handle returned by an earlier running result."
+        }
+      },
+      "required": ["operation", "executionId"],
+      "additionalProperties": false
     }
-  ],
-  "durationMs": 24,
-  "resultTruncated": false,
-  "logsTruncated": false,
-  "temporarySourceRetained": false
+  ]
 }
 ```
 
-Successful `eval` example:
+`operation` is required. Explicit `run` prevents a malformed status-like call
+from being interpreted as executable source, while explicit `poll` makes the
+continuation self-describing.
 
-```json
-{
-  "success": true,
-  "mode": "eval",
-  "result": "3",
-  "logs": [],
-  "durationMs": 1,
-  "resultTruncated": false,
-  "logsTruncated": false,
-  "temporarySourceRetained": false
+The first version has no `purpose`, `reason`, `mode`, `file`, `args`, `cwd`,
+`environment`, `dryRun`, `timeout`, `transaction`, `expectedRevision`, result
+schema, cancellation, or caller-selected execution id.
+
+The caller never supplies a source-file path. Loomle owns all temporary paths.
+
+## Script Contract
+
+A script defines one synchronous, no-argument `run()`:
+
+```python
+import unreal
+
+def run():
+    asset = unreal.load_asset("/Game/Data/DA_Weapon")
+    asset.set_editor_property("damage", 25.0)
+    return {
+        "assetPath": asset.get_path_name(),
+        "changedProperties": ["damage"],
+        "saved": False,
+    }
+```
+
+The complete source is executed in a fresh per-call namespace and then Loomle
+calls `run()` from that namespace. Top-level imports and statements are part of
+the execution and may have side effects. The fresh namespace does not isolate
+imported modules or other process-global state.
+
+The entry point must be callable, synchronous, and accept no arguments.
+`async def`, generators, and a callable requiring arguments are invalid.
+
+`run()` must return a top-level `dict`. Its complete value must recursively
+contain only:
+
+- `None`;
+- Boolean values;
+- finite integers and floating-point numbers;
+- strings;
+- lists of compatible values;
+- dictionaries with string keys and compatible values.
+
+Cycles, tuples, sets, bytes, NaN, infinity, UObject wrappers, reflected
+structs, and other Python values are rejected. Loomle does not guess how to
+serialize a UE object. The script must project it into stable, useful facts
+such as an object path, class path, GUID, name, or ordinary properties.
+
+For example, this is invalid:
+
+```python
+return {"asset": asset}
+```
+
+This is valid:
+
+```python
+return {
+    "assetPath": asset.get_path_name(),
+    "classPath": asset.get_class().get_path_name(),
 }
 ```
 
-The successful-or-executed-failure payload schema is:
+The agent defines the domain-specific result shape in its own code. Loomle
+validates only the stable outer contract and JSON compatibility; it does not
+require a duplicate caller-provided result schema.
+
+## Result Model
+
+The canonical MCP payload is `structuredContent`. `content` contains a concise
+text/JSON mirror for hosts that do not expose structured results. Logs never
+replace the returned object.
+
+The public output schema is:
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "required": [
-    "success",
-    "mode",
-    "result",
-    "logs",
-    "durationMs",
-    "resultTruncated",
-    "logsTruncated",
-    "temporarySourceRetained"
-  ],
+  "required": ["status", "stateMayHaveChanged"],
   "properties": {
-    "success": { "type": "boolean" },
-    "code": {
+    "status": {
       "type": "string",
-      "enum": ["runtime.python_execution_failed"]
+      "enum": ["running", "succeeded", "failed", "lost"]
     },
-    "message": {
-      "type": "string",
-      "description": "Failure summary; present only when success is false."
+    "executionId": { "type": "string", "minLength": 1 },
+    "stateMayHaveChanged": { "type": "boolean" },
+    "result": {
+      "type": "object",
+      "additionalProperties": true
     },
-    "mode": { "type": "string", "enum": ["exec", "eval"] },
-    "result": { "type": "string" },
+    "error": {
+      "type": "object",
+      "required": ["code", "phase", "message", "retryable"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "phase": {
+          "type": "string",
+          "enum": ["validation", "staging", "execution", "result", "runtime"]
+        },
+        "message": { "type": "string", "minLength": 1 },
+        "traceback": { "type": "string" },
+        "retryable": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
     "logs": {
       "type": "array",
       "maxItems": 1000,
@@ -299,411 +301,546 @@ The successful-or-executed-failure payload schema is:
         "additionalProperties": false
       }
     },
-    "durationMs": { "type": "integer", "minimum": 0 },
-    "resultTruncated": { "type": "boolean" },
     "logsTruncated": { "type": "boolean" },
-    "temporarySourceRetained": { "type": "boolean" },
-    "temporarySourcePath": { "type": "string", "minLength": 1 },
-    "stateMayHaveChanged": { "type": "boolean" }
-  },
-  "allOf": [
-    {
-      "if": {
-        "properties": { "success": { "const": false } },
-        "required": ["success"]
+    "durationMs": { "type": "integer", "minimum": 0 },
+    "elapsedMs": { "type": "integer", "minimum": 0 },
+    "continuation": {
+      "type": "object",
+      "required": ["tool", "arguments", "pollAfterMs"],
+      "properties": {
+        "tool": { "const": "python" },
+        "arguments": {
+          "type": "object",
+          "required": ["operation", "executionId"],
+          "properties": {
+            "operation": { "const": "poll" },
+            "executionId": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "pollAfterMs": { "type": "integer", "minimum": 0 }
       },
-      "then": {
-        "required": ["code", "message", "stateMayHaveChanged"],
-        "properties": {
-          "stateMayHaveChanged": { "const": true }
-        }
-      },
-      "else": {
-        "not": {
-          "anyOf": [
-            { "required": ["code"] },
-            { "required": ["message"] },
-            { "required": ["stateMayHaveChanged"] }
-          ]
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": { "temporarySourceRetained": { "const": true } },
-        "required": ["temporarySourceRetained"]
-      },
-      "then": {
-        "required": ["temporarySourcePath"]
-      }
+      "additionalProperties": false
     }
-  ],
+  },
   "additionalProperties": false
 }
 ```
 
-`result` is always a string because `FPythonCommandEx::CommandResult` is a
-native string representation, not guaranteed JSON. For `exec` it is normally
-`None`; scripts should use `print` or `unreal.log*` for useful output. Native
-log types map to public snake_case values `info`, `warning`, and `error` while
-preserving order. An `error` log entry does not by itself mean execution
-failed; `success` follows the Boolean returned by `ExecPythonCommandEx`.
+The status-specific invariants are normative:
 
-The captured entries cover Python stdout, stderr, and `unreal.log*` activity
-observed by UE's Python log capture during the synchronous call. They are not a
-complete copy of the UE Output Log. Output emitted asynchronously or after the
-tool returns is outside the result, and other Python activity may interleave
-with the global capture window.
+- `running` requires `executionId`, `elapsedMs`, and `continuation`; it has no
+  `result`, `error`, `logs`, or `durationMs`;
+- `succeeded` requires `result`, `logs`, `logsTruncated`, and `durationMs`; it
+  has no `error`, `elapsedMs`, or continuation;
+- `failed` requires `error`; an executed failure also returns terminal logs and
+  duration, while a pre-execution failure may omit them;
+- `lost` requires `executionId` and `error` and has no result;
+- terminal results returned through `poll` include `executionId`; fast terminal
+  `run` results do not.
 
-Result and log text must be bounded before returning to the Client. Truncation
-is deterministic, retains diagnostically useful head and tail text, and sets
-the corresponding flag. The implementation constants and tests must agree;
-the initial maximums are 64 KiB of UTF-8 for `result`, 1,000 log entries, and
-256 KiB of combined UTF-8 log output. Truncation preserves valid Unicode and is
-not an execution failure.
-UE builds the complete `CommandResult` and appends native `LogOutput` entries
-before Loomle can truncate them. These limits protect the RPC response and
-agent context only; they do not provide execution-time memory isolation.
-Scripts that emit unbounded output can still exhaust Editor memory.
+The MCP tool result sets `isError=true` for `failed` and `lost`, but their
+structured payload remains available. `running` and `succeeded` do not set
+`isError`.
 
-`temporarySourceRetained` is true when normal cleanup could not remove an
-`exec` staging file. In that case the result also contains
-`temporarySourcePath`; callers must treat the flag itself as a cleanup warning.
-Cleanup failure does not replace the script's success or failure. A script has
-full filesystem access and may move or alter its own source, so Loomle can only
-report cleanup of the original staging path.
+### Fast success
 
-The tool never echoes `code`. Normal runtime diagnostics may include Python
-traceback source lines returned by UE, so fallback code must still be treated
-as non-secret.
-
-## Private Bridge RPC
-
-The private operation is:
-
-```text
-python.execute
-```
-
-It is invoked through the existing `rpc.invoke` envelope:
+Most scripts should finish inside the inline completion window and return
+directly:
 
 ```json
 {
-  "protocolVersion": 5,
-  "tool": "python.execute",
-  "args": {
-    "reason": "The current interfaces do not expose the Level Editor viewport FOV.",
-    "mode": "exec",
-    "code": "import unreal\nprint('ready')"
+  "status": "succeeded",
+  "stateMayHaveChanged": true,
+  "result": {
+    "assetPath": "/Game/Data/DT_Weapons.DT_Weapons",
+    "rowsCreated": 42,
+    "saved": true
+  },
+  "logs": [],
+  "logsTruncated": false,
+  "durationMs": 184
+}
+```
+
+A fast terminal result does not expose an `executionId`. Loomle may use an
+internal record while the call is running, but normal agent workflows do not
+need to see a job abstraction.
+
+### Running continuation
+
+If an admitted script is still executing after Loomle's short inline
+completion window, `run` returns a non-error running result:
+
+```json
+{
+  "status": "running",
+  "executionId": "py_01K...",
+  "stateMayHaveChanged": true,
+  "elapsedMs": 1007,
+  "continuation": {
+    "tool": "python",
+    "arguments": {
+      "operation": "poll",
+      "executionId": "py_01K..."
+    },
+    "pollAfterMs": 1000
   }
 }
 ```
 
-The Bridge validates the same fields again. Client validation is an agent
-usability boundary, not a trust boundary.
+The MCP text mirror must explicitly say that execution is still running, the
+script must not be replayed, and the exact continuation should be called.
 
-On success, `payload` is the result object described above. A syntax error or
-an exception after Python starts is also a completed `rpc.invoke`: its payload
-uses `success=false`, `code=runtime.python_execution_failed`, preserves the
-mode, duration, native `CommandResult`, captured logs, and truncation facts,
-and sets `stateMayHaveChanged=true`. The Client maps that payload to MCP
-`isError=true` without discarding the native details.
+This outcome is not a timeout and does not set MCP `isError`. It means only
+that the request has detached from an execution that already started.
 
-Failures before Python starts use the existing JSON-RPC error envelope. This
-distinction prevents an ordinary Python exception from being confused with
-transport failure and preserves evidence of partial effects.
+### Poll while running
 
-Adding a private operation changes the Client-Bridge contract. Implementation
-therefore increments `loomle.protocolVersion` from `4` to `5`, regenerates both
-Client and Bridge version sources, and adds `python.execute` to
-`rpc.capabilities`. A version-4 Client and version-5 Bridge remain explicitly
-incompatible even if their other tool names overlap.
+The agent calls `poll` only after receiving a continuation:
 
-## Runtime Preflight and Execution
+```json
+{
+  "operation": "poll",
+  "executionId": "py_01K..."
+}
+```
 
-The Client applies the same sticky project binding and live runtime selection
-used by `sal_query`, `sal_patch`, and `editor`. The tool is unavailable when
-the bound project is offline, starting, unresponsive, ambiguous, or
-protocol-incompatible.
+If execution is not terminal, `poll` returns the same running shape with an
+updated `elapsedMs` and continuation. `poll` is a snapshot read and returns
+quickly; it does not wait for another long interval.
 
-The initial implementation rejects execution while PIE or another play session
-is active. The fallback targets Unreal Editor automation, and arbitrary Python
-has no reliable generic rule for selecting Editor-world versus play-world
-objects. The error is retryable after the user stops play.
+### Polled success
 
-The Bridge declares the Python plugin dependency and requests Python enablement
-once during Editor initialization, outside a `python_execute` request. It
-tracks `OnPythonInitialized` and `OnPythonShutdown` as capability state. A call
-never busy-waits or performs slow interpreter initialization on the Game
-Thread. `ForceEnablePythonAtRuntime` returning true means only that enablement
-was requested; `IsPythonConfigured`, `IsPythonAvailable`, and
-`IsPythonInitialized` remain the state authorities. A configured but not yet
-fully initialized interpreter reports `runtime.python_initializing`; an
-unavailable module, unsupported build, or initialization attempt that disabled
-Python reports `runtime.python_unavailable`.
+When the detached execution completes successfully, `poll` returns:
 
-After Bridge Game Thread admission:
+```json
+{
+  "status": "succeeded",
+  "executionId": "py_01K...",
+  "stateMayHaveChanged": true,
+  "result": {
+    "assetPath": "/Game/Data/DT_Weapons.DT_Weapons",
+    "rowsCreated": 42,
+    "saved": true
+  },
+  "logs": [],
+  "logsTruncated": false,
+  "durationMs": 2841
+}
+```
 
-1. reject shutdown or play state;
-2. acquire `IPythonScriptPlugin`;
-3. verify the tracked capability state and `IsPythonInitialized`;
-4. prepare the native command and temporary file, when required;
-5. call `ExecPythonCommandEx` on the Game Thread;
-6. capture duration, result, and ordered log output;
-7. remove the temporary file with best effort;
-8. return the result or structured failure.
+The terminal `poll` result retains `executionId` so the response remains
+self-identifying. Repeating the same `poll` during its retention period returns
+the same terminal outcome and does not re-execute Python.
 
-The plugin descriptor enables `PythonScriptPlugin`, and the module build adds
-`PythonScriptPlugin` as a private dependency. Runtime forcing during Editor
-initialization is a defensive enablement step, not a replacement for that
-declared dependency. Python initialization itself may display UE's native slow
-task dialog; `Unattended` applies to command execution and is not a no-UI
-guarantee.
+### Executed failure
 
-For `exec`, the Bridge creates and normalizes a unique absolute staging path
-and passes the correctly double-quoted path to `ExecuteFile`. UE identifies
-files through `.py` command parsing, so paths containing spaces are a required
-test case. Failure to write the staging file returns before Python begins.
+A Python exception or invalid returned value after execution starts produces:
 
-The implementation should live in a small Python execution service rather than
-restoring the retired 0.6 direct-tool runtime, job system, diagnostic surface,
-or graph adapters. It must not monkey-patch `unreal` functions or install
-process-global signal handlers as execution wrappers.
+```json
+{
+  "status": "failed",
+  "stateMayHaveChanged": true,
+  "error": {
+    "code": "runtime.python_execution_failed",
+    "phase": "execution",
+    "message": "Object has no editor property named damage",
+    "traceback": "Traceback (most recent call last): ...",
+    "retryable": false
+  },
+  "logs": [],
+  "logsTruncated": false,
+  "durationMs": 23
+}
+```
+
+A detached failure also contains its `executionId`. Executed failures set MCP
+`isError=true` without discarding `structuredContent`.
+
+`stateMayHaveChanged` is conservative:
+
+- validation or staging failure before the script begins uses `false`;
+- top-level execution, `run()`, serialization failure after `run()`, and all
+  uncertain detached outcomes use `true`;
+- successful execution uses `true` because Loomle cannot prove that arbitrary
+  Python was read-only.
+
+No failure with `stateMayHaveChanged=true` may invite an automatic retry.
+
+### Lost execution
+
+If the owning Editor exits, crashes, or is replaced before Loomle observes a
+terminal outcome, `poll` returns an error result:
+
+```json
+{
+  "status": "lost",
+  "executionId": "py_01K...",
+  "stateMayHaveChanged": true,
+  "error": {
+    "code": "runtime.python_execution_lost",
+    "phase": "runtime",
+    "message": "The Editor runtime that owned this execution is no longer available.",
+    "retryable": false
+  }
+}
+```
+
+`lost` does not mean rollback and does not prove whether the script completed.
+
+### Output bounds
+
+The structured result is bounded to 1 MiB of UTF-8 encoded JSON. It is never
+silently truncated because truncation would change the agent-defined shape. An
+oversized result fails with `runtime.python_result_too_large` after execution
+and therefore reports `stateMayHaveChanged=true`.
+
+Terminal log output preserves UE's ordered `info`, `warning`, and `error`
+entries. It is bounded to 1,000 entries and 256 KiB of combined UTF-8 text.
+Deterministic head-and-tail truncation sets `logsTruncated=true` and does not
+change execution success.
+
+The native `FPythonCommandEx` log array becomes available when its synchronous
+call finishes. The first version therefore returns logs with terminal results;
+`poll` is not a live log-streaming API. Captured Python output is not a complete
+copy of UE's global Output Log, and asynchronous output after `run()` returns
+is outside the execution result.
+
+## Execution Lifecycle
+
+### Admission and fast completion
+
+`run` has two distinct timing boundaries:
+
+1. **Game Thread admission budget.** The queued task must atomically enter
+   `started` within the existing short admission budget. If it does not, Loomle
+   cancels it before execution and returns `runtime.editor_unresponsive`.
+2. **Inline completion window.** After `started`, Loomle waits only a short
+   internal interval, initially approximately one second, for a terminal
+   result. If the script is still running, Loomle returns its continuation.
+
+The inline completion window is not an execution timeout, not a user option,
+and not a service-level promise about task duration. Its only purpose is to
+keep the common fast path to one MCP call while ensuring an unexpectedly slow
+script promptly yields control back to the agent.
+
+The boundary is race-safe: the execution record has one synchronized terminal
+transition. Loomle returns either the observed terminal result or a handle to
+that same continuing execution, never both independent outcomes.
+
+### Detached does not mean background UE execution
+
+The Python call itself remains on the Game Thread because the script has full
+direct `unreal` access. Returning an `executionId` detaches the MCP request; it
+does not move arbitrary UObject work onto a safe worker thread.
+
+A long or blocked script can therefore freeze Editor UI and prevent other
+UE-backed Loomle operations from entering the Game Thread. This limitation is
+fundamental to unrestricted Unreal Python. Loomle must not describe detached
+execution as safe parallelism.
+
+### Poll path
+
+`poll` reads a thread-safe execution record on the Bridge listener/worker path.
+It must not dispatch to the Game Thread and must remain callable while the Game
+Thread is occupied by the script.
+
+The Client binds the returned opaque execution handle to the exact runtime
+that produced it. Polling must target that runtime rather than re-resolving the
+project to a replacement Editor. A changed or vanished runtime produces
+`lost`, never a lookup against another Editor.
+
+An exposed execution remains available while running. After it becomes
+terminal, the Bridge retains the bounded result for at least 30 minutes while
+the same Editor runtime remains alive. The implementation may discard the
+record sooner only after a terminal result has been successfully returned and
+the documented replay grace period has elapsed. Polling an expired handle
+returns `runtime.python_execution_expired` and never re-runs the script.
+
+### Concurrency
+
+One Editor runtime admits at most one Python fallback execution at a time. A
+second `run` while one is active fails before execution with
+`runtime.python_busy` and returns the active `executionId` only if that id was
+already exposed.
+
+Loomle does not queue a hidden sequence of Python scripts. A queued script
+could otherwise begin mutating UE after the requesting agent had moved on.
+
+## Private Bridge Protocol
+
+The one public tool maps to two private operations:
+
+```text
+python.run
+python.poll
+```
+
+Private separation is required because their execution paths differ:
+
+- `python.run` performs project/runtime preflight, stages source, enters Game
+  Thread admission, and starts the execution;
+- `python.poll` performs an exact-runtime, non-Game-Thread record lookup.
+
+Both use the existing JSON-RPC transport. Implementation increments the
+current Client-Bridge protocol version and advertises both operations through
+`rpc.capabilities`.
+
+The `executionId` is opaque and unique to one Editor runtime. It is not an
+idempotency key, caller-selected request id, permission token, or durable
+cross-restart job identity.
+
+## Python Runner and Result Transport
+
+UE's `ExecuteFile` mode normally returns `None` in `CommandResult`; it does not
+directly return the Python value produced by an arbitrary `run()` function.
+Loomle therefore owns a small staged runner protocol rather than treating
+native log output as the result.
+
+For each execution, the Bridge creates unique files below a Loomle-owned
+project `Saved` directory:
+
+- the agent source file;
+- a Loomle runner file;
+- a result JSON path.
+
+The runner executes the source in a fresh dictionary, validates and calls
+`run()`, recursively validates its returned value, and serializes it with
+strict JSON rules including finite numbers. The Bridge invokes the runner
+through `FPythonCommandEx` using:
+
+```text
+ExecutionMode = ExecuteFile
+FileExecutionScope = Private
+Flags = Unattended
+```
+
+The runner writes only its result transport document to the result path. The
+Bridge reads and independently validates that document, combines it with
+native `CommandResult` and `LogOutput`, publishes the terminal execution
+record, and removes all staging files on ordinary success and failure.
+
+The source path gives Python tracebacks a useful filename. Paths containing
+spaces must be correctly quoted for UE's native `.py` command parser.
+
+This staging protocol is not a sandbox. The executed source has full process
+permissions and can inspect, modify, move, or delete staging files. Cleanup is
+best effort, and a process crash may leave files behind. Agents must not place
+credentials or other secrets in scripts. Loomle never echoes or deliberately
+logs the complete source, although a Python traceback may contain relevant
+source lines.
+
+The service must live in a focused Python execution component. It must not
+restore Loomle 0.6's direct-tool runtime, monkey-patch `unreal`, install
+process-global signal handlers, or depend on shared console globals.
+
+## Python Availability and Editor State
+
+The Bridge declares `PythonScriptPlugin` as a plugin/module dependency and
+requests Python enablement during Editor initialization, outside an agent
+execution. It tracks `OnPythonInitialized` and `OnPythonShutdown` and verifies
+`IsPythonConfigured`, `IsPythonAvailable`, and `IsPythonInitialized` before
+admission.
+
+A tool call never busy-waits for interpreter initialization on the Game
+Thread. Not ready and unavailable states return distinct errors.
+
+The first implementation rejects `run` while PIE or another play session is
+active. Arbitrary Python has no reliable generic rule for choosing Editor
+world versus play world, and a privileged escape hatch should not guess.
+`poll` remains available because it is a record read, although no new fallback
+execution should have been admitted during play.
 
 ## Dry Run, Transactions, and Side Effects
 
-Full Python cannot provide Loomle's mutation dry-run contract. Source text
-cannot be reliably reduced to parse, resolve, validate, and plan phases before
-application. Runtime reflection and ordinary Python control flow can choose
-operations dynamically.
+Full Python cannot implement Loomle's mutation dry-run contract. Source cannot
+be reliably reduced to parse, resolve, validate, and plan phases before it
+runs. Runtime reflection and ordinary control flow can choose operations
+dynamically.
 
-Examples of effects that an Editor transaction cannot generally reverse
-include:
+Effects that an Editor transaction cannot generally reverse include:
 
 - saving or deleting packages and files;
 - changing config, console variables, subsystem, or process-global state;
-- spawning processes or performing network requests;
+- spawning processes or making network requests;
 - invoking UE APIs that do not call `Modify`;
-- starting asynchronous work that outlives the tool call.
+- starting asynchronous work that outlives `run()`.
 
-`FScopedTransaction` would therefore provide misleading partial protection.
-The initial implementation does not wrap arbitrary code in a Loomle-owned
-transaction and does not report `valid`, `planned`, `applied`, `diff`,
-revisions, or rollback state.
+The Bridge does not wrap arbitrary code in a Loomle-owned transaction.
+`FScopedTransaction::Cancel()` would remove a transaction record but would not
+generally restore effects already applied. The result never reports SAL
+mutation fields such as `valid`, `planned`, `applied`, `diff`, or revisions.
 
-Even wrapping the call in `FScopedTransaction` and calling `Cancel()` after an
-exception would not constitute rollback: cancellation removes the transaction
-record but does not generally restore objects that were already changed.
+The script may choose a UE transaction or explicit save operation when that is
+correct for its specific domain, but Loomle makes no generic guarantee about
+undoability, persistence, or rollback.
 
-Before this tool becomes current rather than planned, Loomle's mutation policy
-must document one narrow raw-execution exception:
+## Cancellation, Failure, and Replay
 
-- every structured mutation interface still follows the shared dry-run
-  contract;
-- raw language execution is separately named and permanently marked
-  destructive;
-- it exposes no dry-run-shaped fields and makes no mutation-planning claim;
-- a capability promoted from Python into a structured interface loses the
-  exception and must implement the normal dry-run path.
-
-Undo availability is determined entirely by the UE APIs the script chooses.
-The result must never imply that the script is undoable.
-
-## Timeout, Cancellation, and Replay
-
-There is no safe generic way to interrupt Python while it may be executing UE
-code on the Game Thread. Python `signal.alarm` is unavailable on Windows and
-cannot preempt arbitrary native UE work safely. Injecting an exception,
-terminating a thread, or releasing the interpreter can corrupt Editor state.
-An infinite loop or blocking call can therefore freeze the Editor indefinitely
-and may require terminating the Editor process, with loss of unsaved work.
+There is no safe generic way to preempt unrestricted Python while it may be
+executing native UE code on the Game Thread. Injecting an exception,
+terminating a thread, or shutting down the interpreter can corrupt Editor
+state.
 
 Consequently:
 
-- `python_execute` has no caller-controlled timeout;
-- the public tool service does not pass MCP AbortSignal cancellation through
-  after dispatch, matching the no-abandonment rule used for mutation;
-- the private transport may still send its ordinary cancellation notification
-  after a response timeout, but admitted Python does not honor it as a safe
-  stop request;
-- disconnect or transport timeout after Game Thread admission has an uncertain
-  outcome;
-- once socket dispatch has been attempted, a Client-side connection failure is
-  handled conservatively as an uncertain outcome because a partial write may
-  have reached the Bridge and the Client cannot prove whether Game Thread
-  admission occurred;
-- a timed-out script may still be running and may still produce side effects;
-- the Client never retries or replays the request automatically;
-- a retry requires the agent to inspect current UE and external state first.
+- `python` has no cancel operation;
+- the inline completion window never attempts to stop execution;
+- `poll` observes but does not control the execution;
+- caller abort after Game Thread admission abandons only the wait;
+- the Client and Bridge never automatically retry or replay a script;
+- Editor termination may be the only recovery from an infinite loop, with
+  possible loss of unsaved work.
 
-The Bridge's own admission-timeout path remains safe: when it successfully
-cancels the admission object before `started`, the queued Game Thread task does
-not execute. The existing long execution budget remains a transport/liveness
-budget, not a Python termination guarantee. A timeout or post-dispatch transport
-failure on this route must be presented as non-retryable and include
-`outcomeUnknown=true` and `stateMayHaveChanged=true`; it must say that execution
-may still be in progress and must not invite a blind retry.
+The normal continuation path prevents a slow script from reaching the outer
+transport timeout. It cannot eliminate every uncertain outcome. A connection
+loss, MCP host cancellation, Client crash, or Editor crash before the running
+continuation is delivered may leave the agent without an `executionId` even
+though Python started. That case reports outcome uncertainty when possible and
+must never invite blind replay.
 
-The current generic Client timeout is marked retryable. The Python route must
-override that presentation: once the `python.execute` request frame has been
-offered to the socket, timeout or connection loss is non-retryable until the
-agent has separately inspected current state. Route-specific Bridge error data
-and the Client formatter must preserve the two uncertain-outcome fields instead
-of reducing them to the generic retryable timeout. This is an uncertain-outcome
-rule, not a claim that another request can never be issued.
+Admission cancellation remains safe only before the task reaches `started`.
+After `started`, every failure is treated as potentially mutating.
 
 ## Errors
 
-The initial stable error codes are:
+The stable planned errors are:
 
-| Code | Meaning | Retry |
+| Code | Meaning | Retry guidance |
 | --- | --- | --- |
-| `tool.invalid_arguments` | missing, empty, oversized, or unknown input | fix request |
-| `runtime.python_unavailable` | the module or target build has no usable Python support | no |
-| `runtime.python_initializing` | Python enablement was requested but is not ready | after readiness changes |
-| `runtime.python_source_staging_failed` | source staging failed before execution | after filesystem repair |
-| `runtime.python_unavailable_during_play` | PIE or another play session is active | after stopping play |
-| `runtime.python_execution_failed` | Python or UE exception after execution started | inspect traceback and state |
-| `runtime.editor_shutting_down` | the Editor is draining | after restart |
-| `runtime.request_timeout` | admitted execution exceeded the transport budget | inspect state; never blind retry |
+| `tool.invalid_arguments` | invalid operation, missing script/id, oversized input, or unknown field | fix the request |
+| `runtime.python_unavailable` | target build or plugin has no usable Python | do not retry unchanged |
+| `runtime.python_initializing` | Python was requested but is not ready | retry after readiness changes |
+| `runtime.python_unavailable_during_play` | PIE or another play session is active | retry after play stops |
+| `runtime.python_source_staging_failed` | staging failed before Python began | repair filesystem state |
+| `runtime.python_busy` | another fallback execution is active | follow its exposed continuation or wait |
+| `runtime.python_execution_failed` | source, entry point, or Python/UE execution failed | inspect traceback and current state |
+| `runtime.python_invalid_result` | `run()` did not return a compatible dictionary | inspect current state; fix source |
+| `runtime.python_result_too_large` | the structured result exceeded its bound | inspect current state; return a smaller projection |
+| `runtime.python_execution_not_found` | id is unknown to the owning live runtime | verify the exact continuation |
+| `runtime.python_execution_expired` | retained terminal result has expired | do not replay automatically |
+| `runtime.python_execution_lost` | the owning runtime vanished before a terminal outcome was observed | inspect project state; do not replay automatically |
+| `runtime.editor_unresponsive` | Game Thread did not admit the task | retry only after Editor responsiveness returns |
+| `runtime.editor_shutting_down` | Editor is draining | retry after restart and state inspection |
 
-Project selection, offline, multiple-Editor, startup, admission, and protocol
-errors retain their existing codes.
-
-An execution failure is not evidence that no mutation happened. Code can
-change state and then throw. Its failure payload uses
-`stateMayHaveChanged=true` and includes this warning next to the native
-traceback. Pre-execution errors use `stateMayHaveChanged=false`.
-
-## Demand Feedback
-
-The Bridge emits one compact structured UE log entry containing:
-
-- `reason`;
-- mode;
-- success or error code;
-- duration and truncation facts.
-
-It must not log the source code or restore a separate diagnostic store.
-`reason` must also avoid credentials or private content because normal UE logs
-can persist under `Saved/Logs`.
-
-Fallback usage does not silently expand SAL. Maintainers periodically group
-reasons into capability classes. A repeated, stable workflow should produce a
-source-grounded interface design and dedicated tests; only then should agents
-stop using Python for that workflow.
+Project binding, multiple-Editor, startup, protocol, and transport errors retain
+their existing codes. Python-specific formatting must override any generic
+“retryable timeout” suggestion after execution may have started.
 
 ## Implementation Scope
 
 The first implementation changes:
 
-- Client public tool definitions, routing, validation, formatting, and tests;
-- Bridge RPC capability and dispatch;
-- a focused Python execution service;
-- plugin and module dependency declarations;
-- generated private protocol version sources;
-- the diagnostic catalog entries for the new `runtime.python_*` codes;
-- current Client, interface-guide, lifecycle, dry-run-policy, coverage, and
-  release-test documentation;
-- packaged end-to-end expectations from seven to eight public tools.
+- the Client public tool definition, routing, validation, structured result
+  formatting, and tests;
+- Bridge capabilities and the `python.run`/`python.poll` RPC paths;
+- a focused staged Python runner and thread-safe execution-record service;
+- plugin/module dependency declarations and initialization tracking;
+- the generated private protocol version;
+- diagnostic catalog entries;
+- runtime liveness behavior so `poll` bypasses Game Thread readiness while
+  preserving exact runtime identity;
+- current tool-count, dry-run-policy, coverage, packaging, and release-test
+  documentation.
 
-It does not restore:
+It does not add:
 
-- the old public `execute` name;
-- the 0.6 direct-tool runtime or compatibility aliases;
-- Python-driven graph adapters;
-- background jobs or idempotency keys;
-- arbitrary script-path execution;
-- a diagnostic-tail tool;
-- a fake dry-run or best-effort rollback mode.
+- `exec` or `eval` public modes;
+- arbitrary caller-provided script paths;
+- caller-provided purpose, schema, timeout, or execution id;
+- cancellation, priority, parallel execution, or a general job system;
+- live log streaming;
+- automatic UObject serialization;
+- cross-Editor restart recovery;
+- fake dry-run, transaction, or rollback claims;
+- Python-based orchestration of SAL.
 
 ## Verification
 
-### Fast Client tests
+### Client tests
 
 Tests must prove:
 
-- exactly eight public tools are listed and `python_execute` has destructive,
-  non-read-only, non-idempotent annotations;
-- `reason`, `mode`, code size, unknown fields, and empty inputs are validated;
-- the bound project and healthy runtime are resolved before dispatch;
-- `python.execute` is the exact private tool name and source code is forwarded
-  only to that selected runtime;
-- runtime errors preserve Python result, log, truncation, and uncertain-outcome
-  detail;
-- a failure before socket dispatch begins remains a pre-execution transport
-  failure, while timeout or connection loss after a write attempt is reported
-  with both uncertain-outcome fields;
-- an admitted request is not canceled or automatically replayed.
+- exactly eight public tools are listed and `python` has the conservative
+  annotations above;
+- the `run` and `poll` input branches reject missing, mixed, unknown, empty,
+  and oversized fields;
+- `run` uses the currently bound healthy runtime;
+- `poll` follows the exact runtime bound to its returned execution id and does
+  not jump to a replacement Editor;
+- fast success and failure expose structured content without an execution id;
+- running results expose the exact `python`/`poll` continuation and are not MCP
+  errors;
+- terminal polled failures retain error, logs, traceback, and
+  `stateMayHaveChanged` detail;
+- cancellation or transport failure never causes automatic replay.
 
 ### UE Automation
 
 Native tests must cover:
 
-- `rpc.capabilities` advertises `python.execute`;
-- `exec` can import `unreal`, emits ordered logs, and cleans its temporary file;
-- `eval` returns the native representation of a simple expression;
-- syntax and runtime errors preserve tracebacks and prior log entries;
-- native log levels map to stable public values;
-- unavailable and failed initialization paths are actionable;
-- startup readiness does not busy-wait or initialize Python inside the tool
-  call;
-- PIE, shutdown, invalid input, staging failure, and size limits fail before
-  execution;
-- a staging path containing spaces is passed to UE as a quoted normalized
-  absolute path;
-- temporary files are removed after both success and ordinary failure;
-- a script that moves, deletes, or rewrites its own staging file does not make
-  cleanup reporting crash or misstate the original path's existence;
-- cleanup failure preserves the execution outcome and reports the retained
-  source path;
-- output truncation is deterministic and never changes success into failure;
-- a successful script that calls `unreal.log_error` remains successful;
-- no result claims dry run, transaction, rollback, or idempotency;
-- failure after an intentional transient UE mutation is reported as an
-  uncertain partial outcome rather than a rollback;
-- an admitted delayed script can outlive caller abandonment without being
-  replayed;
-- asynchronous work started by a script is not misreported as completed work.
+- capabilities advertise `python.run` and `python.poll`;
+- a script can import `unreal`, define `run()`, and return a nested JSON object;
+- empty dictionaries, Unicode, lists, nulls, Booleans, and finite numbers
+  round-trip exactly;
+- non-string keys, cycles, UObject values, tuples, NaN, and infinity fail as
+  invalid results;
+- missing, parameterized, async, and generator `run()` definitions fail;
+- syntax and runtime errors preserve useful tracebacks and prior native logs;
+- source and runner paths containing spaces execute correctly;
+- staging files are removed after ordinary success and failure;
+- cleanup failure does not replace the execution outcome;
+- the result size limit fails without producing malformed JSON;
+- log truncation is deterministic and does not change success;
+- Game Thread admission cancellation prevents later execution;
+- a sub-window script returns directly without an exposed id;
+- a script exceeding the inline window returns one id and later publishes the
+  same terminal result;
+- `poll` remains responsive from the worker path while the Game Thread script
+  is active;
+- repeated terminal polls do not re-execute the script;
+- a second active `run` fails with `runtime.python_busy` and is never queued;
+- Editor shutdown changes an unfinished exposed execution to `lost`;
+- PIE, unavailable Python, initialization, and shutdown fail at their specified
+  boundaries;
+- no result claims dry run, rollback, idempotency, or safe cancellation.
 
-Tests must not alter a user project. UE Automation uses transient objects or a
-copied fixture and performs explicit cleanup.
-
-Ordinary automated suites must not execute a true infinite loop. Any destructive
-watchdog exercise of that failure mode must run in a disposable one-off Editor
-process whose forced termination and fixture cleanup are owned by the test
-harness.
+Tests must use transient objects or copied fixtures and clean them explicitly.
+Ordinary suites must not execute an infinite loop. Any destructive watchdog
+test must own a disposable Editor process and its cleanup.
 
 ### Packaged end-to-end
 
 The exact release archive must:
 
-1. list all eight public tools;
-2. report a ready bound Editor;
-3. execute one non-mutating `exec` script that imports `unreal` and logs a
-   deterministic value;
-4. execute one simple `eval`;
-5. surface one controlled Python exception with its traceback;
-6. prove the Editor remains responsive afterward;
-7. leave no Loomle temporary Python source after normal completion.
+1. list the `python` tool with `run` and `poll` input branches;
+2. execute a fast non-mutating script that imports `unreal` and returns a
+   deterministic structured object;
+3. surface one controlled Python exception with its traceback;
+4. execute one deliberately delayed script, receive a continuation, and poll
+   its final structured result;
+5. prove the Editor remains responsive after all terminal executions;
+6. leave no Loomle staging files after normal completion.
 
-Release audit must also prove the Python plugin dependency is present in the
-descriptor and the packaged Bridge still contains only the single
-`LoomleBridge` module.
+Release audit must also prove the Python plugin dependency is present and the
+packaged Bridge still contains only the intended Loomle module set.
 
 ## Acceptance
 
 The design is implemented only when:
 
-- the public and private names, schemas, annotations, and errors match this
-  document;
-- full `import unreal` execution works against the bound UE 5.7 Editor;
-- commands request UE unattended behavior without claiming that arbitrary
-  Python or UE APIs cannot display or wait for UI;
-- code is never advertised as sandboxed, transactional, dry-runnable, or
-  safely cancellable;
-- timeout and failure diagnostics preserve uncertain-outcome semantics;
-- current documentation clearly prefers structured Loomle interfaces and
-  identifies this as a capability fallback;
-- the root fast gate, complete UE Automation category, and packaged
-  end-to-end gate pass on every supported platform.
+- the public name, operations, schemas, annotations, results, and errors match
+  this document;
+- full `import unreal` execution works in the bound UE 5.7 Editor;
+- `run()` returns a real structured object rather than using logs as data;
+- the common fast path completes in one MCP call;
+- a slower admitted execution promptly returns a usable `poll` continuation;
+- polling stays independent of the blocked Game Thread and never changes
+  runtime identity;
+- code is never advertised as sandboxed, transactional, dry-runnable,
+  safely cancellable, or automatically retryable;
+- current documentation continues to prefer structured Loomle interfaces for
+  the semantics they cover;
+- focused Client tests, UE Automation, and packaged end-to-end validation pass
+  on every supported platform.

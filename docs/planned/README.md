@@ -13,5 +13,5 @@ Current planned designs:
 
 - `BLUEPRINT_USER_DEFINED_STRUCT_DESIGN.md`: UE-native UserDefinedStruct
   identity, field, validation, and mutation design.
-- `PYTHON_FALLBACK_DESIGN.md`: high-privilege Unreal Editor Python fallback
-  boundary and lifecycle.
+- `PYTHON_FALLBACK_DESIGN.md`: confirmed high-privilege Unreal Editor Python
+  `run`/`poll` fallback contract and lifecycle.
