@@ -13,6 +13,14 @@ concurrency:
 jobs:
   verify-fab-mac:
     runs-on: [self-hosted, macOS]
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        unreal: ["5.7", "5.8"]
+    env:
+      UE_VERSION: ${{ matrix.unreal }}
+      UE_SLUG: ue${{ matrix.unreal }}
 
     steps:
       - name: Checkout
@@ -50,7 +58,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          staging="$RUNNER_TEMP/loomle-fab-darwin-arm64"
+          staging="$RUNNER_TEMP/loomle-fab-$UE_SLUG-darwin-arm64"
           node packaging/fab/assemble.mjs \
             --repo-root "$GITHUB_WORKSPACE" \
             --output-dir "$staging" \
@@ -64,12 +72,12 @@ jobs:
           STAGING: ${{ steps.assemble.outputs.staging }}
         run: |
           set -euo pipefail
-          archive="$RUNNER_TEMP/loomle-fab-source-darwin-arm64.zip"
+          archive="$RUNNER_TEMP/loomle-fab-source-$UE_SLUG-darwin-arm64.zip"
           rm -f "$archive"
           cd "$STAGING"
           /usr/bin/zip -qry "$archive" LoomleBridge
 
-          entries="$RUNNER_TEMP/loomle-fab-source-entries-darwin-arm64.txt"
+          entries="$RUNNER_TEMP/loomle-fab-source-entries-$UE_SLUG-darwin-arm64.txt"
           /usr/bin/unzip -Z1 "$archive" > "$entries"
           for required in \
             LoomleBridge/LoomleBridge.uplugin \
@@ -88,7 +96,7 @@ jobs:
             exit 1
           fi
 
-          audit="$RUNNER_TEMP/loomle-fab-source-audit-darwin-arm64"
+          audit="$RUNNER_TEMP/loomle-fab-source-audit-$UE_SLUG-darwin-arm64"
           rm -rf "$audit"
           mkdir -p "$audit"
           /usr/bin/unzip -q "$archive" -d "$audit"
@@ -107,15 +115,25 @@ jobs:
         id: ue
         shell: bash
         env:
-          UE_FROM_VARS: ${{ vars.UE_5_7_ROOT_MAC }}
+          UE_5_7_ROOT: ${{ vars.UE_5_7_ROOT_MAC }}
+          UE_5_8_ROOT: ${{ vars.UE_5_8_ROOT_MAC }}
         run: |
           set -euo pipefail
-          candidate="${UE_FROM_VARS:-${UE_5_7_ROOT_MAC:-/Users/Shared/Epic Games/UE_5.7}}"
+          case "$UE_VERSION" in
+            5.7) candidate="${UE_5_7_ROOT:-/Users/Shared/Epic Games/UE_5.7}" ;;
+            5.8) candidate="${UE_5_8_ROOT:-/Users/Shared/Epic Games/UE_5.8}" ;;
+            *) echo "Unsupported UE version: $UE_VERSION" >&2; exit 1 ;;
+          esac
           run_uat="$candidate/Engine/Build/BatchFiles/RunUAT.sh"
           [[ -x "$run_uat" ]] || {
             echo "RunUAT.sh not found: $run_uat" >&2
             exit 1
           }
+          node -e '
+            const build = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+            const actual = `${build.MajorVersion}.${build.MinorVersion}`;
+            if (actual !== process.argv[2]) throw new Error(`Engine reports ${actual}; expected ${process.argv[2]}.`);
+          ' "$candidate/Engine/Build/Build.version" "$UE_VERSION"
           echo "ue_root=$candidate" >> "$GITHUB_OUTPUT"
           echo "run_uat=$run_uat" >> "$GITHUB_OUTPUT"
 
@@ -127,7 +145,7 @@ jobs:
           RUN_UAT: ${{ steps.ue.outputs.run_uat }}
         run: |
           set -euo pipefail
-          package="$RUNNER_TEMP/loomle-automation-buildplugin-darwin-arm64"
+          package="$RUNNER_TEMP/loomle-automation-buildplugin-$UE_SLUG-darwin-arm64"
           rm -rf "$package"
           "$RUN_UAT" BuildPlugin \
             -Plugin="$GITHUB_WORKSPACE/engine/LoomleBridge/LoomleBridge.uplugin" \
@@ -157,7 +175,7 @@ jobs:
           AUTOMATION_PLUGIN: ${{ steps.automation-package.outputs.plugin }}
         run: |
           set -euo pipefail
-          results="$RUNNER_TEMP/loomle-automation-results-darwin-arm64"
+          results="$RUNNER_TEMP/loomle-automation-results-$UE_SLUG-darwin-arm64"
           rm -rf "$results"
           npm run test:ue-automation -- \
             --ue-root "$UE_ROOT" \
@@ -167,8 +185,9 @@ jobs:
             --target darwin-arm64
           node -e '
             const result = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
-            if (result.status !== "passed" || result.commit !== process.env.GITHUB_SHA) {
-              throw new Error("UE Automation result does not match the checked-out commit.");
+            if (result.status !== "passed" || result.commit !== process.env.GITHUB_SHA
+                || result.engineVersion !== process.env.UE_VERSION) {
+              throw new Error("UE Automation result does not match the checked-out commit and engine.");
             }
           ' "$results/result.json"
 
@@ -181,7 +200,7 @@ jobs:
           STAGING: ${{ steps.assemble.outputs.staging }}
         run: |
           set -euo pipefail
-          package="$RUNNER_TEMP/loomle-fab-buildplugin-darwin-arm64"
+          package="$RUNNER_TEMP/loomle-fab-buildplugin-$UE_SLUG-darwin-arm64"
           rm -rf "$package"
           "$RUN_UAT" BuildPlugin \
             -Plugin="$STAGING/LoomleBridge/LoomleBridge.uplugin" \
@@ -274,7 +293,15 @@ jobs:
             }
           ' "$descriptor"
 
-          bridge_binary="$packaged_plugin/Binaries/Mac/UnrealEditor-LoomleBridge.dylib"
+          bridge_name="$(node -e '
+            const manifest = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+            const name = manifest.Modules?.LoomleBridge;
+            if (typeof name !== "string" || !/^(?:lib)?UnrealEditor-LoomleBridge\.dylib$/.test(name)) {
+              throw new Error("Invalid LoomleBridge module manifest entry.");
+            }
+            process.stdout.write(name);
+          ' "$packaged_plugin/Binaries/Mac/UnrealEditor.modules")"
+          bridge_binary="$packaged_plugin/Binaries/Mac/$bridge_name"
           [[ -f "$bridge_binary" ]] || {
             echo "BuildPlugin output is missing the Mac Bridge binary: $bridge_binary" >&2
             exit 1
@@ -295,6 +322,7 @@ jobs:
           node packaging/fab/verify-derivation.mjs \
             --source-plugin "$STAGING/LoomleBridge" \
             --github-plugin "$PACKAGE/LoomleBridge" \
+            --engine-version "$UE_VERSION" \
             --target darwin-arm64
 
       - name: Archive Verified BuildPlugin Output
@@ -304,11 +332,11 @@ jobs:
           PACKAGE: ${{ steps.package.outputs.package }}
         run: |
           set -euo pipefail
-          archive="$RUNNER_TEMP/loomle-fab-plugin-darwin-arm64.zip"
+          archive="$RUNNER_TEMP/loomle-fab-plugin-$UE_SLUG-darwin-arm64.zip"
           rm -f "$archive"
           cd "$PACKAGE"
           /usr/bin/zip -qry "$archive" LoomleBridge
-          archive_entries="$RUNNER_TEMP/loomle-fab-archive-entries-darwin-arm64.txt"
+          archive_entries="$RUNNER_TEMP/loomle-fab-archive-entries-$UE_SLUG-darwin-arm64.txt"
           /usr/bin/unzip -Z1 "$archive" > "$archive_entries"
           grep -Fxq 'LoomleBridge/Resources/Loomle/darwin-arm64/loomle' "$archive_entries"
           grep -Fxq 'LoomleBridge/Content/' "$archive_entries"
@@ -336,19 +364,26 @@ jobs:
             exit 1
           fi
 
-          audit="$RUNNER_TEMP/loomle-fab-archive-audit-darwin-arm64"
+          audit="$RUNNER_TEMP/loomle-fab-archive-audit-$UE_SLUG-darwin-arm64"
           rm -rf "$audit"
           mkdir -p "$audit"
           /usr/bin/unzip -q "$archive" -d "$audit"
           packaged_plugin="$PACKAGE/LoomleBridge"
           extracted_plugin="$audit/LoomleBridge"
+          bridge_name="$(node -e '
+            const manifest = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+            const name = manifest.Modules?.LoomleBridge;
+            if (typeof name !== "string" || !/^(?:lib)?UnrealEditor-LoomleBridge\.dylib$/.test(name)) process.exit(1);
+            process.stdout.write(name);
+          ' "$packaged_plugin/Binaries/Mac/UnrealEditor.modules")"
           for relative_path in \
             LoomleBridge.uplugin \
             Config/FilterPlugin.ini \
             LICENSE \
             THIRD_PARTY_NOTICES.txt \
             Resources/Loomle/darwin-arm64/loomle \
-            Binaries/Mac/UnrealEditor-LoomleBridge.dylib; do
+            Binaries/Mac/UnrealEditor.modules \
+            "Binaries/Mac/$bridge_name"; do
             [[ "$(shasum -a 256 "$packaged_plugin/$relative_path" | awk '{print $1}')" == \
                "$(shasum -a 256 "$extracted_plugin/$relative_path" | awk '{print $1}')" ]] || {
               echo "Fab archive changed or omitted $relative_path." >&2
@@ -359,7 +394,7 @@ jobs:
             echo "Fab archive did not preserve the Client executable bit." >&2
             exit 1
           }
-          [[ "$(/usr/bin/lipo -archs "$extracted_plugin/Binaries/Mac/UnrealEditor-LoomleBridge.dylib")" == "arm64" ]] || {
+          [[ "$(/usr/bin/lipo -archs "$extracted_plugin/Binaries/Mac/$bridge_name")" == "arm64" ]] || {
             echo "Fab archive Bridge is not arm64-only." >&2
             exit 1
           }
@@ -395,7 +430,7 @@ jobs:
           ARCHIVE: ${{ steps.archive.outputs.archive }}
         run: |
           set -euo pipefail
-          results="$RUNNER_TEMP/loomle-packaged-e2e-results-darwin-arm64"
+          results="$RUNNER_TEMP/loomle-packaged-e2e-results-$UE_SLUG-darwin-arm64"
           rm -rf "$results"
           npm run test:packaged-e2e -- \
             --ue-root "$UE_ROOT" \
@@ -408,8 +443,9 @@ jobs:
             const result = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
             if (result.status !== "passed"
                 || result.commit !== process.env.GITHUB_SHA
+                || result.engineVersion !== process.env.UE_VERSION
                 || result.archiveSha256 !== process.argv[2]) {
-              throw new Error("Packaged E2E result does not match the checked-out commit and exact release archive.");
+              throw new Error("Packaged E2E result does not match the checked-out commit, engine, and exact release archive.");
             }
           ' "$results/result.json" "$archive_sha"
 
@@ -417,22 +453,23 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: loomle-native-test-results-darwin-arm64
+          name: loomle-native-test-results-${{ env.UE_SLUG }}-darwin-arm64
           path: |
-            ${{ runner.temp }}/loomle-automation-results-darwin-arm64
-            ${{ runner.temp }}/loomle-packaged-e2e-results-darwin-arm64
+            ${{ runner.temp }}/loomle-automation-results-${{ env.UE_SLUG }}-darwin-arm64
+            ${{ runner.temp }}/loomle-packaged-e2e-results-${{ env.UE_SLUG }}-darwin-arm64
           if-no-files-found: warn
 
       - name: Upload QA Artifact
         uses: actions/upload-artifact@v7
         with:
-          name: loomle-fab-plugin-darwin-arm64
+          name: loomle-fab-plugin-${{ env.UE_SLUG }}-darwin-arm64
           path: |
             ${{ steps.archive.outputs.archive }}
             ${{ steps.archive.outputs.archive_sha }}
           if-no-files-found: error
 
       - name: Upload Fab Source Artifact
+        if: matrix.unreal == '5.7'
         uses: actions/upload-artifact@v7
         with:
           name: loomle-fab-source-darwin-arm64

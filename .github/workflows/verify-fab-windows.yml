@@ -12,7 +12,15 @@ concurrency:
 
 jobs:
   verify-fab-windows:
-    runs-on: [self-hosted, Windows, X64, loomle-win, ue57]
+    runs-on: [self-hosted, Windows, X64, loomle-win]
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        unreal: ["5.7", "5.8"]
+    env:
+      UE_VERSION: ${{ matrix.unreal }}
+      UE_SLUG: ue${{ matrix.unreal }}
     defaults:
       run:
         shell: pwsh
@@ -151,7 +159,7 @@ jobs:
       - name: Assemble Fab Plugin
         id: assemble
         run: |
-          $staging = Join-Path $env:RUNNER_TEMP "loomle-fab-win32-x64"
+          $staging = Join-Path $env:RUNNER_TEMP "loomle-fab-$($env:UE_SLUG)-win32-x64"
           node packaging/fab/assemble.mjs `
             --repo-root $env:GITHUB_WORKSPACE `
             --output-dir $staging `
@@ -178,7 +186,7 @@ jobs:
         env:
           STAGING: ${{ steps.assemble.outputs.staging }}
         run: |
-          $archive = Join-Path $env:RUNNER_TEMP "loomle-fab-source-win32-x64.zip"
+          $archive = Join-Path $env:RUNNER_TEMP "loomle-fab-source-$($env:UE_SLUG)-win32-x64.zip"
           Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
           tar.exe -a -cf $archive -C $env:STAGING LoomleBridge
           if ($LASTEXITCODE -ne 0) {
@@ -217,11 +225,13 @@ jobs:
       - name: Resolve Unreal Engine Root
         id: ue
         env:
-          UE_FROM_VARS: ${{ vars.UE_5_7_ROOT_WINDOWS }}
+          UE_5_7_ROOT: ${{ vars.UE_5_7_ROOT_WINDOWS }}
+          UE_5_8_ROOT: ${{ vars.UE_5_8_ROOT_WINDOWS }}
         run: |
-          $configured = $env:UE_FROM_VARS
-          if ([string]::IsNullOrWhiteSpace($configured)) {
-            $configured = $env:UE_5_7_ROOT_WINDOWS
+          $configured = switch ($env:UE_VERSION) {
+            "5.7" { $env:UE_5_7_ROOT }
+            "5.8" { $env:UE_5_8_ROOT }
+            default { throw "Unsupported UE version: $env:UE_VERSION" }
           }
 
           $roots = [Collections.Generic.List[string]]::new()
@@ -249,22 +259,22 @@ jobs:
                   $version = Get-Content -LiteralPath $buildVersion -Raw |
                     ConvertFrom-Json
                   return $version.MajorVersion -eq 5 -and
-                    $version.MinorVersion -eq 7
+                    "$($version.MajorVersion).$($version.MinorVersion)" -eq $env:UE_VERSION
                 } catch {
                   return $false
                 }
               }
           )
           if ($matches.Count -eq 0) {
-            throw "Could not find UE 5.7 under the configured path or D:\Dev direct children."
+            throw "Could not find UE $env:UE_VERSION under the configured path or D:\Dev direct children."
           }
           if ($matches.Count -ne 1) {
-            throw "UE 5.7 root is ambiguous: $($matches -join ', ')"
+            throw "UE $env:UE_VERSION root is ambiguous: $($matches -join ', ')"
           }
 
           $candidate = $matches[0]
           $runUat = Join-Path $candidate "Engine\Build\BatchFiles\RunUAT.bat"
-          Write-Host "Resolved UE 5.7 root: $candidate"
+          Write-Host "Resolved UE $env:UE_VERSION root: $candidate"
           "ue_root=$candidate" >> $env:GITHUB_OUTPUT
           "run_uat=$runUat" >> $env:GITHUB_OUTPUT
 
@@ -274,7 +284,7 @@ jobs:
         env:
           RUN_UAT: ${{ steps.ue.outputs.run_uat }}
         run: |
-          $package = Join-Path $env:RUNNER_TEMP "loomle-automation-buildplugin-win32-x64"
+          $package = Join-Path $env:RUNNER_TEMP "loomle-automation-buildplugin-$($env:UE_SLUG)-win32-x64"
           Remove-Item -LiteralPath $package -Recurse -Force -ErrorAction SilentlyContinue
           $plugin = Join-Path $env:GITHUB_WORKSPACE "engine\LoomleBridge\LoomleBridge.uplugin"
           & $env:RUN_UAT BuildPlugin `
@@ -306,7 +316,7 @@ jobs:
           UE_ROOT: ${{ steps.ue.outputs.ue_root }}
           AUTOMATION_PLUGIN: ${{ steps.automation-package.outputs.plugin }}
         run: |
-          $results = Join-Path $env:RUNNER_TEMP "loomle-automation-results-win32-x64"
+          $results = Join-Path $env:RUNNER_TEMP "loomle-automation-results-$($env:UE_SLUG)-win32-x64"
           Remove-Item -LiteralPath $results -Recurse -Force -ErrorAction SilentlyContinue
           npm run test:ue-automation -- `
             --ue-root $env:UE_ROOT `
@@ -319,8 +329,9 @@ jobs:
           }
           node -e '
             const result = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
-            if (result.status !== "passed" || result.commit !== process.env.GITHUB_SHA) {
-              throw new Error("UE Automation result does not match the checked-out commit.");
+            if (result.status !== "passed" || result.commit !== process.env.GITHUB_SHA
+                || result.engineVersion !== process.env.UE_VERSION) {
+              throw new Error("UE Automation result does not match the checked-out commit and engine.");
             }
           ' (Join-Path $results "result.json")
 
@@ -331,7 +342,7 @@ jobs:
           RUN_UAT: ${{ steps.ue.outputs.run_uat }}
           STAGING: ${{ steps.assemble.outputs.staging }}
         run: |
-          $package = Join-Path $env:RUNNER_TEMP "loomle-fab-buildplugin-win32-x64"
+          $package = Join-Path $env:RUNNER_TEMP "loomle-fab-buildplugin-$($env:UE_SLUG)-win32-x64"
           Remove-Item -LiteralPath $package -Recurse -Force -ErrorAction SilentlyContinue
           $plugin = Join-Path $env:STAGING "LoomleBridge\LoomleBridge.uplugin"
           & $env:RUN_UAT BuildPlugin `
@@ -424,7 +435,12 @@ jobs:
             }
           ' $descriptor
 
-          $bridge = Join-Path $plugin "Binaries\Win64\UnrealEditor-LoomleBridge.dll"
+          $manifest = Get-Content -LiteralPath (Join-Path $plugin "Binaries\Win64\UnrealEditor.modules") -Raw | ConvertFrom-Json
+          $bridgeName = [string] $manifest.Modules.LoomleBridge
+          if ($bridgeName -ne "UnrealEditor-LoomleBridge.dll") {
+            throw "Invalid LoomleBridge module manifest entry: $bridgeName"
+          }
+          $bridge = Join-Path $plugin "Binaries\Win64\$bridgeName"
           if (-not (Test-Path -LiteralPath $bridge -PathType Leaf)) {
             throw "BuildPlugin output is missing the Win64 Bridge binary: $bridge"
           }
@@ -438,6 +454,7 @@ jobs:
           node packaging/fab/verify-derivation.mjs `
             --source-plugin (Join-Path $env:STAGING "LoomleBridge") `
             --github-plugin (Join-Path $env:PACKAGE "LoomleBridge") `
+            --engine-version $env:UE_VERSION `
             --target win32-x64
           if ($LASTEXITCODE -ne 0) {
             throw "GitHub package does not derive solely from the Fab source package."
@@ -448,7 +465,7 @@ jobs:
         env:
           PACKAGE: ${{ steps.package.outputs.package }}
         run: |
-          $archive = Join-Path $env:RUNNER_TEMP "loomle-fab-plugin-win32-x64.zip"
+          $archive = Join-Path $env:RUNNER_TEMP "loomle-fab-plugin-$($env:UE_SLUG)-win32-x64.zip"
           Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
           tar.exe -a -cf $archive -C $env:PACKAGE LoomleBridge
           if ($LASTEXITCODE -ne 0) {
@@ -478,7 +495,7 @@ jobs:
             }
           }
 
-          $audit = Join-Path $env:RUNNER_TEMP "loomle-fab-archive-audit-win32-x64"
+          $audit = Join-Path $env:RUNNER_TEMP "loomle-fab-archive-audit-$($env:UE_SLUG)-win32-x64"
           Remove-Item -LiteralPath $audit -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Path $audit | Out-Null
           tar.exe -xf $archive -C $audit
@@ -493,6 +510,7 @@ jobs:
             "LICENSE",
             "THIRD_PARTY_NOTICES.txt",
             "Resources\Loomle\win32-x64\loomle.exe",
+            "Binaries\Win64\UnrealEditor.modules",
             "Binaries\Win64\UnrealEditor-LoomleBridge.dll"
           )) {
             $packagedHash = (Get-FileHash `
@@ -538,7 +556,7 @@ jobs:
           UE_ROOT: ${{ steps.ue.outputs.ue_root }}
           ARCHIVE: ${{ steps.archive.outputs.archive }}
         run: |
-          $results = Join-Path $env:RUNNER_TEMP "loomle-packaged-e2e-results-win32-x64"
+          $results = Join-Path $env:RUNNER_TEMP "loomle-packaged-e2e-results-$($env:UE_SLUG)-win32-x64"
           Remove-Item -LiteralPath $results -Recurse -Force -ErrorAction SilentlyContinue
           npm run test:packaged-e2e -- `
             --ue-root $env:UE_ROOT `
@@ -554,8 +572,9 @@ jobs:
             const result = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
             if (result.status !== "passed"
                 || result.commit !== process.env.GITHUB_SHA
+                || result.engineVersion !== process.env.UE_VERSION
                 || result.archiveSha256 !== process.argv[2]) {
-              throw new Error("Packaged E2E result does not match the checked-out commit and exact QA archive.");
+              throw new Error("Packaged E2E result does not match the checked-out commit, engine, and exact QA archive.");
             }
           ' (Join-Path $results "result.json") $archiveHash
 
@@ -563,22 +582,23 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: loomle-native-test-results-win32-x64
+          name: loomle-native-test-results-${{ env.UE_SLUG }}-win32-x64
           path: |
-            ${{ runner.temp }}/loomle-automation-results-win32-x64
-            ${{ runner.temp }}/loomle-packaged-e2e-results-win32-x64
+            ${{ runner.temp }}/loomle-automation-results-${{ env.UE_SLUG }}-win32-x64
+            ${{ runner.temp }}/loomle-packaged-e2e-results-${{ env.UE_SLUG }}-win32-x64
           if-no-files-found: warn
 
       - name: Upload Windows QA Artifact
         uses: actions/upload-artifact@v7
         with:
-          name: loomle-fab-plugin-win32-x64
+          name: loomle-fab-plugin-${{ env.UE_SLUG }}-win32-x64
           path: |
             ${{ steps.archive.outputs.archive }}
             ${{ steps.archive.outputs.archive_sha }}
           if-no-files-found: error
 
       - name: Upload Windows Fab Source Artifact
+        if: matrix.unreal == '5.7'
         uses: actions/upload-artifact@v7
         with:
           name: loomle-fab-source-win32-x64

@@ -16,6 +16,11 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { pathToFileURL } from "node:url";
 
 import { verifyPackageDerivation } from "../fab/verify-derivation.mjs";
+import {
+  descriptorEngineVersion,
+  requireSupportedUnrealVersion,
+  SOURCE_UNREAL_VERSION,
+} from "../tools/unreal-versions.mjs";
 
 const DESCRIPTOR_PATH = "LoomleBridge.uplugin";
 const PLATFORMS = [
@@ -43,7 +48,9 @@ export async function mergePlatformPackages({
   windowsPluginRoot,
   outputSourcePluginRoot,
   outputPluginRoot,
+  engineVersion,
 }) {
+  const resolvedEngineVersion = requireSupportedUnrealVersion(engineVersion);
   const inputs = {
     "darwin-arm64": {
       source: resolve(macSourcePluginRoot),
@@ -68,9 +75,20 @@ export async function mergePlatformPackages({
       sourcePluginRoot: pair.source,
       githubPluginRoot: pair.plugin,
       target: platform.target,
+      engineVersion: resolvedEngineVersion,
     });
-    await validateNativeDescriptor(pair.source, platform, false);
-    await validateNativeDescriptor(pair.plugin, platform, true);
+    await validateNativeDescriptor(
+      pair.source,
+      platform,
+      false,
+      resolvedEngineVersion,
+    );
+    await validateNativeDescriptor(
+      pair.plugin,
+      platform,
+      true,
+      resolvedEngineVersion,
+    );
     await requireNonEmptyFile(join(pair.source, platform.client), platform.client);
     await requireDirectory(join(pair.plugin, platform.binaries), platform.binaries);
   }
@@ -90,6 +108,7 @@ export async function mergePlatformPackages({
   );
   const mergedPluginDescriptor = {
     ...structuredClone(mergedSourceDescriptor),
+    EngineVersion: descriptorEngineVersion(resolvedEngineVersion),
     Installed: true,
   };
 
@@ -118,13 +137,14 @@ export async function mergePlatformPackages({
   }
   await writeDescriptor(outputPlugin, mergedPluginDescriptor);
 
-  await validateMergedPackage(outputSource, false);
-  await validateMergedPackage(outputPlugin, true);
+  await validateMergedPackage(outputSource, false, resolvedEngineVersion);
+  await validateMergedPackage(outputPlugin, true, resolvedEngineVersion);
   await verifyMergedDerivation(outputSource, outputPlugin);
 
   return {
     outputPluginRoot: outputPlugin,
     outputSourcePluginRoot: outputSource,
+    engineVersion: resolvedEngineVersion,
     targets: PLATFORMS.map(({ target }) => target),
   };
 }
@@ -183,7 +203,7 @@ function assertSamePathSet(left, right, label) {
   }
 }
 
-async function validateNativeDescriptor(root, platform, installed) {
+async function validateNativeDescriptor(root, platform, installed, engineVersion) {
   const descriptor = await readJson(
     join(root, DESCRIPTOR_PATH),
     `${platform.target} descriptor`,
@@ -192,6 +212,9 @@ async function validateNativeDescriptor(root, platform, installed) {
   if (!same(descriptor.SupportedTargetPlatforms, [platform.unrealPlatform])
       || !same(module.PlatformAllowList, [platform.unrealPlatform])
       || module.PlatformArchitectureAllowList !== undefined
+      || descriptor.EngineVersion !== descriptorEngineVersion(
+        installed ? engineVersion : SOURCE_UNREAL_VERSION,
+      )
       || (installed && descriptor.Installed !== true)
       || (!installed && descriptor.Installed === true)) {
     fail(`${platform.target} descriptor does not match its native package role.`);
@@ -225,7 +248,7 @@ function normalizePlatformDescriptor(descriptor) {
   return sortJson(normalized);
 }
 
-async function validateMergedPackage(root, installed) {
+async function validateMergedPackage(root, installed, engineVersion) {
   const packageInventory = await inventory(root);
   const descriptor = await readJson(join(root, DESCRIPTOR_PATH), "merged descriptor");
   const module = requireSingleModule(descriptor);
@@ -233,6 +256,9 @@ async function validateMergedPackage(root, installed) {
   if (!same(descriptor.SupportedTargetPlatforms, platforms)
       || !same(module.PlatformAllowList, platforms)
       || module.PlatformArchitectureAllowList !== undefined
+      || descriptor.EngineVersion !== descriptorEngineVersion(
+        installed ? engineVersion : SOURCE_UNREAL_VERSION,
+      )
       || (installed ? descriptor.Installed !== true : descriptor.Installed === true)) {
     fail("merged descriptor does not match the cross-platform package role.");
   }
@@ -459,6 +485,7 @@ function parseArgs(argv) {
     "windows-plugin",
     "output-source-plugin",
     "output-plugin",
+    "engine-version",
   ];
   for (const name of required) {
     if (!options[name]) fail(`missing required option --${name}`);
@@ -470,6 +497,7 @@ function parseArgs(argv) {
     windowsPluginRoot: options["windows-plugin"],
     outputSourcePluginRoot: options["output-source-plugin"],
     outputPluginRoot: options["output-plugin"],
+    engineVersion: options["engine-version"],
   };
 }
 

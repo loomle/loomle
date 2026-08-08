@@ -48,6 +48,7 @@ test("merges verified native fragments into one source and one complete package"
     }
     const result = await mergePlatformPackages(fixture.input);
     assert.deepEqual(result.targets, ["darwin-arm64", "win32-x64"]);
+    assert.equal(result.engineVersion, "5.7");
 
     for (const platform of PLATFORMS) {
       assert.equal(
@@ -98,6 +99,30 @@ test("merges verified native fragments into one source and one complete package"
       ),
       "---\nname: format-unreal-blueprints\ndescription: fixture\n---\n",
     );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("merges UE 5.8 fragments with the manifest-named Mac binary", async () => {
+  const fixture = await createFixture({ engineVersion: "5.8" });
+  try {
+    const result = await mergePlatformPackages(fixture.input);
+    assert.equal(result.engineVersion, "5.8");
+    assert.equal(
+      await readFile(
+        join(
+          fixture.outputPlugin,
+          "Binaries/Mac/libUnrealEditor-LoomleBridge.dylib",
+        ),
+        "utf8",
+      ),
+      "darwin-arm64 bridge",
+    );
+    const descriptor = await readJson(
+      join(fixture.outputPlugin, "LoomleBridge.uplugin"),
+    );
+    assert.equal(descriptor.EngineVersion, "5.8.0");
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -159,7 +184,7 @@ test("rejects a native descriptor with the wrong platform", async () => {
   }
 });
 
-async function createFixture() {
+async function createFixture({ engineVersion = "5.7" } = {}) {
   const root = await mkdtemp(join(tmpdir(), "loomle-package-merge-"));
   const paths = {};
   for (const platform of PLATFORMS) {
@@ -191,10 +216,14 @@ async function createFixture() {
     await writeFile(join(source, platform.client), `${platform.target} client`);
     await writeFile(
       join(source, "LoomleBridge.uplugin"),
-      JSON.stringify(descriptor(platform.unrealPlatform, false)),
+      JSON.stringify(descriptor(platform.unrealPlatform, false, engineVersion)),
     );
     await cp(source, plugin, { recursive: true });
-    const pluginDescriptor = descriptor(platform.unrealPlatform, true);
+    const pluginDescriptor = descriptor(
+      platform.unrealPlatform,
+      true,
+      engineVersion,
+    );
     await writeFile(
       join(plugin, "LoomleBridge.uplugin"),
       JSON.stringify(pluginDescriptor),
@@ -202,7 +231,17 @@ async function createFixture() {
     await mkdir(join(plugin, "Binaries", platform.unrealPlatform), {
       recursive: true,
     });
-    await writeFile(join(plugin, platform.binary), `${platform.target} bridge`);
+    const binary = platform.target === "darwin-arm64" && engineVersion === "5.8"
+      ? "Binaries/Mac/libUnrealEditor-LoomleBridge.dylib"
+      : platform.binary;
+    await writeFile(join(plugin, binary), `${platform.target} bridge`);
+    await writeFile(
+      join(plugin, "Binaries", platform.unrealPlatform, "UnrealEditor.modules"),
+      JSON.stringify({
+        BuildId: engineVersion === "5.8" ? "55116800" : "47537391",
+        Modules: { LoomleBridge: binary.split("/").at(-1) },
+      }),
+    );
     paths[platform.target] = { source, plugin };
   }
 
@@ -223,15 +262,17 @@ async function createFixture() {
       windowsPluginRoot: paths["win32-x64"].plugin,
       outputSourcePluginRoot: outputSource,
       outputPluginRoot: outputPlugin,
+      engineVersion,
     },
   };
 }
 
-function descriptor(platform, installed) {
+function descriptor(platform, installed, engineVersion) {
   return {
     FileVersion: 3,
     Version: 107,
     VersionName: "0.7.1",
+    EngineVersion: installed ? `${engineVersion}.0` : "5.7.0",
     CanContainContent: false,
     SupportedTargetPlatforms: [platform],
     ...(installed ? { Installed: true } : {}),

@@ -7,6 +7,13 @@ import { readFile, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import {
+  descriptorEngineVersion,
+  requireSupportedUnrealVersion,
+  SUPPORTED_UNREAL_VERSIONS,
+  unrealVersionSlug,
+} from "../tools/unreal-versions.mjs";
+
 const RELEASE_TARGETS = [
   {
     target: "darwin-arm64",
@@ -19,6 +26,13 @@ const RELEASE_TARGETS = [
     cliPrefix: "win32-x64",
   },
 ];
+
+const RELEASE_CANDIDATES = SUPPORTED_UNREAL_VERSIONS.flatMap((engineVersion) =>
+  RELEASE_TARGETS.map((releaseTarget) => ({
+    ...releaseTarget,
+    engineVersion,
+    cliPrefix: `${unrealVersionSlug(engineVersion)}-${releaseTarget.cliPrefix}`,
+  })));
 
 export async function validatePromotion({
   repoRoot,
@@ -45,39 +59,45 @@ export async function validatePromotion({
   if (!Array.isArray(candidates)) {
     fail("release candidates must be an array.");
   }
-  const candidatesByTarget = new Map();
+  const candidatesByKey = new Map();
   for (const candidate of candidates) {
-    if (!candidate || typeof candidate.target !== "string") {
-      fail("each release candidate must name a target.");
+    if (!candidate || typeof candidate.target !== "string"
+        || typeof candidate.engineVersion !== "string") {
+      fail("each release candidate must name an engine version and target.");
     }
-    if (candidatesByTarget.has(candidate.target)) {
-      fail(`duplicate release candidate target: ${candidate.target}.`);
+    requireSupportedUnrealVersion(candidate.engineVersion);
+    const key = candidateKey(candidate.engineVersion, candidate.target);
+    if (candidatesByKey.has(key)) {
+      fail(`duplicate release candidate: ${key}.`);
     }
-    candidatesByTarget.set(candidate.target, candidate);
+    candidatesByKey.set(key, candidate);
   }
-  const expectedTargets = RELEASE_TARGETS.map(({ target }) => target);
-  const actualTargets = [...candidatesByTarget.keys()];
-  const missingTargets = expectedTargets.filter((target) => !candidatesByTarget.has(target));
-  const unexpectedTargets = actualTargets.filter((target) => !expectedTargets.includes(target));
-  if (missingTargets.length > 0 || unexpectedTargets.length > 0) {
+  const expectedCandidates = RELEASE_CANDIDATES.map(({ engineVersion, target }) =>
+    candidateKey(engineVersion, target));
+  const actualCandidates = [...candidatesByKey.keys()];
+  const missingCandidates = expectedCandidates.filter((key) => !candidatesByKey.has(key));
+  const unexpectedCandidates = actualCandidates.filter((key) => !expectedCandidates.includes(key));
+  if (missingCandidates.length > 0 || unexpectedCandidates.length > 0) {
     fail(
       "release candidates must contain exactly"
-      + ` ${expectedTargets.join(", ")};`
-      + ` missing: ${missingTargets.join(", ") || "none"};`
-      + ` unexpected: ${unexpectedTargets.join(", ") || "none"}.`,
+      + ` ${expectedCandidates.join(", ")};`
+      + ` missing: ${missingCandidates.join(", ") || "none"};`
+      + ` unexpected: ${unexpectedCandidates.join(", ") || "none"}.`,
     );
   }
 
   const artifacts = [];
-  for (const releaseTarget of RELEASE_TARGETS) {
-    const candidate = candidatesByTarget.get(releaseTarget.target);
+  for (const releaseTarget of RELEASE_CANDIDATES) {
+    const candidate = candidatesByKey.get(
+      candidateKey(releaseTarget.engineVersion, releaseTarget.target),
+    );
     const {
       archivePath,
       shaFilePath,
       automationResultPath,
       e2eResultPath,
     } = candidate;
-    const label = releaseTarget.target;
+    const label = candidateKey(releaseTarget.engineVersion, releaseTarget.target);
 
     await requireNonEmptyFile(archivePath, `${label} verified archive`);
     await requireNonEmptyFile(shaFilePath, `${label} SHA-256 sidecar`);
@@ -104,7 +124,8 @@ export async function validatePromotion({
         + ` does not match product version ${JSON.stringify(version)}.`,
       );
     }
-    if (descriptor.Installed !== true
+    if (descriptor.EngineVersion !== descriptorEngineVersion(releaseTarget.engineVersion)
+        || descriptor.Installed !== true
         || (descriptor.IsBetaVersion ?? false) !== (channel === "prerelease")
         || !same(descriptor.SupportedTargetPlatforms, [releaseTarget.platform])
         || !same(moduleNames, ["LoomleBridge"])
@@ -116,22 +137,25 @@ export async function validatePromotion({
     const automation = await readJson(automationResultPath);
     if (automation.status !== "passed"
         || automation.commit !== headSha
-        || automation.target !== releaseTarget.target) {
-      fail(`${label} UE Automation result does not match the verified commit and target.`);
+        || automation.target !== releaseTarget.target
+        || automation.engineVersion !== releaseTarget.engineVersion) {
+      fail(`${label} UE Automation result does not match the verified commit, engine, and target.`);
     }
     const e2e = await readJson(e2eResultPath);
     if (e2e.status !== "passed"
         || e2e.commit !== headSha
         || e2e.target !== releaseTarget.target
+        || e2e.engineVersion !== releaseTarget.engineVersion
         || e2e.archiveSha256 !== archiveSha256) {
       fail(
         `${label} packaged E2E result does not match`
-        + " the verified commit, target, and ZIP.",
+        + " the verified commit, engine, target, and ZIP.",
       );
     }
 
     artifacts.push({
       archiveSha256,
+      engineVersion: releaseTarget.engineVersion,
       target: releaseTarget.target,
     });
   }
@@ -144,6 +168,10 @@ export async function validatePromotion({
     tag: `v${version}`,
     version,
   };
+}
+
+function candidateKey(engineVersion, target) {
+  return `${unrealVersionSlug(engineVersion)}/${target}`;
 }
 
 function parseSha256Sidecar(text, expectedName) {
@@ -219,7 +247,7 @@ function parseArguments(args) {
     "repo-root",
     "head-sha",
     "channel",
-    ...RELEASE_TARGETS.flatMap(({ cliPrefix }) => [
+    ...RELEASE_CANDIDATES.flatMap(({ cliPrefix }) => [
       `${cliPrefix}-archive`,
       `${cliPrefix}-sha-file`,
       `${cliPrefix}-automation-result`,
@@ -229,8 +257,9 @@ function parseArguments(args) {
   if (required.some((name) => !values[name])) usage();
   return {
     repoRoot: resolve(values["repo-root"]),
-    candidates: RELEASE_TARGETS.map(({ target, cliPrefix }) => ({
+    candidates: RELEASE_CANDIDATES.map(({ target, engineVersion, cliPrefix }) => ({
       target,
+      engineVersion,
       archivePath: resolve(values[`${cliPrefix}-archive`]),
       shaFilePath: resolve(values[`${cliPrefix}-sha-file`]),
       automationResultPath: resolve(values[`${cliPrefix}-automation-result`]),
@@ -245,12 +274,10 @@ function usage() {
   throw new Error(
     "Usage: node packaging/release/validate-promotion.mjs"
     + " --repo-root <path>"
-    + " --darwin-arm64-archive <zip> --darwin-arm64-sha-file <path>"
-    + " --darwin-arm64-automation-result <json>"
-    + " --darwin-arm64-e2e-result <json>"
-    + " --win32-x64-archive <zip> --win32-x64-sha-file <path>"
-    + " --win32-x64-automation-result <json>"
-    + " --win32-x64-e2e-result <json>"
+    + " --ue5.7-darwin-arm64-archive <zip> ..."
+    + " --ue5.7-win32-x64-archive <zip> ..."
+    + " --ue5.8-darwin-arm64-archive <zip> ..."
+    + " --ue5.8-win32-x64-archive <zip> ..."
     + " --head-sha <sha> --channel <prerelease|final>",
   );
 }

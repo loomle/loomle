@@ -35,20 +35,20 @@ test("promotion publishes versioned archives and final-only stable aliases", asy
 
   assert.ok(workflow.indexOf(mergeCommand) < workflow.indexOf(releaseCommand));
   assert.match(workflow, /loomle-bridge-\$VERSION-source\.zip/);
-  assert.match(workflow, /loomle-bridge-\$VERSION\.zip/);
+  assert.match(workflow, /loomle-bridge-\$VERSION-\$ue\.zip/);
   assert.match(workflow, /source_alias="\$release_root\/assets\/loomle-bridge-source\.zip"/);
-  assert.match(workflow, /plugin_alias="\$release_root\/assets\/loomle-bridge\.zip"/);
+  assert.match(workflow, /plugin_alias="\$release_root\/assets\/loomle-bridge-\$ue\.zip"/);
   assert.match(workflow, /cp "\$source_archive" "\$source_alias"/);
   assert.match(workflow, /cp "\$plugin_archive" "\$plugin_alias"/);
   assert.match(workflow, /cmp -s "\$source_archive" "\$source_alias"/);
   assert.match(workflow, /cmp -s "\$plugin_archive" "\$plugin_alias"/);
   assert.match(
     workflow,
-    /release_assets=\(\s+"\$SOURCE_ARCHIVE"\s+"\$SOURCE_SHA_FILE"\s+"\$PLUGIN_ARCHIVE"\s+"\$PLUGIN_SHA_FILE"\s+"\$SOURCE_ALIAS"\s+"\$SOURCE_ALIAS_SHA_FILE"\s+"\$PLUGIN_ALIAS"\s+"\$PLUGIN_ALIAS_SHA_FILE"\s+\)/,
+    /release_assets=\([\s\S]*?"\$UE_5_7_ARCHIVE"[\s\S]*?"\$UE_5_8_ARCHIVE"[\s\S]*?"\$UE_5_7_ALIAS"[\s\S]*?"\$UE_5_8_ALIAS"[\s\S]*?\)/,
   );
   assert.match(
     workflow,
-    /if \[\[ "\$CHANNEL" == "prerelease" \]\]; then[\s\S]*?release_assets=\(\s+"\$SOURCE_ARCHIVE"\s+"\$SOURCE_SHA_FILE"\s+"\$PLUGIN_ARCHIVE"\s+"\$PLUGIN_SHA_FILE"\s+\)/,
+    /if \[\[ "\$CHANNEL" == "prerelease" \]\]; then[\s\S]*?release_assets=\([\s\S]*?"\$UE_5_7_ARCHIVE"[\s\S]*?"\$UE_5_8_ARCHIVE"[\s\S]*?\)/,
   );
   assert.match(
     workflow,
@@ -57,4 +57,15 @@ test("promotion publishes versioned archives and final-only stable aliases", asy
   const publishStep = workflow.slice(workflow.indexOf(releaseCommand));
   assert.doesNotMatch(publishStep, /\$MAC_(FAB_SOURCE|ARCHIVE)/);
   assert.doesNotMatch(publishStep, /\$WINDOWS_(FAB_SOURCE|ARCHIVE)/);
+  assert.doesNotMatch(workflow, /loomle-bridge-\$VERSION\.zip/);
+  assert.doesNotMatch(workflow, /loomle-bridge\.zip/);
+});
+
+test("promotion requires both UE versions from each native verification run", async () => {
+  const workflow = await readFile(workflowUrl, "utf8");
+  for (const engine of ["5.7", "5.8"]) {
+    assert.match(workflow, new RegExp(`loomle-fab-plugin-\\$ue-darwin-arm64`));
+    assert.match(workflow, new RegExp(`--ue${engine.replace(".", "\\.")}-darwin-arm64-archive`));
+    assert.match(workflow, new RegExp(`--ue${engine.replace(".", "\\.")}-win32-x64-archive`));
+  }
 });

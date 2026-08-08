@@ -663,6 +663,7 @@ export function buildResultDocument({
     protocolVersion: metadata.protocolVersion,
     commit: metadata.commit,
     target: metadata.target,
+    engineVersion: metadata.engineVersion,
     archiveSha256: metadata.archiveSha256,
     candidate: metadata.candidate,
     phases,
@@ -834,6 +835,7 @@ export function buildPackagedE2EResultDocument({
     protocolVersion: metadata.protocolVersion,
     commit: metadata.commit,
     target: metadata.target,
+    engineVersion: metadata.engineVersion,
     archiveSha256: metadata.archiveSha256,
     candidate: metadata.candidate,
     phases,
@@ -943,6 +945,7 @@ export async function runAutomation(options, {
   );
   if (preparePhase.ok) {
     prepared = preparePhase.value;
+    metadata.engineVersion = prepared.engineVersion ?? null;
     metadata.archiveSha256 = prepared.archiveSha256;
     metadata.candidate = prepared.candidate;
     workspace.path = prepared.temporaryRoot;
@@ -1167,6 +1170,7 @@ export async function runPackagedE2E(options, {
   );
   if (preparePhase.ok) {
     prepared = preparePhase.value;
+    metadata.engineVersion = prepared.engineVersion ?? null;
     workspace.path = prepared.temporaryRoot;
     metadata.archiveSha256 = prepared.archiveSha256;
     metadata.productVersion = prepared.versionName;
@@ -1554,6 +1558,7 @@ export async function collectRunMetadata({
     protocolVersion,
     commit: await readGitCommit(repoRoot),
     target,
+    engineVersion: null,
     archiveSha256: null,
     candidate: pluginArchive
       ? { kind: "archive", path: pluginArchive }
@@ -1605,6 +1610,7 @@ async function prepareCandidateRun({
   throwIfAborted(phaseSignal);
 
   const executable = await resolveUnrealExecutable(ueRoot, target);
+  const engineVersion = await readEngineVersion(ueRoot);
   throwIfAborted(phaseSignal);
   const temporaryRoot = await mkdtemp(join(
     tmpdir(),
@@ -1643,7 +1649,7 @@ async function prepareCandidateRun({
         signal: phaseSignal,
       });
     throwIfAborted(phaseSignal);
-    await enableProjectPlugin(projectPath, stagedPlugin.name);
+    await configureTestProject(projectPath, stagedPlugin.name, engineVersion);
     throwIfAborted(phaseSignal);
 
     const descriptor = await readPluginDescriptor(stagedPlugin.descriptorPath);
@@ -1663,7 +1669,6 @@ async function prepareCandidateRun({
       : null;
     throwIfAborted(phaseSignal);
 
-    const engineVersion = await readEngineVersion(ueRoot);
     const crashRoots = await buildCrashRoots({
       projectDirectory,
       engineVersion,
@@ -1687,6 +1692,7 @@ async function prepareCandidateRun({
       projectPath,
       crashRoots,
       crashSnapshot,
+      engineVersion,
       archiveSha256,
       versionName,
       clientExecutable,
@@ -2190,8 +2196,13 @@ async function copyPluginIntoProject({
   };
 }
 
-async function enableProjectPlugin(projectPath, pluginName) {
+export async function configureTestProject(
+  projectPath,
+  pluginName,
+  engineVersion,
+) {
   const project = JSON.parse(await readFile(projectPath, "utf8"));
+  project.EngineAssociation = engineVersion;
   const plugins = Array.isArray(project.Plugins) ? project.Plugins : [];
   const existing = plugins.find((plugin) => plugin?.Name === pluginName);
   if (existing) {

@@ -1,4 +1,6 @@
 import { productVersion } from "./generated/product-version.js";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import type { SessionStatusController, SessionStatusReport } from "./runtime.js";
 
 export const latestReleaseApiUrl = "https://api.github.com/repos/loomle/loomle/releases/latest";
@@ -6,12 +8,14 @@ export const latestReleaseApiUrl = "https://api.github.com/repos/loomle/loomle/r
 const githubRepositoryUrl = "https://github.com/loomle/loomle";
 const githubApiVersion = "2022-11-28";
 const supportedReleaseTargets = new Set(["darwin-arm64", "win32-x64"]);
+const supportedEngineVersions = new Set(["5.7", "5.8"]);
 
 export interface ClientIdentity {
   version: string;
   pid: number;
   platform: NodeJS.Platform;
   target?: string;
+  engineVersion?: string;
   executable: string;
 }
 
@@ -35,7 +39,11 @@ export interface StatusProvider {
 }
 
 export interface UpdateChecker {
-  check(version: string, target: string | undefined): Promise<UpdateReport>;
+  check(
+    version: string,
+    target: string | undefined,
+    engineVersion: string | undefined,
+  ): Promise<UpdateReport>;
 }
 
 interface StatusServiceOptions {
@@ -44,6 +52,7 @@ interface StatusServiceOptions {
   platform?: NodeJS.Platform;
   arch?: string;
   executable?: string;
+  engineVersion?: string;
   updateChecker?: UpdateChecker;
 }
 
@@ -83,19 +92,26 @@ export class ClientStatusService implements StatusProvider {
   ) {
     const platform = options.platform ?? process.platform;
     const target = platformTarget(platform, options.arch ?? process.arch);
+    const executable = options.executable ?? process.execPath;
+    const engineVersion = options.engineVersion ?? installedEngineVersion(executable);
     this.identity = {
       version: options.version ?? productVersion,
       pid: options.pid ?? process.pid,
       platform,
       ...(target ? { target } : {}),
-      executable: options.executable ?? process.execPath,
+      ...(engineVersion ? { engineVersion } : {}),
+      executable,
     };
     this.checker = options.updateChecker ?? new GitHubReleaseChecker();
   }
 
   async report(): Promise<ClientStatusReport> {
     const [update, session] = await Promise.all([
-      this.checker.check(this.identity.version, this.identity.target)
+      this.checker.check(
+        this.identity.version,
+        this.identity.target,
+        this.identity.engineVersion,
+      )
         .catch((error: unknown) => unknownUpdate(errorReason(error))),
       this.session.sessionStatus
         ? this.session.sessionStatus()
@@ -118,7 +134,7 @@ export class GitHubReleaseChecker implements UpdateChecker {
   private readonly cacheTtlMs: number;
   private readonly fetchRelease: FetchRelease;
   private readonly now: () => number;
-  private cache?: { expiresAt: number; release: GitHubRelease };
+  private cache?: { expiresAt: number; value: unknown };
 
   constructor(options: GitHubReleaseCheckerOptions = {}) {
     this.latestReleaseUrl = options.latestReleaseUrl ?? latestReleaseApiUrl;
@@ -128,14 +144,21 @@ export class GitHubReleaseChecker implements UpdateChecker {
     this.now = options.now ?? Date.now;
   }
 
-  async check(version: string, target: string | undefined): Promise<UpdateReport> {
+  async check(
+    version: string,
+    target: string | undefined,
+    engineVersion: string | undefined,
+  ): Promise<UpdateReport> {
     if (!target || !supportedReleaseTargets.has(target)) return unknownUpdate("unsupported_target");
+    if (!engineVersion || !supportedEngineVersions.has(engineVersion)) {
+      return unknownUpdate("unsupported_engine_version");
+    }
     const current = parseVersion(version);
     if (!current) return unknownUpdate("invalid_client_version");
 
     let release: GitHubRelease;
     try {
-      release = await this.loadRelease();
+      release = await this.loadRelease(engineVersion);
     } catch (error) {
       return unknownUpdate(errorReason(error));
     }
@@ -152,8 +175,12 @@ export class GitHubReleaseChecker implements UpdateChecker {
     };
   }
 
-  private async loadRelease(): Promise<GitHubRelease> {
-    if (this.cache && this.cache.expiresAt > this.now()) return this.cache.release;
+  private async loadRelease(engineVersion: string): Promise<GitHubRelease> {
+    if (this.cache && this.cache.expiresAt > this.now()) {
+      const cachedRelease = parseGitHubRelease(this.cache.value, engineVersion);
+      if (!cachedRelease) throw new Error("invalid_github_release");
+      return cachedRelease;
+    }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -166,9 +193,10 @@ export class GitHubReleaseChecker implements UpdateChecker {
         },
       });
       if (!response.ok) throw new Error(`github_release_http_${response.status}`);
-      const release = parseGitHubRelease(await response.json());
+      const value = await response.json();
+      const release = parseGitHubRelease(value, engineVersion);
       if (!release) throw new Error("invalid_github_release");
-      this.cache = { expiresAt: this.now() + this.cacheTtlMs, release };
+      this.cache = { expiresAt: this.now() + this.cacheTtlMs, value };
       return release;
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
@@ -190,7 +218,10 @@ export function platformTarget(
   return undefined;
 }
 
-function parseGitHubRelease(value: unknown): GitHubRelease | undefined {
+function parseGitHubRelease(
+  value: unknown,
+  engineVersion: string,
+): GitHubRelease | undefined {
   if (!isRecord(value)
     || value.draft !== false
     || value.prerelease !== false
@@ -203,7 +234,7 @@ function parseGitHubRelease(value: unknown): GitHubRelease | undefined {
   const tagMatch = /^v(\d+\.\d+\.\d+)$/.exec(value.tag_name);
   if (!tagMatch) return undefined;
   const version = tagMatch[1];
-  const assetName = `loomle-bridge-${version}.zip`;
+  const assetName = `loomle-bridge-${version}-ue${engineVersion}.zip`;
   const expectedReleaseUrl = `${githubRepositoryUrl}/releases/tag/${value.tag_name}`;
   const expectedAssetUrl = `${githubRepositoryUrl}/releases/download/${value.tag_name}/${assetName}`;
   if (value.html_url !== expectedReleaseUrl) return undefined;
@@ -230,6 +261,26 @@ function parseGitHubRelease(value: unknown): GitHubRelease | undefined {
     assetUrl: asset.browser_download_url,
     sha256: asset.digest.slice("sha256:".length).toLowerCase(),
   };
+}
+
+export function installedEngineVersion(executable: string): string | undefined {
+  const descriptorPath = resolve(
+    dirname(executable),
+    "..",
+    "..",
+    "..",
+    "LoomleBridge.uplugin",
+  );
+  try {
+    const descriptor = JSON.parse(readFileSync(descriptorPath, "utf8")) as unknown;
+    if (!isRecord(descriptor) || typeof descriptor.EngineVersion !== "string") {
+      return undefined;
+    }
+    const match = /^(5\.(?:7|8))(?:\.\d+)?$/.exec(descriptor.EngineVersion);
+    return match?.[1];
+  } catch {
+    return undefined;
+  }
 }
 
 interface ParsedVersion {

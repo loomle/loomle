@@ -2,14 +2,15 @@
 layout: default
 title: Install
 nav_order: 2
-description: Install Loomle 0.7 for Unreal Engine 5.7 on macOS or Windows and connect an MCP host.
+description: Install Loomle 0.7 for Unreal Engine 5.7 or 5.8 on macOS or Windows and connect an MCP host.
 ---
 
 # Install
 
-The latest stable Loomle release is available for Unreal Engine 5.7.
-One complete package contains the Unreal Bridge binaries and self-contained
-Loomle Clients for both supported platforms.
+The latest stable Loomle release is available for Unreal Engine 5.7 and 5.8.
+Choose the package matching your exact engine version. Each package contains
+the Unreal Bridge binaries and self-contained Loomle Clients for both supported
+platforms.
 
 [View the latest release](https://github.com/loomle/loomle/releases/latest){: .btn .btn-primary .fs-5 .mr-2 }
 [Read the Quickstart](quickstart.html){: .btn .fs-5 }
@@ -24,8 +25,10 @@ Loomle Clients for both supported platforms.
 
 | Unreal Engine | Operating system | Architecture | Package |
 | --- | --- | --- | --- |
-| 5.7 | macOS | Apple Silicon | `loomle-bridge.zip` |
-| 5.7 | Windows | x64 | `loomle-bridge.zip` |
+| 5.7 | macOS | Apple Silicon | `loomle-bridge-ue5.7.zip` |
+| 5.7 | Windows | x64 | `loomle-bridge-ue5.7.zip` |
+| 5.8 | macOS | Apple Silicon | `loomle-bridge-ue5.8.zip` |
+| 5.8 | Windows | x64 | `loomle-bridge-ue5.8.zip` |
 
 Other engine versions, operating systems, and architectures are not part of
 this release.
@@ -46,10 +49,12 @@ Before installing or updating Loomle:
 
 ## 2. Download the Complete Package
 
-[Download the latest Loomle](https://github.com/loomle/loomle/releases/latest/download/loomle-bridge.zip){: .btn .btn-primary }
+[Download for UE 5.7](https://github.com/loomle/loomle/releases/latest/download/loomle-bridge-ue5.7.zip){: .btn .btn-primary }
+[Download for UE 5.8](https://github.com/loomle/loomle/releases/latest/download/loomle-bridge-ue5.8.zip){: .btn .btn-primary }
 
-The [SHA-256 sidecar](https://github.com/loomle/loomle/releases/latest/download/loomle-bridge.zip.sha256)
-is available beside the ZIP on the
+Matching [UE 5.7](https://github.com/loomle/loomle/releases/latest/download/loomle-bridge-ue5.7.zip.sha256)
+and [UE 5.8](https://github.com/loomle/loomle/releases/latest/download/loomle-bridge-ue5.8.zip.sha256)
+SHA-256 sidecars are available beside the ZIPs on the
 [latest release page](https://github.com/loomle/loomle/releases/latest).
 
 ### macOS security
@@ -70,20 +75,20 @@ Extract the ZIP. It contains one `LoomleBridge` directory. Copy that complete
 directory to:
 
 ```text
-<UE_5.7>/Engine/Plugins/Marketplace/LoomleBridge
+<UE_5.x>/Engine/Plugins/Marketplace/LoomleBridge
 ```
 
 Common Epic Launcher engine roots are:
 
 ```text
-macOS:   /Users/Shared/Epic Games/UE_5.7
-Windows: C:\Program Files\Epic Games\UE_5.7
+macOS:   /Users/Shared/Epic Games/UE_5.7 or UE_5.8
+Windows: C:\Program Files\Epic Games\UE_5.7 or UE_5.8
 ```
 
 Custom engine installs may use another root. The final descriptor must be:
 
 ```text
-<UE_5.7>/Engine/Plugins/Marketplace/LoomleBridge/LoomleBridge.uplugin
+<UE_5.x>/Engine/Plugins/Marketplace/LoomleBridge/LoomleBridge.uplugin
 ```
 
 Avoid an accidental nested path such as

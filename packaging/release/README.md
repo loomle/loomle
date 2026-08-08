@@ -42,12 +42,14 @@ belong to the same exact commit, checks out that commit, and verifies both sets
 of result files, target descriptors, and archive hashes. It then rejects shared
 source drift, except for a strictly verified historical CRLF/LF-only text
 difference that is emitted as LF, and mechanically merges the fragments into one
-cross-platform source archive and one cross-platform complete plugin archive.
+cross-platform source archive plus separate UE 5.7 and UE 5.8 complete plugin
+archives.
 No executable bytes are rebuilt or rewritten. It derives `v<product-version>`,
 requires an existing lightweight tag at the exact verified commit, and
-publishes those two merged ZIPs and their SHA-256 sidecars. Final releases also
-publish byte-identical stable aliases (`loomle-bridge.zip` and
-`loomle-bridge-source.zip`, with matching sidecars) so the website can use one
+publishes those three merged ZIPs and their SHA-256 sidecars. Final releases
+also publish byte-identical stable aliases (`loomle-bridge-ue5.7.zip`,
+`loomle-bridge-ue5.8.zip`, and `loomle-bridge-source.zip`, with matching
+sidecars) so the website can use one
 `releases/latest/download/...` URL across versions. Prereleases do not publish
 stable aliases. The Client reads GitHub's public latest-release API directly
 and binds `tag_name`, the versioned plugin asset URL, and that asset's GitHub
@@ -69,6 +71,14 @@ exact-ZIP end-to-end path. Windows is an advertised prerelease target only when
 its successful run is paired with a successful Mac run from the same commit
 during promotion; the same paired-run rule applies to final releases.
 
+Each self-hosted native runner must have official UE 5.7 and UE 5.8 installs.
+The matrix runs them serially to avoid overlapping Editor or build processes.
+Mac defaults to Epic Launcher roots under `/Users/Shared/Epic Games` and may
+override them with `UE_5_7_ROOT_MAC` and `UE_5_8_ROOT_MAC` repository variables.
+Windows uses `UE_5_7_ROOT_WINDOWS` and `UE_5_8_ROOT_WINDOWS`, with its existing
+`D:\Dev` discovery as a fallback. Every resolved root is checked against
+`Engine/Build/Build.version` before compilation.
+
 Unsigned candidates may be published when their checked-in notes explain the
 macOS Gatekeeper and Windows trust-warning limitations. Signing is a release
 quality improvement, not a promotion prerequisite for the agent-invoked
@@ -78,8 +88,8 @@ end-to-end and checksum gates. Fab submission remains a separate human action.
 For each accepted target, the verification workflow uploads internal QA
 fragments:
 
-- `loomle-fab-source-<platform-arch>.zip` and checksum;
-- `loomle-fab-plugin-<platform-arch>.zip` and checksum.
+- one `loomle-fab-source-ue5.7-<platform-arch>.zip` and checksum per platform;
+- `loomle-fab-plugin-ue<engine-version>-<platform-arch>.zip` and checksum.
 
 These are not public or separately maintained packages. The second is compiled
 from the first, and `packaging/fab/verify-derivation.mjs` rejects source drift,
@@ -87,7 +97,8 @@ omitted source, or non-build additions. Promotion merges the two native pairs
 and publishes:
 
 - `loomle-bridge-<version>-source.zip` for the single Fab Project File Link;
-- `loomle-bridge-<version>.zip` as the single GitHub installation package.
+- `loomle-bridge-<version>-ue5.7.zip` for UE 5.7 installations;
+- `loomle-bridge-<version>-ue5.8.zip` for UE 5.8 installations.
 
 Fab always receives the immutable versioned source URL. The stable aliases are
 GitHub download names for the same bytes, not separately built packages.

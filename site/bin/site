@@ -73,8 +73,9 @@ case "$command_name" in
     require_bundle
     bundle exec jekyll build --destination _site
     latest_release_url="https://github.com/loomle/loomle/releases/latest"
-    latest_archive_url="$latest_release_url/download/loomle-bridge.zip"
-    latest_sha_url="$latest_archive_url.sha256"
+    latest_57_archive_url="$latest_release_url/download/loomle-bridge-ue5.7.zip"
+    latest_58_archive_url="$latest_release_url/download/loomle-bridge-ue5.8.zip"
+    legacy_archive_url="$latest_release_url/download/loomle-bridge.zip"
     legacy_manifest_version="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "version")')"
     legacy_release_url="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "releaseUrl")')"
     legacy_mac_archive_url="$(ruby -rjson -e 'print JSON.parse(File.read("releases.json")).dig("channels", "stable", "targets", "darwin-arm64", "assetUrl")')"
@@ -92,14 +93,16 @@ case "$command_name" in
     grep -q '<title>Format a Blueprint Graph | Loomle AI</title>' _site/workflows/blueprint-format-graph.html
     grep -Fq "The latest stable Loomle release is available" _site/install.html
     grep -Fq "$latest_release_url" _site/install.html
-    grep -Fq "$latest_archive_url" _site/install.html
-    grep -Fq "$latest_sha_url" _site/install.html
+    grep -Fq "$latest_57_archive_url" _site/install.html
+    grep -Fq "$latest_57_archive_url.sha256" _site/install.html
+    grep -Fq "$latest_58_archive_url" _site/install.html
+    grep -Fq "$latest_58_archive_url.sha256" _site/install.html
     test -s releases.json
     test -s _site/releases.json
     test "$legacy_manifest_version" = "0.7.7"
     test "$legacy_release_url" = "$latest_release_url"
-    test "$legacy_mac_archive_url" = "$latest_archive_url"
-    test "$legacy_windows_archive_url" = "$latest_archive_url"
+    test "$legacy_mac_archive_url" = "$legacy_archive_url"
+    test "$legacy_windows_archive_url" = "$legacy_archive_url"
     test "$legacy_mac_sha" = "$legacy_windows_sha"
     [[ "$legacy_mac_sha" =~ ^[0-9a-f]{64}$ ]]
     test "$legacy_prerelease" = "null"

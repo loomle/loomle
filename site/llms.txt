@@ -23,13 +23,14 @@ Availability and installation:
 
 - The latest stable Loomle release is available from GitHub Releases:
   https://github.com/loomle/loomle/releases/latest
-- Supported targets are Unreal Engine 5.7 on Apple Silicon macOS
-  (`darwin-arm64`) and x64 Windows (`win32-x64`).
-- One `loomle-bridge.zip` archive contains the complete engine plugin,
-  including native binaries and self-contained Clients for both supported
-  platforms.
-- Stable download URL:
-  https://github.com/loomle/loomle/releases/latest/download/loomle-bridge.zip
+- Supported engine versions are Unreal Engine 5.7 and 5.8. Supported native
+  targets are Apple Silicon macOS (`darwin-arm64`) and x64 Windows
+  (`win32-x64`).
+- Choose the complete archive matching the installed engine version. Each
+  includes native binaries and self-contained Clients for both platforms.
+- Stable download URLs:
+  https://github.com/loomle/loomle/releases/latest/download/loomle-bridge-ue5.7.zip
+  https://github.com/loomle/loomle/releases/latest/download/loomle-bridge-ue5.8.zip
 - The current Fab listing still distributes 0.6 and must not be used with the
   0.7 documentation:
   https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428

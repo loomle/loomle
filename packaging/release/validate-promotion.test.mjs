@@ -16,25 +16,32 @@ import { validatePromotion } from "./validate-promotion.mjs";
 
 const VERSION = "0.7.0-rc.1";
 const COMMIT = "a".repeat(40);
-const TARGETS = [
+const PLATFORMS = [
   {
     target: "darwin-arm64",
     platform: "Mac",
-    archiveName: "loomle-fab-plugin-darwin-arm64.zip",
   },
   {
     target: "win32-x64",
     platform: "Win64",
-    archiveName: "loomle-fab-plugin-win32-x64.zip",
   },
 ];
+const ENGINE_VERSIONS = ["5.7", "5.8"];
+const TARGETS = ENGINE_VERSIONS.flatMap((engineVersion) =>
+  PLATFORMS.map((platform) => ({
+    ...platform,
+    engineVersion,
+    key: `ue${engineVersion}/${platform.target}`,
+    archiveName: `loomle-fab-plugin-ue${engineVersion}-${platform.target}.zip`,
+  })));
 
 test("accepts exact successful Mac and Windows prerelease candidates", async () => {
   const fixture = await createFixture();
   try {
     assert.deepEqual(await validatePromotion(fixture.input), {
-      artifacts: TARGETS.map(({ target }) => ({
-        archiveSha256: fixture.archiveSha256ByTarget[target],
+      artifacts: TARGETS.map(({ target, engineVersion, key }) => ({
+        archiveSha256: fixture.archiveSha256ByTarget[key],
+        engineVersion,
         target,
       })),
       notesPath: join(
@@ -92,13 +99,13 @@ test("rejects a final candidate whose descriptor remains beta", async () => {
     version: "0.7.0",
     channel: "final",
     targetOverrides: {
-      "darwin-arm64": { isBetaVersion: true },
+      "ue5.7/darwin-arm64": { isBetaVersion: true },
     },
   });
   try {
     await assert.rejects(
       validatePromotion(fixture.input),
-      /darwin-arm64 archive descriptor does not match its native platform/,
+      /ue5\.7\/darwin-arm64 archive descriptor does not match its native platform/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -108,13 +115,13 @@ test("rejects a final candidate whose descriptor remains beta", async () => {
 test("rejects either platform when E2E names other archive bytes", async () => {
   const fixture = await createFixture({
     targetOverrides: {
-      "win32-x64": { e2eArchiveSha256: "0".repeat(64) },
+      "ue5.8/win32-x64": { e2eArchiveSha256: "0".repeat(64) },
     },
   });
   try {
     await assert.rejects(
       validatePromotion(fixture.input),
-      /win32-x64 packaged E2E result does not match the verified commit, target, and ZIP/,
+      /ue5\.8\/win32-x64 packaged E2E result does not match the verified commit, engine, target, and ZIP/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -124,13 +131,13 @@ test("rejects either platform when E2E names other archive bytes", async () => {
 test("rejects version drift between the checkout and either archive", async () => {
   const fixture = await createFixture({
     targetOverrides: {
-      "darwin-arm64": { descriptorVersion: "0.7.0-rc.2" },
+      "ue5.7/darwin-arm64": { descriptorVersion: "0.7.0-rc.2" },
     },
   });
   try {
     await assert.rejects(
       validatePromotion(fixture.input),
-      /darwin-arm64 archive VersionName "0\.7\.0-rc\.2" does not match product version "0\.7\.0-rc\.1"/,
+      /ue5\.7\/darwin-arm64 archive VersionName "0\.7\.0-rc\.2" does not match product version "0\.7\.0-rc\.1"/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -140,13 +147,13 @@ test("rejects version drift between the checkout and either archive", async () =
 test("rejects an archive whose descriptor names the other native platform", async () => {
   const fixture = await createFixture({
     targetOverrides: {
-      "win32-x64": { descriptorPlatform: "Mac" },
+      "ue5.8/win32-x64": { descriptorPlatform: "Mac" },
     },
   });
   try {
     await assert.rejects(
       validatePromotion(fixture.input),
-      /win32-x64 archive descriptor does not match its native platform/,
+      /ue5\.8\/win32-x64 archive descriptor does not match its native platform/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -160,10 +167,10 @@ test("requires the complete advertised target set", async () => {
       validatePromotion({
         ...fixture.input,
         candidates: fixture.input.candidates.filter(
-          ({ target }) => target !== "win32-x64",
+          ({ target, engineVersion }) => !(target === "win32-x64" && engineVersion === "5.8"),
         ),
       }),
-      /missing: win32-x64/,
+      /missing: ue5\.8\/win32-x64/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -185,8 +192,8 @@ async function createFixture(options = {}) {
   const candidates = [];
   const archiveSha256ByTarget = {};
   for (const releaseTarget of TARGETS) {
-    const override = options.targetOverrides?.[releaseTarget.target] ?? {};
-    const targetRoot = join(root, releaseTarget.target);
+    const override = options.targetOverrides?.[releaseTarget.key] ?? {};
+    const targetRoot = join(root, `ue${releaseTarget.engineVersion}`, releaseTarget.target);
     const payloadRoot = join(targetRoot, "payload");
     const archivePath = join(targetRoot, releaseTarget.archiveName);
     const shaFilePath = `${archivePath}.sha256`;
@@ -200,6 +207,8 @@ async function createFixture(options = {}) {
         Installed: true,
         IsBetaVersion: override.isBetaVersion
           ?? (channel === "prerelease" ? true : undefined),
+        EngineVersion: override.descriptorEngineVersion
+          ?? `${releaseTarget.engineVersion}.0`,
         VersionName: override.descriptorVersion ?? version,
         SupportedTargetPlatforms: [descriptorPlatform],
         Modules: [{
@@ -225,21 +234,24 @@ async function createFixture(options = {}) {
     const archiveSha256 = createHash("sha256")
       .update(await readFile(archivePath))
       .digest("hex");
-    archiveSha256ByTarget[releaseTarget.target] = archiveSha256;
+    archiveSha256ByTarget[releaseTarget.key] = archiveSha256;
     await write(shaFilePath, `${archiveSha256}  ${basename(archivePath)}\n`);
     await write(automationResultPath, JSON.stringify({
       status: "passed",
       commit: override.automationCommit ?? COMMIT,
       target: override.automationTarget ?? releaseTarget.target,
+      engineVersion: override.automationEngineVersion ?? releaseTarget.engineVersion,
     }));
     await write(e2eResultPath, JSON.stringify({
       status: "passed",
       commit: override.e2eCommit ?? COMMIT,
       target: override.e2eTarget ?? releaseTarget.target,
+      engineVersion: override.e2eEngineVersion ?? releaseTarget.engineVersion,
       archiveSha256: override.e2eArchiveSha256 ?? archiveSha256,
     }));
     candidates.push({
       target: releaseTarget.target,
+      engineVersion: releaseTarget.engineVersion,
       archivePath,
       shaFilePath,
       automationResultPath,

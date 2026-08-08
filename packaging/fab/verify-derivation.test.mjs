@@ -13,10 +13,47 @@ test("accepts a GitHub package derived by adding only BuildPlugin output", async
       sourcePluginRoot: fixture.sourceRoot,
       githubPluginRoot: fixture.githubRoot,
       target: "darwin-arm64",
+      engineVersion: "5.7",
     });
     assert.equal(result.target, "darwin-arm64");
     assert.equal(result.githubGeneratedFileCount, 2);
     assert.ok(result.comparedFileCount >= 7);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("accepts UE 5.8 descriptor derivation and manifest-named Mac binary", async () => {
+  const fixture = await createFixture({ engineVersion: "5.8" });
+  try {
+    const result = await verifyPackageDerivation({
+      sourcePluginRoot: fixture.sourceRoot,
+      githubPluginRoot: fixture.githubRoot,
+      target: "darwin-arm64",
+      engineVersion: "5.8",
+    });
+    assert.equal(result.engineVersion, "5.8");
+    assert.equal(
+      result.bridgeBinary,
+      "Binaries/Mac/libUnrealEditor-LoomleBridge.dylib",
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a BuildPlugin descriptor from another Unreal version", async () => {
+  const fixture = await createFixture({ engineVersion: "5.8" });
+  try {
+    await assert.rejects(
+      verifyPackageDerivation({
+        sourcePluginRoot: fixture.sourceRoot,
+        githubPluginRoot: fixture.githubRoot,
+        target: "darwin-arm64",
+        engineVersion: "5.7",
+      }),
+      /GitHub descriptor EngineVersion must be 5\.7\.0/,
+    );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -34,6 +71,7 @@ test("rejects a GitHub package that changes a Fab source file", async () => {
         sourcePluginRoot: fixture.sourceRoot,
         githubPluginRoot: fixture.githubRoot,
         target: "darwin-arm64",
+        engineVersion: "5.7",
       }),
       /changed Fab source file: Source\/LoomleBridge\/Bridge\.cpp/,
     );
@@ -54,6 +92,7 @@ test("rejects a GitHub package that omits Fab source", async () => {
         sourcePluginRoot: fixture.sourceRoot,
         githubPluginRoot: fixture.githubRoot,
         target: "darwin-arm64",
+        engineVersion: "5.7",
       }),
       /omitted Fab source file: Source\/LoomleBridge\/Bridge\.cpp/,
     );
@@ -80,6 +119,7 @@ test("rejects a GitHub package that omits a packaged Agent Skill", async () => {
         sourcePluginRoot: fixture.sourceRoot,
         githubPluginRoot: fixture.githubRoot,
         target: "darwin-arm64",
+        engineVersion: "5.7",
       }),
       /omitted Fab source file: Resources\/AgentSkills\/format-unreal-blueprints\/SKILL\.md/,
     );
@@ -97,6 +137,7 @@ test("rejects a non-build addition in the GitHub package", async () => {
         sourcePluginRoot: fixture.sourceRoot,
         githubPluginRoot: fixture.githubRoot,
         target: "darwin-arm64",
+        engineVersion: "5.7",
       }),
       /non-build file absent from Fab source: Docs\/extra\.txt/,
     );
@@ -114,6 +155,7 @@ test("rejects an empty non-build directory in the GitHub package", async () => {
         sourcePluginRoot: fixture.sourceRoot,
         githubPluginRoot: fixture.githubRoot,
         target: "darwin-arm64",
+        engineVersion: "5.7",
       }),
       /non-build directory absent from Fab source: Build/,
     );
@@ -134,6 +176,7 @@ test("rejects descriptor changes beyond BuildPlugin installation fields", async 
         sourcePluginRoot: fixture.sourceRoot,
         githubPluginRoot: fixture.githubRoot,
         target: "darwin-arm64",
+        engineVersion: "5.7",
       }),
       /descriptor differs from the Fab source/,
     );
@@ -151,6 +194,7 @@ test("rejects generated UE output in the Fab source package", async () => {
         sourcePluginRoot: fixture.sourceRoot,
         githubPluginRoot: fixture.githubRoot,
         target: "darwin-arm64",
+        engineVersion: "5.7",
       }),
       /Fab source package contains forbidden generated path: Binaries/,
     );
@@ -159,7 +203,12 @@ test("rejects generated UE output in the Fab source package", async () => {
   }
 });
 
-async function createFixture() {
+async function createFixture({
+  engineVersion = "5.7",
+  binaryName = engineVersion === "5.8"
+    ? "libUnrealEditor-LoomleBridge.dylib"
+    : "UnrealEditor-LoomleBridge.dylib",
+} = {}) {
   const root = await mkdtemp(join(tmpdir(), "loomle-package-derivation-"));
   const sourceRoot = join(root, "fab", "LoomleBridge");
   const githubRoot = join(root, "github", "LoomleBridge");
@@ -167,6 +216,7 @@ async function createFixture() {
     FileVersion: 3,
     Version: 107,
     VersionName: "0.7.0",
+    EngineVersion: "5.7.0",
     IsBetaVersion: false,
     SupportedTargetPlatforms: ["Mac"],
     Modules: [{
@@ -208,17 +258,21 @@ async function createFixture() {
 
   await cp(sourceRoot, githubRoot, { recursive: true });
   await write(
-    join(githubRoot, "Binaries", "Mac", "UnrealEditor-LoomleBridge.dylib"),
+    join(githubRoot, "Binaries", "Mac", binaryName),
     "bridge",
   );
   await write(
     join(githubRoot, "Binaries", "Mac", "UnrealEditor.modules"),
-    "modules",
+    JSON.stringify({
+      BuildId: engineVersion === "5.8" ? "55116800" : "47537391",
+      Modules: { LoomleBridge: binaryName },
+    }),
   );
   await write(
     join(githubRoot, "LoomleBridge.uplugin"),
     JSON.stringify({
       ...descriptor,
+      EngineVersion: `${engineVersion}.0`,
       MarketplaceURL: "",
       Installed: true,
       IsBetaVersion: undefined,

@@ -3,16 +3,24 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import {
+  descriptorEngineVersion,
+  requireSupportedUnrealVersion,
+  SOURCE_UNREAL_VERSION,
+} from "../tools/unreal-versions.mjs";
 
 const TARGETS = new Map([
   ["darwin-arm64", {
-    bridgeBinary: "Binaries/Mac/UnrealEditor-LoomleBridge.dylib",
+    binaries: "Binaries/Mac",
+    binaryExtension: ".dylib",
     client: "Resources/Loomle/darwin-arm64/loomle",
   }],
   ["win32-x64", {
-    bridgeBinary: "Binaries/Win64/UnrealEditor-LoomleBridge.dll",
+    binaries: "Binaries/Win64",
+    binaryExtension: ".dll",
     client: "Resources/Loomle/win32-x64/loomle.exe",
   }],
 ]);
@@ -30,11 +38,13 @@ export async function verifyPackageDerivation({
   sourcePluginRoot,
   githubPluginRoot,
   target,
+  engineVersion,
 }) {
   const targetSpec = TARGETS.get(target);
   if (!targetSpec) {
     fail(`unsupported package target "${target}"; accepted targets: ${[...TARGETS.keys()].join(", ")}`);
   }
+  const resolvedEngineVersion = requireSupportedUnrealVersion(engineVersion);
 
   const resolvedSourceRoot = resolve(sourcePluginRoot);
   const resolvedGithubRoot = resolve(githubPluginRoot);
@@ -61,6 +71,7 @@ export async function verifyPackageDerivation({
       await verifyDerivedDescriptor({
         sourcePath: join(resolvedSourceRoot, sourceFile),
         githubPath: join(resolvedGithubRoot, sourceFile),
+        engineVersion: resolvedEngineVersion,
       });
     } else {
       await assertSameFile(
@@ -90,12 +101,16 @@ export async function verifyPackageDerivation({
   if (!sourceInventory.files.has(targetSpec.client)) {
     fail(`Fab source is missing the target Client: ${targetSpec.client}`);
   }
-  if (!githubInventory.files.has(targetSpec.bridgeBinary)) {
-    fail(`GitHub package is missing the target Bridge binary: ${targetSpec.bridgeBinary}`);
-  }
+  const bridgeBinary = await requireManifestBridgeBinary({
+    githubInventory,
+    githubRoot: resolvedGithubRoot,
+    targetSpec,
+  });
 
   return {
+    bridgeBinary,
     comparedFileCount,
+    engineVersion: resolvedEngineVersion,
     githubGeneratedFileCount: [...githubInventory.files]
       .filter((path) => !sourceInventory.files.has(path))
       .length,
@@ -172,11 +187,25 @@ function assertGithubBoundary(githubInventory) {
   }
 }
 
-async function verifyDerivedDescriptor({ sourcePath, githubPath }) {
+async function verifyDerivedDescriptor({ sourcePath, githubPath, engineVersion }) {
   const sourceDescriptor = await readJson(sourcePath, "Fab source descriptor");
   const githubDescriptor = await readJson(githubPath, "GitHub descriptor");
   if (githubDescriptor.Installed !== true) {
     fail("GitHub descriptor must set Installed=true.");
+  }
+  const expectedSourceEngineVersion = descriptorEngineVersion(
+    SOURCE_UNREAL_VERSION,
+  );
+  if (sourceDescriptor.EngineVersion !== expectedSourceEngineVersion) {
+    fail(
+      `Fab source descriptor EngineVersion must be ${expectedSourceEngineVersion}.`,
+    );
+  }
+  const expectedGithubEngineVersion = descriptorEngineVersion(engineVersion);
+  if (githubDescriptor.EngineVersion !== expectedGithubEngineVersion) {
+    fail(
+      `GitHub descriptor EngineVersion must be ${expectedGithubEngineVersion}.`,
+    );
   }
 
   const normalizedSource = normalizeDescriptor(sourceDescriptor);
@@ -189,9 +218,44 @@ async function verifyDerivedDescriptor({ sourcePath, githubPath }) {
 function normalizeDescriptor(descriptor) {
   const normalized = structuredClone(descriptor);
   delete normalized.Installed;
+  delete normalized.EngineVersion;
   if (normalized.MarketplaceURL === "") delete normalized.MarketplaceURL;
   if (normalized.IsBetaVersion === false) delete normalized.IsBetaVersion;
   return sortJson(normalized);
+}
+
+async function requireManifestBridgeBinary({
+  githubInventory,
+  githubRoot,
+  targetSpec,
+}) {
+  const manifestPath = `${targetSpec.binaries}/UnrealEditor.modules`;
+  if (!githubInventory.files.has(manifestPath)) {
+    fail(`GitHub package is missing the Editor module manifest: ${manifestPath}`);
+  }
+  const manifest = await readJson(
+    join(githubRoot, manifestPath),
+    "GitHub Editor module manifest",
+  );
+  const moduleNames = manifest?.Modules && typeof manifest.Modules === "object"
+    && !Array.isArray(manifest.Modules)
+    ? Object.keys(manifest.Modules)
+    : [];
+  if (moduleNames.length !== 1 || moduleNames[0] !== "LoomleBridge") {
+    fail("GitHub Editor module manifest must contain exactly LoomleBridge.");
+  }
+  const binaryName = manifest.Modules.LoomleBridge;
+  if (typeof manifest.BuildId !== "string" || manifest.BuildId.length === 0
+      || typeof binaryName !== "string" || binaryName.length === 0
+      || basename(binaryName) !== binaryName
+      || extname(binaryName).toLowerCase() !== targetSpec.binaryExtension) {
+    fail("GitHub Editor module manifest has an invalid LoomleBridge entry.");
+  }
+  const bridgeBinary = `${targetSpec.binaries}/${binaryName}`;
+  if (!githubInventory.files.has(bridgeBinary)) {
+    fail(`GitHub package is missing the manifest Bridge binary: ${bridgeBinary}`);
+  }
+  return bridgeBinary;
 }
 
 function sortJson(value) {
@@ -256,7 +320,12 @@ function parseArgs(argv) {
     options[key] = value;
     index += 1;
   }
-  for (const required of ["source-plugin", "github-plugin", "target"]) {
+  for (const required of [
+    "source-plugin",
+    "github-plugin",
+    "target",
+    "engine-version",
+  ]) {
     if (!options[required]) fail(`missing required option --${required}`);
   }
   return options;
@@ -268,6 +337,7 @@ async function main() {
     sourcePluginRoot: options["source-plugin"],
     githubPluginRoot: options["github-plugin"],
     target: options.target,
+    engineVersion: options["engine-version"],
   });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }

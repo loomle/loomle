@@ -23,20 +23,22 @@ The staged plugin is assembled from:
 - `.tmp/client/<platform-arch>/loomle(.exe)` for the standalone Client;
 - `packaging/fab/FAB_PLUGIN_README.md` for the packaged README.
 
-## One Package Contract
+## Versioned Engine Package Contract
 
-Loomle publishes exactly two cross-platform artifacts per version:
+Loomle publishes one source artifact and one complete artifact per supported
+Unreal Engine version:
 
 ```text
 loomle-bridge-<version>-source.zip
-loomle-bridge-<version>.zip
+loomle-bridge-<version>-ue5.7.zip
+loomle-bridge-<version>-ue5.8.zip
 ```
 
 The source ZIP is the single Fab Project File Link. It contains the complete
 Bridge `Source/`, both native Clients, and no UE-generated build output. The
-complete ZIP is the single GitHub installation package. It retains every
-source-package file and adds both verified Bridge binaries under
-`Binaries/Mac` and `Binaries/Win64`.
+complete ZIPs are the GitHub installation packages. Each retains every
+source-package file and adds both Bridge binaries compiled by the matching UE
+version under `Binaries/Mac` and `Binaries/Win64`.
 
 Assembly normalizes release text files to LF before native compilation and
 archiving. This prevents a persistent Windows checkout from creating
@@ -174,24 +176,26 @@ proves that the second package only adds UE build output to the first.
 Each native verification workflow uploads two internal QA fragments:
 
 ```text
-loomle-fab-source-<platform-arch>.zip
-loomle-fab-plugin-<platform-arch>.zip
+loomle-fab-source-ue5.7-<platform-arch>.zip
+loomle-fab-plugin-ue<engine-version>-<platform-arch>.zip
 ```
 
-Both have SHA-256 sidecars and remain inputs to promotion only. Promotion
+All have SHA-256 sidecars and remain inputs to promotion only. Promotion
 extracts, validates, and mechanically combines them. The public GitHub Release
-contains the two cross-platform archives and their sidecars:
+contains the source archive, both engine-specific archives, and their sidecars:
 
 ```text
 loomle-bridge-<version>-source.zip
-loomle-bridge-<version>.zip
+loomle-bridge-<version>-ue5.7.zip
+loomle-bridge-<version>-ue5.8.zip
 ```
 
 Final releases additionally expose byte-identical stable download aliases:
 
 ```text
 loomle-bridge-source.zip
-loomle-bridge.zip
+loomle-bridge-ue5.7.zip
+loomle-bridge-ue5.8.zip
 ```
 
 These aliases exist so documentation can use GitHub's

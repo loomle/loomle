@@ -23,6 +23,7 @@ import {
   classifyPackagedE2EOutcome,
   classifyRunOutcome,
   collectRunMetadata,
+  configureTestProject,
   createGracefulInterruptHandler,
   createRuntimeStateHome,
   createOwnedEditorController,
@@ -434,6 +435,28 @@ test("refuses an existing output path without deleting its contents", async () =
         && /must not already exist/.test(error.message),
     );
     assert.equal(await readFile(sentinel, "utf8"), "keep");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("binds the temporary project to the exact engine under test", async () => {
+  const root = await mkdtemp(join(tmpdir(), "loomle-project-engine-"));
+  const projectPath = join(root, "Host.uproject");
+  await writeFile(projectPath, JSON.stringify({
+    FileVersion: 3,
+    EngineAssociation: "5.7",
+    Plugins: [],
+  }));
+  try {
+    await configureTestProject(projectPath, "LoomleBridge", "5.8");
+    const project = JSON.parse(await readFile(projectPath, "utf8"));
+    assert.equal(project.EngineAssociation, "5.8");
+    assert.deepEqual(project.Plugins, [{
+      Name: "LoomleBridge",
+      Enabled: true,
+      TargetAllowList: ["Editor"],
+    }]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1350,6 +1373,7 @@ test("builds the durable result.json contract", () => {
       protocolVersion: 3,
       commit: "abc123",
       target: "darwin-arm64",
+      engineVersion: "5.8",
       archiveSha256: null,
       candidate: {
         kind: "directory",
@@ -1400,6 +1424,7 @@ test("builds the durable result.json contract", () => {
   assert.equal(result.durationMs, 4250);
   assert.equal(result.productVersion, "0.7.0-dev.1");
   assert.equal(result.protocolVersion, 3);
+  assert.equal(result.engineVersion, "5.8");
   assert.equal(result.editor.pid, 123);
   assert.equal(result.automation.total, 68);
   assert.deepEqual(result.crashes.newReports, []);
