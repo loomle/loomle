@@ -84,6 +84,7 @@ class MockRuntimeClient implements RpcInvoker {
   closeCount = 0;
   healthCalls = 0;
   invokeCalls: string[] = [];
+  invokeArguments: Record<string, unknown>[] = [];
   healthResult: RuntimeHealth | RuntimeRpcError;
   invokeResult: unknown;
 
@@ -104,8 +105,9 @@ class MockRuntimeClient implements RpcInvoker {
 
   async requireTools(): Promise<void> {}
 
-  async invoke(tool: string): Promise<unknown> {
+  async invoke(tool: string, args: Record<string, unknown>): Promise<unknown> {
     this.invokeCalls.push(tool);
+    this.invokeArguments.push(args);
     if (this.invokeResult instanceof Error) throw this.invokeResult;
     return this.invokeResult;
   }
@@ -365,6 +367,80 @@ test("an unresponsive affined Editor never falls through to another ready Editor
   );
   assert.deepEqual(first.invokeCalls, ["sal.query"]);
   assert.deepEqual(second.invokeCalls, []);
+  invoker.close();
+});
+
+test("python poll stays pinned to the runtime that returned the execution id", async () => {
+  const state = await fixture();
+  await addProject(state, "Alpha");
+  const ownerRuntime = runtime("Alpha", "python-owner");
+  const otherRuntime = runtime("Alpha", "other-editor");
+  await setRuntimes(state, [ownerRuntime]);
+  const owner = new MockRuntimeClient(ownerRuntime.endpoint, ownerRuntime, {
+    invoke: {
+      status: "running",
+      executionId: "py_123",
+      stateMayHaveChanged: true,
+    },
+  });
+  const other = new MockRuntimeClient(otherRuntime.endpoint, otherRuntime);
+  const invoker = manager(state.home, new Map([
+    [ownerRuntime.endpoint, owner],
+    [otherRuntime.endpoint, other],
+  ]), "/Projects/Alpha");
+
+  await invoker.invoke("python.run", { script: "def run(): return {}" });
+  owner.healthResult = readyHealth(ownerRuntime, 60_000);
+  owner.invokeResult = {
+    status: "succeeded",
+    executionId: "py_123",
+    stateMayHaveChanged: true,
+    result: { count: 3 },
+  };
+  await setRuntimes(state, [ownerRuntime, otherRuntime]);
+
+  assert.deepEqual(await invoker.invoke("python.poll", { executionId: "py_123" }), {
+    status: "succeeded",
+    executionId: "py_123",
+    stateMayHaveChanged: true,
+    result: { count: 3 },
+  });
+  assert.deepEqual(owner.invokeCalls, ["python.run", "python.poll"]);
+  assert.deepEqual(owner.invokeArguments[1], { executionId: "py_123" });
+  assert.deepEqual(other.invokeCalls, []);
+  invoker.close();
+});
+
+test("python poll reports lost when its exact runtime disappears", async () => {
+  const state = await fixture();
+  await addProject(state, "Alpha");
+  const record = runtime("Alpha", "python-owner");
+  await setRuntimes(state, [record]);
+  const client = new MockRuntimeClient(record.endpoint, record, {
+    invoke: {
+      status: "running",
+      executionId: "py_lost",
+      stateMayHaveChanged: true,
+    },
+  });
+  const invoker = manager(state.home, new Map([[record.endpoint, client]]), "/Projects/Alpha");
+
+  await invoker.invoke("python.run", { script: "def run(): return {}" });
+  client.healthResult = new RuntimeRpcError("runtime.connect_failed", "endpoint is gone");
+
+  assert.deepEqual(await invoker.invoke("python.poll", { executionId: "py_lost" }), {
+    status: "lost",
+    executionId: "py_lost",
+    stateMayHaveChanged: true,
+    error: {
+      code: "runtime.python_execution_lost",
+      phase: "runtime",
+      message: "The Editor runtime that owned this Python execution is no longer available.",
+      retryable: false,
+    },
+  });
+  assert.equal(client.closeCount, 1);
+  assert.deepEqual(client.invokeCalls, ["python.run"]);
   invoker.close();
 });
 

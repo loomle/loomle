@@ -32,6 +32,11 @@ class FRequestCancellationState;
 class FRequestCancellationRegistry;
 }
 
+namespace Loomle::Python
+{
+class FPythonExecutionService;
+}
+
 /**
  * Loomle's UE process host.
  *
@@ -73,6 +78,9 @@ private:
         TSharedPtr<FJsonObject>& OutErrorData);
     TSharedPtr<FJsonObject> DispatchTool(
         const FString& Name,
+        const TSharedPtr<FJsonObject>& Arguments,
+        bool& bOutIsError);
+    TSharedPtr<FJsonObject> DispatchPythonRun(
         const TSharedPtr<FJsonObject>& Arguments,
         bool& bOutIsError);
     FString MakeJsonResponse(
@@ -157,6 +165,7 @@ private:
     uint64 ClientActivityCount = 0;
 
     TUniquePtr<Loomle::Runtime::FRequestCancellationRegistry> RequestCancellationRegistry;
+    TUniquePtr<Loomle::Python::FPythonExecutionService> PythonExecutionService;
     FThreadSafeCounter ActiveGameThreadDispatchCount;
     std::atomic<uint8> BridgeLifecycleState { static_cast<uint8>(ELoomleBridgeLifecycle::Offline) };
     std::atomic<uint64> GameThreadProgressSequence { 0 };

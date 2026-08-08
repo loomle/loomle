@@ -25,6 +25,8 @@ const requiredTools = [
   "editor.context",
   "editor.open",
   "editor.close",
+  "python.run",
+  "python.poll",
 ] as const;
 
 export type ProjectStatus =
@@ -121,6 +123,7 @@ export class DiscoveredRuntimeInvoker implements RpcInvoker, ProjectController, 
   private bindingQueue: Promise<void> = Promise.resolve();
   private readonly affinity = new Map<string, string>();
   private readonly clients = new Map<string, CachedClient>();
+  private readonly pythonExecutions = new Map<string, RuntimeRecord>();
 
   constructor(
     private readonly discovery: RuntimeDiscoveryOptions = {},
@@ -206,6 +209,9 @@ export class DiscoveredRuntimeInvoker implements RpcInvoker, ProjectController, 
         "Loomle runtime request was cancelled before project resolution.",
       );
     }
+    if (tool === "python.poll") {
+      return this.invokePythonPoll(args, signal);
+    }
     await this.ensureAutoBinding();
     const binding = this.binding ? { ...this.binding } : undefined;
     if (!binding) {
@@ -231,7 +237,14 @@ export class DiscoveredRuntimeInvoker implements RpcInvoker, ProjectController, 
     // A concurrent project switch affects only later requests.
     try {
       await client.requireTools(requiredTools);
-      return await client.invoke(tool, args, signal);
+      const result = await client.invoke(tool, args, signal);
+      if (tool === "python.run" && isRecord(result)
+        && result.status === "running"
+        && typeof result.executionId === "string"
+        && result.executionId.length > 0) {
+        this.pythonExecutions.set(result.executionId, probe.selected.record);
+      }
+      return result;
     } catch (error) {
       if (isFatalRuntimeFailure(error)) this.discardClient(probe.selected.record, client);
       throw error;
@@ -241,6 +254,39 @@ export class DiscoveredRuntimeInvoker implements RpcInvoker, ProjectController, 
   close(): void {
     for (const { client } of this.clients.values()) client.close();
     this.clients.clear();
+    this.pythonExecutions.clear();
+  }
+
+  private async invokePythonPoll(
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const executionId = typeof args.executionId === "string" ? args.executionId : "";
+    const owner = this.pythonExecutions.get(executionId);
+    if (!owner) {
+      throw new RuntimeRpcError(
+        "runtime.python_execution_not_found",
+        "The Python execution id is not known to this Loomle Client session.",
+      );
+    }
+
+    const client = this.clientFor(owner);
+    try {
+      const health = await client.health(owner);
+      if (health.lifecycle !== "ready" || health.listenerState !== "listening") {
+        return lostPythonExecution(executionId);
+      }
+      await client.requireTools(requiredTools);
+      return await client.invoke("python.poll", { executionId }, signal);
+    } catch (error) {
+      if (error instanceof RuntimeRpcError
+        && error.code !== "runtime.request_cancelled"
+        && isFatalRuntimeFailure(error)) {
+        this.discardClient(owner, client);
+        return lostPythonExecution(executionId);
+      }
+      throw error;
+    }
   }
 
   private get platform(): NodeJS.Platform {
@@ -574,4 +620,22 @@ function trimmed(value: string | undefined): string | undefined {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function lostPythonExecution(executionId: string): Record<string, unknown> {
+  return {
+    status: "lost",
+    executionId,
+    stateMayHaveChanged: true,
+    error: {
+      code: "runtime.python_execution_lost",
+      phase: "runtime",
+      message: "The Editor runtime that owned this Python execution is no longer available.",
+      retryable: false,
+    },
+  };
 }

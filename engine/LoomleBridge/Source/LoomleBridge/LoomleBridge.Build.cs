@@ -29,6 +29,7 @@ public class LoomleBridge : ModuleRules
                 "PropertyBindingUtils",
                 "PropertyEditor",
                 "Projects",
+                "PythonScriptPlugin",
                 "Slate",
                 "SlateCore",
                 "StateTreeEditorModule",

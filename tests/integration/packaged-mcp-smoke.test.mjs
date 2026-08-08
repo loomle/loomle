@@ -620,6 +620,22 @@ class FakePackagedHarness {
             isError: true,
           };
         }
+        if (name === "python") {
+          return {
+            content: [{ type: "text", text: "python succeeded" }],
+            structuredContent: {
+              status: "succeeded",
+              stateMayHaveChanged: true,
+              result: {
+                pythonAvailable: true,
+                projectName: "LoomleRunnerHost",
+              },
+              logs: [],
+              logsTruncated: false,
+              durationMs: 1,
+            },
+          };
+        }
         throw new Error(`unhandled fake tool ${name}`);
       },
       async close() {

@@ -2,16 +2,20 @@
 
 ## Status
 
-Loomle 0.7 does not currently expose Unreal-side Python. Its public Client has
-seven tools, and its Bridge accepts only the implemented SAL and Editor
-operations.
+The implementation is in progress on the Loomle 0.7 development branch. Its
+public Client and Bridge source now include the eighth public tool, `python`,
+but it is not a released contract until the packaged acceptance gates below
+pass.
 
-This document defines a planned eighth public tool, `python`. The tool has one
+This document defines the eighth public tool, `python`. The tool has one
 primary `run` operation and one continuation-only `poll` operation. It is not
-implemented and is not part of the current public contract.
+part of a published Loomle release yet.
 
-The design is confirmed. Implementation still requires the Client, Bridge,
-protocol, diagnostics, tests, and release documentation described below.
+The design is confirmed. Client, Bridge, protocol, diagnostics, focused tests,
+and release-documentation changes are present. Local arm64 `BuildPlugin` and
+the complete 147-test UE Automation category pass against both official UE 5.7
+and UE 5.8 Launcher installations. Exact-archive packaged and remaining native
+platform gates are still required before release.
 
 ## Decision
 
@@ -217,15 +221,19 @@ contain only:
 
 - `None`;
 - Boolean values;
-- finite integers and floating-point numbers;
+- integers in JavaScript's exactly representable safe range
+  `[-(2^53-1), 2^53-1]` and finite floating-point numbers;
 - strings;
 - lists of compatible values;
 - dictionaries with string keys and compatible values.
 
-Cycles, tuples, sets, bytes, NaN, infinity, UObject wrappers, reflected
-structs, and other Python values are rejected. Loomle does not guess how to
-serialize a UE object. The script must project it into stable, useful facts
-such as an object path, class path, GUID, name, or ordinary properties.
+Cycles, integers outside the safe range, tuples, sets, bytes, NaN, infinity,
+UObject wrappers, reflected structs, and other Python values are rejected.
+The safe-integer rule prevents Python's arbitrary-precision integers from
+silently changing value when they cross MCP JSON and the TypeScript Client.
+Loomle does not guess how to serialize a UE object. The script must project it
+into stable, useful facts such as an object path, class path, GUID, name, or
+ordinary properties.
 
 For example, this is invalid:
 
@@ -784,8 +792,8 @@ Native tests must cover:
 - a script can import `unreal`, define `run()`, and return a nested JSON object;
 - empty dictionaries, Unicode, lists, nulls, Booleans, and finite numbers
   round-trip exactly;
-- non-string keys, cycles, UObject values, tuples, NaN, and infinity fail as
-  invalid results;
+- non-string keys, cycles, out-of-range integers, UObject values, tuples, NaN,
+  and infinity fail as invalid results;
 - missing, parameterized, async, and generator `run()` definitions fail;
 - syntax and runtime errors preserve useful tracebacks and prior native logs;
 - source and runner paths containing spaces execute correctly;

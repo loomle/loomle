@@ -133,7 +133,7 @@ the same project matching rules are applied.
   "uproject": "/path/to/Game/Game.uproject",
   "endpoint": "<unique-local-endpoint>",
   "pid": 1234,
-  "protocolVersion": 4,
+  "protocolVersion": 5,
   "startedAt": "<utc-time>"
 }
 ```

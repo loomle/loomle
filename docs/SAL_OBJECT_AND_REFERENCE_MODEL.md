@@ -4,7 +4,7 @@
 
 Promoted on 2026-07-25. This document records the confirmed and implemented
 design for SAL object expressions, semantic tags, Domain Targets, and stable
-references. The SAL v3 model, now carried by Client-Bridge protocol v4, the SAL
+references. The SAL v3 model, now carried by Client-Bridge protocol v5, the SAL
 Core, Client, Bridge source, current Domain cards, and site implement this
 model. The complete repository suite, 135-test
 UE Automation category, stripped release audit, exact-archive packaged
@@ -13,7 +13,7 @@ end-to-end workflow, and rendered-site gates have passed.
 The current public contract is the v3 model in `sal/docs/` and `interfaces/`.
 Constructor-shaped values, Domain-name Target constructors, and fused
 `kind@id` references are legacy input accepted only by the explicit
-TypeScript compatibility reader. Protocol v4 Bridge requests reject their
+TypeScript compatibility reader. Protocol v5 Bridge requests reject their
 normalized legacy shapes.
 
 ## Decision
@@ -1806,7 +1806,8 @@ This design became the current SAL contract after:
 4. current public documentation and generated interface artifacts are updated;
 5. the complete verification matrix passes.
 
-All five conditions were first satisfied by protocol v3. Protocol v4 adds
-Editor transport operations without changing this SAL model. Current normative
+All five conditions were first satisfied by protocol v3. Protocol v4 added
+Editor transport operations and protocol v5 adds Python fallback execution,
+neither changing this SAL model. Current normative
 behavior lives in `sal/docs/`, `interfaces/`, and the generated protocol
 artifacts; this file remains the design and migration record.

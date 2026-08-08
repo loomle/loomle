@@ -29,7 +29,7 @@ the editor and UE APIs as the source of truth.
 
 ## Current 0.7 Interface
 
-The standalone Client exposes seven MCP tools:
+The standalone Client exposes eight MCP tools:
 
 - `status`: inspect the Client version, update availability, and bound session
   and Bridge health.
@@ -43,6 +43,9 @@ The standalone Client exposes seven MCP tools:
 - `editor`: observe the current Unreal interaction with empty arguments, or
   open, focus, and close an exact Blueprint or Graph from canonical SAL Target
   Text.
+- `python`: run unrestricted Unreal Editor Python only as a fallback for
+  capabilities not covered by a structured Loomle interface, and poll an
+  execution only when the initial result supplies a continuation.
 
 The current public SAL modules are Asset, Blueprint, Class, Graph, StateTree,
 and Widget. They cover Asset Registry discovery, Blueprint declarations and

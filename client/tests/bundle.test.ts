@@ -87,6 +87,7 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
       "sal_schema",
       "agent_skill",
       "editor",
+      "python",
     ]);
     assert.equal(
       tools.tools.find((tool) => tool.name === "sal_schema")?.description,

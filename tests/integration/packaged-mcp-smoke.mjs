@@ -13,6 +13,7 @@ export const PUBLIC_TOOL_NAMES = Object.freeze([
   "sal_schema",
   "agent_skill",
   "editor",
+  "python",
 ]);
 
 export const PACKAGED_SMOKE_STEP_NAMES = Object.freeze([
@@ -289,6 +290,30 @@ export async function runPackagedMcpSmoke(options = {}) {
           "editor context did not report both surface and selection",
           `SAL response:\n${boundedText(context)}`,
         ].join("\n"),
+      );
+
+      publicTool("python");
+      const python = await session.callTool("python", {
+        operation: "run",
+        script: [
+          "import unreal",
+          "def run():",
+          "    return {",
+          "        'pythonAvailable': True,",
+          "        'projectName': unreal.SystemLibrary.get_project_name(),",
+          "    }",
+        ].join("\n"),
+      });
+      assert(python?.isError !== true, "python fallback failed in the packaged Editor");
+      assert(
+        python?.structuredContent?.status === "succeeded",
+        `python fallback did not complete inline: ${boundedText(JSON.stringify(python))}`,
+      );
+      assert(
+        python.structuredContent.result?.pythonAvailable === true
+          && typeof python.structuredContent.result?.projectName === "string"
+          && python.structuredContent.result.projectName.length > 0,
+        "python fallback omitted its agent-defined structured result",
       );
     });
 

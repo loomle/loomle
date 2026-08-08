@@ -23,6 +23,7 @@
 #include "Misc/Guid.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopeLock.h"
+#include "Python/LoomlePythonExecutionService.h"
 #include "Sal/Reference/SalReferenceInterface.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -1021,6 +1022,10 @@ void FLoomleBridgeModule::BeginBridgeShutdown()
 
     BridgeLifecycleState.store(static_cast<uint8>(ELoomleBridgeLifecycle::Draining));
     bBridgeRunningSnapshot.Store(false);
+    if (PythonExecutionService)
+    {
+        PythonExecutionService->Shutdown();
+    }
     Loomle::Sal::FSalReferenceInterface::Shutdown();
     Loomle::EditorContext::FEditorContextService::Get().Shutdown();
     StopBridgeRuntime(false);
@@ -1067,6 +1072,8 @@ void FLoomleBridgeModule::StartupModule()
     InitializeRuntimeIdentity();
     RegisterLoomleSlateStyle();
     RequestCancellationRegistry = MakeUnique<Loomle::Runtime::FRequestCancellationRegistry>();
+    PythonExecutionService = MakeUnique<Loomle::Python::FPythonExecutionService>();
+    PythonExecutionService->Startup();
     if (!bEditorInitialized)
     {
         EditorInitializedHandle = FEditorDelegates::OnEditorInitialized.AddRaw(
@@ -1121,6 +1128,7 @@ void FLoomleBridgeModule::StartupModule()
         FCoreDelegates::OnPreExit.Remove(PreExitHandle);
         PreExitHandle.Reset();
         RequestCancellationRegistry.Reset();
+        PythonExecutionService.Reset();
         UnregisterLoomleSlateStyle();
         return;
     }
@@ -1184,6 +1192,7 @@ void FLoomleBridgeModule::ShutdownModule()
         HealthSnapshotTickerHandle.Reset();
     }
     RequestCancellationRegistry.Reset();
+    PythonExecutionService.Reset();
 }
 
 IMPLEMENT_MODULE(FLoomleBridgeModule, LoomleBridge)

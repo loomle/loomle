@@ -18,6 +18,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Guid.h"
 #include "Misc/Paths.h"
+#include "Python/LoomlePythonExecutionService.h"
 #include "Sal/SalJson.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -48,6 +49,24 @@ struct FLoomleBridgeRpcTestAccess
         Module.RequestCancellationRegistry =
             MakeUnique<
                 Loomle::Runtime::FRequestCancellationRegistry>();
+    }
+
+    static void InitializePythonExecutionService(
+        FLoomleBridgeModule& Module)
+    {
+        Module.PythonExecutionService =
+            MakeUnique<Loomle::Python::FPythonExecutionService>();
+        Module.PythonExecutionService->Startup();
+    }
+
+    static void ShutdownPythonExecutionService(
+        FLoomleBridgeModule& Module)
+    {
+        if (Module.PythonExecutionService)
+        {
+            Module.PythonExecutionService->Shutdown();
+            Module.PythonExecutionService.Reset();
+        }
     }
 
     static void InitializeRuntimeIdentity(FLoomleBridgeModule& Module)
@@ -271,7 +290,9 @@ bool FLoomleBridgeRpcProtocolBoundaryTest::RunTest(const FString& Parameters)
                 {
                     for (const FString& Tool : {
                              FString(TEXT("editor.open")),
-                             FString(TEXT("editor.close"))})
+                             FString(TEXT("editor.close")),
+                             FString(TEXT("python.run")),
+                             FString(TEXT("python.poll"))})
                     {
                         TestTrue(
                             *FString::Printf(
@@ -361,6 +382,118 @@ bool FLoomleBridgeRpcProtocolBoundaryTest::RunTest(const FString& Parameters)
         }
     }
 
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FLoomleBridgePythonStructuredResultTest,
+    "Loomle.Runtime.Rpc.Python.StructuredResult",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLoomleBridgePythonStructuredResultTest::RunTest(const FString& Parameters)
+{
+    FLoomleBridgeModule Module;
+    FLoomleBridgeRpcTestAccess::InitializePythonExecutionService(Module);
+    FLoomleBridgeRpcTestAccess::SetBridgeLifecycle(Module, ELoomleBridgeLifecycle::Ready);
+
+    TSharedPtr<FJsonObject> Arguments = MakeShared<FJsonObject>();
+    Arguments->SetStringField(
+        TEXT("script"),
+        TEXT(
+            "import unreal\n"
+            "def run():\n"
+            "    return {'loaded': unreal is not None, 'items': [1, True, None]}\n"));
+    bool bIsError = false;
+    const TSharedPtr<FJsonObject> Payload = FLoomleBridgeRpcTestAccess::DispatchTool(
+        Module,
+        TEXT("python.run"),
+        Arguments,
+        bIsError);
+
+    TestFalse(TEXT("A valid Python fallback is not a dispatch error"), bIsError);
+    FString Status;
+    TestTrue(
+        TEXT("Python fallback returns a status"),
+        Payload.IsValid() && Payload->TryGetStringField(TEXT("status"), Status));
+    TestEqual(TEXT("Fast Python fallback succeeds inline"), Status, FString(TEXT("succeeded")));
+    TestFalse(
+        TEXT("Fast Python fallback does not expose an execution id"),
+        Payload.IsValid() && Payload->HasField(TEXT("executionId")));
+
+    const TSharedPtr<FJsonObject>* Result = nullptr;
+    TestTrue(
+        TEXT("Python fallback returns the run() dictionary as structured JSON"),
+        Payload.IsValid()
+            && Payload->TryGetObjectField(TEXT("result"), Result)
+            && Result != nullptr
+            && (*Result).IsValid());
+    if (Result != nullptr && (*Result).IsValid())
+    {
+        bool bLoaded = false;
+        TestTrue(
+            TEXT("Structured result preserves a Boolean field"),
+            (*Result)->TryGetBoolField(TEXT("loaded"), bLoaded) && bLoaded);
+        TestTrue(
+            TEXT("Structured result preserves a nested array"),
+            (*Result)->HasTypedField<EJson::Array>(TEXT("items")));
+    }
+
+    FLoomleBridgeRpcTestAccess::ShutdownPythonExecutionService(Module);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FLoomleBridgePythonInvalidResultTest,
+    "Loomle.Runtime.Rpc.Python.InvalidResult",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLoomleBridgePythonInvalidResultTest::RunTest(const FString& Parameters)
+{
+    FLoomleBridgeModule Module;
+    FLoomleBridgeRpcTestAccess::InitializePythonExecutionService(Module);
+    FLoomleBridgeRpcTestAccess::SetBridgeLifecycle(Module, ELoomleBridgeLifecycle::Ready);
+
+    TSharedPtr<FJsonObject> Arguments = MakeShared<FJsonObject>();
+    Arguments->SetStringField(
+        TEXT("script"),
+        TEXT(
+            "import unreal\n"
+            "def run():\n"
+            "    return {'value': unreal.Vector()}\n"));
+    bool bIsError = false;
+    const TSharedPtr<FJsonObject> Payload = FLoomleBridgeRpcTestAccess::DispatchTool(
+        Module,
+        TEXT("python.run"),
+        Arguments,
+        bIsError);
+
+    TestFalse(TEXT("An executed Python failure is a structured result"), bIsError);
+    FString Status;
+    TestTrue(
+        TEXT("Invalid Python result returns a status"),
+        Payload.IsValid() && Payload->TryGetStringField(TEXT("status"), Status));
+    TestEqual(TEXT("Invalid Python result fails"), Status, FString(TEXT("failed")));
+    bool bStateMayHaveChanged = false;
+    TestTrue(
+        TEXT("Executed Python failure reports outcome uncertainty"),
+        Payload.IsValid()
+            && Payload->TryGetBoolField(TEXT("stateMayHaveChanged"), bStateMayHaveChanged)
+            && bStateMayHaveChanged);
+    const TSharedPtr<FJsonObject>* Error = nullptr;
+    FString Code;
+    TestTrue(
+        TEXT("Invalid Python result returns a structured error"),
+        Payload.IsValid()
+            && Payload->TryGetObjectField(TEXT("error"), Error)
+            && Error != nullptr
+            && (*Error).IsValid()
+            && (*Error)->TryGetStringField(TEXT("code"), Code));
+    TestEqual(
+        TEXT("Invalid Python result uses its stable diagnostic"),
+        Code,
+        FString(TEXT("runtime.python_invalid_result")));
+
+    FLoomleBridgeRpcTestAccess::ShutdownPythonExecutionService(Module);
     return true;
 }
 

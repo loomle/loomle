@@ -31,6 +31,8 @@ const requiredBridgeTools = Object.freeze([
   "editor.context",
   "editor.open",
   "editor.close",
+  "python.run",
+  "python.poll",
 ]);
 const scenarioTimeoutMs = 5_000;
 

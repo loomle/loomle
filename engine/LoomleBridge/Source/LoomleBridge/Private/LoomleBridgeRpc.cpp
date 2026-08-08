@@ -9,6 +9,7 @@
 #include "EditorControl/EditorControlService.h"
 #include "EditorContext/EditorContextService.h"
 #include "Generated/LoomleProtocolVersion.h"
+#include "HAL/PlatformProcess.h"
 #include "HAL/PlatformTime.h"
 #include "LoomleGameThreadAdmission.h"
 #include "LoomlePipeServer.h"
@@ -16,6 +17,7 @@
 #include "Misc/DateTime.h"
 #include "Misc/ScopeExit.h"
 #include "Policies/CondensedJsonPrintPolicy.h"
+#include "Python/LoomlePythonExecutionService.h"
 #include "Sal/SalModule.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -28,6 +30,8 @@ constexpr const TCHAR* SalPatchTool = TEXT("sal.patch");
 constexpr const TCHAR* EditorContextTool = TEXT("editor.context");
 constexpr const TCHAR* EditorOpenTool = TEXT("editor.open");
 constexpr const TCHAR* EditorCloseTool = TEXT("editor.close");
+constexpr const TCHAR* PythonRunTool = TEXT("python.run");
+constexpr const TCHAR* PythonPollTool = TEXT("python.poll");
 
 using FCondensedJsonWriter = TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>;
 
@@ -106,6 +110,9 @@ bool IsRetryableDispatchError(const FString& Code)
         || Code == TEXT("runtime.editor_unresponsive")
         || Code == TEXT("runtime.starting")
         || Code == TEXT("runtime.editor_shutting_down")
+        || Code == TEXT("runtime.python_busy")
+        || Code == TEXT("runtime.python_initializing")
+        || Code == TEXT("runtime.python_unavailable_during_play")
         || Code == TEXT("project.offline");
 }
 
@@ -352,7 +359,9 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::BuildRpcCapabilitiesResult() const
             SalPatchTool,
             EditorContextTool,
             EditorOpenTool,
-            EditorCloseTool}));
+            EditorCloseTool,
+            PythonRunTool,
+            PythonPollTool}));
     return Result;
 }
 
@@ -432,6 +441,24 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(
     bool& bOutIsError)
 {
     bOutIsError = false;
+    if (Name == PythonPollTool)
+    {
+        if (!PythonExecutionService)
+        {
+            bOutIsError = true;
+            return MakeDispatchError(
+                TEXT("runtime.python_unavailable"),
+                TEXT("The Loomle Python execution service is unavailable."));
+        }
+        TSharedPtr<FJsonObject> PollError;
+        TSharedPtr<FJsonObject> PollResult = PythonExecutionService->Poll(Arguments, PollError);
+        if (PollError.IsValid())
+        {
+            bOutIsError = true;
+            return PollError;
+        }
+        return PollResult;
+    }
     if (Loomle::Runtime::IsRequestCancellationRequested())
     {
         bOutIsError = true;
@@ -452,6 +479,11 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(
             return MakeDispatchError(TEXT("runtime.starting"), TEXT("The Unreal Editor runtime is still starting."));
         }
         return MakeDispatchError(TEXT("project.offline"), TEXT("The Unreal Editor runtime is not available."));
+    }
+
+    if (Name == PythonRunTool)
+    {
+        return DispatchPythonRun(Arguments, bOutIsError);
     }
 
     if (!IsInGameThread())
@@ -603,6 +635,111 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchTool(
 
     bOutIsError = true;
     return MakeDispatchError(TEXT("tool.unknown"), FString::Printf(TEXT("Unknown tool: %s"), *Name));
+}
+
+TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchPythonRun(
+    const TSharedPtr<FJsonObject>& Arguments,
+    bool& bOutIsError)
+{
+    bOutIsError = false;
+    if (!PythonExecutionService)
+    {
+        bOutIsError = true;
+        return MakeDispatchError(
+            TEXT("runtime.python_unavailable"),
+            TEXT("The Loomle Python execution service is unavailable."));
+    }
+
+    TSharedPtr<FJsonObject> PrepareError;
+    const Loomle::Python::FPythonExecutionService::FExecutionPtr Execution =
+        PythonExecutionService->PrepareRun(Arguments, PrepareError);
+    if (!Execution.IsValid())
+    {
+        bOutIsError = true;
+        return PrepareError.IsValid()
+            ? PrepareError
+            : MakeDispatchError(
+                TEXT("runtime.python_source_staging_failed"),
+                TEXT("The Python execution could not be prepared."));
+    }
+
+    if (IsInGameThread())
+    {
+        PythonExecutionService->Execute(Execution);
+        return PythonExecutionService->BuildInitialResponse(Execution);
+    }
+
+    const TSharedRef<Loomle::Runtime::FGameThreadAdmission, ESPMode::ThreadSafe> Admission =
+        MakeShared<Loomle::Runtime::FGameThreadAdmission, ESPMode::ThreadSafe>();
+    ActiveGameThreadDispatchCount.Increment();
+    AsyncTask(
+        ENamedThreads::GameThread,
+        [this, Admission, Execution]()
+        {
+            ON_SCOPE_EXIT { ActiveGameThreadDispatchCount.Decrement(); };
+            if (!Admission->TryStart())
+            {
+                PythonExecutionService->AbandonBeforeStart(Execution);
+                RecordGameThreadProgress();
+                return;
+            }
+            PythonExecutionService->Execute(Execution);
+            RecordGameThreadProgress();
+        });
+
+    constexpr uint32 AdmissionTimeoutMs = 2000;
+    constexpr uint32 InlineCompletionWindowMs = 1000;
+    constexpr uint32 PollMs = 25;
+    uint32 AdmissionWaitedMs = 0;
+    while (AdmissionWaitedMs < AdmissionTimeoutMs)
+    {
+        if (Admission->GetState() == Loomle::Runtime::EGameThreadAdmissionState::Started)
+        {
+            break;
+        }
+        if (PythonExecutionService->IsTerminal(Execution))
+        {
+            return PythonExecutionService->BuildInitialResponse(Execution);
+        }
+        if (Loomle::Runtime::IsRequestCancellationRequested() && Admission->TryCancel())
+        {
+            PythonExecutionService->AbandonBeforeStart(Execution);
+            bOutIsError = true;
+            return MakeRequestCancelledPayload();
+        }
+        FPlatformProcess::SleepNoStats(static_cast<float>(PollMs) / 1000.0f);
+        AdmissionWaitedMs += PollMs;
+        if (bIsShuttingDown.Load() && Admission->TryCancel())
+        {
+            PythonExecutionService->AbandonBeforeStart(Execution);
+            bOutIsError = true;
+            return MakeDispatchError(
+                TEXT("runtime.editor_shutting_down"),
+                TEXT("Unreal Editor is shutting down."));
+        }
+    }
+
+    if (Admission->GetState() == Loomle::Runtime::EGameThreadAdmissionState::Waiting
+        && Admission->TryCancel())
+    {
+        PythonExecutionService->AbandonBeforeStart(Execution);
+        bOutIsError = true;
+        return MakeDispatchError(
+            TEXT("runtime.editor_unresponsive"),
+            TEXT("The Unreal Editor game thread did not admit the Python execution."));
+    }
+
+    uint32 InlineWaitedMs = 0;
+    while (InlineWaitedMs < InlineCompletionWindowMs)
+    {
+        if (PythonExecutionService->IsTerminal(Execution))
+        {
+            break;
+        }
+        FPlatformProcess::SleepNoStats(static_cast<float>(PollMs) / 1000.0f);
+        InlineWaitedMs += PollMs;
+    }
+    return PythonExecutionService->BuildInitialResponse(Execution);
 }
 
 FString FLoomleBridgeModule::MakeJsonResponse(

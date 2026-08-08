@@ -101,6 +101,7 @@ test("exposes the unified editor tool", () => {
     "sal_schema",
     "agent_skill",
     "editor",
+    "python",
   ]);
   const editor = toolDefinitions.find((tool) => tool.name === "editor");
   assert.deepEqual(editor?.annotations, {
@@ -112,6 +113,133 @@ test("exposes the unified editor tool", () => {
     (editor?.inputSchema.properties as Record<string, { enum?: string[] }>).operation.enum,
     ["context", "open", "close"],
   );
+  const python = toolDefinitions.find((tool) => tool.name === "python");
+  assert.deepEqual(python?.annotations, {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: true,
+  });
+  assert.equal(Array.isArray(python?.inputSchema.oneOf), true);
+  assert.equal((python?.outputSchema?.properties as Record<string, unknown>).status !== undefined, true);
+});
+
+test("python run returns the agent-defined structured result without an execution id", async () => {
+  const response = {
+    status: "succeeded",
+    stateMayHaveChanged: true,
+    result: {
+      assetPath: "/Game/Data/DT_Weapons.DT_Weapons",
+      rowsCreated: 42,
+    },
+    logs: [{ type: "info", output: "created rows" }],
+    logsTruncated: false,
+    durationMs: 18,
+  };
+  const rpc = new MockRpc(response);
+  const controller = new AbortController();
+  const result = await new SalToolService(rpc).call("python", {
+    operation: "run",
+    script: "def run():\n    return {'rowsCreated': 42}",
+  }, controller.signal);
+
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(result.structuredContent, response);
+  assert.equal(result.content[0].text, JSON.stringify(response));
+  assert.deepEqual(rpc.calls, [{
+    tool: "python.run",
+    args: { script: "def run():\n    return {'rowsCreated': 42}" },
+  }]);
+});
+
+test("python run returns an exact poll continuation for a detached execution", async () => {
+  const response = {
+    status: "running",
+    executionId: "py_012345",
+    stateMayHaveChanged: true,
+    elapsedMs: 1004,
+    continuation: {
+      tool: "python",
+      arguments: { operation: "poll", executionId: "py_012345" },
+      pollAfterMs: 1000,
+    },
+  };
+  const rpc = new MockRpc(response);
+  const result = await new SalToolService(rpc).call("python", {
+    operation: "run",
+    script: "def run():\n    return {}",
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(result.structuredContent, response);
+  assert.match(result.content[0].text, /Do not run the script again/);
+  assert.match(result.content[0].text, /"operation":"poll"/);
+});
+
+test("python poll forwards only the returned execution id and remains cancellable", async () => {
+  const response = {
+    status: "succeeded",
+    executionId: "py_012345",
+    stateMayHaveChanged: true,
+    result: {},
+    logs: [],
+    logsTruncated: false,
+    durationMs: 2500,
+  };
+  const rpc = new MockRpc(response);
+  const controller = new AbortController();
+  const result = await new SalToolService(rpc).call("python", {
+    operation: "poll",
+    executionId: "py_012345",
+  }, controller.signal);
+
+  assert.deepEqual(result.structuredContent, response);
+  assert.deepEqual(rpc.calls, [{
+    tool: "python.poll",
+    args: { executionId: "py_012345" },
+    signal: controller.signal,
+  }]);
+});
+
+test("python preserves an executed failure as structured content and a tool error", async () => {
+  const response = {
+    status: "failed",
+    stateMayHaveChanged: true,
+    error: {
+      code: "runtime.python_execution_failed",
+      phase: "execution",
+      message: "boom",
+      traceback: "Traceback: boom",
+      retryable: false,
+    },
+    logs: [],
+    logsTruncated: false,
+    durationMs: 2,
+  };
+  const result = await new SalToolService(new MockRpc(response)).call("python", {
+    operation: "run",
+    script: "def run():\n    raise RuntimeError('boom')",
+  });
+
+  assert.equal(result.isError, true);
+  assert.deepEqual(result.structuredContent, response);
+});
+
+test("python rejects mixed or incomplete operation arguments before Bridge dispatch", async () => {
+  for (const args of [
+    {},
+    { operation: "status", executionId: "py_1" },
+    { operation: "run" },
+    { operation: "run", script: "def run(): return {}", executionId: "py_1" },
+    { operation: "poll" },
+    { operation: "poll", executionId: "py_1", script: "def run(): return {}" },
+  ]) {
+    const rpc = new MockRpc({});
+    const result = await new SalToolService(rpc).call("python", args);
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /tool\.invalid_arguments/);
+    assert.equal(rpc.calls.length, 0);
+  }
 });
 
 test("status reports identity, binding, Bridge health, and Windows update guidance", async () => {

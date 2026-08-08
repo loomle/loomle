@@ -20,6 +20,11 @@ editor behavior intact.
 - `editor({ operation: "open" | "close", target })` idempotently controls one
   exact Blueprint Editor or Graph document. `target` is one bare canonical SAL
   Target expression encoded as the JSON string value.
+- `python({ operation: "run", script })` is the unrestricted Unreal Python
+  fallback when no structured Loomle interface covers the task. The script
+  defines synchronous `run()` and returns a JSON-compatible dictionary.
+- If Python returns `status: "running"`, call `python` with the exact `poll`
+  continuation it supplies. Never replay the original script.
 
 The tool-call wrapper is not SAL syntax.
 
@@ -314,7 +319,7 @@ constructors, or fused kind references. MCP tools and the default SDK facade do
 not enable it. The reader lowers only forms that are unambiguous in the active
 Domain. Under-scoped owner identities, target-self fused references, ambiguous
 or mixed Domains, and any form that would require UE-assisted recovery are
-rejected. The protocol v4 Bridge rejects normalized legacy shapes and current
-formatters never emit them. Protocol v4 explicitly extends this reader-only
-migration window because the Editor transport addition does not change SAL
+rejected. The protocol v5 Bridge rejects normalized legacy shapes and current
+formatters never emit them. Protocol v5 explicitly extends this reader-only
+migration window because the Python fallback addition does not change SAL
 syntax; removal requires a later incompatible protocol and release note.

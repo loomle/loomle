@@ -15,7 +15,7 @@ duplicate either contract.
 
 ## Public Tools
 
-The Client exposes seven MCP tools:
+The Client exposes eight MCP tools:
 
 - `status`: inspect Client identity and update availability plus the bound
   session and Bridge health;
@@ -29,9 +29,14 @@ The Client exposes seven MCP tools:
   repository-root `skills/` source;
 - `editor`: observe the current UE interaction target, or idempotently open,
   focus, and close an exact Blueprint Editor or Blueprint Graph document;
+- `python`: run unrestricted Unreal Editor Python as a fallback when no
+  structured Loomle interface covers the task, then poll only when a running
+  result supplies an execution id.
 
-These seven tools are the complete public Client surface. Additional UE
-behavior belongs in SAL and its interface cards rather than parallel tools;
+These eight tools are the complete public Client surface. Ordinary additional
+UE behavior belongs in SAL and its interface cards rather than parallel tools.
+`python` is the explicit escape hatch for capabilities already served well by
+Unreal Python; it has no dry run, rollback, safe cancellation, or idempotency.
 `agent_skill` contains agent workflow policy and grants no new UE capability.
 
 The `sal_schema` tool description carries the resident guide from

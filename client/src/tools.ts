@@ -32,16 +32,19 @@ export type PublicToolName =
   | "sal_patch"
   | "sal_schema"
   | "agent_skill"
-  | "editor";
+  | "editor"
+  | "python";
 
 export interface ToolDefinition {
   name: PublicToolName;
   description: string;
   inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
   annotations: {
     readOnlyHint: boolean;
     destructiveHint: boolean;
     idempotentHint: boolean;
+    openWorldHint?: boolean;
   };
 }
 
@@ -53,8 +56,108 @@ export interface McpTextContent {
 export interface McpToolResult {
   [key: string]: unknown;
   content: McpTextContent[];
+  structuredContent?: Record<string, unknown>;
   isError?: boolean;
 }
+
+type PythonExecutionStatus = "running" | "succeeded" | "failed" | "lost";
+
+interface PythonExecutionResult extends Record<string, unknown> {
+  status: PythonExecutionStatus;
+  stateMayHaveChanged: boolean;
+}
+
+const pythonInputSchema: Record<string, unknown> = {
+  type: "object",
+  oneOf: [
+    {
+      properties: {
+        operation: { const: "run" },
+        script: {
+          type: "string",
+          minLength: 1,
+          maxLength: 262_144,
+          description: "Inline Unreal Editor Python defining one synchronous run() entry point.",
+        },
+      },
+      required: ["operation", "script"],
+      additionalProperties: false,
+    },
+    {
+      properties: {
+        operation: { const: "poll" },
+        executionId: {
+          type: "string",
+          minLength: 1,
+          description: "Opaque handle returned by an earlier running result.",
+        },
+      },
+      required: ["operation", "executionId"],
+      additionalProperties: false,
+    },
+  ],
+};
+
+const pythonOutputSchema: Record<string, unknown> = {
+  type: "object",
+  required: ["status", "stateMayHaveChanged"],
+  properties: {
+    status: { type: "string", enum: ["running", "succeeded", "failed", "lost"] },
+    executionId: { type: "string", minLength: 1 },
+    stateMayHaveChanged: { type: "boolean" },
+    result: { type: "object", additionalProperties: true },
+    error: {
+      type: "object",
+      required: ["code", "phase", "message", "retryable"],
+      properties: {
+        code: { type: "string", minLength: 1 },
+        phase: {
+          type: "string",
+          enum: ["validation", "staging", "execution", "result", "runtime"],
+        },
+        message: { type: "string", minLength: 1 },
+        traceback: { type: "string" },
+        retryable: { type: "boolean" },
+      },
+      additionalProperties: false,
+    },
+    logs: {
+      type: "array",
+      maxItems: 1_000,
+      items: {
+        type: "object",
+        required: ["type", "output"],
+        properties: {
+          type: { type: "string", enum: ["info", "warning", "error"] },
+          output: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+    },
+    logsTruncated: { type: "boolean" },
+    durationMs: { type: "integer", minimum: 0 },
+    elapsedMs: { type: "integer", minimum: 0 },
+    continuation: {
+      type: "object",
+      required: ["tool", "arguments", "pollAfterMs"],
+      properties: {
+        tool: { const: "python" },
+        arguments: {
+          type: "object",
+          required: ["operation", "executionId"],
+          properties: {
+            operation: { const: "poll" },
+            executionId: { type: "string", minLength: 1 },
+          },
+          additionalProperties: false,
+        },
+        pollAfterMs: { type: "integer", minimum: 0 },
+      },
+      additionalProperties: false,
+    },
+  },
+  additionalProperties: false,
+};
 
 const interfaceNames = catalog.map(({ name }) => name);
 const agentSkillNames = agentSkills.map(({ name }) => name);
@@ -158,6 +261,18 @@ export const toolDefinitions: readonly ToolDefinition[] = [
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   },
+  {
+    name: "python",
+    description: "Run full Python inside the bound Unreal Editor only when no structured Loomle interface covers the required UE capability. Use run normally. If it returns running, follow its poll continuation exactly and never replay the script. No dry run, rollback, safe cancellation, or idempotency.",
+    inputSchema: pythonInputSchema,
+    outputSchema: pythonOutputSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
 ];
 
 export class SalToolService {
@@ -221,6 +336,8 @@ export class SalToolService {
           return agentSkillResult(optionalString(object.name, "name"));
         case "editor":
           return await this.callEditor(object, signal);
+        case "python":
+          return await this.callPython(object, signal);
         default:
           return toolFailure("tool.unknown", `Unknown Loomle tool: ${name}.`);
       }
@@ -229,6 +346,7 @@ export class SalToolService {
       if (name === "editor") {
         return toMcpResult(editorTextFailureFromError(error));
       }
+      if (name === "python") return pythonToolFailureFromError(error);
       return isResultTool(name)
         ? resultToolFailureFromError(error)
         : toolFailureFromError(error);
@@ -302,6 +420,28 @@ export class SalToolService {
         { operation, status: "failed" },
       );
     }
+  }
+
+  private async callPython(
+    object: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<McpToolResult> {
+    const operation = requirePythonOperation(object.operation);
+    if (operation === "run") {
+      requireOnly(object, ["operation", "script"], "python run");
+      const script = requireBoundedString(object.script, "script", 262_144);
+      // Once admitted, raw Unreal Python cannot be safely cancelled. Do not
+      // forward the host AbortSignal into this mutating execution.
+      return pythonMcpResult(requirePythonExecutionResult(
+        await this.rpc.invoke("python.run", { script }),
+      ));
+    }
+
+    requireOnly(object, ["operation", "executionId"], "python poll");
+    const executionId = requireBoundedString(object.executionId, "executionId", 256);
+    return pythonMcpResult(requirePythonExecutionResult(
+      await this.rpc.invoke("python.poll", { executionId }, signal),
+    ));
   }
 }
 
@@ -496,6 +636,21 @@ function optionalString(value: unknown, name: string): string | undefined {
   return value;
 }
 
+function requireBoundedString(value: unknown, name: string, maxLength: number): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new ToolInputError(`${name} must be a non-empty string.`);
+  }
+  if (value.length > maxLength) {
+    throw new ToolInputError(`${name} must not exceed ${maxLength} characters.`);
+  }
+  return value;
+}
+
+function requirePythonOperation(value: unknown): "run" | "poll" {
+  if (value === "run" || value === "poll") return value;
+  throw new ToolInputError("python operation must be run or poll.");
+}
+
 function optionalEditorOperation(value: unknown): EditorOperation | undefined {
   if (value === undefined) return undefined;
   if (value === "context" || value === "open" || value === "close") return value;
@@ -558,6 +713,159 @@ function editorControlMcpResult(
     content,
     ...(isError ? { isError: true } : {}),
   };
+}
+
+function pythonMcpResult(result: PythonExecutionResult): McpToolResult {
+  const isError = result.status === "failed" || result.status === "lost";
+  const text = result.status === "running"
+    ? [
+      `Python execution ${String(result.executionId)} is still running.`,
+      "Do not run the script again.",
+      `Call python with ${JSON.stringify((result.continuation as { arguments: unknown }).arguments)}.`,
+    ].join("\n")
+    : JSON.stringify(result);
+  return {
+    content: [{ type: "text", text }],
+    structuredContent: result,
+    ...(isError ? { isError: true } : {}),
+  };
+}
+
+function requirePythonExecutionResult(value: unknown): PythonExecutionResult {
+  if (!isRecord(value)) throw new Error("Python returned an invalid execution result.");
+  requireExactAllowedKeys(value, [
+    "status",
+    "executionId",
+    "stateMayHaveChanged",
+    "result",
+    "error",
+    "logs",
+    "logsTruncated",
+    "durationMs",
+    "elapsedMs",
+    "continuation",
+  ], "Python execution result");
+  const status = value.status;
+  if (status !== "running" && status !== "succeeded" && status !== "failed" && status !== "lost") {
+    throw new Error("Python returned an invalid execution status.");
+  }
+  if (typeof value.stateMayHaveChanged !== "boolean") {
+    throw new Error("Python execution result is missing stateMayHaveChanged.");
+  }
+  const hasExecutionId = typeof value.executionId === "string" && value.executionId.length > 0;
+  if (value.executionId !== undefined && !hasExecutionId) {
+    throw new Error("Python execution result has an invalid executionId.");
+  }
+
+  if (status === "running") {
+    if (!hasExecutionId || !isNonNegativeInteger(value.elapsedMs)) {
+      throw new Error("Running Python execution is missing its handle or elapsed time.");
+    }
+    requirePythonContinuation(value.continuation, value.executionId as string);
+    requireAbsent(value, ["result", "error", "logs", "logsTruncated", "durationMs"], status);
+  } else if (status === "succeeded") {
+    if (!isRecord(value.result) || !isJsonCompatible(value.result)) {
+      throw new Error("Successful Python execution returned an invalid result object.");
+    }
+    requirePythonTerminalOutput(value);
+    requireAbsent(value, ["error", "elapsedMs", "continuation"], status);
+  } else if (status === "failed") {
+    requirePythonError(value.error);
+    if (value.logs !== undefined || value.logsTruncated !== undefined || value.durationMs !== undefined) {
+      requirePythonTerminalOutput(value);
+    }
+    requireAbsent(value, ["result", "elapsedMs", "continuation"], status);
+  } else {
+    if (!hasExecutionId) throw new Error("Lost Python execution is missing executionId.");
+    requirePythonError(value.error);
+    requireAbsent(value, ["result", "logs", "logsTruncated", "durationMs", "elapsedMs", "continuation"], status);
+  }
+  return value as PythonExecutionResult;
+}
+
+function requirePythonTerminalOutput(value: Record<string, unknown>): void {
+  if (!Array.isArray(value.logs) || value.logs.length > 1_000
+    || !value.logs.every(isPythonLogEntry)
+    || typeof value.logsTruncated !== "boolean"
+    || !isNonNegativeInteger(value.durationMs)) {
+    throw new Error("Python execution returned invalid terminal output.");
+  }
+}
+
+function requirePythonError(value: unknown): void {
+  if (!isRecord(value)
+    || !hasExactKeys(value, value.traceback === undefined
+      ? ["code", "phase", "message", "retryable"]
+      : ["code", "phase", "message", "traceback", "retryable"])
+    || typeof value.code !== "string"
+    || value.code.length === 0
+    || !["validation", "staging", "execution", "result", "runtime"].includes(String(value.phase))
+    || typeof value.message !== "string"
+    || value.message.length === 0
+    || (value.traceback !== undefined && typeof value.traceback !== "string")
+    || typeof value.retryable !== "boolean") {
+    throw new Error("Python execution returned an invalid error object.");
+  }
+}
+
+function requirePythonContinuation(value: unknown, executionId: string): void {
+  if (!isRecord(value)
+    || !hasExactKeys(value, ["tool", "arguments", "pollAfterMs"])
+    || value.tool !== "python"
+    || !isRecord(value.arguments)
+    || !hasExactKeys(value.arguments, ["operation", "executionId"])
+    || value.arguments.operation !== "poll"
+    || value.arguments.executionId !== executionId
+    || !isNonNegativeInteger(value.pollAfterMs)) {
+    throw new Error("Running Python execution returned an invalid continuation.");
+  }
+}
+
+function isPythonLogEntry(value: unknown): boolean {
+  return isRecord(value)
+    && hasExactKeys(value, ["type", "output"])
+    && (value.type === "info" || value.type === "warning" || value.type === "error")
+    && typeof value.output === "string";
+}
+
+function isJsonCompatible(value: unknown, seen = new Set<object>()): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") {
+    return Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value));
+  }
+  if (typeof value !== "object") return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  const valid = Array.isArray(value)
+    ? value.every((entry) => isJsonCompatible(entry, seen))
+    : Object.values(value as Record<string, unknown>).every((entry) => isJsonCompatible(entry, seen));
+  seen.delete(value);
+  return valid;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function requireAbsent(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+  status: string,
+): void {
+  const present = keys.filter((key) => value[key] !== undefined);
+  if (present.length > 0) {
+    throw new Error(`Python ${status} result must not contain: ${present.join(", ")}.`);
+  }
+}
+
+function requireExactAllowedKeys(
+  value: Record<string, unknown>,
+  allowedKeys: readonly string[],
+  label: string,
+): void {
+  const allowed = new Set(allowedKeys);
+  const unknown = Object.keys(value).filter((key) => !allowed.has(key));
+  if (unknown.length > 0) throw new Error(`${label} contains unknown fields: ${unknown.join(", ")}.`);
 }
 
 function formatDiagnostics(diagnostics: readonly Diagnostic[]): string {
@@ -639,6 +947,20 @@ function toolFailureFromError(error: unknown): McpToolResult {
     } : {}),
   };
   return toMcpResult({ diagnostics: [diagnostic] });
+}
+
+function pythonToolFailureFromError(error: unknown): McpToolResult {
+  const code = error instanceof RuntimeRpcError ? error.code : errorCode(error);
+  const message = error instanceof Error ? error.message : String(error);
+  const lines = [`ERROR ${code}: ${message}`];
+  if (error instanceof RuntimeRpcError) {
+    if (error.detail !== undefined) lines.push(`detail: ${error.detail}`);
+    lines.push(`retryable: ${error.retryable}`);
+  }
+  return {
+    content: [{ type: "text", text: lines.join("\n") }],
+    isError: true,
+  };
 }
 
 function resultToolFailureFromError(error: unknown): McpToolResult {
