@@ -3,6 +3,7 @@
 
   var config = window.LOOMLE_ANALYTICS || {};
   var ga4Id = String(config.ga4Id || "").trim();
+  var cloudflareBeaconToken = String(config.cloudflareBeaconToken || "").trim();
   var consentKey = String(config.consentStorageKey || "loomle.analytics.consent");
   var trackedHost = window.location.hostname === "loomle.ai" || window.location.hostname === "www.loomle.ai";
   var banner = null;
@@ -59,6 +60,16 @@
     var script = document.createElement("script");
     script.async = true;
     script.src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(ga4Id);
+    document.head.appendChild(script);
+  }
+
+  function configureCloudflare() {
+    if (!cloudflareBeaconToken || !trackedHost) return;
+
+    var script = document.createElement("script");
+    script.async = true;
+    script.src = "https://static.cloudflareinsights.com/beacon.min.js";
+    script.setAttribute("data-cf-beacon", JSON.stringify({ token: cloudflareBeaconToken }));
     document.head.appendChild(script);
   }
 
@@ -175,6 +186,7 @@
     track: track
   };
 
+  configureCloudflare();
   if (readConsent() === "granted") configureGoogle();
   else if (readConsent() === null && ga4Id && trackedHost) showPreferences();
 })();
