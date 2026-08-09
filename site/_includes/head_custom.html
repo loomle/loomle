@@ -1,2 +1,12 @@
-<link rel="stylesheet" href="{{ '/assets/css/loomle.css?v=agentic-loom-v14' | relative_url }}">
+<link rel="stylesheet" href="{{ '/assets/css/loomle.css?v=agentic-loom-v15' | relative_url }}">
 <link rel="icon" type="image/png" sizes="32x32" href="{{ '/assets/images/loomle-favicon-32.png' | relative_url }}">
+
+{% assign loomle_ga4_id = site.analytics.ga4_id | default: "" %}
+{% assign loomle_consent_key = site.analytics.consent_storage_key | default: "loomle.analytics.consent" %}
+<script>
+  window.LOOMLE_ANALYTICS = {
+    ga4Id: {{ loomle_ga4_id | jsonify }},
+    consentStorageKey: {{ loomle_consent_key | jsonify }}
+  };
+</script>
+<script defer src="{{ '/assets/js/loomle-analytics.js?v=agentic-loom-v15' | relative_url }}"></script>

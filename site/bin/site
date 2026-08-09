@@ -89,12 +89,17 @@ case "$command_name" in
     test -s _site/assets/images/blog/sal-blueprints-like-code-cover.webp
     test -s _site/blog/index.html
     test -s _site/blog/ai-agents-edit-blueprints-like-code/index.html
+    test -s _site/privacy/index.html
+    test -s _site/sitemap.xml
+    test -s _site/robots.txt
+    test -s _site/assets/js/loomle-analytics.js
     test ! -e _site/bin/site
     grep -q '<title>Loomle AI - Weave New Worlds with AI Agents</title>' _site/index.html
     grep -q '<title>Blog | Loomle AI</title>' _site/blog/index.html
     grep -q '<title>How we designed a language that lets AI agents edit Blueprints like code | Loomle AI</title>' _site/blog/ai-agents-edit-blueprints-like-code/index.html
     grep -q '<title>Quickstart | Loomle AI</title>' _site/quickstart.html
     grep -q '<title>Agent Skill | Loomle AI</title>' _site/calls/agent-skill.html
+    grep -q '<title>Privacy | Loomle AI</title>' _site/privacy/index.html
     grep -q '<title>Python Fallback | Loomle AI</title>' _site/calls/python.html
     grep -q '<title>Format a Blueprint Graph | Loomle AI</title>' _site/workflows/blueprint-format-graph.html
     grep -Fq "The latest stable Loomle release is available" _site/install.html
@@ -162,6 +167,13 @@ case "$command_name" in
     grep -q 'SAL unifies the complete coding-agent workflow for Blueprints' _site/blog/ai-agents-edit-blueprints-like-code/index.html
     grep -q 'language-sal highlighter-rouge' _site/blog/ai-agents-edit-blueprints-like-code/index.html
     grep -q 'loom-blog-post-cover' _site/blog/ai-agents-edit-blueprints-like-code/index.html
+    grep -Fq 'Sitemap: https://loomle.ai/sitemap.xml' _site/robots.txt
+    grep -Fq '<loc>https://loomle.ai/blog/</loc>' _site/sitemap.xml
+    grep -Fq '<loc>https://loomle.ai/blog/ai-agents-edit-blueprints-like-code/</loc>' _site/sitemap.xml
+    grep -Fq 'loomle-analytics.js?v=agentic-loom-v15' _site/index.html
+    grep -Fq 'ga4Id: "G-L4PNCS4TPX"' _site/index.html
+    grep -Fq 'data-analytics-preferences' _site/privacy/index.html
+    grep -Fq 'download_click' _site/assets/js/loomle-analytics.js
     echo "Site check passed."
     ;;
   *)

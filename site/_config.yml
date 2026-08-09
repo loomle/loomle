@@ -9,13 +9,17 @@ search_enabled: true
 heading_anchors: true
 color_scheme: loomle
 
+analytics:
+  ga4_id: "G-L4PNCS4TPX"
+  consent_storage_key: "loomle.analytics.consent"
+
 aux_links:
   GitHub:
     - https://github.com/loomle/loomle
   Releases:
     - https://github.com/loomle/loomle/releases
 
-footer_content: "LOOMLE AI / AGENTIC LOOM · Agent-native Unreal Engine tooling."
+footer_content: 'LOOMLE AI / AGENTIC LOOM · Agent-native Unreal Engine tooling. · <a href="/privacy/">Privacy</a>'
 back_to_top: true
 back_to_top_text: "Back to top"
 
