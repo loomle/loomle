@@ -749,6 +749,7 @@ test("builds a direct Unreal Automation command line", () => {
   });
 
   assert.equal(argumentsList[0], "/tmp/LoomleTestHost.uproject");
+  assert.ok(argumentsList.includes("-HomeScreen.EnableHomeScreen=0"));
   assert.ok(argumentsList.includes("-ExecCmds=Automation RunTests Loomle;Quit"));
   assert.ok(argumentsList.includes("-TestExit=Automation Test Queue Empty"));
   assert.ok(
@@ -763,6 +764,7 @@ test("builds packaged Editor args and one shared isolated runtime environment", 
     projectPath: "/tmp/LoomleTestHost.uproject",
   });
   assert.equal(args[0], "/tmp/LoomleTestHost.uproject");
+  assert.ok(args.includes("-HomeScreen.EnableHomeScreen=0"));
   assert.equal(args.some((argument) => argument.includes("Automation")), false);
 
   const environment = buildRuntimeEnvironment({

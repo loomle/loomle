@@ -290,6 +290,8 @@ profile, target, and output paths. It must:
 
 - spawn the Editor directly and retain its PID plus a process group where the
   host supports one;
+- disable the interactive UE Home Screen so headless runs never enumerate the
+  runner account's historical project directories before executing tests;
 - use a durable per-run Client state directory, exposed through a short
   temporary `HOME` alias on platforms whose Unix socket paths are bounded;
 - enforce a deadline for every phase;
