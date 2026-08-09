@@ -18,6 +18,8 @@
 #include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
+#include "Components/SceneComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "EdGraph/EdGraph.h"
@@ -27,9 +29,12 @@
 #include "Editor.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
+#include "Engine/SCS_Node.h"
+#include "Engine/SimpleConstructionScript.h"
 #include "GameFramework/Actor.h"
 #include "HAL/FileManager.h"
 #include "K2Node_CallFunction.h"
+#include "K2Node_CallFunctionOnMember.h"
 #include "K2Node_CustomEvent.h"
 #include "K2Node_IfThenElse.h"
 #include "K2Node_MacroInstance.h"
@@ -516,6 +521,26 @@ FSalQuery RobustGraphQuery(const FString& Kind)
     Query.Alias = TEXT("graph");
     Query.Operation = MakeShared<FJsonObject>();
     Query.Operation->SetStringField(TEXT("kind"), Kind);
+    return Query;
+}
+
+FSalQuery RobustGraphPaletteFromPin(
+    const FString& Text,
+    const UEdGraphPin* Pin)
+{
+    FSalQuery Query = RobustGraphQuery(TEXT("palette_entries"));
+    Query.Operation->SetStringField(TEXT("text"), Text);
+    TSharedRef<FJsonObject> PinContext = MakeShared<FJsonObject>();
+    PinContext->SetStringField(TEXT("direction"), TEXT("from"));
+    PinContext->SetObjectField(
+        TEXT("pin"),
+        RobustGraphTyped(
+            TEXT("pin"),
+            Pin != nullptr ? Pin->PinId : FGuid()));
+    Query.Operation->SetObjectField(
+        TEXT("pinContext"),
+        PinContext);
+    Query.PageLimit = 100;
     return Query;
 }
 
@@ -1206,6 +1231,222 @@ private:
     bool bCleaned = false;
 };
 
+class FComponentBoundPaletteFixture
+{
+public:
+    FComponentBoundPaletteFixture()
+    {
+        const FString Token =
+            FGuid::NewGuid().ToString(EGuidFormats::Digits);
+        const FString AssetName = FString::Printf(
+            TEXT("BP_ComponentBoundPalette_%s"),
+            *Token);
+        Package = CreatePackage(*FString::Printf(
+            TEXT("/Game/LoomleTests/%s"),
+            *AssetName));
+        Blueprint = Package != nullptr
+            ? FKismetEditorUtilities::CreateBlueprint(
+                AActor::StaticClass(),
+                Package,
+                FName(*AssetName),
+                BPTYPE_Normal,
+                UBlueprint::StaticClass(),
+                UBlueprintGeneratedClass::StaticClass(),
+                NAME_None)
+            : nullptr;
+        if (Blueprint == nullptr)
+        {
+            return;
+        }
+
+        FunctionGraph = FBlueprintEditorUtils::CreateNewGraph(
+            Blueprint,
+            FunctionName,
+            UEdGraph::StaticClass(),
+            UEdGraphSchema_K2::StaticClass());
+        if (FunctionGraph != nullptr)
+        {
+            FBlueprintEditorUtils::AddFunctionGraph(
+                Blueprint,
+                FunctionGraph,
+                true,
+                static_cast<UClass*>(nullptr));
+        }
+
+        USimpleConstructionScript* SCS =
+            Blueprint->SimpleConstructionScript;
+        if (SCS != nullptr)
+        {
+            RootComponent = SCS->CreateNode(
+                USceneComponent::StaticClass(),
+                RootName);
+            PreviewComponent = SCS->CreateNode(
+                UStaticMeshComponent::StaticClass(),
+                PreviewName);
+            OtherComponent = SCS->CreateNode(
+                UStaticMeshComponent::StaticClass(),
+                OtherName);
+            if (RootComponent != nullptr)
+            {
+                SCS->AddNode(RootComponent);
+                if (PreviewComponent != nullptr)
+                {
+                    RootComponent->AddChildNode(
+                        PreviewComponent);
+                }
+                if (OtherComponent != nullptr)
+                {
+                    RootComponent->AddChildNode(
+                        OtherComponent);
+                }
+            }
+        }
+
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(
+            Blueprint);
+        FKismetEditorUtilities::CompileBlueprint(Blueprint);
+        UClass* Skeleton =
+            Blueprint->SkeletonGeneratedClass.Get();
+        PreviewProperty =
+            Skeleton != nullptr
+                ? FindFProperty<FObjectProperty>(
+                    Skeleton,
+                    PreviewName)
+                : nullptr;
+        if (FunctionGraph != nullptr
+            && PreviewProperty != nullptr)
+        {
+            PreviewGetter = NewObject<UK2Node_VariableGet>(
+                FunctionGraph,
+                NAME_None,
+                RF_Transactional);
+            PreviewGetter->CreateNewGuid();
+            PreviewGetter->SetFromProperty(
+                PreviewProperty,
+                true,
+                Skeleton);
+            FunctionGraph->AddNode(
+                PreviewGetter,
+                false,
+                false);
+            PreviewGetter->AllocateDefaultPins();
+            PreviewPin = PreviewGetter->GetValuePin();
+
+            UFunction* MakeRotatorFunction =
+                UKismetMathLibrary::StaticClass()
+                    ->FindFunctionByName(
+                        GET_FUNCTION_NAME_CHECKED(
+                            UKismetMathLibrary,
+                            MakeRotator));
+            if (MakeRotatorFunction != nullptr)
+            {
+                MakeRotator = NewObject<UK2Node_CallFunction>(
+                    FunctionGraph,
+                    NAME_None,
+                    RF_Transactional);
+                MakeRotator->CreateNewGuid();
+                MakeRotator->SetFromFunction(
+                    MakeRotatorFunction);
+                FunctionGraph->AddNode(
+                    MakeRotator,
+                    false,
+                    false);
+                MakeRotator->AllocateDefaultPins();
+                RotatorPin = MakeRotator->GetReturnValuePin();
+            }
+        }
+        FBlueprintActionDatabase::Get().RefreshAssetActions(
+            Blueprint);
+        if (Package != nullptr)
+        {
+            Package->SetDirtyFlag(false);
+        }
+    }
+
+    ~FComponentBoundPaletteFixture()
+    {
+        FString Ignored;
+        Cleanup(Ignored);
+    }
+
+    FComponentBoundPaletteFixture(
+        const FComponentBoundPaletteFixture&) = delete;
+    FComponentBoundPaletteFixture& operator=(
+        const FComponentBoundPaletteFixture&) = delete;
+
+    bool IsValid() const
+    {
+        return Package != nullptr
+            && Blueprint != nullptr
+            && FunctionGraph != nullptr
+            && FunctionGraph->GraphGuid.IsValid()
+            && RootComponent != nullptr
+            && RootComponent->VariableGuid.IsValid()
+            && PreviewComponent != nullptr
+            && PreviewComponent->VariableGuid.IsValid()
+            && OtherComponent != nullptr
+            && OtherComponent->VariableGuid.IsValid()
+            && PreviewProperty != nullptr
+            && PreviewGetter != nullptr
+            && PreviewPin != nullptr
+            && PreviewPin->Direction == EGPD_Output
+            && MakeRotator != nullptr
+            && RotatorPin != nullptr
+            && RotatorPin->Direction == EGPD_Output;
+    }
+
+    bool Cleanup(FString& OutError)
+    {
+        if (bCleaned)
+        {
+            OutError.Reset();
+            return true;
+        }
+        bCleaned = true;
+        if (Blueprint != nullptr)
+        {
+            FBlueprintActionDatabase::Get().ClearAssetActions(
+                Blueprint);
+            Blueprint->ClearFlags(
+                RF_Public | RF_Standalone);
+        }
+        UPackage* PackageToUnload = Package;
+        RotatorPin = nullptr;
+        PreviewPin = nullptr;
+        MakeRotator = nullptr;
+        PreviewGetter = nullptr;
+        PreviewProperty = nullptr;
+        OtherComponent = nullptr;
+        PreviewComponent = nullptr;
+        RootComponent = nullptr;
+        FunctionGraph = nullptr;
+        Blueprint = nullptr;
+        Package = nullptr;
+        return RobustGraphUnloadPackage(
+            PackageToUnload,
+            OutError);
+    }
+
+    UPackage* Package = nullptr;
+    UBlueprint* Blueprint = nullptr;
+    UEdGraph* FunctionGraph = nullptr;
+    USCS_Node* RootComponent = nullptr;
+    USCS_Node* PreviewComponent = nullptr;
+    USCS_Node* OtherComponent = nullptr;
+    FObjectProperty* PreviewProperty = nullptr;
+    UK2Node_VariableGet* PreviewGetter = nullptr;
+    UK2Node_CallFunction* MakeRotator = nullptr;
+    UEdGraphPin* PreviewPin = nullptr;
+    UEdGraphPin* RotatorPin = nullptr;
+    const FName FunctionName = TEXT("UpdatePreviewRotation");
+    const FName RootName = TEXT("DefaultSceneRoot");
+    const FName PreviewName = TEXT("PreviewMesh");
+    const FName OtherName = TEXT("OtherMesh");
+
+private:
+    bool bCleaned = false;
+};
+
 class FWidgetMemberPaletteFixture
 {
 public:
@@ -1382,6 +1623,26 @@ FString RobustGraphFindPaletteId(
         }
     }
     return FString();
+}
+
+TArray<FString> RobustGraphPaletteIds(
+    const TSharedPtr<FJsonObject>& Result)
+{
+    TArray<FString> Ids;
+    for (const TSharedPtr<FJsonObject>& Args :
+         RobustGraphCallArgs(Result, TEXT("node")))
+    {
+        FString Palette;
+        if (Args.IsValid()
+            && Args->TryGetStringField(
+                TEXT("palette"),
+                Palette)
+            && !Palette.IsEmpty())
+        {
+            Ids.Add(Palette);
+        }
+    }
+    return Ids;
 }
 
 FString RobustGraphFindVariablePaletteId(
@@ -2300,6 +2561,295 @@ bool FSalRobustGraphVariablePaletteIdentityTest::RunTest(
             *this,
             true);
     return bBlueprint && bAnimBlueprint;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphComponentBoundPaletteIdentityTest,
+    "Loomle.Sal.Robustness.Graph.ComponentBoundPaletteIdentity",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphComponentBoundPaletteIdentityTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(
+            *this,
+            TEXT("Graph component-bound Palette identity coverage")))
+    {
+        return false;
+    }
+    FComponentBoundPaletteFixture Fixture;
+    if (!TestTrue(
+            TEXT("Component-bound Palette fixture is valid"),
+            Fixture.IsValid()))
+    {
+        return false;
+    }
+    const FSalResolvedTarget Target =
+        RobustGraphTarget(
+            Fixture.Blueprint,
+            Fixture.FunctionGraph);
+
+    auto DiscoverUniquePaletteIds = [this, &Target](
+        const FString& Surface,
+        UEdGraphPin* Pin)
+    {
+        const TSharedPtr<FJsonObject> Result =
+            FSalGraphInterface::Query(
+                RobustGraphPaletteFromPin(
+                    TEXT("Set Relative Rotation"),
+                    Pin),
+                Target);
+        TestFalse(
+            *FString::Printf(
+                TEXT("%s Palette discovery succeeds [%s]"),
+                *Surface,
+                *RobustGraphDiagnosticsText(Result)),
+            RobustGraphHasError(Result));
+        const TArray<FString> Ids =
+            RobustGraphPaletteIds(Result);
+        TSet<FString> UniqueIds;
+        for (const FString& Id : Ids)
+        {
+            UniqueIds.Add(Id);
+        }
+        TestTrue(
+            *FString::Printf(
+                TEXT("%s discovers unbound and component-bound actions"),
+                *Surface),
+            Ids.Num() >= 3);
+        TestEqual(
+            *FString::Printf(
+                TEXT("%s gives every visible action a unique Palette identity"),
+                *Surface),
+            UniqueIds.Num(),
+            Ids.Num());
+        return !RobustGraphHasError(Result)
+                && Ids.Num() >= 3
+                && UniqueIds.Num() == Ids.Num()
+            ? Ids
+            : TArray<FString>();
+    };
+
+    const TArray<FString> ObjectContextIds =
+        DiscoverUniquePaletteIds(
+            TEXT("Component object Pin context"),
+            Fixture.PreviewPin);
+    const TArray<FString> RotatorContextIds =
+        DiscoverUniquePaletteIds(
+            TEXT("Rotator Pin context"),
+            Fixture.RotatorPin);
+
+    auto VerifyExactPaletteIds = [this, &Target](
+        const FString& Surface,
+        const TArray<FString>& PaletteIds)
+    {
+        for (const FString& PaletteId : PaletteIds)
+        {
+            FSalQuery Exact = RobustGraphQuery(TEXT("palette"));
+            Exact.Operation->SetStringField(TEXT("id"), PaletteId);
+            Exact.With.Add(TEXT("schema"));
+            const TSharedPtr<FJsonObject> ExactResult =
+                FSalGraphInterface::Query(Exact, Target);
+            TestFalse(
+                *FString::Printf(
+                    TEXT("Every copied %s Palette id resolves uniquely [%s]"),
+                    *Surface,
+                    *RobustGraphDiagnosticsText(ExactResult)),
+                RobustGraphHasError(ExactResult));
+        }
+    };
+    VerifyExactPaletteIds(
+        TEXT("component-Pin"),
+        ObjectContextIds);
+    VerifyExactPaletteIds(
+        TEXT("Rotator-Pin"),
+        RotatorContextIds);
+
+    const TSharedPtr<FJsonObject> PreviewDiscovery =
+        FSalGraphInterface::Query(
+            RobustGraphPaletteFromPin(
+                TEXT("Set Relative Rotation (PreviewMesh)"),
+                Fixture.PreviewPin),
+            Target);
+    TestFalse(
+        *FString::Printf(
+            TEXT("PreviewMesh-bound action discovery succeeds [%s]"),
+            *RobustGraphDiagnosticsText(PreviewDiscovery)),
+        RobustGraphHasError(PreviewDiscovery));
+    const TArray<FString> PreviewIds =
+        RobustGraphPaletteIds(PreviewDiscovery);
+    TestTrue(
+        TEXT("PreviewMesh title discovers at least one action"),
+        !PreviewIds.IsEmpty());
+    if (ObjectContextIds.IsEmpty()
+        || RotatorContextIds.IsEmpty()
+        || PreviewIds.IsEmpty())
+    {
+        return false;
+    }
+
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(
+            TEXT("Component-bound Palette test isolates Undo history"),
+            Transactions.Initialize()))
+    {
+        return false;
+    }
+    const int32 OriginalNodeCount =
+        Fixture.FunctionGraph->Nodes.Num();
+    const bool bDirtyBefore = Fixture.Package->IsDirty();
+    bool bDryRunsValid = true;
+    for (int32 Index = 0; Index < PreviewIds.Num(); ++Index)
+    {
+        const FString Alias = FString::Printf(
+            TEXT("PreviewRotation%d"),
+            Index);
+        FSalPatch DryRunPatch;
+        DryRunPatch.Alias = TEXT("graph");
+        DryRunPatch.bDryRun = true;
+        DryRunPatch.Statements = {
+            RobustGraphBinding(Alias, PreviewIds[Index]),
+            RobustGraphUnary(
+                TEXT("add"),
+                RobustGraphLocal(Alias))};
+        const TSharedPtr<FJsonObject> DryRun =
+            FSalGraphInterface::Patch(
+                DryRunPatch,
+                Target);
+        const bool bDryRunValid =
+            RobustGraphResultBool(DryRun, TEXT("valid"));
+        TestTrue(
+            *FString::Printf(
+                TEXT("Copied PreviewMesh action %d supports dry run [%s]"),
+                Index,
+                *RobustGraphDiagnosticsText(DryRun)),
+            bDryRunValid);
+        bDryRunsValid &= bDryRunValid;
+    }
+    TestEqual(
+        TEXT("Component-bound dry runs preserve the live Graph"),
+        Fixture.FunctionGraph->Nodes.Num(),
+        OriginalNodeCount);
+    TestEqual(
+        TEXT("Component-bound dry runs preserve Package dirty state"),
+        Fixture.Package->IsDirty(),
+        bDirtyBefore);
+
+    bool bCorrectBinding = false;
+    for (int32 Index = 0;
+         bDryRunsValid
+             && !bCorrectBinding
+             && Index < PreviewIds.Num();
+         ++Index)
+    {
+        const FString Alias = FString::Printf(
+            TEXT("PreviewRotation%d"),
+            Index);
+        FSalPatch Apply;
+        Apply.Alias = TEXT("graph");
+        Apply.Statements = {
+            RobustGraphBinding(Alias, PreviewIds[Index]),
+            RobustGraphUnary(
+                TEXT("add"),
+                RobustGraphLocal(Alias))};
+        const TSharedPtr<FJsonObject> Applied =
+            FSalGraphInterface::Patch(Apply, Target);
+        const bool bApplied =
+            RobustGraphResultBool(Applied, TEXT("valid"))
+            && RobustGraphResultBool(
+                Applied,
+                TEXT("applied"));
+        TestTrue(
+            *FString::Printf(
+                TEXT("Copied PreviewMesh action %d applies uniquely [%s]"),
+                Index,
+                *RobustGraphDiagnosticsText(Applied)),
+            bApplied);
+
+        FGuid CreatedGuid;
+        const bool bResolved =
+            bApplied
+            && FGuid::Parse(
+                RobustGraphResolvedRef(Applied, Alias),
+                CreatedGuid);
+        const UEdGraphNode* CreatedNode =
+            bResolved
+                ? FRobustGraphFixture::FindNodeByGuid(
+                    Fixture.FunctionGraph,
+                    CreatedGuid)
+                : nullptr;
+        FGuid BindingGetterGuid;
+        if (const UK2Node_CallFunctionOnMember* CallOnMember =
+                Cast<UK2Node_CallFunctionOnMember>(CreatedNode))
+        {
+            bCorrectBinding =
+                CallOnMember->MemberVariableToCallOn.GetMemberName()
+                == Fixture.PreviewName;
+        }
+        else if (const UK2Node_CallFunction* Call =
+                     Cast<UK2Node_CallFunction>(CreatedNode))
+        {
+            const UEdGraphPin* SelfPin =
+                Call->FindPin(UEdGraphSchema_K2::PN_Self);
+            if (SelfPin != nullptr)
+            {
+                for (const UEdGraphPin* LinkedPin :
+                     SelfPin->LinkedTo)
+                {
+                    const UK2Node_VariableGet* Getter =
+                        LinkedPin != nullptr
+                            ? Cast<UK2Node_VariableGet>(
+                                LinkedPin->GetOwningNode())
+                            : nullptr;
+                    if (Getter != nullptr
+                        && Getter != Fixture.PreviewGetter
+                        && Getter->VariableReference.GetMemberName()
+                            == Fixture.PreviewName)
+                    {
+                        bCorrectBinding = true;
+                        BindingGetterGuid = Getter->NodeGuid;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!bResolved)
+        {
+            continue;
+        }
+        FSalPatch Remove;
+        Remove.Alias = TEXT("graph");
+        Remove.Statements = {
+            RobustGraphUnary(
+                TEXT("remove"),
+                RobustGraphTyped(
+                    TEXT("node"),
+                    CreatedGuid))};
+        if (BindingGetterGuid.IsValid())
+        {
+            Remove.Statements.Add(
+                RobustGraphUnary(
+                    TEXT("remove"),
+                    RobustGraphTyped(
+                        TEXT("node"),
+                        BindingGetterGuid)));
+        }
+        const TSharedPtr<FJsonObject> Removed =
+            FSalGraphInterface::Patch(Remove, Target);
+        TestTrue(
+            TEXT("Component-bound Palette test removes its temporary Node"),
+            RobustGraphResultBool(Removed, TEXT("valid"))
+                && RobustGraphResultBool(
+                    Removed,
+                    TEXT("applied")));
+    }
+    TestTrue(
+        TEXT("A copied PreviewMesh action preserves its native component binding"),
+        bCorrectBinding);
+    Transactions.Restore();
+    return bDryRunsValid
+        && bCorrectBinding;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(

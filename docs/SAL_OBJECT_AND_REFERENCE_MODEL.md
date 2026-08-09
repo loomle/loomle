@@ -1356,6 +1356,15 @@ present but cannot materialize a Node reports
 `resolution.palette_not_spawnable`. Exact Palette schema advertises `bind` and
 `add` only for an action that can materialize in the current Graph context.
 
+One UE Node spawner may produce several native menu actions by binding the same
+callable to different Blueprint object properties. Graph Palette identity
+includes that native bound-property identity in addition to the spawner
+signature. The context descriptor still records the Query Pin, Widget,
+Component, or Actor context; it does not replace the identity of the selected
+menu action. Display titles remain presentation only. If Loomle cannot recover
+one unique native binding for a bound action, indistinguishable actions remain
+ambiguous and fail closed instead of being selected by menu order.
+
 ### Mutation Scope
 
 Resolving a StableRef proves identity, not mutation authority.

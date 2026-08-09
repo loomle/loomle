@@ -5955,6 +5955,19 @@ bool BuildPaletteContextFromDescriptor(
     return true;
 }
 
+FBlueprintActionContext MakeBlueprintActionContext(
+    const FSalResolvedTarget& Target,
+    const TArray<UEdGraphPin*>& ContextPins,
+    const TArray<FFieldVariant>& SelectedObjects)
+{
+    FBlueprintActionContext Context;
+    Context.Blueprints.Add(Target.Blueprint);
+    Context.Graphs.Add(Target.Graph);
+    Context.Pins.Append(ContextPins);
+    Context.SelectedObjects.Append(SelectedObjects);
+    return Context;
+}
+
 void BuildActionMenu(
     const FSalResolvedTarget& Target,
     const TArray<UEdGraphPin*>& ContextPins,
@@ -5962,11 +5975,11 @@ void BuildActionMenu(
     const bool bContextSensitive,
     FBlueprintActionMenuBuilder& Builder)
 {
-    FBlueprintActionContext Context;
-    Context.Blueprints.Add(Target.Blueprint);
-    Context.Graphs.Add(Target.Graph);
-    Context.Pins.Append(ContextPins);
-    Context.SelectedObjects.Append(SelectedObjects);
+    const FBlueprintActionContext Context =
+        MakeBlueprintActionContext(
+            Target,
+            ContextPins,
+            SelectedObjects);
     const uint32 TargetMask =
         EContextTargetFlags::TARGET_Blueprint |
         EContextTargetFlags::TARGET_SubComponents |
@@ -6109,7 +6122,152 @@ FString VariablePaletteActionToken(
     return GuidText(Signature.AsGuid());
 }
 
-FString PaletteActionToken(const TSharedPtr<FEdGraphSchemaAction>& Action)
+const FObjectProperty* FindFunctionActionBinding(
+    const TSharedPtr<FEdGraphSchemaAction>& Action,
+    const UBlueprintFunctionNodeSpawner* Spawner,
+    const FSalResolvedTarget& Target,
+    const FPaletteContextData& PaletteContext)
+{
+    if (!Action.IsValid()
+        || Spawner == nullptr
+        || Target.Blueprint == nullptr)
+    {
+        return nullptr;
+    }
+
+    UClass* BlueprintClass =
+        Target.Blueprint->SkeletonGeneratedClass != nullptr
+            ? Target.Blueprint->SkeletonGeneratedClass.Get()
+            : Target.Blueprint->GeneratedClass.Get();
+    if (BlueprintClass == nullptr)
+    {
+        return nullptr;
+    }
+
+    const FString ActionTitle =
+        Action->GetMenuDescription().ToString();
+    const int32 PropertyStart =
+        ActionTitle.Find(
+            TEXT(" ("),
+            ESearchCase::CaseSensitive,
+            ESearchDir::FromEnd);
+    if (PropertyStart == INDEX_NONE
+        || !ActionTitle.EndsWith(TEXT(")")))
+    {
+        return nullptr;
+    }
+    const FString PropertyName = ActionTitle.Mid(
+        PropertyStart + 2,
+        ActionTitle.Len() - PropertyStart - 3);
+    const FObjectProperty* Property =
+        FindFProperty<FObjectProperty>(
+            BlueprintClass,
+            *PropertyName);
+    if (Property == nullptr
+        || !Spawner->IsBindingCompatible(
+            FBindingObject(Property)))
+    {
+        return nullptr;
+    }
+
+    IBlueprintNodeBinder::FBindingSet Bindings;
+    Bindings.Add(FBindingObject(Property));
+    const FBlueprintActionUiSpec UiSpec =
+        Spawner->GetUiSpec(
+            MakeBlueprintActionContext(
+                Target,
+                PaletteContext.Pins,
+                PaletteContext.SelectedObjects),
+            Bindings);
+    return UiSpec.MenuName.ToString() == ActionTitle
+        ? Property
+        : nullptr;
+}
+
+void AddFunctionBindingIdentity(
+    FBlueprintNodeSignature& Signature,
+    const FObjectProperty* Property,
+    const FSalResolvedTarget& Target)
+{
+    if (Property == nullptr)
+    {
+        return;
+    }
+
+    static const FName KindKey(TEXT("LoomleBindingKind"));
+    static const FName OwnerKey(TEXT("LoomleBindingOwner"));
+    static const FName IdentityKey(TEXT("LoomleBindingIdentity"));
+    if (const USCS_Node* Component = FindPaletteComponent(
+            Target.Blueprint,
+            TEXT("name"),
+            Property->GetName()))
+    {
+        Signature.AddNamedValue(KindKey, TEXT("component"));
+        Signature.AddNamedValue(
+            IdentityKey,
+            GuidText(Component->VariableGuid));
+        return;
+    }
+
+    if (const UWidgetBlueprint* WidgetBlueprint =
+            Cast<UWidgetBlueprint>(Target.Blueprint))
+    {
+        if (const FGuid* WidgetGuid =
+                WidgetBlueprint->WidgetVariableNameToGuidMap.Find(
+                    Property->GetFName()))
+        {
+            Signature.AddNamedValue(KindKey, TEXT("widget"));
+            Signature.AddNamedValue(
+                IdentityKey,
+                GuidText(*WidgetGuid));
+            return;
+        }
+    }
+
+    if (Target.Blueprint != nullptr)
+    {
+        FGuid PropertyGuid =
+            Target.Blueprint->FindBlueprintPropertyGuidFromName(
+                Property->GetFName());
+        if (!PropertyGuid.IsValid())
+        {
+            if (const UBlueprintGeneratedClass* OwnerClass =
+                    Cast<UBlueprintGeneratedClass>(
+                        Property->GetOwnerClass()))
+            {
+                PropertyGuid =
+                    OwnerClass->FindBlueprintPropertyGuidFromName(
+                        Property->GetFName());
+            }
+        }
+        if (PropertyGuid.IsValid())
+        {
+            Signature.AddNamedValue(KindKey, TEXT("member"));
+            Signature.AddNamedValue(
+                OwnerKey,
+                GuidText(Target.Blueprint->GetBlueprintGuid()));
+            Signature.AddNamedValue(
+                IdentityKey,
+                GuidText(PropertyGuid));
+            return;
+        }
+    }
+
+    Signature.AddNamedValue(KindKey, TEXT("property"));
+    Signature.AddNamedValue(
+        OwnerKey,
+        Property->GetOwnerClass() != nullptr
+            ? Property->GetOwnerClass()->GetPathName()
+            : FString());
+    Signature.AddNamedValue(
+        IdentityKey,
+        Property->GetName());
+}
+
+FString PaletteActionToken(
+    const TSharedPtr<FEdGraphSchemaAction>& Action,
+    const FSalResolvedTarget* Target = nullptr,
+    const FPaletteContextData* PaletteContext = nullptr)
 {
     if (!Action.IsValid() || Action->GetTypeId() != FBlueprintActionMenuItem::StaticGetTypeId())
     {
@@ -6128,7 +6286,24 @@ FString PaletteActionToken(const TSharedPtr<FEdGraphSchemaAction>& Action)
     {
         return VariablePaletteActionToken(VariableSpawner);
     }
-    const FBlueprintNodeSignature Signature = Spawner->GetSpawnerSignature();
+    FBlueprintNodeSignature Signature = Spawner->GetSpawnerSignature();
+    if (Signature.IsValid()
+        && Target != nullptr
+        && PaletteContext != nullptr)
+    {
+        if (const UBlueprintFunctionNodeSpawner* FunctionSpawner =
+                Cast<UBlueprintFunctionNodeSpawner>(Spawner))
+        {
+            AddFunctionBindingIdentity(
+                Signature,
+                FindFunctionActionBinding(
+                    Action,
+                    FunctionSpawner,
+                    *Target,
+                    *PaletteContext),
+                *Target);
+        }
+    }
     if (Signature.IsValid()) return GuidText(Signature.AsGuid());
 
     FString Material = Spawner->GetClass()->GetPathName() + TEXT("|")
@@ -6200,10 +6375,19 @@ TSharedPtr<FEdGraphSchemaAction> ResolveBlueprintVariableAction(
     return Match;
 }
 
-FString PaletteId(const TSharedPtr<FEdGraphSchemaAction>& Action, const FString& Descriptor)
+FString PaletteId(
+    const TSharedPtr<FEdGraphSchemaAction>& Action,
+    const FSalResolvedTarget& Target,
+    const FPaletteContextData& Context)
 {
-    const FString Token = PaletteActionToken(Action);
-    return Token.IsEmpty() ? FString() : TEXT("P_") + Token + TEXT("|") + Descriptor;
+    const FString Token =
+        PaletteActionToken(
+            Action,
+            &Target,
+            &Context);
+    return Token.IsEmpty()
+        ? FString()
+        : TEXT("P_") + Token + TEXT("|") + Context.Descriptor;
 }
 
 bool SplitPaletteId(const FString& Id, FString& OutToken, FString& OutDescriptor)
@@ -6333,7 +6517,10 @@ TSharedPtr<FEdGraphSchemaAction> ResolvePaletteAction(
     for (int32 Index = 0; Index < Builder.GetNumActions(); ++Index)
     {
         TSharedPtr<FEdGraphSchemaAction> Action = Builder.GetSchemaAction(Index);
-        if (PaletteActionToken(Action) == Token)
+        if (PaletteActionToken(
+                Action,
+                &Target,
+                &Context) == Token)
         {
             if (Match.IsValid())
             {
@@ -6700,9 +6887,12 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
     for (int32 Index = 0; Index < Menu.GetNumActions(); ++Index)
     {
         TSharedPtr<FEdGraphSchemaAction> Action = Menu.GetSchemaAction(Index);
-        const FString Id = PaletteId(Action, Context.Descriptor);
+        const FString Id = PaletteId(
+            Action,
+            Target,
+            Context);
         if (Id.IsEmpty()
-            || (bExact && PaletteActionToken(Action) != ExactToken)
+            || (bExact && Id != ExactId)
             || !ActionMatches(
                 Action,
                 FilterTerms,
@@ -6834,7 +7024,9 @@ TSharedPtr<FJsonObject> QueryPalette(const FSalQuery& Query, const FSalResolvedT
                     &Context.SelectedObjects);
         const FString Alias = Out.UniqueAlias(Label.IsEmpty() ? TEXT("entry") : Label);
         TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
-        Args->SetStringField(TEXT("palette"), PaletteId(Match.Action, Context.Descriptor));
+        Args->SetStringField(
+            TEXT("palette"),
+            Match.Id);
         if (MatchTemplate != nullptr)
         {
             Args->SetStringField(TEXT("type"), NodeType(MatchTemplate));
