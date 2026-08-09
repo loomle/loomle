@@ -12,7 +12,6 @@ color_scheme: loomle
 analytics:
   ga4_id: "G-L4PNCS4TPX"
   cloudflare_beacon_token: "96f07d387994423284cec8e5038dfb1e"
-  consent_storage_key: "loomle.analytics.consent"
 
 aux_links:
   GitHub:

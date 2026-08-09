@@ -174,7 +174,8 @@ case "$command_name" in
     grep -Fq 'ga4Id: "G-L4PNCS4TPX"' _site/index.html
     grep -Fq 'cloudflareBeaconToken: "96f07d387994423284cec8e5038dfb1e"' _site/index.html
     grep -Fq 'static.cloudflareinsights.com/beacon.min.js' _site/assets/js/loomle-analytics.js
-    grep -Fq 'data-analytics-preferences' _site/privacy/index.html
+    ! grep -Fq 'data-analytics-preferences' _site/privacy/index.html
+    ! grep -Fq 'loom-consent' _site/assets/js/loomle-analytics.js
     grep -Fq 'download_click' _site/assets/js/loomle-analytics.js
     echo "Site check passed."
     ;;

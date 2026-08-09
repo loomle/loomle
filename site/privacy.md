@@ -21,8 +21,7 @@ as page views, referring sites, approximate country, browser, operating system,
 device type, and page performance. Cloudflare states that Web Analytics does
 not collect or use visitors' personal data.
 
-**Google Analytics 4** is optional and loads only after you choose **Allow
-Google Analytics**. It measures page visits, traffic sources, campaign tags,
+**Google Analytics 4** measures page visits, traffic sources, campaign tags,
 device and browser information, approximate location, and important actions
 such as download, Fab, GitHub, installation, documentation, and Blog clicks.
 Advertising personalization and Google Signals are disabled.
@@ -30,18 +29,11 @@ Advertising personalization and Google Signals are disabled.
 Google Search Console provides aggregate search performance and indexing
 reports. It does not add cookies or tracking code to this site.
 
-## Cookies and your choice
+## Cookies
 
-Cloudflare Web Analytics does not use cookies. If you allow Google Analytics,
-Google may set `_ga` cookies to distinguish browser sessions. Your choice is
-stored in your browser so that we can respect it on later visits. Choosing **No
-optional analytics** prevents Google Analytics from loading.
-
-<button type="button" class="btn" data-analytics-preferences>Review analytics choice</button>
-
-You can also clear this site's browser data at any time. Revoking permission
-through the button above stops further Google Analytics collection and removes
-Google Analytics cookies accessible to this site.
+Cloudflare Web Analytics does not use cookies. Google Analytics may set `_ga`
+cookies to distinguish browser sessions. You can clear or block these cookies
+through your browser settings.
 
 ## Data handling
 
