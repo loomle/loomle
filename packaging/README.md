@@ -6,8 +6,9 @@ Current responsibilities:
 
 - `client/`: turn the self-contained TypeScript Client bundle into a native
   standalone program at `.tmp/client/<platform-arch>/loomle(.exe)`;
-- `fab/`: assemble target-specific native QA fragments, verify each
-  BuildPlugin result derives from its matching source, then merge the verified
+- `fab/`: assemble target-specific native QA fragments, compile and test each
+  production binary once, verify each finalized BuildPlugin result derives from
+  its matching source, then merge the verified
   Mac and Windows fragments into one cross-platform source package and one
   cross-platform compiled plugin without source or binary drift;
 - `tools/`: derive and verify the product and Client–Bridge protocol versions

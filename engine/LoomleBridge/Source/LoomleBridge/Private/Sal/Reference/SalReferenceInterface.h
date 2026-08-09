@@ -11,7 +11,7 @@ namespace Loomle::Sal
 struct FSalQuery;
 struct FSalResolvedTarget;
 
-class FSalReferenceInterface
+class LOOMLEBRIDGE_API FSalReferenceInterface
 {
 public:
     static void Startup();

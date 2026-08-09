@@ -15,7 +15,7 @@ struct FSalPatch;
 struct FSalQuery;
 struct FSalResolvedTarget;
 
-class FSalGraphInterface
+class LOOMLEBRIDGE_API FSalGraphInterface
 {
 public:
     static TSharedPtr<FJsonObject> Query(const FSalQuery& Query, const FSalResolvedTarget& Target);

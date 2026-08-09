@@ -6,7 +6,7 @@
 #include "LoomleTestObjectIteration.h"
 #include "SalStateTreeRobustTestTypes.h"
 #include "SalTestObjectModel.h"
-#include "Tests/LoomleTestEditorState.h"
+#include "LoomleTestEditorState.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Dom/JsonObject.h"

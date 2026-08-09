@@ -12,10 +12,10 @@ primary `run` operation and one continuation-only `poll` operation. It is not
 part of a published Loomle release yet.
 
 The design is confirmed. Client, Bridge, protocol, diagnostics, focused tests,
-and release-documentation changes are present. Local arm64 `BuildPlugin` and
-the complete 147-test UE Automation category pass against both official UE 5.7
-and UE 5.8 Launcher installations. Exact-archive packaged and remaining native
-platform gates are still required before release.
+and release-documentation changes are present. Local arm64 `BuildPlugin`, the
+complete 149-test UE Automation category, and exact-archive packaged acceptance
+pass against both official UE 5.7 and UE 5.8 Launcher installations. The native
+Windows release gates are still required before release.
 
 ## Decision
 

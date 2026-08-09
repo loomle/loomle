@@ -5,7 +5,7 @@
 #include "Sal/Reference/SalReferenceInterface.h"
 #include "LoomleTestObjectIteration.h"
 #include "SalTestObjectModel.h"
-#include "Tests/LoomleTestEditorState.h"
+#include "LoomleTestEditorState.h"
 
 #include "AssetRegistry/AssetData.h"
 #include "AssetRegistry/AssetRegistryModule.h"

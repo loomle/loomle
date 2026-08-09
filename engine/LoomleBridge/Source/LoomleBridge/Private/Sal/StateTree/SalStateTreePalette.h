@@ -88,7 +88,7 @@ struct FPage
 };
 
 /** Resolve and validate the destination against the current authored StateTree. */
-bool ResolveDestination(
+LOOMLEBRIDGE_API bool ResolveDestination(
     const UStateTree& StateTree,
     const UStateTreeEditorData& EditorData,
     const TSharedPtr<FJsonObject>& DestinationRef,
@@ -99,7 +99,7 @@ bool ResolveDestination(
  * Discover one bounded page without loading candidates outside that page's
  * bounded evaluation window. NextOffset is an opaque raw discovery offset.
  */
-bool DiscoverEntries(
+LOOMLEBRIDGE_API bool DiscoverEntries(
     const UStateTree& StateTree,
     const UStateTreeEditorData& EditorData,
     const FDestination& Destination,
@@ -110,7 +110,7 @@ bool DiscoverEntries(
     FString& OutMessage);
 
 /** Resolve one stable Palette id and revalidate it for the exact destination. */
-bool ResolveEntry(
+LOOMLEBRIDGE_API bool ResolveEntry(
     const UStateTree& StateTree,
     const UStateTreeEditorData& EditorData,
     const FDestination& Destination,
@@ -118,7 +118,7 @@ bool ResolveEntry(
     FEntry& OutEntry,
     FString& OutMessage);
 
-const TCHAR* ConstructorName(EConstructorKind Kind);
-const TCHAR* DestinationRoleName(EDestinationRole Role);
-TSharedPtr<FJsonValue> MakeConstructor(const FEntry& Entry);
+LOOMLEBRIDGE_API const TCHAR* ConstructorName(EConstructorKind Kind);
+LOOMLEBRIDGE_API const TCHAR* DestinationRoleName(EDestinationRole Role);
+LOOMLEBRIDGE_API TSharedPtr<FJsonValue> MakeConstructor(const FEntry& Entry);
 }

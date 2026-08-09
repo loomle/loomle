@@ -10,7 +10,7 @@ class FJsonValue;
 namespace Loomle::Sal
 {
 /** Normalized SAL RPC entry point. Text parsing remains in the SDK. */
-class FSalModule
+class LOOMLEBRIDGE_API FSalModule
 {
 public:
     static TSharedPtr<FJsonObject> BuildQueryResult(const TSharedPtr<FJsonObject>& Arguments);

@@ -62,7 +62,7 @@ struct FResolvedMember
 };
 
 /** Resolve an exact stable owner/member path against current authored data. */
-bool ResolveMember(
+LOOMLEBRIDGE_API bool ResolveMember(
     const UStateTree& StateTree,
     const UStateTreeEditorData& EditorData,
     const FString& OwnerKind,
@@ -73,7 +73,7 @@ bool ResolveMember(
     EMemberPurpose Purpose = EMemberPurpose::ReadOrEdit);
 
 /** Resolve a normalized stable MemberRef; local target aliases are not members. */
-bool ResolveMemberReference(
+LOOMLEBRIDGE_API bool ResolveMemberReference(
     const UStateTree& StateTree,
     const UStateTreeEditorData& EditorData,
     const TSharedPtr<FJsonObject>& MemberRef,
@@ -82,7 +82,7 @@ bool ResolveMemberReference(
     EMemberPurpose Purpose = EMemberPurpose::ReadOrEdit);
 
 /** Apply StateTree's data-direction and native Property Binding compatibility. */
-bool AreBindingCompatible(
+LOOMLEBRIDGE_API bool AreBindingCompatible(
     const UStateTreeEditorData& EditorData,
     const FResolvedMember& Source,
     const FResolvedMember& Target,
@@ -92,7 +92,7 @@ bool AreBindingCompatible(
  * Resolve one Schema Context descriptor whose native StructID is also unique
  * across UE's complete VisitAllNodes Binding surface.
  */
-bool ResolveCanonicalContext(
+LOOMLEBRIDGE_API bool ResolveCanonicalContext(
     const UStateTreeEditorData& EditorData,
     const FGuid& ContextId,
     const FStateTreeExternalDataDesc*& OutDescriptor,
@@ -102,7 +102,7 @@ bool ResolveCanonicalContext(
  * Shared fail-complete budget for exact object and Palette schema text.
  * Callers may append incrementally, but Finish() never exposes partial text.
  */
-class FExactSchemaTextBuilder
+class LOOMLEBRIDGE_API FExactSchemaTextBuilder
 {
 public:
     static constexpr int32 MaxFields = 2048;
@@ -119,7 +119,7 @@ private:
 };
 
 /** Adjacent human/agent guidance used by exact `with schema` Query results. */
-bool DescribeExactObject(
+LOOMLEBRIDGE_API bool DescribeExactObject(
     const UStateTree& StateTree,
     const UStateTreeEditorData& EditorData,
     const FString& Kind,

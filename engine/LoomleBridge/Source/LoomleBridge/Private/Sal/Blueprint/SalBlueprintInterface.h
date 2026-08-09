@@ -11,7 +11,7 @@ class FJsonObject;
 namespace Loomle::Sal
 {
 /** UE-backed implementation of the SAL blueprint interface. */
-class FSalBlueprintInterface
+class LOOMLEBRIDGE_API FSalBlueprintInterface
 {
 public:
     static TSharedPtr<FJsonObject> Query(

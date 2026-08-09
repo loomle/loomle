@@ -44,7 +44,7 @@ class FPythonExecutionService;
  * Editor Context, and dispatch into the three current Bridge interfaces.
  * UE object semantics live under Private/Sal rather than in this host class.
  */
-class FLoomleBridgeModule final : public IModuleInterface
+class LOOMLEBRIDGE_API FLoomleBridgeModule final : public IModuleInterface
 {
 public:
     FLoomleBridgeModule();

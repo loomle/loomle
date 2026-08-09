@@ -23,7 +23,7 @@ The repository now provides:
 - one macOS Apple Silicon runner with `automation` and `packaged_e2e` profiles,
   isolated project copies, bounded process ownership, crash/log inspection, and
   durable results;
-- 135 in-module UE Automation tests covering the shared Bridge/RPC contracts
+- 149 UE Automation tests in an independent development-only module, covering the shared Bridge/RPC contracts
   and representative success, failure, lifecycle, and persistence paths across
   the active SAL interfaces;
 - an authored Blueprint fixture plus a real packaged Client-to-UE smoke
@@ -31,11 +31,12 @@ The repository now provides:
 - Fab assembly and archive audits that exclude all native test code and test
   content from the release plugin.
 
-The manually dispatched Fab workflow builds two candidates from the same
-checkout. It runs complete UE Automation against the test-bearing development
-plugin, then builds and audits the stripped release ZIP and runs packaged
-end-to-end against that exact archive. Both runner result directories upload
-even on failure; the release ZIP uploads only after every gate passes.
+The manually dispatched Fab workflow invokes BuildPlugin once per engine job.
+It runs complete UE Automation against that compiled output, removes only the
+independent test module while proving the production binary hash is unchanged,
+then audits the release ZIP and runs packaged end-to-end against that exact
+archive. Both runner result directories upload even on failure; the release ZIP
+uploads only after every gate passes.
 
 ## Coverage Layers
 
@@ -125,10 +126,11 @@ Tests run in a dedicated `UnrealEditor-Cmd` process. The runner must fail when:
 An in-process assertion cannot be converted into an ordinary test failure, so
 the outer process boundary is part of the native test contract.
 
-Automation runs against a same-commit development plugin compiled with
-`Source/LoomleBridge/Private/Tests`. It does not run against the final release
-archive, because release assembly intentionally removes that subtree before
-UHT and compilation.
+Automation runs against a same-commit development plugin compiled with the
+independent `Source/LoomleBridgeTests` module. It does not run against the final
+release archive because finalization removes that module; however, the
+production Bridge binary in the archive is byte-identical to the one exercised
+by Automation.
 
 ### Packaged End-To-End
 
@@ -324,8 +326,8 @@ its ordered smoke-step results in `result.json`.
 hash when applicable, scenario status (`passed`, `failed`, `timed_out`, or
 `crashed`), duration, and the first failing phase.
 
-Automation uses a same-commit compiled development plugin that still contains
-the native tests:
+Automation uses the same compiled plugin whose production binary becomes the
+release candidate after the independent native test module is removed:
 
 ```sh
 npm run test:ue-automation -- \
@@ -357,25 +359,26 @@ release content. Native test builds may compile them, but the release artifact
 must not contain test source, test assets, generated UHT test files, or a
 test-only runtime module.
 
-The current in-module Automation sources live under
-`Source/LoomleBridge/Private/Tests`. Fab assembly excludes that exact subtree
-before UE BuildPlugin invokes UHT or compilation. Assembly also requires the
-plugin descriptor to contain exactly one module named `LoomleBridge`, so a
-test-only module cannot cross the release boundary.
+Automation sources live in the independent
+`Source/LoomleBridgeTests` module. Fab assembly excludes that exact module and
+requires its source candidate descriptor to contain exactly one module named
+`LoomleBridge`. The native workflow overlays `LoomleBridgeTests` onto a
+temporary copy, invokes BuildPlugin once, and runs Automation against the
+resulting two-module plugin.
 
-The release workflow repeats the boundary audit on both UE BuildPlugin output
-and the extracted final ZIP. Neither may contain the test subtree,
-`Intermediate/`, `Saved/`, or files below `Content/`, and both descriptors must
-still name only the `LoomleBridge` module. The plugin keeps an empty `Content/`
-directory as part of its distributable structure while
+After Automation, finalization removes the test module source and its compiled
+binary, rewrites the descriptor and `UnrealEditor.modules` to production-only,
+and verifies the production Bridge binary SHA-256 is unchanged. The release
+workflow repeats the boundary audit on that finalized tree and the extracted
+ZIP. Neither may contain the test module, `Intermediate/`, `Saved/`, or files
+below `Content/`, and both descriptors must name only the `LoomleBridge` module.
+The plugin keeps an empty `Content/` directory as part of its distributable structure while
 `CanContainContent=false`; BuildPlugin is allowed to drop the empty directory,
 so release staging restores it before the final audit and archive.
 
-The two candidates come from the same commit but serve different purposes:
-
-- the Automation candidate retains and compiles the native test subtree;
-- the release candidate excludes it before UHT, compilation, and archiving,
-  then proves the published Client-to-UE path through packaged end-to-end.
+This creates two views of one native build, not two independently compiled
+candidates: the Automation view includes the test module, while the release
+view excludes it and retains the exact Automation-tested production binary.
 
 ## Release Gates
 
@@ -402,9 +405,11 @@ valuable distribution hardening for the agent-invoked Client, but it is not a
 promotion prerequisite. The tested bytes must still be the published bytes.
 
 The Windows x64 workflow follows the same candidate construction:
-it builds a pinned native Node SEA Client, runs the complete UE Automation
-category against a same-commit test-bearing plugin, builds and audits a stripped
-Win64 plugin, and runs packaged end-to-end against the exact ZIP it uploads.
+it builds a pinned native Node SEA Client, invokes BuildPlugin once, runs the
+complete UE Automation category, strips the independent test module without
+changing the production DLL, audits the Win64 plugin, and runs packaged
+end-to-end against the exact ZIP it uploads. BuildPlugin input and output use a
+short drive-root path to remain below Windows' legacy path-length boundary.
 At job start it may terminate only an unattended Editor whose command line
 names a `loomle-ue-automation-*` or `loomle-ue-packaged-e2e-*` temporary
 workspace left by an interrupted runner job. Any other existing Editor remains

@@ -11,24 +11,24 @@ namespace Loomle::Sal
 {
 namespace Value
 {
-TSharedPtr<FJsonValue> Null();
-TSharedPtr<FJsonValue> Bool(bool InValue);
-TSharedPtr<FJsonValue> Number(double InValue);
-TSharedPtr<FJsonValue> String(const FString& InValue);
-TSharedPtr<FJsonValue> Name(const FString& InName);
-TSharedPtr<FJsonValue> NameOrString(const FString& InName);
-TSharedPtr<FJsonValue> Local(const FString& InName);
-TSharedPtr<FJsonValue> Stable(const FString& InKind, const FString& InId);
-TSharedPtr<FJsonValue> Member(const TSharedPtr<FJsonObject>& ObjectRef, const TArray<FString>& Path);
-TSharedPtr<FJsonValue> Call(const FString& Callee, const TSharedPtr<FJsonObject>& Args);
-bool IsExplicitExpression(const TSharedPtr<FJsonValue>& InValue);
-TSharedPtr<FJsonObject> LocalObject(const FString& InName);
-TSharedPtr<FJsonObject> StableObject(const FString& InKind, const FString& InId);
-TSharedPtr<FJsonObject> MemberObject(const TSharedPtr<FJsonObject>& ObjectRef, const TArray<FString>& Path);
-TSharedPtr<FJsonObject> CallObject(const FString& Callee, const TSharedPtr<FJsonObject>& Args);
+LOOMLEBRIDGE_API TSharedPtr<FJsonValue> Null();
+LOOMLEBRIDGE_API TSharedPtr<FJsonValue> Bool(bool InValue);
+LOOMLEBRIDGE_API TSharedPtr<FJsonValue> Number(double InValue);
+LOOMLEBRIDGE_API TSharedPtr<FJsonValue> String(const FString& InValue);
+LOOMLEBRIDGE_API TSharedPtr<FJsonValue> Name(const FString& InName);
+LOOMLEBRIDGE_API TSharedPtr<FJsonValue> NameOrString(const FString& InName);
+LOOMLEBRIDGE_API TSharedPtr<FJsonValue> Local(const FString& InName);
+LOOMLEBRIDGE_API TSharedPtr<FJsonValue> Stable(const FString& InKind, const FString& InId);
+LOOMLEBRIDGE_API TSharedPtr<FJsonValue> Member(const TSharedPtr<FJsonObject>& ObjectRef, const TArray<FString>& Path);
+LOOMLEBRIDGE_API TSharedPtr<FJsonValue> Call(const FString& Callee, const TSharedPtr<FJsonObject>& Args);
+LOOMLEBRIDGE_API bool IsExplicitExpression(const TSharedPtr<FJsonValue>& InValue);
+LOOMLEBRIDGE_API TSharedPtr<FJsonObject> LocalObject(const FString& InName);
+LOOMLEBRIDGE_API TSharedPtr<FJsonObject> StableObject(const FString& InKind, const FString& InId);
+LOOMLEBRIDGE_API TSharedPtr<FJsonObject> MemberObject(const TSharedPtr<FJsonObject>& ObjectRef, const TArray<FString>& Path);
+LOOMLEBRIDGE_API TSharedPtr<FJsonObject> CallObject(const FString& Callee, const TSharedPtr<FJsonObject>& Args);
 }
 
-class FSalObjectBuilder
+class LOOMLEBRIDGE_API FSalObjectBuilder
 {
 public:
     static bool IsIdentifier(const FString& Text);

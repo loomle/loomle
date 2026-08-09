@@ -18,7 +18,7 @@ namespace LoomleMutation
  * redo stack, and can undo the preceding user transaction when the failed
  * transaction was transient.
  */
-class FScopedAtomicTransaction
+class LOOMLEBRIDGE_API FScopedAtomicTransaction
 {
 public:
     explicit FScopedAtomicTransaction(const FText& Description)

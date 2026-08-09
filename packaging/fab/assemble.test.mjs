@@ -54,16 +54,15 @@ test("assembles the Bridge source and only the canonical TypeScript Client execu
     assert.equal(await readFile(join(pluginRoot, "README.md"), "utf8"), "fab readme\n");
     assert.equal(await exists(join(pluginRoot, "Source", "LoomleBridge", "LoomleBridge.Build.cs")), true);
     assert.equal(
-      await exists(join(pluginRoot, "Source", "LoomleBridge", "Private", "Tests")),
+      await exists(join(pluginRoot, "Source", "LoomleBridgeTests")),
       false,
     );
     assert.equal(
       await exists(join(
         pluginRoot,
         "Source",
-        "LoomleBridge",
+        "LoomleBridgeTests",
         "Private",
-        "Tests",
         "SalTestReflectedSchema.h",
       )),
       false,
@@ -273,15 +272,15 @@ test("rejects a source descriptor without the target module", async () => {
         outputDir: fixture.outputDir,
         target: "darwin-arm64",
       }),
-      /Modules must contain exactly one module named "LoomleBridge"/,
+      /Modules must contain exactly LoomleBridge and LoomleBridgeTests/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
 });
 
-test("rejects a source descriptor with a release-visible test module", async () => {
-  const fixture = await createFixture("darwin-arm64", { extraTestModule: true });
+test("rejects a source descriptor without the development test module", async () => {
+  const fixture = await createFixture("darwin-arm64", { missingTestModule: true });
   try {
     await assert.rejects(
       assembleFabPlugin({
@@ -289,7 +288,7 @@ test("rejects a source descriptor with a release-visible test module", async () 
         outputDir: fixture.outputDir,
         target: "darwin-arm64",
       }),
-      /Modules must contain exactly one module named "LoomleBridge"/,
+      /Modules must contain exactly LoomleBridge and LoomleBridgeTests/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -833,7 +832,7 @@ async function createFixture(target, options = {}) {
           ? { PlatformArchitectureAllowList: options.sourceArchitectureAllowList }
           : {}),
       },
-      ...(options.extraTestModule
+      ...(!options.missingTestModule
         ? [{
           Name: "LoomleBridgeTests",
           Type: "Editor",
@@ -844,22 +843,25 @@ async function createFixture(target, options = {}) {
     ],
   }));
   await write(join(pluginRoot, "Source", "LoomleBridge", "LoomleBridge.Build.cs"), "build rules\n");
+  await write(
+    join(pluginRoot, "Source", "LoomleBridgeTests", "LoomleBridgeTests.Build.cs"),
+    "test build rules\n",
+  );
   await mkdir(join(pluginRoot, "Source", "LoomleBridge", "Public"), { recursive: true });
   await mkdir(
     join(pluginRoot, "Source", "LoomleBridge", "Private", "Retired"),
     { recursive: true },
   );
   await write(
-    join(pluginRoot, "Source", "LoomleBridge", "Private", "Tests", "BridgeTests.cpp"),
+    join(pluginRoot, "Source", "LoomleBridgeTests", "Private", "BridgeTests.cpp"),
     "test-only source\n",
   );
   await write(
     join(
       pluginRoot,
       "Source",
-      "LoomleBridge",
+      "LoomleBridgeTests",
       "Private",
-      "Tests",
       "SalTestReflectedSchema.h",
     ),
     [

@@ -29,24 +29,24 @@ struct FConfigAssessment
 
 using FClientFileExists = TFunctionRef<bool(const FString&)>;
 
-FString MakeClientTarget(const FString& NodePlatform, const FString& Architecture);
-FString GetCurrentClientTarget();
-FString GetBundledClientPath(const FString& PluginBaseDir);
-bool HasBundledClient(const FString& PluginBaseDir);
-FString ResolveCodexConfigPath(
+LOOMLEBRIDGE_API FString MakeClientTarget(const FString& NodePlatform, const FString& Architecture);
+LOOMLEBRIDGE_API FString GetCurrentClientTarget();
+LOOMLEBRIDGE_API FString GetBundledClientPath(const FString& PluginBaseDir);
+LOOMLEBRIDGE_API bool HasBundledClient(const FString& PluginBaseDir);
+LOOMLEBRIDGE_API FString ResolveCodexConfigPath(
     const FString& LoomleHomeDirectory,
     const FString& CodexHomeEnvironment);
 
-FString ClientEntryKindToString(EClientEntryKind Kind);
+LOOMLEBRIDGE_API FString ClientEntryKindToString(EClientEntryKind Kind);
 
-FConfigAssessment AssessCodexConfig(
+LOOMLEBRIDGE_API FConfigAssessment AssessCodexConfig(
     const FString& RawConfig,
     const FString& BundledClientPath,
     bool bBundledClientAvailable,
     const FString& LoomleHomeDirectory,
     FClientFileExists ClientFileExists);
 
-FConfigAssessment AssessClaudeConfig(
+LOOMLEBRIDGE_API FConfigAssessment AssessClaudeConfig(
     const FString& RawConfig,
     const FString& BundledClientPath,
     bool bBundledClientAvailable,

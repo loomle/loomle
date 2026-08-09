@@ -10,7 +10,7 @@ class FJsonObject;
 namespace Loomle::Python
 {
 
-class FPythonExecutionService final
+class LOOMLEBRIDGE_API FPythonExecutionService final
 {
 public:
     struct FExecution;

@@ -207,12 +207,14 @@ architecture allow-list. UE represents a universal Mac Editor as architecture
 `MULTI`, even when its active process slice is arm64, so `Mac:arm64` would
 prevent the module from loading. UE BuildPlugin compiles the matching native
 fragment, native audits prove the requested Client and Bridge architecture,
-and `Config/FilterPlugin.ini` preserves the exact Client bytes. Before
-BuildPlugin runs UHT, Fab assembly removes the development-only
-`Source/LoomleBridge/Private/Tests` subtree and requires the descriptor to
-contain exactly one module named `LoomleBridge`. The BuildPlugin output and
-native QA ZIP repeat that audit and must not contain test source,
-`Intermediate/`, `Saved/`, or files below `Content/`.
+and `Config/FilterPlugin.ini` preserves the exact Client bytes. Fab assembly
+removes the development-only `Source/LoomleBridgeTests` module and requires the
+source descriptor to contain exactly one module named `LoomleBridge`. Native QA
+temporarily overlays that independent test module, invokes BuildPlugin once,
+and runs Automation. Finalization then removes the test module source and
+binary while proving the production Bridge binary hash is unchanged. The
+finalized output and native QA ZIP repeat the release-boundary audit and must
+not contain test source, `Intermediate/`, `Saved/`, or files below `Content/`.
 
 Promotion consumes successful Mac and Windows QA runs from the same commit.
 The assembler canonicalizes release text to LF on every platform. Promotion
@@ -342,10 +344,10 @@ checked-in merge contract.
 
 Verification is layered. SAL, Interfaces, Client, packaging, and Bridge keep
 focused tests beside their implementation, and the root npm suite composes the
-fast TypeScript and packaging checks. A same-commit test-bearing BuildPlugin
-candidate runs the complete Loomle UE Automation category. A separate stripped
-release candidate is then built, audited, archived, and exercised through the
-small packaged Client-to-UE workflow against that exact ZIP. See
+fast TypeScript and packaging checks. One BuildPlugin output runs the complete
+Loomle UE Automation category. Its independent test module is then removed,
+the unchanged production binary is audited and archived, and the small packaged
+Client-to-UE workflow runs against that exact ZIP. See
 `TESTING_AND_RELEASE_GATES.md` for the runner and promotion contract.
 
 Tag-driven builds are not part of the 0.7 design. Promotion is a final explicit

@@ -278,15 +278,36 @@ jobs:
           "ue_root=$candidate" >> $env:GITHUB_OUTPUT
           "run_uat=$runUat" >> $env:GITHUB_OUTPUT
 
-      - name: Compile Same-Commit Automation Plugin
-        id: automation-package
+      - name: Prepare Single Tested Plugin Input
+        id: tested-input
+        env:
+          STAGING: ${{ steps.assemble.outputs.staging }}
+        run: |
+          $drive = [IO.Path]::GetPathRoot($env:RUNNER_TEMP)
+          $shortRoot = Join-Path $drive "loomle-ci\$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)-$($env:UE_SLUG)"
+          $testedInput = Join-Path $shortRoot "input"
+          Remove-Item -LiteralPath $shortRoot -Recurse -Force -ErrorAction SilentlyContinue
+          node packaging/fab/tested-plugin.mjs prepare `
+            --repo-root $env:GITHUB_WORKSPACE `
+            --source-plugin (Join-Path $env:STAGING "LoomleBridge") `
+            --output-dir $testedInput
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not prepare the single tested plugin input."
+          }
+          "plugin=$(Join-Path $testedInput 'LoomleBridge')" >> $env:GITHUB_OUTPUT
+          "short_root=$shortRoot" >> $env:GITHUB_OUTPUT
+
+      - name: Compile Single Tested Plugin
+        id: package
         timeout-minutes: 30
         env:
           RUN_UAT: ${{ steps.ue.outputs.run_uat }}
+          TESTED_PLUGIN: ${{ steps.tested-input.outputs.plugin }}
+          SHORT_ROOT: ${{ steps.tested-input.outputs.short_root }}
         run: |
-          $package = Join-Path $env:RUNNER_TEMP "loomle-automation-buildplugin-$($env:UE_SLUG)-win32-x64"
+          $package = Join-Path $env:SHORT_ROOT "package"
           Remove-Item -LiteralPath $package -Recurse -Force -ErrorAction SilentlyContinue
-          $plugin = Join-Path $env:GITHUB_WORKSPACE "engine\LoomleBridge\LoomleBridge.uplugin"
+          $plugin = Join-Path $env:TESTED_PLUGIN "LoomleBridge.uplugin"
           & $env:RUN_UAT BuildPlugin `
             "-Plugin=$plugin" `
             "-Package=$package" `
@@ -294,13 +315,14 @@ jobs:
             -TargetPlatforms=Win64 `
             -Rocket
           if ($LASTEXITCODE -ne 0) {
-            throw "BuildPlugin failed for the Automation candidate."
+            throw "BuildPlugin failed for the single tested candidate."
           }
-          $tests = Join-Path $package "LoomleBridge\Source\LoomleBridge\Private\Tests"
+          $tests = Join-Path $package "LoomleBridge\Source\LoomleBridgeTests"
           if (-not (Test-Path -LiteralPath $tests -PathType Container)) {
             throw "Automation candidate is missing native tests: $tests"
           }
           "plugin=$(Join-Path $package 'LoomleBridge')" >> $env:GITHUB_OUTPUT
+          "package=$package" >> $env:GITHUB_OUTPUT
 
       - name: Require Idle Unreal Editor Before Automation
         run: |
@@ -311,10 +333,10 @@ jobs:
           }
 
       - name: Run Complete UE Automation
-        timeout-minutes: 35
+        timeout-minutes: 15
         env:
           UE_ROOT: ${{ steps.ue.outputs.ue_root }}
-          AUTOMATION_PLUGIN: ${{ steps.automation-package.outputs.plugin }}
+          AUTOMATION_PLUGIN: ${{ steps.package.outputs.plugin }}
         run: |
           $results = Join-Path $env:RUNNER_TEMP "loomle-automation-results-$($env:UE_SLUG)-win32-x64"
           Remove-Item -LiteralPath $results -Recurse -Force -ErrorAction SilentlyContinue
@@ -323,7 +345,8 @@ jobs:
             --project-template (Join-Path $env:GITHUB_WORKSPACE "tests\fixtures\ue\LoomleTestHost") `
             --plugin-dir $env:AUTOMATION_PLUGIN `
             --output-dir $results `
-            --target win32-x64
+            --target win32-x64 `
+            --phase-deadline-seconds 600
           if ($LASTEXITCODE -ne 0) {
             throw "UE Automation failed."
           }
@@ -335,29 +358,20 @@ jobs:
             }
           ' (Join-Path $results "result.json")
 
-      - name: Compile Staged Plugin
-        id: package
-        timeout-minutes: 30
+      - name: Finalize Exact Automation-Tested Plugin
         env:
-          RUN_UAT: ${{ steps.ue.outputs.run_uat }}
-          STAGING: ${{ steps.assemble.outputs.staging }}
+          PACKAGE: ${{ steps.package.outputs.package }}
         run: |
-          $package = Join-Path $env:RUNNER_TEMP "loomle-fab-buildplugin-$($env:UE_SLUG)-win32-x64"
-          Remove-Item -LiteralPath $package -Recurse -Force -ErrorAction SilentlyContinue
-          $plugin = Join-Path $env:STAGING "LoomleBridge\LoomleBridge.uplugin"
-          & $env:RUN_UAT BuildPlugin `
-            "-Plugin=$plugin" `
-            "-Package=$package" `
-            -PackageAppendPluginSubdir `
-            -TargetPlatforms=Win64 `
-            -Rocket
+          node packaging/fab/tested-plugin.mjs finalize `
+            --plugin-dir (Join-Path $env:PACKAGE "LoomleBridge") `
+            --target win32-x64 `
+            --receipt (Join-Path $env:RUNNER_TEMP "loomle-tested-plugin-$($env:UE_SLUG)-win32-x64.json")
           if ($LASTEXITCODE -ne 0) {
-            throw "BuildPlugin failed for the stripped candidate."
+            throw "Could not finalize the exact Automation-tested plugin."
           }
           New-Item -ItemType Directory `
-            -Path (Join-Path $package "LoomleBridge\Content") `
+            -Path (Join-Path $env:PACKAGE "LoomleBridge\Content") `
             -Force | Out-Null
-          "package=$package" >> $env:GITHUB_OUTPUT
 
       - name: Audit Packaged Client
         env:
@@ -381,7 +395,7 @@ jobs:
           foreach ($forbidden in @(
             "Resources\MCP",
             "Resources\Loomle\win32-x64\build.json",
-            "Source\LoomleBridge\Private\Tests",
+            "Source\LoomleBridgeTests",
             "Intermediate",
             "Saved"
           )) {
@@ -488,7 +502,7 @@ jobs:
           foreach ($entry in $entries) {
             if (($entry -match '^LoomleBridge/Resources/MCP(/|$)') -or
                 ($entry -eq 'LoomleBridge/Resources/Loomle/win32-x64/build.json') -or
-                ($entry -match '^LoomleBridge/Source/LoomleBridge/Private/Tests(/|$)') -or
+                ($entry -match '^LoomleBridge/Source/LoomleBridgeTests(/|$)') -or
                 ($entry -match '^LoomleBridge/(Intermediate|Saved)(/|$)') -or
                 ($entry -match '^LoomleBridge/Content/.+')) {
               throw "Fab archive contains a forbidden entry: $entry"
@@ -551,7 +565,7 @@ jobs:
           }
 
       - name: Run Packaged End-To-End
-        timeout-minutes: 35
+        timeout-minutes: 15
         env:
           UE_ROOT: ${{ steps.ue.outputs.ue_root }}
           ARCHIVE: ${{ steps.archive.outputs.archive }}
@@ -563,7 +577,8 @@ jobs:
             --project-template (Join-Path $env:GITHUB_WORKSPACE "tests\fixtures\ue\LoomleTestHost") `
             --plugin-archive $env:ARCHIVE `
             --output-dir $results `
-            --target win32-x64
+            --target win32-x64 `
+            --phase-deadline-seconds 600
           if ($LASTEXITCODE -ne 0) {
             throw "Packaged end-to-end failed."
           }
@@ -606,3 +621,19 @@ jobs:
             ${{ steps.source-archive.outputs.archive }}
             ${{ steps.source-archive.outputs.archive_sha }}
           if-no-files-found: error
+
+      - name: Clean Short Windows Build Root
+        if: always()
+        env:
+          SHORT_ROOT: ${{ steps.tested-input.outputs.short_root }}
+        run: |
+          if (-not [string]::IsNullOrWhiteSpace($env:SHORT_ROOT)) {
+            $drive = [IO.Path]::GetPathRoot($env:RUNNER_TEMP)
+            $expectedParent = Join-Path $drive "loomle-ci"
+            $resolvedRoot = [IO.Path]::GetFullPath($env:SHORT_ROOT)
+            $resolvedParent = [IO.Path]::GetFullPath($expectedParent)
+            if (-not $resolvedRoot.StartsWith("$resolvedParent\", [StringComparison]::OrdinalIgnoreCase)) {
+              throw "Refusing to clean unexpected short build root: $resolvedRoot"
+            }
+            Remove-Item -LiteralPath $resolvedRoot -Recurse -Force -ErrorAction SilentlyContinue
+          }

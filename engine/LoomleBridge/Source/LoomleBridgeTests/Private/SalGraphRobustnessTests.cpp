@@ -5,7 +5,7 @@
 #include "Sal/Blueprint/SalBlueprintInterface.h"
 #include "Sal/Graph/SalGraphInterface.h"
 #include "SalTestObjectModel.h"
-#include "Tests/LoomleTestEditorState.h"
+#include "LoomleTestEditorState.h"
 
 #include "Animation/AnimBlueprint.h"
 #include "Animation/AnimBlueprintGeneratedClass.h"

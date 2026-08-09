@@ -5,7 +5,7 @@
 #include "Sal/Widget/SalWidgetInterface.h"
 #include "LoomleTestObjectIteration.h"
 #include "SalTestObjectModel.h"
-#include "Tests/LoomleTestEditorState.h"
+#include "LoomleTestEditorState.h"
 
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetBlueprintGeneratedClass.h"

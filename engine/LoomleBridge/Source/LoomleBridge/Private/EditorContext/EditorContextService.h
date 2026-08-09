@@ -23,7 +23,7 @@ namespace Loomle::EditorContext
  * native editor state. Visible labels and window titles are intentionally not
  * part of this contract.
  */
-struct FRecognitionInput
+struct LOOMLEBRIDGE_API FRecognitionInput
 {
     const FWidgetPath* FocusPath = nullptr;
     TSharedPtr<SDockTab> ActiveTab;
@@ -95,7 +95,7 @@ public:
  * BuildResult returns normalized SAL ObjectResult and introduces no Context
  * constructor or other SAL grammar.
  */
-class FEditorContextService
+class LOOMLEBRIDGE_API FEditorContextService
 {
 public:
     static FEditorContextService& Get();

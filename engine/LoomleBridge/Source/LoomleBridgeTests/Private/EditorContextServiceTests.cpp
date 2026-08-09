@@ -5,7 +5,7 @@
 #include "EditorContext/EditorContextService.h"
 #include "LoomleTestObjectIteration.h"
 #include "SalTestObjectModel.h"
-#include "Tests/LoomleTestEditorState.h"
+#include "LoomleTestEditorState.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "BlueprintEditor.h"

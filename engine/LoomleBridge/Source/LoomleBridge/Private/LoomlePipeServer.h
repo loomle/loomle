@@ -20,7 +20,7 @@ enum class ELoomlePipeListenerState : uint8
     Stopped,
 };
 
-class FLoomlePipeServer : public FRunnable, public TSharedFromThis<FLoomlePipeServer, ESPMode::ThreadSafe>
+class LOOMLEBRIDGE_API FLoomlePipeServer : public FRunnable, public TSharedFromThis<FLoomlePipeServer, ESPMode::ThreadSafe>
 {
 public:
     using FRequestHandler = TFunction<FString(int32, const FString&)>;

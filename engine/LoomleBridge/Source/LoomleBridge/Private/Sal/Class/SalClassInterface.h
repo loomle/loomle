@@ -9,7 +9,7 @@ class FJsonObject;
 
 namespace Loomle::Sal
 {
-class FSalClassInterface
+class LOOMLEBRIDGE_API FSalClassInterface
 {
 public:
     static TSharedPtr<FJsonObject> Query(const FSalQuery& Query, const FSalResolvedTarget& Target);

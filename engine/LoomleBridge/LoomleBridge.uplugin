@@ -21,6 +21,15 @@
         "Mac",
         "Win64"
       ]
+    },
+    {
+      "Name": "LoomleBridgeTests",
+      "Type": "Editor",
+      "LoadingPhase": "PostEngineInit",
+      "PlatformAllowList": [
+        "Mac",
+        "Win64"
+      ]
     }
   ],
   "Plugins": [

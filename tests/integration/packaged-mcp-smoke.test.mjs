@@ -628,7 +628,7 @@ class FakePackagedHarness {
               stateMayHaveChanged: true,
               result: {
                 pythonAvailable: true,
-                projectName: "LoomleRunnerHost",
+                projectDir: "/fixture/LoomleRunnerHost/",
               },
               logs: [],
               logsTruncated: false,

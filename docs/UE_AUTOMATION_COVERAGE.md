@@ -379,7 +379,7 @@ transport behavior in item 6. Item 5 now has a real standalone Blueprint
 focus/window-recovery anchor but remains partial until Widget and Details
 focus/selection paths are exercised. The stricter per-surface
 boundaries in the table above remain release risks even though the current
-138-test matrix is green.
+149-test matrix is green on both official UE 5.7 and UE 5.8 Mac installations.
 
 Synthetic fixtures remain useful for deterministic edge cases. At least one
 authored, compiled asset fixture must protect each Blueprint-owned interface so

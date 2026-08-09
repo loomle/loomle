@@ -6,7 +6,7 @@
 #include "Sal/Graph/SalGraphInterface.h"
 #include "LoomleTestObjectIteration.h"
 #include "SalTestObjectModel.h"
-#include "Tests/LoomleTestEditorState.h"
+#include "LoomleTestEditorState.h"
 
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"

@@ -4,7 +4,7 @@
 
 #include "EditorControl/EditorControlService.h"
 #include "LoomleTestObjectIteration.h"
-#include "Tests/LoomleTestEditorState.h"
+#include "LoomleTestEditorState.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Dom/JsonObject.h"

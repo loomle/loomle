@@ -12,7 +12,7 @@ class UWidgetBlueprint;
 
 namespace Loomle::Sal
 {
-class FSalWidgetInterface
+class LOOMLEBRIDGE_API FSalWidgetInterface
 {
 public:
     static TSharedPtr<FJsonObject> Query(const FSalQuery& Query, const FSalResolvedTarget& Target);

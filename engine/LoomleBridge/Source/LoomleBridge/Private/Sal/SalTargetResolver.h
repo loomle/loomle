@@ -9,7 +9,7 @@ class FJsonObject;
 
 namespace Loomle::Sal
 {
-class FSalTargetResolver
+class LOOMLEBRIDGE_API FSalTargetResolver
 {
 public:
     bool Resolve(

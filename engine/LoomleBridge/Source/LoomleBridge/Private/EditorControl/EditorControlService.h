@@ -15,7 +15,7 @@ namespace Loomle::EditorControl
  * Target. Results keep the SAL ObjectResult subject separate from transient
  * Editor presentation outcome metadata.
  */
-class FEditorControlService
+class LOOMLEBRIDGE_API FEditorControlService
 {
 public:
     static TSharedPtr<FJsonObject> Execute(

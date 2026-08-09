@@ -69,3 +69,21 @@ test("promotion requires both UE versions from each native verification run", as
     assert.match(workflow, new RegExp(`--ue${engine.replace(".", "\\.")}-win32-x64-archive`));
   }
 });
+
+test("native verification compiles each engine candidate exactly once", async () => {
+  for (const name of ["verify-fab-mac.yml", "verify-fab-windows.yml"]) {
+    const workflow = await readFile(
+      new URL(`../../.github/workflows/${name}`, import.meta.url),
+      "utf8",
+    );
+    assert.equal(
+      (workflow.match(/(?:"\$RUN_UAT"|& \$env:RUN_UAT) BuildPlugin/g) ?? []).length,
+      1,
+      `${name} should invoke BuildPlugin exactly once per engine job`,
+    );
+    assert.match(workflow, /tested-plugin\.mjs prepare/);
+    assert.match(workflow, /tested-plugin\.mjs finalize/);
+    assert.match(workflow, /Source[\\/]LoomleBridgeTests/);
+    assert.doesNotMatch(workflow, /Source[\\/]LoomleBridge[\\/]Private[\\/]Tests/);
+  }
+});

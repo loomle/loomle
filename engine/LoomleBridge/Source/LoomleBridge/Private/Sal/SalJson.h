@@ -9,7 +9,7 @@ class FJsonObject;
 
 namespace Loomle::Sal
 {
-class FSalJson
+class LOOMLEBRIDGE_API FSalJson
 {
 public:
     /**

@@ -5,7 +5,7 @@
 #include "Sal/Blueprint/SalBlueprintInterface.h"
 #include "LoomleTestObjectIteration.h"
 #include "SalTestObjectModel.h"
-#include "Tests/LoomleTestEditorState.h"
+#include "LoomleTestEditorState.h"
 
 #include "Components/AudioComponent.h"
 #include "Components/SceneComponent.h"

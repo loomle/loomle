@@ -54,7 +54,7 @@ struct FReferenceIndexScanResult
  * owns coverage diagnostics and may overlay native facts from an asset that was
  * already loaded before the Query began.
  */
-class FSalReferenceIndex
+class LOOMLEBRIDGE_API FSalReferenceIndex
 {
 public:
     static FTopLevelAssetPath ResolveOwnerClassPath(

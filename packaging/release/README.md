@@ -30,11 +30,13 @@ npm run assemble:fab -- \
 The `assemble:fab` result is the canonical package tree before UE compilation.
 `.github/workflows/verify-fab-mac.yml` is deliberately manual and read-only. It
 builds the Client, assembles the source plugin, archives that exact tree as the
-Fab source candidate, compiles an arm64-only plugin with UE BuildPlugin, and
-uploads the complete BuildPlugin output as the GitHub QA candidate. It verifies
-that the latter retains every Fab source file unchanged and only adds UE
-`Binaries/` plus BuildPlugin descriptor installation fields. It does not create
-a tag, GitHub Release, or public Fab submission.
+Fab source candidate, temporarily overlays the independent Automation module,
+and compiles an arm64-only plugin with one UE BuildPlugin invocation. Automation
+runs against that output. Finalization then removes only the test module and
+proves the production binary hash is unchanged before uploading the complete
+GitHub QA candidate. It verifies that the latter retains every Fab source file
+unchanged and only adds UE `Binaries/` plus BuildPlugin descriptor installation
+fields. It does not create a tag, GitHub Release, or public Fab submission.
 
 `.github/workflows/promote-github-release.yml` is a separate manual step. It
 takes successful Mac and Windows verification run IDs, requires both runs to

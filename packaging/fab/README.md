@@ -60,12 +60,14 @@ fragment derives from its matching source. The cross-platform merger then:
 - emits one complete tree whose only source-package additions are
   `Binaries/Mac` and `Binaries/Win64`.
 
-`engine/LoomleBridge/Source/LoomleBridge/Private/Tests` is development input,
-not release source. The assembler excludes that exact subtree before
-BuildPlugin can run UHT or compile the staged plugin. This includes reflected
-test headers and their generated-code inputs. The descriptor must contain
-exactly one runtime module, `LoomleBridge`; a test module or any other extra
-module is rejected.
+`engine/LoomleBridge/Source/LoomleBridgeTests` is a development-only Automation
+module, not release source. The assembler excludes that exact module and emits
+a one-module Fab source tree. Immediately before native compilation,
+`packaging/fab/tested-plugin.mjs prepare` overlays the test module onto a copy
+of that tree. BuildPlugin therefore compiles the production and test modules in
+one invocation. After Automation passes, `tested-plugin.mjs finalize` removes
+the test source and test binary, restores the one-module descriptor and
+manifest, and proves the production Bridge binary SHA-256 did not change.
 
 Each native Client is copied to
 `LoomleBridge/Resources/Loomle/<platform-arch>/loomle(.exe)`. No alternative
@@ -124,7 +126,7 @@ Before UE compilation it must not include:
 LoomleBridge/Binaries/
 LoomleBridge/Intermediate/
 LoomleBridge/Saved/
-LoomleBridge/Source/LoomleBridge/Private/Tests/
+LoomleBridge/Source/LoomleBridgeTests/
 ```
 
 Platform binaries and Unreal build outputs are rejected everywhere except for
@@ -149,12 +151,16 @@ matching workflow without a second host-specific Skill installation. Client
 tests compare every embedded Markdown file with its repository source, while
 assembly and derivation tests preserve the visible package copy.
 
-UE BuildPlugin consumes that same staging tree and produces the full GitHub
-plugin. The resulting tree must add the matching Mac dylib or Win64 DLL, mark
-the descriptor `Installed=true`, retain `Config/FilterPlugin.ini`, and preserve
-the exact source and Client. Both the BuildPlugin output and its final ZIP are
-audited again for the one-module descriptor and the absence of test source,
-`Intermediate/`, `Saved/`, and files below the empty `Content/` directory.
+The native workflow derives one temporary tested input from that staging tree,
+adds only `LoomleBridgeTests`, and invokes UE BuildPlugin once. Automation runs
+against that exact output. Finalization removes only the test module's source
+and build products, verifies the production binary hash is unchanged, and
+produces the full GitHub plugin. The resulting tree must add the matching Mac
+dylib or Win64 DLL, mark the descriptor `Installed=true`, retain
+`Config/FilterPlugin.ini`, and preserve the exact release source and Client.
+Both the finalized output and its ZIP are audited for the one-module descriptor
+and the absence of test source, `Intermediate/`, `Saved/`, and files below the
+empty `Content/` directory.
 Because archive tools cannot infer an empty directory that BuildPlugin omitted,
 release staging restores it before the final audit and ZIP creation. For
 `darwin-arm64`, both binaries are arm64-only; for `win32-x64`, both use the PE
@@ -168,10 +174,12 @@ node --test packaging/fab/assemble.test.mjs
 
 Release automation must run the Client build and executable smoke test on a
 native target runner before invoking the assembler. UE BuildPlugin then compiles
-that staged source for the same architecture. The pre-build staging ZIP is the
-Fab source candidate; the BuildPlugin ZIP is the GitHub full-package candidate.
-The assembler deliberately has no fallback input path, and the derivation audit
-proves that the second package only adds UE build output to the first.
+one test-augmented copy for the same architecture; Automation and the release
+package share its production binary. The pre-build staging ZIP is the Fab
+source candidate; the finalized BuildPlugin ZIP is the GitHub full-package
+candidate. The assembler deliberately has no fallback input path, and the
+derivation and finalization audits prove that the second package only adds UE
+build output to the first.
 
 Each native verification workflow uploads two internal QA fragments:
 

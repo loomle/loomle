@@ -46,7 +46,7 @@ const IGNORED_SOURCE_NAMES = new Set([
   "Saved",
 ]);
 const RELEASE_EXCLUDED_PLUGIN_PATHS = [
-  "Source/LoomleBridge/Private/Tests",
+  "Source/LoomleBridgeTests",
 ];
 const FORBIDDEN_BINARY_SUFFIXES = new Set([
   ".dll",
@@ -364,7 +364,7 @@ async function validateClientBuild({
 
 async function specializeDescriptor({ descriptorPath, targetSpec }) {
   const descriptor = await readJson(descriptorPath);
-  const module = requireOnlyBridgeModule(
+  const [module, testModule] = requireDevelopmentModules(
     descriptor,
     "source LoomleBridge.uplugin",
   );
@@ -377,10 +377,15 @@ async function specializeDescriptor({ descriptorPath, targetSpec }) {
       || !module.PlatformAllowList.includes(targetSpec.unrealPlatform)) {
     fail(`source LoomleBridge module does not allow ${targetSpec.unrealPlatform}.`);
   }
+  if (!Array.isArray(testModule.PlatformAllowList)
+      || !testModule.PlatformAllowList.includes(targetSpec.unrealPlatform)) {
+    fail(`source LoomleBridgeTests module does not allow ${targetSpec.unrealPlatform}.`);
+  }
 
   descriptor.SupportedTargetPlatforms = [targetSpec.unrealPlatform];
   module.PlatformAllowList = [targetSpec.unrealPlatform];
   delete module.PlatformArchitectureAllowList;
+  descriptor.Modules = [module];
   await writeFile(descriptorPath, `${JSON.stringify(descriptor, null, 2)}\n`);
 }
 
@@ -433,11 +438,9 @@ async function validateFabPlugin({
   if (await pathExists(join(pluginRoot, "Resources", "MCP"))) {
     fail("Fab plugin must not include the retired Resources/MCP directory.");
   }
-  if (await pathExists(
-    join(pluginRoot, "Source", "LoomleBridge", "Private", "Tests"),
-  )) {
+  if (await pathExists(join(pluginRoot, "Source", "LoomleBridgeTests"))) {
     fail(
-      "Fab plugin must not include Source/LoomleBridge/Private/Tests"
+      "Fab plugin must not include Source/LoomleBridgeTests"
       + " in the pre-BuildPlugin staging tree.",
     );
   }
@@ -534,6 +537,19 @@ function requireOnlyBridgeModule(descriptor, label) {
     fail(`${label} Modules must contain exactly one module named "LoomleBridge".`);
   }
   return modules[0];
+}
+
+function requireDevelopmentModules(descriptor, label) {
+  const modules = descriptor.Modules;
+  if (!Array.isArray(modules)
+      || modules.length !== 2
+      || modules[0]?.Name !== "LoomleBridge"
+      || modules[1]?.Name !== "LoomleBridgeTests") {
+    fail(
+      `${label} Modules must contain exactly LoomleBridge and LoomleBridgeTests`,
+    );
+  }
+  return modules;
 }
 
 function assertExactArray(actual, expected, label) {

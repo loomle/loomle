@@ -8,7 +8,7 @@ namespace Loomle::Runtime
 {
 
 /** Thread-safe cancellation state shared by every execution hop of one RPC request. */
-class FRequestCancellationState : public TSharedFromThis<FRequestCancellationState, ESPMode::ThreadSafe>
+class LOOMLEBRIDGE_API FRequestCancellationState : public TSharedFromThis<FRequestCancellationState, ESPMode::ThreadSafe>
 {
 public:
     void Cancel();
@@ -23,7 +23,7 @@ private:
  * races. Tombstones ensure a control message or disconnect that overtakes its
  * invoke worker is still observed when that worker registers.
  */
-class FRequestCancellationRegistry
+class LOOMLEBRIDGE_API FRequestCancellationRegistry
 {
 public:
     TSharedRef<FRequestCancellationState, ESPMode::ThreadSafe> Register(
@@ -57,7 +57,7 @@ private:
 };
 
 /** Makes a request's cancellation state visible to synchronous provider code on this thread. */
-class FScopedRequestCancellation
+class LOOMLEBRIDGE_API FScopedRequestCancellation
 {
 public:
     explicit FScopedRequestCancellation(const TSharedRef<FRequestCancellationState, ESPMode::ThreadSafe>& InState);
@@ -72,9 +72,9 @@ private:
 };
 
 /** Returns the active request state, if the caller is executing inside an RPC request scope. */
-TSharedPtr<FRequestCancellationState, ESPMode::ThreadSafe> GetRequestCancellationState();
+LOOMLEBRIDGE_API TSharedPtr<FRequestCancellationState, ESPMode::ThreadSafe> GetRequestCancellationState();
 
 /** Cheap provider-facing cancellation check. */
-bool IsRequestCancellationRequested();
+LOOMLEBRIDGE_API bool IsRequestCancellationRequested();
 
 }

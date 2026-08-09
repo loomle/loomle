@@ -6,7 +6,7 @@
 #include "LoomleTestObjectIteration.h"
 #include "SalClassSparseTestTypes.h"
 #include "SalTestObjectModel.h"
-#include "Tests/LoomleTestEditorState.h"
+#include "LoomleTestEditorState.h"
 
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"

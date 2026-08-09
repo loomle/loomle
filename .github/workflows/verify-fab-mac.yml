@@ -137,25 +137,41 @@ jobs:
           echo "ue_root=$candidate" >> "$GITHUB_OUTPUT"
           echo "run_uat=$run_uat" >> "$GITHUB_OUTPUT"
 
-      - name: Compile Same-Commit Automation Plugin
-        id: automation-package
+      - name: Prepare Single Tested Plugin Input
+        id: tested-input
+        shell: bash
+        env:
+          STAGING: ${{ steps.assemble.outputs.staging }}
+        run: |
+          set -euo pipefail
+          tested_input="$RUNNER_TEMP/loomle-tested-input-$UE_SLUG-darwin-arm64"
+          node packaging/fab/tested-plugin.mjs prepare \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --source-plugin "$STAGING/LoomleBridge" \
+            --output-dir "$tested_input"
+          echo "plugin=$tested_input/LoomleBridge" >> "$GITHUB_OUTPUT"
+
+      - name: Compile Single Tested Plugin
+        id: package
         timeout-minutes: 30
         shell: bash
         env:
           RUN_UAT: ${{ steps.ue.outputs.run_uat }}
+          TESTED_PLUGIN: ${{ steps.tested-input.outputs.plugin }}
         run: |
           set -euo pipefail
-          package="$RUNNER_TEMP/loomle-automation-buildplugin-$UE_SLUG-darwin-arm64"
+          package="$RUNNER_TEMP/loomle-fab-buildplugin-$UE_SLUG-darwin-arm64"
           rm -rf "$package"
           "$RUN_UAT" BuildPlugin \
-            -Plugin="$GITHUB_WORKSPACE/engine/LoomleBridge/LoomleBridge.uplugin" \
+            -Plugin="$TESTED_PLUGIN/LoomleBridge.uplugin" \
             -Package="$package" \
             -PackageAppendPluginSubdir \
             -TargetPlatforms=Mac \
             -Architecture_Mac=arm64 \
             -Rocket
-          test -d "$package/LoomleBridge/Source/LoomleBridge/Private/Tests"
+          test -d "$package/LoomleBridge/Source/LoomleBridgeTests"
           echo "plugin=$package/LoomleBridge" >> "$GITHUB_OUTPUT"
+          echo "package=$package" >> "$GITHUB_OUTPUT"
 
       - name: Require Idle Unreal Editor Before Automation
         shell: bash
@@ -168,11 +184,11 @@ jobs:
           fi
 
       - name: Run Complete UE Automation
-        timeout-minutes: 35
+        timeout-minutes: 15
         shell: bash
         env:
           UE_ROOT: ${{ steps.ue.outputs.ue_root }}
-          AUTOMATION_PLUGIN: ${{ steps.automation-package.outputs.plugin }}
+          AUTOMATION_PLUGIN: ${{ steps.package.outputs.plugin }}
         run: |
           set -euo pipefail
           results="$RUNNER_TEMP/loomle-automation-results-$UE_SLUG-darwin-arm64"
@@ -182,7 +198,8 @@ jobs:
             --project-template "$GITHUB_WORKSPACE/tests/fixtures/ue/LoomleTestHost" \
             --plugin-dir "$AUTOMATION_PLUGIN" \
             --output-dir "$results" \
-            --target darwin-arm64
+            --target darwin-arm64 \
+            --phase-deadline-seconds 600
           node -e '
             const result = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
             if (result.status !== "passed" || result.commit !== process.env.GITHUB_SHA
@@ -191,26 +208,17 @@ jobs:
             }
           ' "$results/result.json"
 
-      - name: Compile Staged Plugin
-        id: package
-        timeout-minutes: 30
+      - name: Finalize Exact Automation-Tested Plugin
         shell: bash
         env:
-          RUN_UAT: ${{ steps.ue.outputs.run_uat }}
-          STAGING: ${{ steps.assemble.outputs.staging }}
+          PACKAGE: ${{ steps.package.outputs.package }}
         run: |
           set -euo pipefail
-          package="$RUNNER_TEMP/loomle-fab-buildplugin-$UE_SLUG-darwin-arm64"
-          rm -rf "$package"
-          "$RUN_UAT" BuildPlugin \
-            -Plugin="$STAGING/LoomleBridge/LoomleBridge.uplugin" \
-            -Package="$package" \
-            -PackageAppendPluginSubdir \
-            -TargetPlatforms=Mac \
-            -Architecture_Mac=arm64 \
-            -Rocket
-          mkdir -p "$package/LoomleBridge/Content"
-          echo "package=$package" >> "$GITHUB_OUTPUT"
+          node packaging/fab/tested-plugin.mjs finalize \
+            --plugin-dir "$PACKAGE/LoomleBridge" \
+            --target darwin-arm64 \
+            --receipt "$RUNNER_TEMP/loomle-tested-plugin-$UE_SLUG-darwin-arm64.json"
+          mkdir -p "$PACKAGE/LoomleBridge/Content"
 
       - name: Audit Packaged Client
         shell: bash
@@ -235,7 +243,7 @@ jobs:
             exit 1
           }
           for forbidden_path in \
-            Source/LoomleBridge/Private/Tests \
+            Source/LoomleBridgeTests \
             Intermediate \
             Saved; do
             [[ ! -e "$packaged_plugin/$forbidden_path" ]] || {
@@ -351,7 +359,7 @@ jobs:
             exit 1
           fi
           for forbidden_path in \
-            Source/LoomleBridge/Private/Tests \
+            Source/LoomleBridgeTests \
             Intermediate \
             Saved; do
             if grep -Eq "^LoomleBridge/$forbidden_path(/|$)" "$archive_entries"; then
@@ -423,7 +431,7 @@ jobs:
           fi
 
       - name: Run Packaged End-To-End
-        timeout-minutes: 35
+        timeout-minutes: 15
         shell: bash
         env:
           UE_ROOT: ${{ steps.ue.outputs.ue_root }}
@@ -437,7 +445,8 @@ jobs:
             --project-template "$GITHUB_WORKSPACE/tests/fixtures/ue/LoomleTestHost" \
             --plugin-archive "$ARCHIVE" \
             --output-dir "$results" \
-            --target darwin-arm64
+            --target darwin-arm64 \
+            --phase-deadline-seconds 600
           archive_sha="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
           node -e '
             const result = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));

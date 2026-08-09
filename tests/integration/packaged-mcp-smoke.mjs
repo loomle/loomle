@@ -300,19 +300,22 @@ export async function runPackagedMcpSmoke(options = {}) {
           "def run():",
           "    return {",
           "        'pythonAvailable': True,",
-          "        'projectName': unreal.SystemLibrary.get_project_name(),",
+          "        'projectDir': unreal.Paths.project_dir(),",
           "    }",
         ].join("\n"),
       });
-      assert(python?.isError !== true, "python fallback failed in the packaged Editor");
+      assert(
+        python?.isError !== true,
+        `python fallback failed in the packaged Editor: ${boundedText(JSON.stringify(python))}`,
+      );
       assert(
         python?.structuredContent?.status === "succeeded",
         `python fallback did not complete inline: ${boundedText(JSON.stringify(python))}`,
       );
       assert(
         python.structuredContent.result?.pythonAvailable === true
-          && typeof python.structuredContent.result?.projectName === "string"
-          && python.structuredContent.result.projectName.length > 0,
+          && typeof python.structuredContent.result?.projectDir === "string"
+          && python.structuredContent.result.projectDir.length > 0,
         "python fallback omitted its agent-defined structured result",
       );
     });
