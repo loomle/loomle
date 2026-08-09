@@ -720,6 +720,143 @@ bool FLoomleBridgePythonInvalidResultTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FLoomleBridgePythonPartialFailureRecoveryTest,
+    "Loomle.Runtime.Rpc.Python.PartialFailureRecoveryIsIdempotent",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLoomleBridgePythonPartialFailureRecoveryTest::RunTest(const FString& Parameters)
+{
+    FLoomleBridgeModule Module;
+    FLoomleBridgeRpcTestAccess::InitializePythonExecutionService(Module);
+    FLoomleBridgeRpcTestAccess::SetBridgeLifecycle(Module, ELoomleBridgeLifecycle::Ready);
+
+    const FString Suffix = FGuid::NewGuid().ToString(EGuidFormats::Digits).ToLower();
+    const FString PackagePath = TEXT("/Game/LoomleTests/PythonRecovery_") + Suffix;
+    const FString AssetName = TEXT("M_PartialFailure_") + Suffix;
+    const FString AssetPath = PackagePath + TEXT("/") + AssetName;
+
+    TSharedPtr<FJsonObject> FirstArguments = MakeShared<FJsonObject>();
+    FirstArguments->SetStringField(
+        TEXT("script"),
+        FString::Printf(
+            TEXT(
+                "import unreal\n"
+                "def run():\n"
+                "    asset_path = '%s'\n"
+                "    asset = unreal.load_asset(asset_path)\n"
+                "    if asset is None:\n"
+                "        asset = unreal.AssetToolsHelpers.get_asset_tools().create_asset(\n"
+                "            '%s', '%s', unreal.Material, unreal.MaterialFactoryNew())\n"
+                "    if asset is None:\n"
+                "        raise RuntimeError('fixture creation failed')\n"
+                "    raise RuntimeError('intentional failure after creation')\n"),
+            *AssetPath,
+            *AssetName,
+            *PackagePath));
+
+    FPythonDispatchResult FirstDispatch;
+    DispatchPythonFromWorker(*this, Module, FirstArguments, FirstDispatch);
+    FString FirstStatus;
+    bool bStateMayHaveChanged = false;
+    TestFalse(TEXT("Partial Python failure is a structured execution result"), FirstDispatch.bIsError);
+    TestTrue(
+        TEXT("Partial Python execution fails after crossing the mutation boundary"),
+        FirstDispatch.Payload.IsValid()
+            && FirstDispatch.Payload->TryGetStringField(TEXT("status"), FirstStatus)
+            && FirstStatus == TEXT("failed")
+            && FirstDispatch.Payload->TryGetBoolField(
+                TEXT("stateMayHaveChanged"),
+                bStateMayHaveChanged)
+            && bStateMayHaveChanged);
+
+    TSharedPtr<FJsonObject> RecoveryArguments = MakeShared<FJsonObject>();
+    RecoveryArguments->SetStringField(
+        TEXT("script"),
+        FString::Printf(
+            TEXT(
+                "import unreal\n"
+                "def run():\n"
+                "    asset_path = '%s'\n"
+                "    asset = unreal.load_asset(asset_path)\n"
+                "    created = False\n"
+                "    if asset is None:\n"
+                "        asset = unreal.AssetToolsHelpers.get_asset_tools().create_asset(\n"
+                "            '%s', '%s', unreal.Material, unreal.MaterialFactoryNew())\n"
+                "        created = asset is not None\n"
+                "    return {\n"
+                "        'exists': asset is not None,\n"
+                "        'created': created,\n"
+                "        'reused': asset is not None and not created,\n"
+                "        'objectPath': asset.get_path_name() if asset else None,\n"
+                "        'classPath': asset.get_class().get_path_name() if asset else None,\n"
+                "    }\n"),
+            *AssetPath,
+            *AssetName,
+            *PackagePath));
+
+    FPythonDispatchResult RecoveryDispatch;
+    DispatchPythonFromWorker(*this, Module, RecoveryArguments, RecoveryDispatch);
+    FString RecoveryStatus;
+    const TSharedPtr<FJsonObject>* RecoveryResult = nullptr;
+    bool bExists = false;
+    bool bCreated = true;
+    bool bReused = false;
+    TestFalse(TEXT("Idempotent recovery is not a dispatch error"), RecoveryDispatch.bIsError);
+    TestTrue(
+        TEXT("Recovery succeeds from the state left by the failed execution"),
+        RecoveryDispatch.Payload.IsValid()
+            && RecoveryDispatch.Payload->TryGetStringField(TEXT("status"), RecoveryStatus)
+            && RecoveryStatus == TEXT("succeeded")
+            && RecoveryDispatch.Payload->TryGetObjectField(
+                TEXT("result"),
+                RecoveryResult)
+            && RecoveryResult != nullptr
+            && (*RecoveryResult).IsValid()
+            && (*RecoveryResult)->TryGetBoolField(TEXT("exists"), bExists)
+            && bExists
+            && (*RecoveryResult)->TryGetBoolField(TEXT("created"), bCreated)
+            && !bCreated
+            && (*RecoveryResult)->TryGetBoolField(TEXT("reused"), bReused)
+            && bReused);
+
+    TSharedPtr<FJsonObject> CleanupArguments = MakeShared<FJsonObject>();
+    CleanupArguments->SetStringField(
+        TEXT("script"),
+        FString::Printf(
+            TEXT(
+                "import unreal\n"
+                "def run():\n"
+                "    asset_path = '%s'\n"
+                "    deleted = (not unreal.EditorAssetLibrary.does_asset_exist(asset_path)\n"
+                "        or unreal.EditorAssetLibrary.delete_asset(asset_path))\n"
+                "    return {\n"
+                "        'deleted': deleted,\n"
+                "        'remaining': unreal.EditorAssetLibrary.does_asset_exist(asset_path),\n"
+                "    }\n"),
+            *AssetPath));
+
+    FPythonDispatchResult CleanupDispatch;
+    DispatchPythonFromWorker(*this, Module, CleanupArguments, CleanupDispatch);
+    FString CleanupStatus;
+    const TSharedPtr<FJsonObject>* CleanupResult = nullptr;
+    bool bRemaining = true;
+    TestTrue(
+        TEXT("Partial-failure fixture asset is removed"),
+        !CleanupDispatch.bIsError
+            && CleanupDispatch.Payload.IsValid()
+            && CleanupDispatch.Payload->TryGetStringField(TEXT("status"), CleanupStatus)
+            && CleanupStatus == TEXT("succeeded")
+            && CleanupDispatch.Payload->TryGetObjectField(TEXT("result"), CleanupResult)
+            && CleanupResult != nullptr
+            && (*CleanupResult).IsValid()
+            && (*CleanupResult)->TryGetBoolField(TEXT("remaining"), bRemaining)
+            && !bRemaining);
+
+    FLoomleBridgeRpcTestAccess::ShutdownPythonExecutionService(Module);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FLoomleBridgePythonAssetImportTaskTest,
     "Loomle.Runtime.Rpc.Python.AssetImportTaskUsesSafeTickEntry",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

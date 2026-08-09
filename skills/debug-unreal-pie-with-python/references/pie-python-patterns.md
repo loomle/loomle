@@ -1,8 +1,9 @@
 # PIE Python Patterns
 
-Use these patterns through Loomle's public `python` tool. Each source block
-defines one synchronous, no-argument `run()` and returns a JSON-compatible
-dictionary.
+Use these patterns only after applying the resident `use-unreal-python` Skill
+and satisfying its live-context, capability-selection, and authorization
+checks. Each source block defines one synchronous, no-argument `run()` and
+returns a JSON-compatible dictionary.
 
 ## Inspect state
 
@@ -86,9 +87,8 @@ When behavior requires gameplay time, use one call to set up or invoke the
 action and a later call to observe the result. Do not loop inside Python waiting
 for the result.
 
-For project APIs, resolve the runtime object again in each call and invoke only
-functions known to be exposed to Unreal Python. Return enough identity and
-before/after state for the user to verify what happened.
+For project APIs, resolve the runtime object again in each call. Apply the base
+Skill's live API discovery and independent verification rules.
 
 ## Request stop
 
@@ -109,15 +109,3 @@ def run():
 Discard all prior PIE UObject knowledge after submitting this request. Confirm
 shutdown with a new state inspection call; do not use an object obtained before
 the stop request.
-
-## Handle Loomle continuations
-
-If any initial `python` call returns `status: "running"`, call the exact
-continuation supplied by Loomle:
-
-```text
-python({ operation: "poll", executionId: "<returned-id>" })
-```
-
-This collects the terminal result of that one Python execution. It does not
-allow PIE or gameplay to tick while the Python execution is still running.

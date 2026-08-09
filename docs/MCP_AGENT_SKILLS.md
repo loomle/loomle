@@ -86,8 +86,12 @@ local MCP tool-error shape and never fabricate SAL result context.
 
 The resident catalog currently includes:
 
+- `use-unreal-python`, which owns capability selection, live API discovery,
+  idempotent execution, continuation recovery, persistence, and verification
+  for every unrestricted Python fallback;
 - `debug-unreal-pie-with-python`, which guides permission-aware PIE startup,
-  short runtime Python inspection calls, UE-owned shutdown, and cleanup;
+  runtime World selection, cross-frame calls, UE-owned shutdown, and cleanup
+  after the base Python Skill is loaded;
 - `format-unreal-blueprints`, which formats Blueprint K2 Graphs from exact live
   geometry.
 

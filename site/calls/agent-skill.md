@@ -48,6 +48,17 @@ For runtime PIE debugging through the Python fallback:
 agent_skill({ name: "debug-unreal-pie-with-python" })
 ```
 
+Before any unrestricted Python fallback:
+
+```text
+agent_skill({ name: "use-unreal-python" })
+```
+
+The Python Skill owns general capability selection, API discovery,
+idempotency, continuation recovery, persistence, and verification. PIE tasks
+load both Skills; the PIE Skill adds only play-session lifecycle and Game World
+semantics.
+
 The result begins with `SKILL.md`, followed by its Markdown references in
 deterministic relative-path order. Each text block names its source-relative
 file. The returned guidance is not SAL Result Text.
@@ -61,5 +72,5 @@ Resident Skills share the Client product version. Replacing the complete
 Loomle plugin updates the Client and its Skills together, so there is no
 separate Skill install, update, or uninstall lifecycle.
 
-Resident workflows currently cover Blueprint Graph formatting and PIE
-debugging through Unreal Python.
+Resident workflows currently cover safe Unreal Python fallback, PIE debugging,
+and Blueprint Graph formatting.

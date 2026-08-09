@@ -327,7 +327,13 @@ test("keeps the resident guide only on sal_schema", () => {
   assert.match(agentSkill?.description ?? "", /runtime Actors or components/);
   assert.match(agentSkill?.description ?? "", /format-unreal-blueprints/);
   assert.match(agentSkill?.description ?? "", /near-human visual quality/);
+  assert.match(agentSkill?.description ?? "", /use-unreal-python/);
+  assert.match(agentSkill?.description ?? "", /partial-state recovery/);
   assert.doesNotMatch(agentSkill?.description ?? "", /# Format Unreal Blueprints/);
+  const python = toolDefinitions.find((tool) => tool.name === "python");
+  assert.match(python?.description ?? "", /Before run, load use-unreal-python/);
+  assert.match(python?.description ?? "", /for PIE also load debug-unreal-pie-with-python/);
+  assert.match(python?.description ?? "", /never replay/);
 });
 
 test("project inspects or changes only the Client session binding", async () => {
@@ -730,6 +736,7 @@ test("agent_skill lists and loads the complete resident workflow without calling
   assert.match(list.content[0].text, /^agent_skills:$/m);
   assert.match(list.content[0].text, /name: debug-unreal-pie-with-python/);
   assert.match(list.content[0].text, /name: format-unreal-blueprints/);
+  assert.match(list.content[0].text, /name: use-unreal-python/);
   assert.match(list.content[0].text, /near-human visual quality/);
 
   const skill = await service.call("agent_skill", { name: "format-unreal-blueprints" });
@@ -762,11 +769,32 @@ test("agent_skill lists and loads the complete resident workflow without calling
     ["SKILL.md", "references/pie-python-patterns.md"],
   );
   assert.match(allText(pieSkill), /# Debug Unreal PIE with Python/);
+  assert.match(allText(pieSkill), /Apply the resident `use-unreal-python` Skill first/);
   assert.match(allText(pieSkill), /Ask the user for\s+permission before requesting PIE/);
-  assert.match(allText(pieSkill), /Never call `sleep`, busy-wait/);
+  assert.match(allText(pieSkill), /Never sleep, busy-wait/);
   assert.match(allText(pieSkill), /editor_request_begin_play/);
   assert.match(allText(pieSkill), /editor_request_end_play/);
-  assert.match(allText(pieSkill), /Do not use `poll` to wait\s+for PIE state/);
+  assert.match(allText(pieSkill), /does not advance PIE/);
+
+  const pythonSkill = await service.call("agent_skill", {
+    name: "use-unreal-python",
+  });
+  assert.equal(pythonSkill.isError, undefined);
+  assert.deepEqual(
+    pythonSkill.content.map(({ text }) => /^file: ([^\n]+)$/m.exec(text)?.[1]),
+    [
+      "SKILL.md",
+      "references/capability-and-api-discovery.md",
+      "references/continuation-and-recovery.md",
+      "references/idempotent-mutation-and-verification.md",
+    ],
+  );
+  assert.match(allText(pythonSkill), /# Use Unreal Python/);
+  assert.match(allText(pythonSkill), /Call `status`/);
+  assert.match(allText(pythonSkill), /stateMayHaveChanged/);
+  assert.match(allText(pythonSkill), /applied`, `notApplied`, or `unknown`/);
+  assert.match(allText(pythonSkill), /save the exact asset or package explicitly/);
+  assert.match(allText(pythonSkill), /debug-unreal-pie-with-python/);
   assert.equal(rpc.calls.length, 0);
 });
 

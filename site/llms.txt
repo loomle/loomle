@@ -67,6 +67,10 @@ MCP-managed Agent Skills:
   descriptions to the model automatically.
 - When a task matches a Skill, the agent should load that exact Skill before
   planning the specialized workflow.
+- `use-unreal-python` supplies the general safety, API discovery, idempotency,
+  recovery, persistence, and verification workflow for every Python fallback.
+- `debug-unreal-pie-with-python` starts, inspects, exercises, and stops an
+  in-process PIE session after the general Python Skill is loaded.
 - `format-unreal-blueprints` formats and audits Blueprint K2 graphs using live
   node bounds and pin geometry.
 - Skills guide use of existing Loomle tools. They grant no capabilities and

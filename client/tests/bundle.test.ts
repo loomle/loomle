@@ -105,6 +105,22 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
       tools.tools.find((tool) => tool.name === "agent_skill")?.description ?? "",
       /format-unreal-blueprints/,
     );
+    assert.match(
+      tools.tools.find((tool) => tool.name === "agent_skill")?.description ?? "",
+      /use-unreal-python/,
+    );
+    assert.match(
+      tools.tools.find((tool) => tool.name === "python")?.description ?? "",
+      /Before run, load use-unreal-python/,
+    );
+
+    const pythonSkill = await client.callTool({
+      name: "agent_skill",
+      arguments: { name: "use-unreal-python" },
+    });
+    assert.notEqual(pythonSkill.isError, true);
+    assert.match(JSON.stringify(pythonSkill), /# Use Unreal Python/);
+    assert.match(JSON.stringify(pythonSkill), /stateMayHaveChanged/);
 
     const pieSkill = await client.callTool({
       name: "agent_skill",

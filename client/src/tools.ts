@@ -263,7 +263,7 @@ export const toolDefinitions: readonly ToolDefinition[] = [
   },
   {
     name: "python",
-    description: "Run full Python inside the bound Unreal Editor only when no structured Loomle interface covers the required UE capability. Use run normally. If it returns running, follow its poll continuation exactly and never replay the script. No dry run, rollback, safe cancellation, or idempotency.",
+    description: "Run full Python in the bound Unreal Editor when no structured Loomle interface covers the capability. Before run, load use-unreal-python; for PIE also load debug-unreal-pie-with-python. Follow a returned poll exactly; never replay. No built-in dry run, rollback, safe cancellation, or idempotency.",
     inputSchema: pythonInputSchema,
     outputSchema: pythonOutputSchema,
     annotations: {

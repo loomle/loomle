@@ -145,6 +145,9 @@ LoomleBridge/
       format-unreal-blueprints/
         SKILL.md
         references/
+      use-unreal-python/
+        SKILL.md
+        references/
     Loomle/
       darwin-arm64/
         loomle

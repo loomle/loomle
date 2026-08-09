@@ -35,6 +35,16 @@ Game World was gone. The resident `debug-unreal-pie-with-python` Skill now owns
 the permission, short-call, world-reacquisition, and cleanup workflow; Loomle
 does not own a parallel PIE lifecycle state machine.
 
+The 2026-08-09 Agent-guidance audit added the resident
+`use-unreal-python` safety workflow and narrowed
+`debug-unreal-pie-with-python` to an additive PIE specialization. A focused
+partial-failure recovery test now proves that a failed Python execution can
+leave an asset applied, reports `stateMayHaveChanged: true`, and can be
+followed by an idempotent recovery call that reuses rather than duplicates the
+asset. The test compiles and passes on the official UE 5.7 and UE 5.8 Launcher
+installations for Mac arm64. Client, Skill-validation, site-build, and Fab
+packaging tests also pass for the unified guidance chain.
+
 ## Decision
 
 `python` is Loomle's high-privilege escape hatch for Unreal Editor behavior
@@ -62,6 +72,41 @@ There is no caller-provided purpose or reason string. Natural-language intent
 is not machine-verifiable, does not constrain what the script can do, and
 would duplicate information already available to the agent and reviewing
 user. The source and its actual effects remain authoritative.
+
+## Agent Guidance Layering
+
+The tool contract and resident Agent Skills form one progressive guidance
+chain rather than three parallel sources of workflow policy:
+
+```text
+python tool description
+-> use-unreal-python
+-> debug-unreal-pie-with-python when the task enters PIE
+```
+
+The public `python` description owns only permanent capability facts and
+routing: Python is a fallback, `run` is unrestricted and mutating, an exposed
+continuation must be polled exactly, and the relevant resident Skills must be
+loaded. It does not carry API-discovery, idempotency, recovery, persistence, or
+PIE procedure.
+
+`use-unreal-python` owns the general fallback workflow:
+
+- live status and project-context checks;
+- structured-interface selection before Python;
+- live Unreal Python API and property discovery;
+- small idempotent calls with stable target rediscovery;
+- structured evidence, explicit persistence, and independent verification;
+- exact continuation handling and conservative partial-state recovery.
+
+`debug-unreal-pie-with-python` is an additive specialization. It owns only PIE
+permission, session ownership, asynchronous start/stop requests, Game World
+selection, cross-frame call boundaries, multi-world ambiguity, and cleanup. It
+must direct the agent to load and follow `use-unreal-python` first instead of
+duplicating its general safety policy.
+
+This boundary lets the base policy evolve once while keeping PIE's distinct UE
+lifecycle semantics discoverable only for runtime debugging tasks.
 
 ## Intent and Boundary
 
@@ -155,13 +200,14 @@ operation:
 `poll` is read-only, but the combined tool must retain the destructive and
 open-world classification required by `run`.
 
-The permanent description should be concise:
+The permanent description should be concise and route the agent to resident
+workflow guidance:
 
-> Run full Python inside the bound Unreal Editor when no structured Loomle
-> interface covers the required UE capability. Use `run` normally. If it
-> returns a running execution, follow the returned `poll` continuation exactly
-> and never replay the script. Python provides no dry run, rollback, safe
-> cancellation, or idempotency guarantee.
+> Run full Python in the bound Unreal Editor when no structured Loomle
+> interface covers the capability. Before run, load `use-unreal-python`; for
+> PIE also load `debug-unreal-pie-with-python`. Follow a returned `poll`
+> exactly; never replay. No built-in dry run, rollback, safe cancellation, or
+> idempotency.
 
 ### Input schema
 
