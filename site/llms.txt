@@ -31,8 +31,8 @@ Availability and installation:
 - Stable download URLs:
   https://github.com/loomle/loomle/releases/latest/download/loomle-bridge-ue5.7.zip
   https://github.com/loomle/loomle/releases/latest/download/loomle-bridge-ue5.8.zip
-- The current Fab listing still distributes 0.6 and must not be used with the
-  0.7 documentation:
+- Fab provides the current marketplace-approved build. GitHub Releases may
+  publish a newer engine-specific package while a Fab update is under review:
   https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428
 - The plugin contains the Bridge and self-contained Client at
   `Resources/Loomle/<platform-arch>/loomle(.exe)`.
@@ -43,7 +43,7 @@ Availability and installation:
   `<Project>/Plugins/LoomleBridge` out of every affected project's `Plugins`
   directory. A project plugin shadows the engine plugin.
 
-Seven public MCP tools:
+Eight public MCP tools:
 
 - `status({})`: report Client/update status and bound session/Bridge health.
 - `project`: inspect projects and bind one MCP session to one project.
@@ -60,6 +60,14 @@ Seven public MCP tools:
 - `editor({ operation: "open" | "close", target })`: idempotently open, focus,
   or close one exact Blueprint Editor or Graph document using a bare canonical
   SAL Target expression.
+- `python({ operation: "run", script })`: run Unreal Editor Python only when no
+  structured Loomle interface covers the required capability.
+- `python({ operation: "poll", executionId })`: follow only the exact
+  continuation returned by a running Python execution; never replay the script.
+
+The Python fallback has no SAL dry run, transactional rollback, safe
+cancellation, or idempotency. Prefer a structured Loomle interface whenever
+one covers the task.
 
 MCP-managed Agent Skills:
 

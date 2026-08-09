@@ -74,20 +74,21 @@ interface card states the exact subjects that accept it.
 
 The latest stable Loomle release is available from
 [GitHub Releases](https://github.com/loomle/loomle/releases/latest)
-for Unreal Engine 5.7:
+for Unreal Engine 5.7 and 5.8. Choose the package matching the installed
+engine version:
 
 | Package | Contents |
 | --- | --- |
-| `loomle-bridge.zip` | Complete Mac Apple Silicon and Windows x64 plugin |
-| `loomle-bridge-source.zip` | Cross-platform source package |
+| `loomle-bridge-ue5.7.zip` | Complete UE 5.7 plugin for Mac Apple Silicon and Windows x64 |
+| `loomle-bridge-ue5.8.zip` | Complete UE 5.8 plugin for Mac Apple Silicon and Windows x64 |
 
 These stable filenames always resolve through the latest final GitHub Release.
 That release also retains immutable, versioned copies of both archives.
 
-The public
+The
 [Fab listing](https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428)
-still distributes Loomle 0.6. Do not use that package with the 0.7
-documentation.
+provides the current marketplace-approved Loomle build. GitHub Releases may be
+newer while a Fab update is under review.
 
 The complete archive contains both native targets and their matching Clients:
 
@@ -112,7 +113,7 @@ Extract the complete archive, then copy the `LoomleBridge` directory
 to:
 
 ```text
-<UE_5.7>/Engine/Plugins/Marketplace/LoomleBridge
+<UE_5.7-or-5.8>/Engine/Plugins/Marketplace/LoomleBridge
 ```
 
 Enable `LoomleBridge`, restart Unreal Editor, and configure an MCP server named
@@ -148,7 +149,7 @@ Agent / MCP host
   -> bundled Loomle Client (stdio MCP + SAL)
   -> local runtime record
   -> LoomleBridge inside Unreal Editor
-  -> UE 5.7 editor APIs and object model
+  -> UE 5.7 or 5.8 editor APIs and object model
 ```
 
 The Client discovers live Bridge instances through

@@ -90,6 +90,7 @@ case "$command_name" in
     grep -q '<title>Loomle AI - Weave New Worlds with AI Agents</title>' _site/index.html
     grep -q '<title>Quickstart | Loomle AI</title>' _site/quickstart.html
     grep -q '<title>Agent Skill | Loomle AI</title>' _site/calls/agent-skill.html
+    grep -q '<title>Python Fallback | Loomle AI</title>' _site/calls/python.html
     grep -q '<title>Format a Blueprint Graph | Loomle AI</title>' _site/workflows/blueprint-format-graph.html
     grep -Fq "The latest stable Loomle release is available" _site/install.html
     grep -Fq "$latest_release_url" _site/install.html
@@ -117,8 +118,8 @@ case "$command_name" in
     grep -q 'class="loom-skill-proofs"' _site/index.html
     grep -q 'assets/images/blueprint-layout-before.png' _site/index.html
     grep -q 'assets/images/blueprint-layout-after.png' _site/index.html
-    grep -q 'seven public Loomle MCP tools' _site/calls/index.html
-    grep -q 'Seven public MCP tools:' _site/llms.txt
+    grep -q 'eight public Loomle MCP tools' _site/calls/index.html
+    grep -q 'Eight public MCP tools:' _site/llms.txt
     grep -Fq 'editor({})' _site/calls/editor.html
     grep -q 'format-unreal-blueprints' _site/llms.txt
     ! grep -Eq 'loomle-fab-plugin-(darwin-arm64|win32-x64)' install.md llms.txt

@@ -7,7 +7,7 @@ permalink: /tools/editor.html
 
 # Editor
 
-Editor is one of Loomle's seven public MCP calls rather than a SAL interface
+Editor is one of Loomle's eight public MCP calls rather than a SAL interface
 module. It reads current context and controls transient Blueprint presentation;
 it does not author UObject state.
 

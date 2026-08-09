@@ -3,15 +3,17 @@ layout: default
 title: MCP Calls
 nav_order: 5
 has_children: true
-description: The seven public Loomle MCP tools and the boundary each one owns.
+description: The eight public Loomle MCP tools and the boundary each one owns.
 permalink: /calls/
 ---
 
 # MCP Calls
 
-The Loomle Client exposes seven public MCP tools. Client status, project
-selection, and Editor presentation are separate calls; rich authored UE-domain
-reads and mutations flow through SAL.
+The Loomle Client exposes eight public MCP tools. Client status, project
+selection, Editor presentation, resident Skills, and the Unreal Python fallback
+remain focused support calls; structured authored UE-domain reads and mutations
+flow through three core SAL calls rather than hundreds of action-specific MCP
+tools.
 
 | Call | Input | Responsibility |
 | --- | --- | --- |
@@ -22,15 +24,17 @@ reads and mutations flow through SAL.
 | `sal_schema` | empty or one `module` | Return the active module index or one static interface card. |
 | [`agent_skill`](agent-skill.html) | empty or one `name` | Discover or load resident Loomle workflow guidance. |
 | [`editor`](editor.html) | empty, `context`, `open`, or `close` | Read context or idempotently open, focus, and close exact Blueprint presentations. |
+| [`python`](python.html) | `run` with one script, or the exact returned `poll` continuation | Use Unreal Editor Python only when no structured Loomle interface covers the required capability. |
 
-These are the complete public Client surface. Authored UObject behavior belongs
-in SAL and its interface cards; transient Blueprint presentation belongs to
-`editor`.
+These are the complete public Client surface. New structured UObject behavior
+belongs in SAL and its interface cards; transient Blueprint presentation
+belongs to `editor`. `python` is an explicit fallback with no SAL dry run,
+rollback, safe cancellation, or idempotency guarantees.
 
 ## Calls and Interfaces Are Different
 
-The seven MCP calls describe transport, session, and resident workflow
-boundaries. The six active
+The eight MCP calls describe transport, session, resident workflow, and
+fallback boundaries. The six active
 interface modules—Asset, Blueprint, Class, Graph, StateTree, and Widget—describe
 the UE objects and operations carried through `sal_query` and `sal_patch`.
 
@@ -47,4 +51,5 @@ diagnostics appear as later independent MCP text blocks formatted as SAL
 comments, never appended to the canonical Result Text block.
 
 Start with [Status](status.html) and [Project Binding](project.html), then read
-[SAL Query and Patch](sal.html).
+[SAL Query and Patch](sal.html). Use the [Python fallback](python.html) only
+when the installed SAL interfaces do not cover the required operation.

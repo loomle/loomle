@@ -15,11 +15,11 @@ platforms.
 [View the latest release](https://github.com/loomle/loomle/releases/latest){: .btn .btn-primary .fs-5 .mr-2 }
 [Read the Quickstart](quickstart.html){: .btn .fs-5 }
 
-{: .warning }
-> The public [Fab listing](https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428)
-> still distributes Loomle 0.6. Do not use that package with the 0.7
-> documentation. The same 0.7 package will move to Fab after its Fab release is
-> ready.
+{: .note }
+> The [Fab listing](https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428)
+> provides the current marketplace-approved Loomle build. GitHub Releases may
+> publish a newer engine-specific package while a Fab update is under review;
+> use the package that exactly matches your Unreal Engine version.
 
 ## Compatibility
 

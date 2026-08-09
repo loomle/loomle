@@ -58,7 +58,7 @@ permalink: /
         </div>
         <div class="loom-release">
           <span class="loom-status-dot"></span>
-          UE 5.7 · Apple Silicon macOS · x64 Windows
+          UE 5.7–5.8 · Apple Silicon macOS · x64 Windows
         </div>
       </div>
 
