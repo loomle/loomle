@@ -172,7 +172,7 @@ case "$command_name" in
     grep -Fq '<loc>https://loomle.ai/blog/ai-agents-edit-blueprints-like-code/</loc>' _site/sitemap.xml
     grep -Fq 'loomle-analytics.js?v=agentic-loom-v15' _site/index.html
     grep -Fq 'ga4Id: "G-L4PNCS4TPX"' _site/index.html
-    grep -Fq 'cloudflareBeaconToken: "b07e88994b5a4606b18e1d06c2cc85cf"' _site/index.html
+    grep -Fq 'cloudflareBeaconToken: "96f07d387994423284cec8e5038dfb1e"' _site/index.html
     grep -Fq 'static.cloudflareinsights.com/beacon.min.js' _site/assets/js/loomle-analytics.js
     grep -Fq 'data-analytics-preferences' _site/privacy/index.html
     grep -Fq 'download_click' _site/assets/js/loomle-analytics.js

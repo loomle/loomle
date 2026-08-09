@@ -67,7 +67,7 @@
     if (!cloudflareBeaconToken || !trackedHost) return;
 
     var script = document.createElement("script");
-    script.async = true;
+    script.type = "module";
     script.src = "https://static.cloudflareinsights.com/beacon.min.js";
     script.setAttribute("data-cf-beacon", JSON.stringify({ token: cloudflareBeaconToken }));
     document.head.appendChild(script);
