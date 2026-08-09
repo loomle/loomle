@@ -112,7 +112,6 @@ bool IsRetryableDispatchError(const FString& Code)
         || Code == TEXT("runtime.editor_shutting_down")
         || Code == TEXT("runtime.python_busy")
         || Code == TEXT("runtime.python_initializing")
-        || Code == TEXT("runtime.python_unavailable_during_play")
         || Code == TEXT("project.offline");
 }
 

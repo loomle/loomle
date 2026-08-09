@@ -84,6 +84,13 @@ local MCP tool-error shape and never fabricate SAL result context.
 4. The Skill never grants capabilities. Tool schemas, SAL interfaces, live UE
    state, mutation dry run, and user approval remain authoritative.
 
+The resident catalog currently includes:
+
+- `debug-unreal-pie-with-python`, which guides permission-aware PIE startup,
+  short runtime Python inspection calls, UE-owned shutdown, and cleanup;
+- `format-unreal-blueprints`, which formats Blueprint K2 Graphs from exact live
+  geometry.
+
 MCP prompts and resources may later mirror resident Skills for hosts that offer
 dedicated user interfaces. They are optional presentation surfaces, not the
 portable automatic-discovery contract: prompts are user-controlled and

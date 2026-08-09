@@ -42,6 +42,12 @@ installed Client.
 agent_skill({ name: "format-unreal-blueprints" })
 ```
 
+For runtime PIE debugging through the Python fallback:
+
+```text
+agent_skill({ name: "debug-unreal-pie-with-python" })
+```
+
 The result begins with `SKILL.md`, followed by its Markdown references in
 deterministic relative-path order. Each text block names its source-relative
 file. The returned guidance is not SAL Result Text.
@@ -55,5 +61,5 @@ Resident Skills share the Client product version. Replacing the complete
 Loomle plugin updates the Client and its Skills together, so there is no
 separate Skill install, update, or uninstall lifecycle.
 
-Continue with [Format a Blueprint Graph](../workflows/blueprint-format-graph.html)
-for the first resident workflow.
+Resident workflows currently cover Blueprint Graph formatting and PIE
+debugging through Unreal Python.

@@ -226,7 +226,6 @@
     { "code": "runtime.python_result_too_large", "layer": "runtime", "defaultSeverity": "error", "title": "Python result too large" },
     { "code": "runtime.python_source_staging_failed", "layer": "runtime", "defaultSeverity": "error", "title": "Python source staging failed" },
     { "code": "runtime.python_unavailable", "layer": "runtime", "defaultSeverity": "error", "title": "Python unavailable" },
-    { "code": "runtime.python_unavailable_during_play", "layer": "runtime", "defaultSeverity": "error", "title": "Python unavailable during play" },
     { "code": "runtime.request_cancelled", "layer": "runtime", "defaultSeverity": "error", "title": "Runtime request cancelled" },
     { "code": "runtime.request_timeout", "layer": "runtime", "defaultSeverity": "error", "title": "Runtime request timed out" },
     { "code": "runtime.rpc_error", "layer": "runtime", "defaultSeverity": "error", "title": "Runtime RPC error" },

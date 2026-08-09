@@ -204,8 +204,7 @@ TSharedPtr<FJsonObject> MakeExecutionError(
     }
     Error->SetBoolField(
         TEXT("retryable"),
-        Code == TEXT("runtime.python_initializing")
-            || Code == TEXT("runtime.python_unavailable_during_play"));
+        Code == TEXT("runtime.python_initializing"));
     return Error;
 }
 
@@ -605,151 +604,139 @@ void FPythonExecutionService::Execute(const FExecutionPtr& Execution)
     TSharedPtr<FJsonObject> Terminal;
     TArray<FPythonLogOutputEntry> NativeLogs;
 
-    if (GEditor != nullptr && GEditor->PlayWorld != nullptr)
+    IPythonScriptPlugin* Python = IPythonScriptPlugin::Get();
+    if (Python == nullptr || !Python->IsPythonConfigured() || !Python->IsPythonAvailable())
     {
         Terminal = MakeTerminalFailure(
-            TEXT("runtime.python_unavailable_during_play"),
+            TEXT("runtime.python_unavailable"),
             TEXT("validation"),
-            TEXT("Python fallback execution is unavailable while a play session is active."),
+            TEXT("Unreal Editor Python is not available in this runtime."),
+            false,
+            0);
+    }
+    else if (!Python->IsPythonInitialized())
+    {
+        Terminal = MakeTerminalFailure(
+            TEXT("runtime.python_initializing"),
+            TEXT("validation"),
+            TEXT("Unreal Editor Python has not finished initializing."),
             false,
             0);
     }
     else
     {
-        IPythonScriptPlugin* Python = IPythonScriptPlugin::Get();
-        if (Python == nullptr || !Python->IsPythonConfigured() || !Python->IsPythonAvailable())
+        FPythonCommandEx Command;
+        Command.Flags = EPythonCommandFlags::Unattended;
+        Command.ExecutionMode = EPythonCommandExecutionMode::ExecuteFile;
+        Command.FileExecutionScope = EPythonFileExecutionScope::Private;
+        Command.Command = FString::Printf(TEXT("\"%s\""), *Execution->RunnerPath.Replace(TEXT("\""), TEXT("\\\"")));
+        const bool bNativeSuccess = Python->ExecPythonCommandEx(Command);
+        NativeLogs = MoveTemp(Command.LogOutput);
+        const int64 DurationMs = FMath::RoundToInt64(
+            (FPlatformTime::Seconds() - StartSeconds) * 1000.0);
+
+        FString ResultText;
+        const int64 ResultFileSize = IFileManager::Get().FileSize(*Execution->ResultPath);
+        if (ResultFileSize > MaxRunnerDocumentUtf8Bytes)
         {
             Terminal = MakeTerminalFailure(
-                TEXT("runtime.python_unavailable"),
-                TEXT("validation"),
-                TEXT("Unreal Editor Python is not available in this runtime."),
-                false,
-                0);
+                TEXT("runtime.python_result_too_large"),
+                TEXT("result"),
+                TEXT("The Python runner result document exceeded its internal size bound."),
+                true,
+                DurationMs,
+                &NativeLogs,
+                Command.CommandResult);
         }
-        else if (!Python->IsPythonInitialized())
+        else if (ResultFileSize < 0
+            || !FFileHelper::LoadFileToString(ResultText, *Execution->ResultPath))
         {
             Terminal = MakeTerminalFailure(
-                TEXT("runtime.python_initializing"),
-                TEXT("validation"),
-                TEXT("Unreal Editor Python has not finished initializing."),
-                false,
-                0);
+                TEXT("runtime.python_execution_failed"),
+                TEXT("execution"),
+                bNativeSuccess
+                    ? TEXT("The Python runner did not produce a result document.")
+                    : TEXT("Python execution failed before producing a result document."),
+                true,
+                DurationMs,
+                &NativeLogs,
+                Command.CommandResult);
         }
         else
         {
-            FPythonCommandEx Command;
-            Command.Flags = EPythonCommandFlags::Unattended;
-            Command.ExecutionMode = EPythonCommandExecutionMode::ExecuteFile;
-            Command.FileExecutionScope = EPythonFileExecutionScope::Private;
-            Command.Command = FString::Printf(TEXT("\"%s\""), *Execution->RunnerPath.Replace(TEXT("\""), TEXT("\\\"")));
-            const bool bNativeSuccess = Python->ExecPythonCommandEx(Command);
-            NativeLogs = MoveTemp(Command.LogOutput);
-            const int64 DurationMs = FMath::RoundToInt64(
-                (FPlatformTime::Seconds() - StartSeconds) * 1000.0);
-
-            FString ResultText;
-            const int64 ResultFileSize = IFileManager::Get().FileSize(*Execution->ResultPath);
-            if (ResultFileSize > MaxRunnerDocumentUtf8Bytes)
-            {
-                Terminal = MakeTerminalFailure(
-                    TEXT("runtime.python_result_too_large"),
-                    TEXT("result"),
-                    TEXT("The Python runner result document exceeded its internal size bound."),
-                    true,
-                    DurationMs,
-                    &NativeLogs,
-                    Command.CommandResult);
-            }
-            else if (ResultFileSize < 0
-                || !FFileHelper::LoadFileToString(ResultText, *Execution->ResultPath))
+            TSharedPtr<FJsonObject> RunnerResult = ParseObject(ResultText);
+            bool bRunnerOk = false;
+            if (!RunnerResult.IsValid() || !RunnerResult->TryGetBoolField(TEXT("ok"), bRunnerOk))
             {
                 Terminal = MakeTerminalFailure(
                     TEXT("runtime.python_execution_failed"),
-                    TEXT("execution"),
-                    bNativeSuccess
-                        ? TEXT("The Python runner did not produce a result document.")
-                        : TEXT("Python execution failed before producing a result document."),
+                    TEXT("result"),
+                    TEXT("The Python runner returned an invalid result document."),
                     true,
                     DurationMs,
                     &NativeLogs,
                     Command.CommandResult);
             }
-            else
+            else if (bRunnerOk && bNativeSuccess)
             {
-                TSharedPtr<FJsonObject> RunnerResult = ParseObject(ResultText);
-                bool bRunnerOk = false;
-                if (!RunnerResult.IsValid() || !RunnerResult->TryGetBoolField(TEXT("ok"), bRunnerOk))
+                const TSharedPtr<FJsonObject>* ResultObject = nullptr;
+                if (!RunnerResult->TryGetObjectField(TEXT("result"), ResultObject)
+                    || ResultObject == nullptr
+                    || !(*ResultObject).IsValid())
                 {
                     Terminal = MakeTerminalFailure(
-                        TEXT("runtime.python_execution_failed"),
+                        TEXT("runtime.python_invalid_result"),
                         TEXT("result"),
-                        TEXT("The Python runner returned an invalid result document."),
+                        TEXT("run() did not return a JSON object."),
                         true,
                         DurationMs,
-                        &NativeLogs,
-                        Command.CommandResult);
+                        &NativeLogs);
                 }
-                else if (bRunnerOk && bNativeSuccess)
+                else
                 {
-                    const TSharedPtr<FJsonObject>* ResultObject = nullptr;
-                    if (!RunnerResult->TryGetObjectField(TEXT("result"), ResultObject)
-                        || ResultObject == nullptr
-                        || !(*ResultObject).IsValid())
+                    const FString StructuredJson = SerializeObject(*ResultObject);
+                    if (StructuredJson.IsEmpty()
+                        || Utf8Bytes(StructuredJson) > MaxResultUtf8Bytes)
                     {
                         Terminal = MakeTerminalFailure(
-                            TEXT("runtime.python_invalid_result"),
+                            TEXT("runtime.python_result_too_large"),
                             TEXT("result"),
-                            TEXT("run() did not return a JSON object."),
+                            TEXT("run() returned more than 1 MiB of structured JSON."),
                             true,
                             DurationMs,
                             &NativeLogs);
                     }
                     else
                     {
-                        const FString StructuredJson = SerializeObject(*ResultObject);
-                        if (StructuredJson.IsEmpty()
-                            || Utf8Bytes(StructuredJson) > MaxResultUtf8Bytes)
-                        {
-                            Terminal = MakeTerminalFailure(
-                                TEXT("runtime.python_result_too_large"),
-                                TEXT("result"),
-                                TEXT("run() returned more than 1 MiB of structured JSON."),
-                                true,
-                                DurationMs,
-                                &NativeLogs);
-                        }
-                        else
-                        {
-                            Terminal = MakeShared<FJsonObject>();
-                            Terminal->SetStringField(TEXT("status"), TEXT("succeeded"));
-                            Terminal->SetBoolField(TEXT("stateMayHaveChanged"), true);
-                            Terminal->SetObjectField(TEXT("result"), *ResultObject);
-                            bool bLogsTruncated = false;
-                            Terminal->SetArrayField(TEXT("logs"), BuildLogs(NativeLogs, bLogsTruncated));
-                            Terminal->SetBoolField(TEXT("logsTruncated"), bLogsTruncated);
-                            Terminal->SetNumberField(TEXT("durationMs"), static_cast<double>(DurationMs));
-                        }
+                        Terminal = MakeShared<FJsonObject>();
+                        Terminal->SetStringField(TEXT("status"), TEXT("succeeded"));
+                        Terminal->SetBoolField(TEXT("stateMayHaveChanged"), true);
+                        Terminal->SetObjectField(TEXT("result"), *ResultObject);
+                        bool bLogsTruncated = false;
+                        Terminal->SetArrayField(TEXT("logs"), BuildLogs(NativeLogs, bLogsTruncated));
+                        Terminal->SetBoolField(TEXT("logsTruncated"), bLogsTruncated);
+                        Terminal->SetNumberField(TEXT("durationMs"), static_cast<double>(DurationMs));
                     }
                 }
-                else
-                {
-                    FString Code = TEXT("runtime.python_execution_failed");
-                    FString Phase = TEXT("execution");
-                    FString Message = TEXT("Python execution failed.");
-                    FString Traceback = Command.CommandResult;
-                    RunnerResult->TryGetStringField(TEXT("code"), Code);
-                    RunnerResult->TryGetStringField(TEXT("phase"), Phase);
-                    RunnerResult->TryGetStringField(TEXT("message"), Message);
-                    RunnerResult->TryGetStringField(TEXT("traceback"), Traceback);
-                    Terminal = MakeTerminalFailure(
-                        Code,
-                        Phase,
-                        Message,
-                        true,
-                        DurationMs,
-                        &NativeLogs,
-                        Traceback);
-                }
+            }
+            else
+            {
+                FString Code = TEXT("runtime.python_execution_failed");
+                FString Phase = TEXT("execution");
+                FString Message = TEXT("Python execution failed.");
+                FString Traceback = Command.CommandResult;
+                RunnerResult->TryGetStringField(TEXT("code"), Code);
+                RunnerResult->TryGetStringField(TEXT("phase"), Phase);
+                RunnerResult->TryGetStringField(TEXT("message"), Message);
+                RunnerResult->TryGetStringField(TEXT("traceback"), Traceback);
+                Terminal = MakeTerminalFailure(
+                    Code,
+                    Phase,
+                    Message,
+                    true,
+                    DurationMs,
+                    &NativeLogs,
+                    Traceback);
             }
         }
     }

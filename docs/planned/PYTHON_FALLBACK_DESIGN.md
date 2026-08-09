@@ -26,6 +26,15 @@ UE 5.7 and UE 5.8 Launcher installations for Mac arm64. The original reported
 environment was Windows UE 5.7.4, so that platform remains an explicit release
 gate rather than an inferred result from the Mac validation.
 
+The 2026-08-09 PIE fallback audit removed the earlier blanket play-session
+rejection. Focused admission automation passes on the official UE 5.7 and UE
+5.8 Launcher installations for Mac arm64. A live public-MCP acceptance on UE
+5.7 requested PIE from one short Python call, observed one valid Game World and
+advancing gameplay time in later calls, requested stop, and confirmed that the
+Game World was gone. The resident `debug-unreal-pie-with-python` Skill now owns
+the permission, short-call, world-reacquisition, and cleanup workflow; Loomle
+does not own a parallel PIE lifecycle state machine.
+
 ## Decision
 
 `python` is Loomle's high-privilege escape hatch for Unreal Editor behavior
@@ -689,11 +698,34 @@ admission.
 A tool call never busy-waits for interpreter initialization on the Game
 Thread. Not ready and unavailable states return distinct errors.
 
-The first implementation rejects `run` while PIE or another play session is
-active. Arbitrary Python has no reliable generic rule for choosing Editor
-world versus play world, and a privileged escape hatch should not guess.
-`poll` remains available because it is a record read, although no new fallback
-execution should have been admitted during play.
+`run` remains available while PIE is active. Loomle does not choose an Editor
+World or Play World and does not own a second PIE lifecycle state machine. The
+script must explicitly obtain the world required by the task through UE's
+native Python APIs.
+
+PIE start and stop requests are asynchronous Game Thread state transitions.
+One Python execution can submit a request through `LevelEditorSubsystem`, but
+it must return before UE can advance that request on later Editor ticks. An
+agent therefore controls PIE with multiple short `python.run` calls:
+
+1. inspect the current play state and request start when necessary;
+2. return immediately, then use a new `python.run` call to confirm that PIE is
+   active and `UnrealEditorSubsystem.get_game_world()` returns a world;
+3. run short observation or mutation scripts, reacquiring the world and every
+   UObject on each call;
+4. request end play in a separate call and later confirm that PIE stopped.
+
+`python.poll` is only the continuation for one already-running Python
+execution. It must not be used to wait for PIE to start, stop, or advance a
+frame. A Python script must not sleep or busy-wait for PIE state because it
+occupies the Game Thread and prevents the transition or gameplay tick it is
+waiting for.
+
+Starting PIE changes the user's active Editor session. Agent workflow guidance
+must ask for permission before requesting start unless the user's current
+instruction already explicitly authorizes running or debugging PIE. The agent
+should normally stop a session it started after completing the requested
+debugging, unless the user asks to leave it running.
 
 ## Dry Run, Transactions, and Side Effects
 
@@ -755,7 +787,6 @@ The stable planned errors are:
 | `tool.invalid_arguments` | invalid operation, missing script/id, oversized input, or unknown field | fix the request |
 | `runtime.python_unavailable` | target build or plugin has no usable Python | do not retry unchanged |
 | `runtime.python_initializing` | Python was requested but is not ready | retry after readiness changes |
-| `runtime.python_unavailable_during_play` | PIE or another play session is active | retry after play stops |
 | `runtime.python_source_staging_failed` | staging failed before Python began | repair filesystem state |
 | `runtime.python_busy` | another fallback execution is active | follow its exposed continuation or wait |
 | `runtime.python_execution_failed` | source, entry point, or Python/UE execution failed | inspect traceback and current state |
@@ -849,7 +880,8 @@ Native tests must cover:
 - repeated terminal polls do not re-execute the script;
 - a second active `run` fails with `runtime.python_busy` and is never queued;
 - Editor shutdown changes an unfinished exposed execution to `lost`;
-- PIE, unavailable Python, initialization, and shutdown fail at their specified
+- Python executes through the same safe Core Ticker entry while PIE is active;
+- unavailable Python, initialization, and shutdown fail at their specified
   boundaries;
 - no result claims dry run, rollback, idempotency, or safe cancellation.
 

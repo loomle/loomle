@@ -7,6 +7,7 @@
 #include "Async/Async.h"
 #include "Async/TaskGraphInterfaces.h"
 #include "Dom/JsonObject.h"
+#include "Editor.h"
 #include "Generated/LoomleProtocolVersion.h"
 #include "HAL/PlatformProcess.h"
 #include "HAL/PlatformTime.h"
@@ -518,6 +519,68 @@ bool FLoomleBridgePythonStructuredResultTest::RunTest(const FString& Parameters)
             TEXT("Structured result preserves a nested array"),
             (*Result)->HasTypedField<EJson::Array>(TEXT("items")));
     }
+
+    FLoomleBridgeRpcTestAccess::ShutdownPythonExecutionService(Module);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FLoomleBridgePythonPlaySessionAdmissionTest,
+    "Loomle.Runtime.Rpc.Python.PlaySessionAdmission",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLoomleBridgePythonPlaySessionAdmissionTest::RunTest(const FString& Parameters)
+{
+    if (GEditor == nullptr || GEditor->PlayWorld != nullptr)
+    {
+        AddError(TEXT("Python play-session admission requires an idle Editor."));
+        return false;
+    }
+
+    UWorld* const EditorWorld = GEditor->GetEditorWorldContext().World();
+    if (EditorWorld == nullptr)
+    {
+        AddError(TEXT("Python play-session admission requires an Editor World."));
+        return false;
+    }
+
+    FLoomleBridgeModule Module;
+    FLoomleBridgeRpcTestAccess::InitializePythonExecutionService(Module);
+    FLoomleBridgeRpcTestAccess::SetBridgeLifecycle(Module, ELoomleBridgeLifecycle::Ready);
+
+    TSharedPtr<FJsonObject> Arguments = MakeShared<FJsonObject>();
+    Arguments->SetStringField(
+        TEXT("script"),
+        TEXT(
+            "def run():\n"
+            "    return {'executed_during_play': True}\n"));
+
+    FPythonDispatchResult DispatchResult;
+    {
+        TGuardValue<TObjectPtr<UWorld>> PlayWorldGuard(GEditor->PlayWorld, EditorWorld);
+        DispatchPythonFromWorker(*this, Module, Arguments, DispatchResult);
+    }
+
+    FString Status;
+    TestFalse(TEXT("Python during play is not a dispatch error"), DispatchResult.bIsError);
+    TestTrue(
+        TEXT("Python during play succeeds through the safe ticker entry"),
+        DispatchResult.Payload.IsValid()
+            && DispatchResult.Payload->TryGetStringField(TEXT("status"), Status)
+            && Status == TEXT("succeeded"));
+
+    const TSharedPtr<FJsonObject>* Result = nullptr;
+    bool bExecutedDuringPlay = false;
+    TestTrue(
+        TEXT("Python during play returns its structured result"),
+        DispatchResult.Payload.IsValid()
+            && DispatchResult.Payload->TryGetObjectField(TEXT("result"), Result)
+            && Result != nullptr
+            && (*Result).IsValid()
+            && (*Result)->TryGetBoolField(
+                TEXT("executed_during_play"),
+                bExecutedDuringPlay)
+            && bExecutedDuringPlay);
 
     FLoomleBridgeRpcTestAccess::ShutdownPythonExecutionService(Module);
     return true;

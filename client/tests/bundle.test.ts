@@ -99,8 +99,20 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
     );
     assert.match(
       tools.tools.find((tool) => tool.name === "agent_skill")?.description ?? "",
+      /debug-unreal-pie-with-python/,
+    );
+    assert.match(
+      tools.tools.find((tool) => tool.name === "agent_skill")?.description ?? "",
       /format-unreal-blueprints/,
     );
+
+    const pieSkill = await client.callTool({
+      name: "agent_skill",
+      arguments: { name: "debug-unreal-pie-with-python" },
+    });
+    assert.notEqual(pieSkill.isError, true);
+    assert.match(JSON.stringify(pieSkill), /# Debug Unreal PIE with Python/);
+    assert.match(JSON.stringify(pieSkill), /editor_request_begin_play/);
 
     const skill = await client.callTool({
       name: "agent_skill",

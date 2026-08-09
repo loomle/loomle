@@ -323,6 +323,8 @@ test("keeps the resident guide only on sal_schema", () => {
       .every((tool) => tool.description.length < 300),
   );
   const agentSkill = toolDefinitions.find((tool) => tool.name === "agent_skill");
+  assert.match(agentSkill?.description ?? "", /debug-unreal-pie-with-python/);
+  assert.match(agentSkill?.description ?? "", /runtime Actors or components/);
   assert.match(agentSkill?.description ?? "", /format-unreal-blueprints/);
   assert.match(agentSkill?.description ?? "", /near-human visual quality/);
   assert.doesNotMatch(agentSkill?.description ?? "", /# Format Unreal Blueprints/);
@@ -726,6 +728,7 @@ test("agent_skill lists and loads the complete resident workflow without calling
   const list = await service.call("agent_skill", {});
   assert.equal(list.isError, undefined);
   assert.match(list.content[0].text, /^agent_skills:$/m);
+  assert.match(list.content[0].text, /name: debug-unreal-pie-with-python/);
   assert.match(list.content[0].text, /name: format-unreal-blueprints/);
   assert.match(list.content[0].text, /near-human visual quality/);
 
@@ -749,6 +752,21 @@ test("agent_skill lists and loads the complete resident workflow without calling
   assert.match(allText(skill), /operation: "open"/);
   assert.match(allText(skill), /does\s+not prove that geometry is authoritative/);
   assert.match(allText(skill), /Never assume that\s+connecting another execution source replaces the existing incoming edge/);
+
+  const pieSkill = await service.call("agent_skill", {
+    name: "debug-unreal-pie-with-python",
+  });
+  assert.equal(pieSkill.isError, undefined);
+  assert.deepEqual(
+    pieSkill.content.map(({ text }) => /^file: ([^\n]+)$/m.exec(text)?.[1]),
+    ["SKILL.md", "references/pie-python-patterns.md"],
+  );
+  assert.match(allText(pieSkill), /# Debug Unreal PIE with Python/);
+  assert.match(allText(pieSkill), /Ask the user for\s+permission before requesting PIE/);
+  assert.match(allText(pieSkill), /Never call `sleep`, busy-wait/);
+  assert.match(allText(pieSkill), /editor_request_begin_play/);
+  assert.match(allText(pieSkill), /editor_request_end_play/);
+  assert.match(allText(pieSkill), /Do not use `poll` to wait\s+for PIE state/);
   assert.equal(rpc.calls.length, 0);
 });
 

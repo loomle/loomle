@@ -5,7 +5,10 @@ import test from "node:test";
 import { agentSkills } from "../src/generated/agent-skills.js";
 
 test("embeds the canonical Agent Skill Markdown files without drift", () => {
-  assert.deepEqual(agentSkills.map(({ name }) => name), ["format-unreal-blueprints"]);
+  assert.deepEqual(agentSkills.map(({ name }) => name), [
+    "debug-unreal-pie-with-python",
+    "format-unreal-blueprints",
+  ]);
   for (const skill of agentSkills) {
     assert.match(skill.name, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
     assert.ok(skill.description.length > 0);

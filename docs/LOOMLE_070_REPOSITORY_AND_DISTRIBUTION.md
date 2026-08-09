@@ -139,6 +139,9 @@ LoomleBridge/
   Source/
   Resources/
     AgentSkills/
+      debug-unreal-pie-with-python/
+        SKILL.md
+        references/
       format-unreal-blueprints/
         SKILL.md
         references/
