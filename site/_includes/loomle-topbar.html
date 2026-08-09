@@ -1,0 +1,31 @@
+<header class="loom-topbar">
+  <a class="loom-wordmark" href="/" aria-label="Loomle home">
+    <span class="loom-mark" aria-hidden="true"></span>
+    <span>LOOMLE</span>
+  </a>
+  <nav class="loom-nav" aria-label="Primary">
+    <a href="/">Home</a>
+    <a href="/#sal">SAL</a>
+    <a href="/#loomle-mcp">Loomle MCP</a>
+    <a href="/blog/"{% if page.url contains '/blog/' %} aria-current="page"{% endif %}>Blog</a>
+    <a href="https://oasium.io/">OASIUM ↗</a>
+    <a href="/quickstart.html">Docs</a>
+    <a href="https://github.com/loomle/loomle">GitHub ↗</a>
+  </nav>
+  <details class="loom-mobile-menu">
+    <summary aria-label="Toggle navigation">
+      <span class="loom-mobile-menu-icon" aria-hidden="true">
+        <i></i><i></i><i></i>
+      </span>
+    </summary>
+    <nav class="loom-mobile-menu-nav" aria-label="Mobile">
+      <a href="/">Home</a>
+      <a href="/#sal">SAL</a>
+      <a href="/#loomle-mcp">Loomle MCP</a>
+      <a href="/blog/"{% if page.url contains '/blog/' %} aria-current="page"{% endif %}>Blog</a>
+      <a href="https://oasium.io/">OASIUM ↗</a>
+      <a href="/quickstart.html">Docs</a>
+      <a href="https://github.com/loomle/loomle">GitHub ↗</a>
+    </nav>
+  </details>
+</header>

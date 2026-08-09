@@ -1,0 +1,28 @@
+---
+layout: loomle-shell
+---
+<article class="loom-blog-post">
+  <header class="loom-blog-post-header">
+    <a class="loom-blog-back" href="/blog/">← All articles</a>
+    <div class="loom-section-label">{{ page.kicker | default: "ENGINEERING" }}</div>
+    <h1>{{ page.title }}</h1>
+    {% if page.subtitle %}
+      <p class="loom-blog-subtitle">{{ page.subtitle }}</p>
+    {% endif %}
+    <div class="loom-blog-meta">
+      <span>{{ page.author }}</span>
+      <span aria-hidden="true">·</span>
+      <time datetime="{{ page.date | date_to_xmlschema }}">{{ page.date | date: "%B %-d, %Y" }}</time>
+      <span aria-hidden="true">·</span>
+      <span>{{ page.reading_time }}</span>
+    </div>
+  </header>
+
+  <figure class="loom-blog-cover loom-blog-post-cover">
+    <img src="{{ page.cover }}" alt="{{ page.cover_alt }}" width="1600" height="900">
+  </figure>
+
+  <div class="loom-blog-prose">
+    {{ content }}
+  </div>
+</article>

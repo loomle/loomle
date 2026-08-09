@@ -86,8 +86,13 @@ case "$command_name" in
     test -s _site/index.html
     test -s _site/assets/css/loomle.css
     test -s _site/assets/images/oasium-cover.webp
+    test -s _site/assets/images/blog/sal-blueprints-like-code-cover.webp
+    test -s _site/blog/index.html
+    test -s _site/blog/ai-agents-edit-blueprints-like-code/index.html
     test ! -e _site/bin/site
     grep -q '<title>Loomle AI - Weave New Worlds with AI Agents</title>' _site/index.html
+    grep -q '<title>Blog | Loomle AI</title>' _site/blog/index.html
+    grep -q '<title>How we designed a language that lets AI agents edit Blueprints like code | Loomle AI</title>' _site/blog/ai-agents-edit-blueprints-like-code/index.html
     grep -q '<title>Quickstart | Loomle AI</title>' _site/quickstart.html
     grep -q '<title>Agent Skill | Loomle AI</title>' _site/calls/agent-skill.html
     grep -q '<title>Python Fallback | Loomle AI</title>' _site/calls/python.html
@@ -149,6 +154,14 @@ case "$command_name" in
     grep -q 'https://oasium.io/' _site/index.html
     grep -q 'class="loom-mobile-menu"' _site/index.html
     grep -q 'class="loom-mobile-menu-nav"' _site/index.html
+    grep -q 'href="/blog/"' _site/index.html
+    grep -Eq '<h1> *Blog *</h1>' _site/blog/index.html
+    grep -q 'sal-blueprints-like-code-cover.webp' _site/blog/index.html
+    grep -q 'Blueprint agents need a language, not more tools.' _site/blog/ai-agents-edit-blueprints-like-code/index.html
+    grep -q 'SAL lets agents read Blueprints with the same focus as code' _site/blog/ai-agents-edit-blueprints-like-code/index.html
+    grep -q 'SAL unifies the complete coding-agent workflow for Blueprints' _site/blog/ai-agents-edit-blueprints-like-code/index.html
+    grep -q 'language-sal highlighter-rouge' _site/blog/ai-agents-edit-blueprints-like-code/index.html
+    grep -q 'loom-blog-post-cover' _site/blog/ai-agents-edit-blueprints-like-code/index.html
     echo "Site check passed."
     ;;
   *)

@@ -1270,6 +1270,291 @@ body:has(.loomle-home) .main-content main {
   text-align: right;
 }
 
+// Blog ----------------------------------------------------------------------
+
+.loom-nav a[aria-current="page"],
+.loom-mobile-menu-nav a[aria-current="page"] {
+  color: #fff;
+}
+
+.loom-blog-main {
+  border-top: 1px solid #343630;
+  background: $loom-paper-light;
+  color: $loom-ink;
+}
+
+.loom-blog-index-hero,
+.loom-blog-list {
+  width: min(100%, 1440px);
+  margin-right: auto;
+  margin-left: auto;
+  border-right: 1px solid $loom-line;
+  border-left: 1px solid $loom-line;
+}
+
+.loom-blog-index-hero {
+  padding: clamp(2.75rem, 5vw, 4.5rem) clamp(1.25rem, 4vw, 4.5rem) clamp(2.25rem, 4vw, 3.5rem);
+  background:
+    linear-gradient(rgba(23, 24, 22, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(23, 24, 22, 0.035) 1px, transparent 1px),
+    $loom-paper-light;
+  background-size: 32px 32px;
+}
+
+.loom-blog-index-hero h1 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(3rem, 5vw, 4.75rem) !important;
+  font-weight: 400;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+.loom-blog-list {
+  padding: 0 clamp(1.25rem, 4vw, 4.5rem) clamp(5rem, 9vw, 8rem);
+}
+
+.loom-blog-card {
+  display: grid;
+  padding: clamp(2.5rem, 4vw, 4rem) 0;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  gap: clamp(2rem, 5vw, 5rem);
+  align-items: center;
+  border-top: 1px solid $loom-line;
+}
+
+.loom-blog-card-cover,
+.loom-blog-cover {
+  display: block;
+  overflow: hidden;
+  background: $loom-ink;
+}
+
+.loom-blog-card-cover {
+  border: 1px solid #2e302b;
+  box-shadow: 12px 12px 0 $loom-paper-deep;
+}
+
+.loom-blog-card-cover img,
+.loom-blog-cover img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+.loom-blog-card-copy {
+  max-width: 760px;
+  padding-right: clamp(0rem, 3vw, 3rem);
+}
+
+.loom-blog-card-meta,
+.loom-blog-meta,
+.loom-blog-back,
+.loom-blog-read {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: var(--loom-type-micro);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.loom-blog-card-meta,
+.loom-blog-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  color: #777970;
+}
+
+.loom-blog-card-meta {
+  justify-content: space-between;
+  border-bottom: 1px solid $loom-line;
+  padding-bottom: 0.85rem;
+}
+
+.loom-blog-card-meta span:first-child {
+  color: $loom-copper-dark;
+}
+
+.loom-blog-card h2 {
+  margin: 1.6rem 0 1.25rem;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2.15rem, 3.3vw, 3.35rem) !important;
+  font-weight: 400;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+}
+
+.loom-blog-card h2 a:hover {
+  color: $loom-copper-dark;
+}
+
+.loom-blog-card p {
+  margin: 0 0 1.8rem;
+  color: #55574f;
+  font-size: 17px;
+  line-height: 1.68;
+}
+
+.loom-blog-read,
+.loom-blog-back {
+  display: inline-block;
+  color: $loom-copper-dark !important;
+}
+
+.loom-blog-read {
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid rgba(143, 55, 35, 0.42);
+}
+
+.loom-blog-read:hover,
+.loom-blog-back:hover {
+  color: $loom-ink !important;
+}
+
+.loom-blog-post {
+  width: min(100%, 1440px);
+  margin-right: auto;
+  margin-left: auto;
+  border-right: 1px solid $loom-line;
+  border-left: 1px solid $loom-line;
+  background:
+    linear-gradient(rgba(23, 24, 22, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(23, 24, 22, 0.022) 1px, transparent 1px),
+    $loom-paper-light;
+  background-size: 32px 32px;
+}
+
+.loom-blog-post-header,
+.loom-blog-post-cover,
+.loom-blog-prose {
+  width: min(calc(100% - 2.5rem), 1120px);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.loom-blog-post-header {
+  padding: clamp(3.25rem, 6vw, 5.5rem) 0 clamp(2.5rem, 5vw, 4rem);
+}
+
+.loom-blog-back {
+  margin-bottom: clamp(3rem, 5vw, 4.5rem);
+}
+
+.loom-blog-post-header h1 {
+  margin: 1.8rem 0 1.7rem;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(3.05rem, 7vw, 6.4rem) !important;
+  font-weight: 400;
+  letter-spacing: -0.055em;
+  line-height: 0.96;
+}
+
+.loom-blog-subtitle {
+  max-width: 880px;
+  margin: 0 0 2.4rem;
+  color: #55574f;
+  font-size: clamp(18px, 2vw, 23px);
+  line-height: 1.55;
+}
+
+.loom-blog-meta {
+  padding-top: 1rem;
+  border-top: 1px solid $loom-line;
+}
+
+.loom-blog-post-cover {
+  padding: 0 0 clamp(2rem, 4vw, 3rem);
+  overflow: visible;
+  background: transparent;
+}
+
+.loom-blog-post-cover img {
+  border: 1px solid #2e302b;
+  box-shadow: 12px 12px 0 $loom-paper-deep;
+}
+
+.loom-blog-prose {
+  padding: 0 0 clamp(6rem, 11vw, 10rem);
+}
+
+.loom-blog-prose > * {
+  width: 100%;
+  margin-right: 0;
+  margin-left: 0;
+}
+
+.loom-blog-prose > p:first-child {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(22px, 2.7vw, 30px);
+  letter-spacing: -0.015em;
+  line-height: 1.48;
+}
+
+.loom-blog-prose h2 {
+  margin-top: clamp(2.25rem, 4vw, 3rem);
+  margin-bottom: 1.6rem;
+  padding-top: 1.15rem;
+  border-top: 1px solid $loom-line;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2.25rem, 4.5vw, 3.65rem) !important;
+  font-weight: 400;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+
+.loom-blog-prose p,
+.loom-blog-prose li {
+  color: #34362f;
+  font-size: 18px;
+  line-height: 1.78;
+}
+
+.loom-blog-prose p {
+  margin-top: 0;
+  margin-bottom: 0.9rem;
+}
+
+.loom-blog-prose ul,
+.loom-blog-prose ol {
+  margin-top: 1.25rem;
+  margin-bottom: 1.75rem;
+  padding-left: 1.4rem;
+}
+
+.loom-blog-prose li + li {
+  margin-top: 0.5rem;
+}
+
+.loom-blog-prose strong {
+  color: $loom-ink;
+}
+
+.loom-blog-prose a {
+  color: $loom-copper-dark;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.loom-blog-prose code {
+  font-size: 0.86em;
+}
+
+.loom-blog-prose div.highlighter-rouge {
+  width: 100%;
+  margin-right: 0;
+  margin-left: 0;
+  margin-top: 2rem;
+  margin-bottom: 2rem;
+  box-shadow: 10px 10px 0 $loom-paper-deep;
+}
+
+.loom-blog-prose div.highlighter-rouge pre {
+  overflow-x: auto;
+}
+
 // Responsive ----------------------------------------------------------------
 
 @media (max-width: 900px) {
@@ -1320,6 +1605,15 @@ body:has(.loomle-home) .main-content main {
   .loom-start {
     grid-template-columns: 1fr;
     align-items: start;
+  }
+
+  .loom-blog-card {
+    grid-template-columns: 1fr;
+  }
+
+  .loom-blog-card-copy {
+    max-width: 760px;
+    padding-right: 0;
   }
 }
 
@@ -1531,5 +1825,31 @@ body:has(.loomle-home) .main-content main {
   .loom-footer > span:last-child {
     grid-column: 2;
     grid-row: 2;
+  }
+
+  .loom-blog-index-hero h1,
+  .loom-blog-post-header h1 {
+    font-size: clamp(2.7rem, 13vw, 4.1rem) !important;
+  }
+
+  .loom-blog-card-cover,
+  .loom-blog-post-cover img,
+  .loom-blog-prose div.highlighter-rouge {
+    box-shadow: 7px 7px 0 $loom-paper-deep;
+  }
+
+  .loom-blog-card-meta {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .loom-blog-prose p,
+  .loom-blog-prose li {
+    font-size: 17px;
+  }
+
+  .loom-blog-prose div.highlighter-rouge {
+    width: 100%;
+    margin-left: 0;
   }
 }

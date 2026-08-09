@@ -7,35 +7,7 @@ permalink: /
 ---
 
 <div class="loomle-home">
-  <header class="loom-topbar">
-    <a class="loom-wordmark" href="/" aria-label="Loomle home">
-      <span class="loom-mark" aria-hidden="true"></span>
-      <span>LOOMLE</span>
-    </a>
-    <nav class="loom-nav" aria-label="Primary">
-      <a href="/">Home</a>
-      <a href="/#sal">SAL</a>
-      <a href="/#loomle-mcp">Loomle MCP</a>
-      <a href="https://oasium.io/">OASIUM ↗</a>
-      <a href="/quickstart.html">Docs</a>
-      <a href="https://github.com/loomle/loomle">GitHub ↗</a>
-    </nav>
-    <details class="loom-mobile-menu">
-      <summary aria-label="Toggle navigation">
-        <span class="loom-mobile-menu-icon" aria-hidden="true">
-          <i></i><i></i><i></i>
-        </span>
-      </summary>
-      <nav class="loom-mobile-menu-nav" aria-label="Mobile">
-        <a href="/">Home</a>
-        <a href="/#sal">SAL</a>
-        <a href="/#loomle-mcp">Loomle MCP</a>
-        <a href="https://oasium.io/">OASIUM ↗</a>
-        <a href="/quickstart.html">Docs</a>
-        <a href="https://github.com/loomle/loomle">GitHub ↗</a>
-      </nav>
-    </details>
-  </header>
+  {% include loomle-topbar.html %}
 
   <div class="loom-main">
     <section class="loom-hero">
@@ -252,17 +224,7 @@ move print to (640, 320)
     </section>
   </div>
 
-  <footer class="loom-footer">
-    <span>© 2026 LOOMLE AI</span>
-    <nav class="loom-footer-products" aria-label="Projects">
-      <a href="/#sal">SAL</a>
-      <span aria-hidden="true">·</span>
-      <a href="/#loomle-mcp">LOOMLE MCP</a>
-      <span aria-hidden="true">·</span>
-      <a href="https://oasium.io/">OASIUM</a>
-    </nav>
-    <span>LOOMLE AI / AGENTIC LOOM</span>
-  </footer>
+  {% include loomle-footer.html %}
 </div>
 
 <script>
