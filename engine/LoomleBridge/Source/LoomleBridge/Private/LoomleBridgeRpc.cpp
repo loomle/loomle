@@ -663,29 +663,24 @@ TSharedPtr<FJsonObject> FLoomleBridgeModule::DispatchPythonRun(
                 TEXT("The Python execution could not be prepared."));
     }
 
-    if (IsInGameThread())
-    {
-        PythonExecutionService->Execute(Execution);
-        return PythonExecutionService->BuildInitialResponse(Execution);
-    }
-
     const TSharedRef<Loomle::Runtime::FGameThreadAdmission, ESPMode::ThreadSafe> Admission =
         MakeShared<Loomle::Runtime::FGameThreadAdmission, ESPMode::ThreadSafe>();
-    ActiveGameThreadDispatchCount.Increment();
-    AsyncTask(
-        ENamedThreads::GameThread,
-        [this, Admission, Execution]()
-        {
-            ON_SCOPE_EXIT { ActiveGameThreadDispatchCount.Decrement(); };
-            if (!Admission->TryStart())
-            {
-                PythonExecutionService->AbandonBeforeStart(Execution);
-                RecordGameThreadProgress();
-                return;
-            }
-            PythonExecutionService->Execute(Execution);
-            RecordGameThreadProgress();
-        });
+    if (!PythonExecutionService->EnqueueForExecution(Execution, Admission))
+    {
+        PythonExecutionService->AbandonBeforeStart(Execution);
+        bOutIsError = true;
+        return MakeDispatchError(
+            TEXT("runtime.editor_shutting_down"),
+            TEXT("Unreal Editor could not admit the Python execution."));
+    }
+
+    // A Game Thread caller cannot wait for the next Core Ticker callback.
+    // The public pipe path always arrives on a worker and retains the inline
+    // completion window below.
+    if (IsInGameThread())
+    {
+        return PythonExecutionService->BuildInitialResponse(Execution);
+    }
 
     constexpr uint32 AdmissionTimeoutMs = 2000;
     constexpr uint32 InlineCompletionWindowMs = 1000;

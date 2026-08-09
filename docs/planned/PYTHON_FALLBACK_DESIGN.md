@@ -17,6 +17,15 @@ complete 149-test UE Automation category, and exact-archive packaged acceptance
 pass against both official UE 5.7 and UE 5.8 Launcher installations. The native
 Windows release gates are still required before release.
 
+The 2026-08-09 safe-entry audit moved Python admission from a Game Thread
+TaskGraph task to the persistent Core Ticker described below. Focused tests now
+prove that a TaskGraph entry is deferred and that synchronous
+`AssetTools.ImportAssetTasks` imports and cleans up a PNG texture without
+recursively processing the named-thread queue. These tests pass on the official
+UE 5.7 and UE 5.8 Launcher installations for Mac arm64. The original reported
+environment was Windows UE 5.7.4, so that platform remains an explicit release
+gate rather than an inferred result from the Mac validation.
+
 ## Decision
 
 `python` is Loomle's high-privilege escape hatch for Unreal Editor behavior
@@ -521,9 +530,10 @@ is outside the execution result.
 
 `run` has two distinct timing boundaries:
 
-1. **Game Thread admission budget.** The queued task must atomically enter
-   `started` within the existing short admission budget. If it does not, Loomle
-   cancels it before execution and returns `runtime.editor_unresponsive`.
+1. **Game Thread admission budget.** The pending execution must atomically
+   enter `started` from Loomle's persistent Core Ticker callback within the
+   existing short admission budget. If it does not, Loomle cancels it before
+   execution and returns `runtime.editor_unresponsive`.
 2. **Inline completion window.** After `started`, Loomle waits only a short
    internal interval, initially approximately one second, for a terminal
    result. If the script is still running, Loomle returns its continuation.
@@ -536,6 +546,31 @@ script promptly yields control back to the agent.
 The boundary is race-safe: the execution record has one synchronized terminal
 transition. Loomle returns either the observed terminal result or a handle to
 that same continuing execution, never both independent outcomes.
+
+### Safe Game Thread entry
+
+Running on the Game Thread is necessary but not sufficient for unrestricted
+Unreal Python. Loomle must also enter Python from a UE call stack that permits
+synchronous engine APIs to pump Game Thread work.
+
+In particular, Loomle must never start Python from
+`AsyncTask(ENamedThreads::GameThread, ...)`, a TaskGraph callback, package or
+asset loading, package saving, or garbage collection. Interchange synchronous
+waits may process the Game Thread TaskGraph queue. Starting Python from that
+same queue and then importing an asset can recursively process the named-thread
+queue and trigger UE's TaskGraph recursion guard.
+
+The Bridge therefore owns one persistent zero-delay
+`FTSTicker::GetCoreTicker()` callback. `python.run` stages one execution in a
+thread-safe pending slot, and only that callback may atomically admit and call
+`ExecPythonCommandEx`. This applies even when the submitting caller already
+runs on the Game Thread: thread identity does not prove that its call stack is
+safe. UE's Interchange task system explicitly identifies an Engine tick and the
+Core Ticker as safe contexts for synchronous waits.
+
+The pending slot is not a general queue. It belongs to the one active execution
+record and is cleared when the ticker claims it, admission is cancelled, or the
+Editor begins shutdown.
 
 ### Detached does not mean background UE execution
 
@@ -588,7 +623,7 @@ python.poll
 Private separation is required because their execution paths differ:
 
 - `python.run` performs project/runtime preflight, stages source, enters Game
-  Thread admission, and starts the execution;
+  Thread admission from the persistent Core Ticker, and starts the execution;
 - `python.poll` performs an exact-runtime, non-Game-Thread record lookup.
 
 Both use the existing JSON-RPC transport. Implementation increments the
@@ -801,6 +836,10 @@ Native tests must cover:
 - cleanup failure does not replace the execution outcome;
 - the result size limit fails without producing malformed JSON;
 - log truncation is deterministic and does not change success;
+- Python submitted by an RPC worker starts from the Core Ticker rather than a
+  TaskGraph Game Thread callback;
+- synchronous `AssetTools.ImportAssetTasks` can import a transient image
+  without recursively entering the Game Thread TaskGraph queue;
 - Game Thread admission cancellation prevents later execution;
 - a sub-window script returns directly without an exposed id;
 - a script exceeding the inline window returns one id and later publishes the

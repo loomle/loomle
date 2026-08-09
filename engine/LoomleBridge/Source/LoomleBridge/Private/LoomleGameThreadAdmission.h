@@ -16,7 +16,7 @@ enum class EGameThreadAdmissionState : uint8
 };
 
 /**
- * One-shot handoff shared by an RPC worker and its queued Game Thread task.
+ * One-shot handoff shared by an RPC worker and a deferred Game Thread entry.
  * Exactly one side may move Waiting to Started or Cancelled.
  */
 class LOOMLEBRIDGE_API FGameThreadAdmission final

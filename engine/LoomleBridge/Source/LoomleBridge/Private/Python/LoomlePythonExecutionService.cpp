@@ -5,6 +5,7 @@
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Editor.h"
+#include "Async/TaskGraphInterfaces.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformTime.h"
 #include "IPythonScriptPlugin.h"
@@ -15,6 +16,7 @@
 #include "Modules/ModuleManager.h"
 #include "Policies/CondensedJsonPrintPolicy.h"
 #include "PythonScriptTypes.h"
+#include "LoomleGameThreadAdmission.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
@@ -333,22 +335,42 @@ struct FPythonExecutionService::FExecution
     FString TerminalJson;
 };
 
-void FPythonExecutionService::Startup()
+void FPythonExecutionService::Startup(TFunction<void()> InGameThreadProgress)
 {
     check(IsInGameThread());
-    FScopeLock Lock(&Mutex);
-    bShuttingDown = false;
-    ExpiredExecutionIds.Reset();
+    {
+        FScopeLock Lock(&Mutex);
+        bShuttingDown = false;
+        ExpiredExecutionIds.Reset();
+        GameThreadProgress = MoveTemp(InGameThreadProgress);
+    }
     if (IPythonScriptPlugin* Python = FModuleManager::LoadModulePtr<IPythonScriptPlugin>(TEXT("PythonScriptPlugin")))
     {
         Python->ForceEnablePythonAtRuntime();
     }
+    ExecutionTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+        TEXT("LoomlePythonExecution"),
+        0.0f,
+        [this](float DeltaTime)
+        {
+            return TickExecution(DeltaTime);
+        });
 }
 
 void FPythonExecutionService::Shutdown()
 {
+    check(IsInGameThread());
+    if (ExecutionTickerHandle.IsValid())
+    {
+        FTSTicker::RemoveTicker(ExecutionTickerHandle);
+        ExecutionTickerHandle.Reset();
+    }
+
+    TSharedPtr<Loomle::Runtime::FGameThreadAdmission, ESPMode::ThreadSafe> Admission;
     FScopeLock Lock(&Mutex);
     bShuttingDown = true;
+    Admission = MoveTemp(PendingAdmission);
+    PendingExecution.Reset();
     const double Now = FPlatformTime::Seconds();
     for (const TPair<FString, FExecutionPtr>& Pair : Executions)
     {
@@ -372,6 +394,12 @@ void FPythonExecutionService::Shutdown()
         DeleteExecutionFiles(Execution->SourcePath, Execution->RunnerPath, Execution->ResultPath);
     }
     ActiveExecutionId.Reset();
+    GameThreadProgress = TFunction<void()>();
+    Lock.Unlock();
+    if (Admission.IsValid())
+    {
+        Admission->TryCancel();
+    }
 }
 
 FPythonExecutionService::FExecutionPtr FPythonExecutionService::PrepareRun(
@@ -470,18 +498,89 @@ FPythonExecutionService::FExecutionPtr FPythonExecutionService::PrepareRun(
     return Execution;
 }
 
+bool FPythonExecutionService::EnqueueForExecution(
+    const FExecutionPtr& Execution,
+    const TSharedRef<Loomle::Runtime::FGameThreadAdmission, ESPMode::ThreadSafe>& Admission)
+{
+    FScopeLock Lock(&Mutex);
+    if (bShuttingDown
+        || !Execution.IsValid()
+        || Execution->State != EExecutionState::Prepared
+        || PendingExecution.IsValid())
+    {
+        return false;
+    }
+    PendingExecution = Execution;
+    PendingAdmission = Admission;
+    return true;
+}
+
+bool FPythonExecutionService::TickExecution(float DeltaTime)
+{
+    (void)DeltaTime;
+    check(IsInGameThread());
+
+    // Core Ticker normally runs outside TaskGraph named-thread processing. If
+    // another caller recursively ticks it from a Game Thread task, leave the
+    // execution pending so the worker can cancel admission instead of entering
+    // Python from the unsafe call stack.
+    if (FTaskGraphInterface::Get().IsThreadProcessingTasks(ENamedThreads::GameThread))
+    {
+        return true;
+    }
+
+    FExecutionPtr Execution;
+    TSharedPtr<Loomle::Runtime::FGameThreadAdmission, ESPMode::ThreadSafe> Admission;
+    TFunction<void()> Progress;
+    {
+        FScopeLock Lock(&Mutex);
+        if (bShuttingDown || !PendingExecution.IsValid())
+        {
+            return true;
+        }
+        Execution = MoveTemp(PendingExecution);
+        Admission = MoveTemp(PendingAdmission);
+        Progress = GameThreadProgress;
+    }
+
+    if (!Admission.IsValid() || !Admission->TryStart())
+    {
+        AbandonBeforeStart(Execution);
+    }
+    else
+    {
+        Execute(Execution);
+    }
+    if (Progress)
+    {
+        Progress();
+    }
+    return true;
+}
+
 void FPythonExecutionService::AbandonBeforeStart(const FExecutionPtr& Execution)
 {
     if (!Execution.IsValid())
     {
         return;
     }
-    DeleteExecutionFiles(Execution->SourcePath, Execution->RunnerPath, Execution->ResultPath);
-    FScopeLock Lock(&Mutex);
-    if (Execution->State == EExecutionState::Prepared)
     {
+        FScopeLock Lock(&Mutex);
+        const FExecutionPtr* Found = Executions.Find(Execution->Id);
+        if (Execution->State != EExecutionState::Prepared
+            || Found == nullptr
+            || *Found != Execution)
+        {
+            return;
+        }
+        if (PendingExecution == Execution)
+        {
+            PendingExecution.Reset();
+            PendingAdmission.Reset();
+        }
         RemoveExecutionLocked(Execution);
     }
+    DeleteExecutionFiles(Execution->SourcePath, Execution->RunnerPath, Execution->ResultPath);
 }
 
 void FPythonExecutionService::Execute(const FExecutionPtr& Execution)

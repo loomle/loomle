@@ -1073,7 +1073,11 @@ void FLoomleBridgeModule::StartupModule()
     RegisterLoomleSlateStyle();
     RequestCancellationRegistry = MakeUnique<Loomle::Runtime::FRequestCancellationRegistry>();
     PythonExecutionService = MakeUnique<Loomle::Python::FPythonExecutionService>();
-    PythonExecutionService->Startup();
+    PythonExecutionService->Startup(
+        [this]()
+        {
+            RecordGameThreadProgress();
+        });
     if (!bEditorInitialized)
     {
         EditorInitializedHandle = FEditorDelegates::OnEditorInitialized.AddRaw(
@@ -1128,6 +1132,7 @@ void FLoomleBridgeModule::StartupModule()
         FCoreDelegates::OnPreExit.Remove(PreExitHandle);
         PreExitHandle.Reset();
         RequestCancellationRegistry.Reset();
+        PythonExecutionService->Shutdown();
         PythonExecutionService.Reset();
         UnregisterLoomleSlateStyle();
         return;

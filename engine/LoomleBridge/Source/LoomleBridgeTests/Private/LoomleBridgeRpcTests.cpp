@@ -15,6 +15,7 @@
 #include "LoomleRequestCancellation.h"
 #include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/Base64.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Guid.h"
 #include "Misc/Paths.h"
@@ -66,6 +67,26 @@ struct FLoomleBridgeRpcTestAccess
         {
             Module.PythonExecutionService->Shutdown();
             Module.PythonExecutionService.Reset();
+        }
+    }
+
+    static bool HasPendingPythonExecution(
+        const FLoomleBridgeModule& Module)
+    {
+        if (!Module.PythonExecutionService)
+        {
+            return false;
+        }
+        FScopeLock Lock(&Module.PythonExecutionService->Mutex);
+        return Module.PythonExecutionService->PendingExecution.IsValid();
+    }
+
+    static void TickPythonExecution(
+        FLoomleBridgeModule& Module)
+    {
+        if (Module.PythonExecutionService)
+        {
+            Module.PythonExecutionService->TickExecution(0.0f);
         }
     }
 
@@ -202,6 +223,69 @@ bool WaitForRpcWorker(
         FPlatformProcess::SleepNoStats(0.001f);
     }
     return Future.IsReady();
+}
+
+struct FPythonDispatchResult
+{
+    TSharedPtr<FJsonObject> Payload;
+    bool bIsError = false;
+};
+
+bool DispatchPythonFromWorker(
+    FAutomationTestBase& Test,
+    FLoomleBridgeModule& Module,
+    const TSharedPtr<FJsonObject>& Arguments,
+    FPythonDispatchResult& OutResult)
+{
+    TFuture<FPythonDispatchResult> Future = Async(
+        EAsyncExecution::Thread,
+        [&Module, Arguments]()
+        {
+            FPythonDispatchResult Result;
+            Result.Payload = FLoomleBridgeRpcTestAccess::DispatchTool(
+                Module,
+                TEXT("python.run"),
+                Arguments,
+                Result.bIsError);
+            return Result;
+        });
+
+    const double PendingDeadline = FPlatformTime::Seconds() + 5.0;
+    while (!FLoomleBridgeRpcTestAccess::HasPendingPythonExecution(Module)
+        && !Future.IsReady()
+        && FPlatformTime::Seconds() < PendingDeadline)
+    {
+        FPlatformProcess::SleepNoStats(0.001f);
+    }
+
+    const bool bPending = FLoomleBridgeRpcTestAccess::HasPendingPythonExecution(Module);
+    Test.TestTrue(
+        TEXT("Python execution reaches the Core Ticker pending slot"),
+        bPending);
+    Test.TestEqual(
+        TEXT("Python execution is not submitted as a Game Thread TaskGraph task"),
+        FLoomleBridgeRpcTestAccess::ActiveGameThreadDispatchCount(Module),
+        0);
+    Test.TestFalse(
+        TEXT("The test enters Python outside Game Thread TaskGraph processing"),
+        FTaskGraphInterface::Get().IsThreadProcessingTasks(ENamedThreads::GameThread));
+    if (bPending)
+    {
+        FLoomleBridgeRpcTestAccess::TickPythonExecution(Module);
+    }
+
+    const double CompletionDeadline = FPlatformTime::Seconds() + 5.0;
+    while (!Future.IsReady() && FPlatformTime::Seconds() < CompletionDeadline)
+    {
+        FPlatformProcess::SleepNoStats(0.001f);
+    }
+    if (!Future.IsReady())
+    {
+        Test.AddError(TEXT("Python RPC worker did not return after Core Ticker execution."));
+        return false;
+    }
+    OutResult = Future.Get();
+    return bPending;
 }
 
 void DrainGameThreadDispatches(FLoomleBridgeModule& Module)
@@ -403,14 +487,11 @@ bool FLoomleBridgePythonStructuredResultTest::RunTest(const FString& Parameters)
             "import unreal\n"
             "def run():\n"
             "    return {'loaded': unreal is not None, 'items': [1, True, None]}\n"));
-    bool bIsError = false;
-    const TSharedPtr<FJsonObject> Payload = FLoomleBridgeRpcTestAccess::DispatchTool(
-        Module,
-        TEXT("python.run"),
-        Arguments,
-        bIsError);
+    FPythonDispatchResult DispatchResult;
+    DispatchPythonFromWorker(*this, Module, Arguments, DispatchResult);
+    const TSharedPtr<FJsonObject>& Payload = DispatchResult.Payload;
 
-    TestFalse(TEXT("A valid Python fallback is not a dispatch error"), bIsError);
+    TestFalse(TEXT("A valid Python fallback is not a dispatch error"), DispatchResult.bIsError);
     FString Status;
     TestTrue(
         TEXT("Python fallback returns a status"),
@@ -443,6 +524,87 @@ bool FLoomleBridgePythonStructuredResultTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FLoomleBridgePythonTaskGraphEntryTest,
+    "Loomle.Runtime.Rpc.Python.TaskGraphEntryIsDeferred",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLoomleBridgePythonTaskGraphEntryTest::RunTest(const FString& Parameters)
+{
+    FLoomleBridgeModule Module;
+    FLoomleBridgeRpcTestAccess::InitializePythonExecutionService(Module);
+    FLoomleBridgeRpcTestAccess::SetBridgeLifecycle(Module, ELoomleBridgeLifecycle::Ready);
+
+    TSharedPtr<FJsonObject> Arguments = MakeShared<FJsonObject>();
+    Arguments->SetStringField(
+        TEXT("script"),
+        TEXT(
+            "def run():\n"
+            "    return {'entry': 'safe_tick'}\n"));
+
+    TFuture<FPythonDispatchResult> Future = Async(
+        EAsyncExecution::Thread,
+        [&Module, Arguments]()
+        {
+            FPythonDispatchResult Result;
+            Result.Payload = FLoomleBridgeRpcTestAccess::DispatchTool(
+                Module,
+                TEXT("python.run"),
+                Arguments,
+                Result.bIsError);
+            return Result;
+        });
+
+    const double PendingDeadline = FPlatformTime::Seconds() + 5.0;
+    while (!FLoomleBridgeRpcTestAccess::HasPendingPythonExecution(Module)
+        && !Future.IsReady()
+        && FPlatformTime::Seconds() < PendingDeadline)
+    {
+        FPlatformProcess::SleepNoStats(0.001f);
+    }
+    TestTrue(
+        TEXT("Python reaches the pending slot before the unsafe entry probe"),
+        FLoomleBridgeRpcTestAccess::HasPendingPythonExecution(Module));
+
+    bool bUnsafeTickAttempted = false;
+    AsyncTask(
+        ENamedThreads::GameThread,
+        [&Module, &bUnsafeTickAttempted]()
+        {
+            bUnsafeTickAttempted = true;
+            FLoomleBridgeRpcTestAccess::TickPythonExecution(Module);
+        });
+    FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+
+    TestTrue(TEXT("The TaskGraph entry probe ran"), bUnsafeTickAttempted);
+    TestTrue(
+        TEXT("TaskGraph entry leaves Python pending for a safe Engine tick"),
+        FLoomleBridgeRpcTestAccess::HasPendingPythonExecution(Module));
+    TestFalse(TEXT("TaskGraph entry does not complete the Python request"), Future.IsReady());
+
+    FLoomleBridgeRpcTestAccess::TickPythonExecution(Module);
+    const double CompletionDeadline = FPlatformTime::Seconds() + 5.0;
+    while (!Future.IsReady() && FPlatformTime::Seconds() < CompletionDeadline)
+    {
+        FPlatformProcess::SleepNoStats(0.001f);
+    }
+    TestTrue(TEXT("A safe tick completes the deferred Python request"), Future.IsReady());
+    if (Future.IsReady())
+    {
+        const FPythonDispatchResult Result = Future.Get();
+        FString Status;
+        TestFalse(TEXT("The deferred execution is not a dispatch error"), Result.bIsError);
+        TestTrue(
+            TEXT("The deferred execution succeeds"),
+            Result.Payload.IsValid()
+                && Result.Payload->TryGetStringField(TEXT("status"), Status)
+                && Status == TEXT("succeeded"));
+    }
+
+    FLoomleBridgeRpcTestAccess::ShutdownPythonExecutionService(Module);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FLoomleBridgePythonInvalidResultTest,
     "Loomle.Runtime.Rpc.Python.InvalidResult",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -460,14 +622,11 @@ bool FLoomleBridgePythonInvalidResultTest::RunTest(const FString& Parameters)
             "import unreal\n"
             "def run():\n"
             "    return {'value': unreal.Vector()}\n"));
-    bool bIsError = false;
-    const TSharedPtr<FJsonObject> Payload = FLoomleBridgeRpcTestAccess::DispatchTool(
-        Module,
-        TEXT("python.run"),
-        Arguments,
-        bIsError);
+    FPythonDispatchResult DispatchResult;
+    DispatchPythonFromWorker(*this, Module, Arguments, DispatchResult);
+    const TSharedPtr<FJsonObject>& Payload = DispatchResult.Payload;
 
-    TestFalse(TEXT("An executed Python failure is a structured result"), bIsError);
+    TestFalse(TEXT("An executed Python failure is a structured result"), DispatchResult.bIsError);
     FString Status;
     TestTrue(
         TEXT("Invalid Python result returns a status"),
@@ -492,6 +651,105 @@ bool FLoomleBridgePythonInvalidResultTest::RunTest(const FString& Parameters)
         TEXT("Invalid Python result uses its stable diagnostic"),
         Code,
         FString(TEXT("runtime.python_invalid_result")));
+
+    FLoomleBridgeRpcTestAccess::ShutdownPythonExecutionService(Module);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FLoomleBridgePythonAssetImportTaskTest,
+    "Loomle.Runtime.Rpc.Python.AssetImportTaskUsesSafeTickEntry",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLoomleBridgePythonAssetImportTaskTest::RunTest(const FString& Parameters)
+{
+    FLoomleBridgeModule Module;
+    FLoomleBridgeRpcTestAccess::InitializePythonExecutionService(Module);
+    FLoomleBridgeRpcTestAccess::SetBridgeLifecycle(Module, ELoomleBridgeLifecycle::Ready);
+
+    TArray<uint8> PngBytes;
+    const bool bDecoded = FBase64::Decode(
+        TEXT("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="),
+        PngBytes);
+    TestTrue(TEXT("The embedded PNG fixture decodes"), bDecoded);
+
+    const FString FixtureDirectory = FPaths::Combine(
+        FPaths::ProjectSavedDir(),
+        TEXT("Loomle"),
+        TEXT("Tests"));
+    const FString FixturePath = FPaths::Combine(
+        FixtureDirectory,
+        FString::Printf(
+            TEXT("python_import_%s.png"),
+            *FGuid::NewGuid().ToString(EGuidFormats::Digits).ToLower()));
+    IFileManager::Get().MakeDirectory(*FixtureDirectory, true);
+    const bool bFixtureSaved = bDecoded && FFileHelper::SaveArrayToFile(PngBytes, *FixturePath);
+    TestTrue(TEXT("The PNG import fixture is staged"), bFixtureSaved);
+
+    const FString DestinationPath = FString::Printf(
+        TEXT("/Game/LoomleTests/PythonImport_%s"),
+        *FGuid::NewGuid().ToString(EGuidFormats::Digits).ToLower());
+    FString EscapedFixturePath = FixturePath.Replace(TEXT("\\"), TEXT("\\\\"));
+    EscapedFixturePath.ReplaceInline(TEXT("\""), TEXT("\\\""));
+
+    TSharedPtr<FJsonObject> Arguments = MakeShared<FJsonObject>();
+    Arguments->SetStringField(
+        TEXT("script"),
+        FString::Printf(
+            TEXT(
+                "import unreal\n"
+                "def run():\n"
+                "    task = unreal.AssetImportTask()\n"
+                "    task.set_editor_property('filename', \"%s\")\n"
+                "    task.set_editor_property('destination_path', '%s')\n"
+                "    task.set_editor_property('automated', True)\n"
+                "    task.set_editor_property('replace_existing', True)\n"
+                "    task.set_editor_property('save', False)\n"
+                "    unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])\n"
+                "    objects = task.get_objects()\n"
+                "    classes = [obj.get_class().get_name() for obj in objects]\n"
+                "    paths = [obj.get_path_name() for obj in objects]\n"
+                "    unreal.EditorAssetLibrary.delete_directory('%s')\n"
+                "    return {'count': len(objects), 'classes': classes, 'paths': paths}\n"),
+            *EscapedFixturePath,
+            *DestinationPath,
+            *DestinationPath));
+
+    FPythonDispatchResult DispatchResult;
+    const bool bDispatched = bFixtureSaved
+        && DispatchPythonFromWorker(*this, Module, Arguments, DispatchResult);
+    IFileManager::Get().Delete(*FixturePath, false, true);
+
+    TestTrue(TEXT("Asset import Python is dispatched through the safe ticker entry"), bDispatched);
+    TestFalse(TEXT("Asset import is not a dispatch error"), DispatchResult.bIsError);
+    FString Status;
+    TestTrue(
+        TEXT("Asset import returns a terminal status"),
+        DispatchResult.Payload.IsValid()
+            && DispatchResult.Payload->TryGetStringField(TEXT("status"), Status));
+    TestEqual(TEXT("AssetImportTask completes without TaskGraph recursion"), Status, FString(TEXT("succeeded")));
+
+    const TSharedPtr<FJsonObject>* Result = nullptr;
+    double ImportedCount = 0.0;
+    TestTrue(
+        TEXT("AssetImportTask returns one imported object"),
+        DispatchResult.Payload.IsValid()
+            && DispatchResult.Payload->TryGetObjectField(TEXT("result"), Result)
+            && Result != nullptr
+            && (*Result).IsValid()
+            && (*Result)->TryGetNumberField(TEXT("count"), ImportedCount)
+            && ImportedCount == 1.0);
+    if (Result != nullptr && (*Result).IsValid())
+    {
+        const TArray<TSharedPtr<FJsonValue>>* Classes = nullptr;
+        TestTrue(
+            TEXT("The imported object is a Texture2D"),
+            (*Result)->TryGetArrayField(TEXT("classes"), Classes)
+                && Classes != nullptr
+                && Classes->Num() == 1
+                && (*Classes)[0].IsValid()
+                && (*Classes)[0]->AsString() == TEXT("Texture2D"));
+    }
 
     FLoomleBridgeRpcTestAccess::ShutdownPythonExecutionService(Module);
     return true;

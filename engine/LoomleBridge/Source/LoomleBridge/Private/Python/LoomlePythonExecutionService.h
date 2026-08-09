@@ -3,27 +3,38 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Containers/Ticker.h"
 #include "HAL/CriticalSection.h"
 
 class FJsonObject;
+struct FLoomleBridgeRpcTestAccess;
+
+namespace Loomle::Runtime
+{
+class FGameThreadAdmission;
+}
 
 namespace Loomle::Python
 {
 
 class LOOMLEBRIDGE_API FPythonExecutionService final
 {
+    friend struct ::FLoomleBridgeRpcTestAccess;
+
 public:
     struct FExecution;
     using FExecutionPtr = TSharedPtr<FExecution, ESPMode::ThreadSafe>;
 
-    void Startup();
+    void Startup(TFunction<void()> InGameThreadProgress = TFunction<void()>());
     void Shutdown();
 
     FExecutionPtr PrepareRun(
         const TSharedPtr<FJsonObject>& Arguments,
         TSharedPtr<FJsonObject>& OutError);
+    bool EnqueueForExecution(
+        const FExecutionPtr& Execution,
+        const TSharedRef<Loomle::Runtime::FGameThreadAdmission, ESPMode::ThreadSafe>& Admission);
     void AbandonBeforeStart(const FExecutionPtr& Execution);
-    void Execute(const FExecutionPtr& Execution);
     bool IsTerminal(const FExecutionPtr& Execution) const;
     TSharedPtr<FJsonObject> BuildInitialResponse(const FExecutionPtr& Execution);
     TSharedPtr<FJsonObject> Poll(
@@ -31,6 +42,8 @@ public:
         TSharedPtr<FJsonObject>& OutError);
 
 private:
+    bool TickExecution(float DeltaTime);
+    void Execute(const FExecutionPtr& Execution);
     void RemoveExecutionLocked(const FExecutionPtr& Execution);
     void CleanupExpiredLocked(double NowSeconds);
     TSharedPtr<FJsonObject> BuildSnapshotLocked(
@@ -43,6 +56,10 @@ private:
     TMap<FString, FExecutionPtr> Executions;
     TMap<FString, double> ExpiredExecutionIds;
     FString ActiveExecutionId;
+    FExecutionPtr PendingExecution;
+    TSharedPtr<Loomle::Runtime::FGameThreadAdmission, ESPMode::ThreadSafe> PendingAdmission;
+    TFunction<void()> GameThreadProgress;
+    FTSTicker::FDelegateHandle ExecutionTickerHandle;
     bool bShuttingDown = false;
 };
 
