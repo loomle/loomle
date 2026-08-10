@@ -7,10 +7,14 @@ import {
   validateObjectResult,
   validateSalObject,
   type ObjectResult,
+  type SalObject,
+  type Target,
+  type TargetBinding,
 } from "../../src/index.js";
 
 const blueprintId = "11111111-1111-1111-1111-111111111111";
 const graphId = "22222222-2222-2222-2222-222222222222";
+const actorId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 
 const documents = [
   `catalog = target {domain: asset}
@@ -47,6 +51,26 @@ tree @ROOT depth 4`,
 
 query menu
 widgets`,
+  `arena = target {domain: level, asset: "/Game/Maps/Arena.Arena"}
+
+query arena
+summary`,
+  `arena = target {domain: level, asset: "/Game/Maps/Arena.Arena", type: "/Script/Engine.World"}
+
+patch arena dry run
+save`,
+  `forest = target {domain: pcg, asset: "/Game/PCG/PCG_Forest.PCG_Forest", type: "/Script/PCG.PCGGraph"}
+
+query forest
+nodes`,
+  `forest = target {domain: pcg, asset: "/Game/PCG/PCG_Forest.PCG_Forest", type: "/Script/PCG.PCGGraph"}
+
+patch forest dry run
+save`,
+  `forestComponent = target {domain: pcg_component, asset: "/Game/Maps/Arena.Arena", actorId: "${actorId}", source: "native", id: "PCGComponent", type: "/Script/PCG.PCGComponent"}
+
+query forestComponent
+summary`,
   `g = target {domain: graph, asset: "/Game/Doors/BP_Door.BP_Door", blueprintId: "${blueprintId}", id: "${graphId}"}
 
 query g
@@ -189,6 +213,87 @@ if (uppercase.object && "kind" in uppercase.object && uppercase.object.kind === 
     assert.equal("id" in uppercase.object.target.target && uppercase.object.target.target.id, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
   }
 }
+
+const compatibilityTarget: Target = {
+  kind: "target",
+  domain: "level",
+  asset: "/Game/Maps/Arena.Arena",
+};
+const compatibilityBinding: TargetBinding = { alias: "arena", target: compatibilityTarget };
+assert.equal(compatibilityBinding.target.domain, "level");
+
+const pcgComponentQueryText = `forestComponent = target {
+  type: "/Script/PCG.PCGComponent",
+  id: "PCGComponent",
+  source: "native",
+  actorId: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  asset: "/Game/Maps/Arena.Arena",
+  domain: pcg_component
+}
+
+query forestComponent
+summary`;
+const pcgComponentQuery = parseSalObject(pcgComponentQueryText);
+assert.deepEqual(pcgComponentQuery.diagnostics, []);
+assert.ok(pcgComponentQuery.object && "kind" in pcgComponentQuery.object && pcgComponentQuery.object.kind === "query");
+if (pcgComponentQuery.object && "kind" in pcgComponentQuery.object && pcgComponentQuery.object.kind === "query") {
+  assert.equal(await validateSalObject(pcgComponentQuery.object), undefined);
+  assert.equal(
+    formatSalObject(pcgComponentQuery.object).split("\n")[0],
+    `forestComponent = target {domain: pcg_component, asset: "/Game/Maps/Arena.Arena", actorId: "${actorId}", source: "native", id: "PCGComponent", type: "/Script/PCG.PCGComponent"}`,
+  );
+}
+
+const rejectedPcgComponentPatch = parseSalObject(
+  pcgComponentQueryText.replace("query forestComponent\nsummary", "patch forestComponent\nsave"),
+);
+assert.equal(rejectedPcgComponentPatch.object, undefined);
+assert.equal(rejectedPcgComponentPatch.diagnostics[0]?.code, "language.invalid_patch_target");
+const forgedPcgComponentPatch = {
+  kind: "patch",
+  target: {
+    alias: "forestComponent",
+    target: {
+      kind: "target",
+      domain: "pcg_component",
+      asset: "/Game/Maps/Arena.Arena",
+      actorId,
+      source: "native",
+      id: "PCGComponent",
+      type: "/Script/PCG.PCGComponent",
+    },
+  },
+  dryRun: true,
+  statements: [{ kind: "save" }],
+} as unknown as SalObject;
+assert.equal((await validateSalObject(forgedPcgComponentPatch))?.code, "language.invalid_object_shape");
+
+const pcgComponentResult: ObjectResult = {
+  targetContext: "exact_target",
+  target: {
+    alias: "forestComponent",
+    target: {
+      kind: "target",
+      domain: "pcg_component",
+      asset: "/Game/Maps/Arena.Arena",
+      actorId,
+      source: "native",
+      id: "PCGComponent",
+      type: "/Script/PCG.PCGComponent",
+    },
+  },
+  diagnostics: [],
+};
+assert.equal(await validateObjectResult(pcgComponentResult), undefined);
+const pcgComponentResultText = formatObjectResultText(pcgComponentResult);
+const parsedPcgComponentResult = parseSalResultText(pcgComponentResultText);
+assert.deepEqual(parsedPcgComponentResult.diagnostics, []);
+assert.deepEqual(
+  parsedPcgComponentResult.result && "target" in parsedPcgComponentResult.result
+    ? parsedPcgComponentResult.result.target
+    : undefined,
+  pcgComponentResult.target,
+);
 
 const result: ObjectResult = {
   targetContext: "exact_target",

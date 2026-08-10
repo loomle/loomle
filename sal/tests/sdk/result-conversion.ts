@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   objectResultToTextResult,
   parseSalResultText,
+  validateObjectResult,
   type ExactQueryResult,
   type ObjectResult,
 } from "../../src/index.js";
@@ -23,6 +24,42 @@ const blueprintTarget = {
     domain: "blueprint" as const,
     asset: "/Game/BP_Door.BP_Door",
     id: "11111111-1111-1111-1111-111111111111",
+  },
+};
+const actorId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const levelTarget = {
+  alias: "arena",
+  target: {
+    kind: "target" as const,
+    domain: "level" as const,
+    asset: "/Game/Maps/Arena.Arena",
+    type: "/Script/Engine.World",
+  },
+};
+const nativePcgComponentTarget = {
+  alias: "forestComponent",
+  target: {
+    kind: "target" as const,
+    domain: "pcg_component" as const,
+    asset: "/Game/Maps/Arena.Arena",
+    actorId,
+    source: "native" as const,
+    id: "PCGComponent",
+    type: "/Script/PCG.PCGComponent",
+  },
+};
+const instancePcgComponentTarget = {
+  alias: "instanceForestComponent",
+  target: {
+    ...nativePcgComponentTarget.target,
+    source: "instance" as const,
+  },
+};
+const secondNativePcgComponentTarget = {
+  alias: "secondNativeForestComponent",
+  target: {
+    ...nativePcgComponentTarget.target,
+    id: "PCGComponent_2",
   },
 };
 
@@ -90,6 +127,108 @@ const relatedConversion = await objectResultToTextResult(validRelated);
 assert.deepEqual(relatedConversion.diagnostics, []);
 assert.match(relatedConversion.text ?? "", /^related bp = target/m);
 assert.match(relatedConversion.text ?? "", /^handoff "compile owner" to bp/m);
+
+const pcgComponentRelatedResult: ExactQueryResult = {
+  targetContext: "exact_target",
+  target: levelTarget,
+  relatedTargets: [nativePcgComponentTarget],
+  handoffs: [{
+    kind: "target_handoff",
+    purpose: "inspect generated points",
+    target: { kind: "local", name: "forestComponent" },
+  }],
+  object: {
+    statements: [{
+      target: { kind: "local", name: "componentSettings" },
+      value: {
+        kind: "scoped_stable_ref",
+        target: { kind: "local", name: "forestComponent" },
+        reference: { kind: "stable_ref", identityPath: ["Settings", "Seed"] },
+      },
+    }],
+  },
+  diagnostics: [],
+};
+assert.equal(await validateObjectResult(pcgComponentRelatedResult), undefined);
+const pcgComponentRelatedConversion = await objectResultToTextResult(pcgComponentRelatedResult);
+assert.deepEqual(pcgComponentRelatedConversion.diagnostics, []);
+assert.match(
+  pcgComponentRelatedConversion.text ?? "",
+  /^related forestComponent = target \{domain: pcg_component,/m,
+);
+assert.match(
+  pcgComponentRelatedConversion.text ?? "",
+  /^handoff "inspect generated points" to forestComponent$/m,
+);
+const parsedPcgComponentRelated = parseSalResultText(pcgComponentRelatedConversion.text ?? "");
+assert.deepEqual(parsedPcgComponentRelated.diagnostics, []);
+assert.equal(parsedPcgComponentRelated.result?.targetContext, "exact_target");
+assert.deepEqual(
+  parsedPcgComponentRelated.result && "relatedTargets" in parsedPcgComponentRelated.result
+    ? parsedPcgComponentRelated.result.relatedTargets
+    : undefined,
+  pcgComponentRelatedResult.relatedTargets,
+);
+assert.deepEqual(parsedPcgComponentRelated.result?.handoffs, pcgComponentRelatedResult.handoffs);
+assert.deepEqual(parsedPcgComponentRelated.result?.object, pcgComponentRelatedResult.object);
+
+const duplicatePcgComponentTarget: ExactQueryResult = {
+  targetContext: "exact_target",
+  target: levelTarget,
+  relatedTargets: [
+    nativePcgComponentTarget,
+    {
+      alias: "duplicateForestComponent",
+      target: { ...nativePcgComponentTarget.target },
+    },
+  ],
+  handoffs: [
+    {
+      kind: "target_handoff",
+      purpose: "inspect native component",
+      target: { kind: "local", name: "forestComponent" },
+    },
+    {
+      kind: "target_handoff",
+      purpose: "inspect duplicate component",
+      target: { kind: "local", name: "duplicateForestComponent" },
+    },
+  ],
+  diagnostics: [],
+};
+assert.equal(
+  (await validateObjectResult(duplicatePcgComponentTarget))?.code,
+  "language.invalid_result_shape",
+);
+
+const distinctPcgComponentTargets: ExactQueryResult = {
+  targetContext: "exact_target",
+  target: levelTarget,
+  relatedTargets: [
+    nativePcgComponentTarget,
+    instancePcgComponentTarget,
+    secondNativePcgComponentTarget,
+  ],
+  handoffs: [
+    {
+      kind: "target_handoff",
+      purpose: "inspect native component",
+      target: { kind: "local", name: "forestComponent" },
+    },
+    {
+      kind: "target_handoff",
+      purpose: "inspect instance component",
+      target: { kind: "local", name: "instanceForestComponent" },
+    },
+    {
+      kind: "target_handoff",
+      purpose: "inspect second native component",
+      target: { kind: "local", name: "secondNativeForestComponent" },
+    },
+  ],
+  diagnostics: [],
+};
+assert.equal(await validateObjectResult(distinctPcgComponentTargets), undefined);
 
 const semanticallyInvalid: unknown[] = [
   {

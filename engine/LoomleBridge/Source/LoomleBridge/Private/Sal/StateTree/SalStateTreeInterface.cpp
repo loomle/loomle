@@ -7,6 +7,7 @@
 #include "../SalDiagnostics.h"
 #include "../SalObjectBuilder.h"
 #include "../SalRuntime.h"
+#include "../SalStableIdentity.h"
 #include "Algo/Reverse.h"
 #include "Blueprint/StateTreeConditionBlueprintBase.h"
 #include "Blueprint/StateTreeConsiderationBlueprintBase.h"
@@ -6881,6 +6882,13 @@ bool FSalStateTreeInterface::LowerStableReference(
     OutLegacyId.Reset();
     OutCode = TEXT("resolution.object_not_found");
     OutMessage = TEXT("Stable reference was not found in the bound StateTree identity environment.");
+    if (!StableIdentity::ValidateCanonicalGuidPath(
+            IdentityPath,
+            OutCode,
+            OutMessage))
+    {
+        return false;
+    }
     UStateTree* StateTree = ResolvedStateTree(Target);
     UStateTreeEditorData* EditorData = AuthoredData(StateTree);
     if (StateTree == nullptr

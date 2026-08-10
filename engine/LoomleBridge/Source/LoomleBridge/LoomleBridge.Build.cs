@@ -26,6 +26,7 @@ public class LoomleBridge : ModuleRules
                 "KismetCompiler",
                 "LevelEditor",
                 "MovieScene",
+                "PCG",
                 "PropertyBindingUtils",
                 "PropertyEditor",
                 "Projects",

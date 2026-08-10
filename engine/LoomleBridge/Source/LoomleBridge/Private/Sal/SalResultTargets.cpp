@@ -65,6 +65,24 @@ FString TargetKey(const TSharedPtr<FJsonObject>& Target)
             *KeyPart(Target, TEXT("asset")),
             *KeyPart(Target, TEXT("type")));
     }
+    if (Domain == TEXT("level") || Domain == TEXT("pcg"))
+    {
+        return FString::Printf(
+            TEXT("%s|%s|%s"),
+            *Domain,
+            *KeyPart(Target, TEXT("asset")),
+            *KeyPart(Target, TEXT("type")));
+    }
+    if (Domain == TEXT("pcg_component"))
+    {
+        return FString::Printf(
+            TEXT("pcg_component|%s|%s|%s|%s|%s"),
+            *KeyPart(Target, TEXT("asset")),
+            *KeyPart(Target, TEXT("actorId")),
+            *KeyPart(Target, TEXT("source")),
+            *KeyPart(Target, TEXT("id")),
+            *KeyPart(Target, TEXT("type")));
+    }
     return FString();
 }
 

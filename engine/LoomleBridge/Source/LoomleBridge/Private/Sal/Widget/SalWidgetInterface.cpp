@@ -5,6 +5,7 @@
 #include "../SalDiagnostics.h"
 #include "../SalObjectBuilder.h"
 #include "../SalRuntime.h"
+#include "../SalStableIdentity.h"
 #include "Algo/Reverse.h"
 #include "AssetRegistry/ARFilter.h"
 #include "AssetRegistry/AssetData.h"
@@ -4865,6 +4866,13 @@ bool FSalWidgetInterface::LowerStableReference(
     OutLegacyId.Reset();
     OutCode = TEXT("resolution.object_not_found");
     OutMessage = TEXT("Stable reference was not found in the bound Widget identity environment.");
+    if (!StableIdentity::ValidateCanonicalGuidPath(
+            IdentityPath,
+            OutCode,
+            OutMessage))
+    {
+        return false;
+    }
     UWidgetBlueprint* Blueprint = Cast<UWidgetBlueprint>(Target.Blueprint);
     if (Blueprint == nullptr || IdentityPath.Num() != 1)
     {

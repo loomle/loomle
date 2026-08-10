@@ -10,17 +10,18 @@ import type {
   Page,
   ParseResult,
   Patch,
+  PatchTarget,
   PatchOperation,
   PatchStatement,
   Query,
+  QueryTarget,
+  QueryTargetBinding,
   QueryOperation,
   RequestBinding,
   RequestRef,
   ResultRef,
   StableMemberRef,
   StableRef,
-  Target,
-  TargetBinding,
   TargetHandoff,
   TargetSelfMemberRef,
   TargetSelfRef,
@@ -75,7 +76,7 @@ const patchHeader = /^patch\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+dry run)?$/;
 
 export interface ParseSalOptions {
   compatibility?: "legacy";
-  legacyDomain?: Target["domain"];
+  legacyDomain?: QueryTarget["domain"];
 }
 
 export type ParsedResultText =
@@ -114,7 +115,7 @@ export interface ParseCanonicalTargetTextResult {
 }
 
 interface ParsedPrelude {
-  targets: Map<string, TargetBinding>;
+  targets: Map<string, QueryTargetBinding>;
   legacyCalls: Map<string, LegacyCall>;
 }
 
@@ -227,7 +228,7 @@ export function parseSalResultText(text: string): ParseResultTextResult {
       throw new ParseError("language.missing_object_section", "Result Text requires objects or no_objects.", spanForLine(first));
     }
 
-    let main: TargetBinding | undefined;
+    let main: QueryTargetBinding | undefined;
     const related: CanonicalTargetBinding[] = [];
     const handoffs: TargetHandoff[] = [];
     let stage: "target" | "related" | "handoff" = "target";
@@ -419,7 +420,7 @@ function assertParsedResultContext(result: ParsedResultText, line: ParsedLine): 
 }
 
 function parseLeadingTargets(lines: ParsedLine[], options: ParseSalOptions): ParsedPrelude {
-  const targets = new Map<string, TargetBinding>();
+  const targets = new Map<string, QueryTargetBinding>();
   const legacyCalls = new Map<string, LegacyCall>();
   for (const line of lines) {
     if (line.kind === "comment") {
@@ -456,7 +457,7 @@ function parseLeadingTargets(lines: ParsedLine[], options: ParseSalOptions): Par
   return { targets, legacyCalls };
 }
 
-function parseTargetExpression(text: string, line: ParsedLine): Target {
+function parseTargetExpression(text: string, line: ParsedLine): QueryTarget {
   const match = /^target\s+(\{[\s\S]*\})$/.exec(text.trim());
   if (!match) {
     throw new ParseError(
@@ -489,11 +490,11 @@ function parseTargetExpression(text: string, line: ParsedLine): Target {
   if (!rawDomain || !domainKeywords.has(rawDomain)) {
     throw new ParseError(
       "language.invalid_target_domain",
-      "Target domain must be one of asset, blueprint, class, graph, state_tree, or widget.",
+      "Target domain must be one of asset, blueprint, class, graph, state_tree, widget, level, pcg, or pcg_component.",
       spanForLine(line),
     );
   }
-  const domain = rawDomain as Target["domain"];
+  const domain = rawDomain as QueryTarget["domain"];
   rawFields.delete("domain");
 
   const values = new Map<string, string>();
@@ -522,7 +523,8 @@ function parseTargetExpression(text: string, line: ParsedLine): Target {
       );
     }
   }
-  for (const guidField of ["id", "blueprintId"]) {
+  const guidFields = domain === "pcg_component" ? ["actorId"] : ["id", "blueprintId"];
+  for (const guidField of guidFields) {
     const value = values.get(guidField);
     if (value !== undefined) {
       const canonical = canonicalGuid(value);
@@ -590,7 +592,7 @@ function parseTargetExpression(text: string, line: ParsedLine): Target {
         ...(values.get("blueprintId") ? { blueprintId: values.get("blueprintId")! } : {}),
         ...(id ? { id } : {}),
         ...(name ? { name } : {}),
-      } as Target;
+      } as QueryTarget;
     }
     case "state_tree":
       return {
@@ -606,6 +608,33 @@ function parseTargetExpression(text: string, line: ParsedLine): Target {
         asset: required("asset"),
         ...(values.get("id") ? { id: values.get("id")! } : {}),
       };
+    case "level":
+    case "pcg":
+      return {
+        kind: "target",
+        domain,
+        asset: required("asset"),
+        ...(values.get("type") ? { type: values.get("type")! } : {}),
+      };
+    case "pcg_component": {
+      const source = required("source");
+      if (source !== "native" && source !== "scs" && source !== "instance") {
+        throw new ParseError(
+          "language.invalid_target_value",
+          "pcg_component Target field source must be native, scs, or instance.",
+          spanForLine(line),
+        );
+      }
+      return {
+        kind: "target",
+        domain,
+        asset: required("asset"),
+        actorId: required("actorId"),
+        source,
+        id: required("id"),
+        type: required("type"),
+      };
+    }
   }
 }
 
@@ -617,6 +646,9 @@ function targetFields(domain: string): ReadonlySet<string> {
     case "graph": return new Set(["asset", "blueprintId", "id", "name"]);
     case "state_tree": return new Set(["asset", "type"]);
     case "widget": return new Set(["asset", "id"]);
+    case "level": return new Set(["asset", "type"]);
+    case "pcg": return new Set(["asset", "type"]);
+    case "pcg_component": return new Set(["asset", "actorId", "source", "id", "type"]);
     default: return new Set();
   }
 }
@@ -633,7 +665,7 @@ function canonicalGuid(value: string): string | undefined {
   return `${lower.slice(0, 8)}-${lower.slice(8, 12)}-${lower.slice(12, 16)}-${lower.slice(16, 20)}-${lower.slice(20)}`;
 }
 
-function isCanonicalTarget(target: Target): target is CanonicalTarget {
+function isCanonicalTarget(target: QueryTarget): target is CanonicalTarget {
   switch (target.domain) {
     case "asset":
       return "path" in target && typeof target.type === "string";
@@ -650,10 +682,19 @@ function isCanonicalTarget(target: Target): target is CanonicalTarget {
       return typeof target.type === "string";
     case "widget":
       return typeof target.id === "string";
+    case "level":
+    case "pcg":
+      return typeof target.type === "string";
+    case "pcg_component":
+      return true;
   }
 }
 
-function isCanonicalEditorTarget(target: Target): target is CanonicalEditorTarget {
+function isPatchTarget(target: QueryTarget): target is PatchTarget {
+  return target.domain !== "pcg_component" && isCanonicalTarget(target);
+}
+
+function isCanonicalEditorTarget(target: QueryTarget): target is CanonicalEditorTarget {
   return (target.domain === "blueprint" || target.domain === "graph") && isCanonicalTarget(target);
 }
 
@@ -663,13 +704,13 @@ function lowerLegacyTarget(
   requestKind: "query" | "patch",
   _requestLines: readonly ParsedLine[],
   line: ParsedLine,
-  legacyDomain?: Target["domain"],
-): Target {
+  legacyDomain?: QueryTarget["domain"],
+): QueryTarget {
   const call = calls.get(alias);
   if (!call) {
     throw new ParseError("language.unknown_target", `Legacy Target ${alias} is not declared.`, spanForLine(line));
   }
-  let target: Target;
+  let target: QueryTarget;
   switch (call.callee) {
     case "asset": {
       assertLegacyTargetFields(call, new Set(["path", "type"]), line);
@@ -743,7 +784,7 @@ function lowerLegacyTarget(
         ...(owner.blueprintId ? { blueprintId: owner.blueprintId } : {}),
         ...(id ? { id } : {}),
         ...(name ? { name } : {}),
-      } as Target;
+      } as QueryTarget;
       break;
     }
     default:
@@ -893,7 +934,7 @@ function requestTarget(
   requestKind: "query" | "patch",
   requestLines: ParsedLine[],
   options: ParseSalOptions,
-): TargetBinding | Patch["target"] {
+): QueryTargetBinding | Patch["target"] {
   const explicit = prelude.targets.get(alias);
   if (explicit) {
     if (prelude.targets.size !== 1 || prelude.legacyCalls.size !== 0) {
@@ -903,14 +944,23 @@ function requestTarget(
         spanForLine(line),
       );
     }
-    if (requestKind === "patch" && !isCanonicalTarget(explicit.target)) {
-      throw new ParseError(
-        "language.incomplete_patch_target",
-        "Patch requires the selected Domain's canonical exact Target.",
-        spanForLine(line),
-      );
+    if (requestKind === "patch") {
+      if (explicit.target.domain === "pcg_component") {
+        throw new ParseError(
+          "language.invalid_patch_target",
+          "pcg_component is Query-only in this protocol version and cannot be selected by Patch.",
+          spanForLine(line),
+        );
+      }
+      if (!isPatchTarget(explicit.target)) {
+        throw new ParseError(
+          "language.incomplete_patch_target",
+          "Patch requires the selected Domain's canonical exact Target.",
+          spanForLine(line),
+        );
+      }
     }
-    return explicit as TargetBinding | Patch["target"];
+    return explicit as QueryTargetBinding | Patch["target"];
   }
 
   if (options.compatibility === "legacy") {
@@ -937,7 +987,7 @@ function requestTarget(
       line,
       options.legacyDomain,
     );
-    return { alias, target } as TargetBinding | Patch["target"];
+    return { alias, target } as QueryTargetBinding | Patch["target"];
   }
 
   throw new ParseError("language.unknown_target", `Target ${alias} has no Domain Target binding.`, spanForLine(line));
@@ -1012,7 +1062,7 @@ function parseQuery(
   }
   const body = lines.slice(queryIndex + 1).filter((line) => line.kind === "code");
   const hasPrimaryOperation = body.length > 0 && !isQueryClause(body[0].text);
-  const target = requestTarget(match[1], prelude, header, "query", body, options) as TargetBinding;
+  const target = requestTarget(match[1], prelude, header, "query", body, options) as QueryTargetBinding;
   const expressionOptions: ExpressionParseOptions = {
     ...options,
     requestTargetAlias: match[1],
@@ -1050,7 +1100,7 @@ function parseQuery(
 function parseQueryOperation(
   line: ParsedLine,
   options: ExpressionParseOptions,
-  targetDomain: Target["domain"],
+  targetDomain: QueryTarget["domain"],
 ): QueryOperation {
   const text = line.text;
   const expressionOptions: ExpressionParseOptions = options;

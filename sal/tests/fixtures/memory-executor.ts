@@ -156,6 +156,9 @@ function isCanonicalTarget(target: Target): target is CanonicalTarget {
     case "graph": return "id" in target && typeof target.blueprintId === "string" && !("name" in target);
     case "state_tree": return typeof target.type === "string";
     case "widget": return typeof target.id === "string";
+    case "level": return typeof target.type === "string";
+    case "pcg": return typeof target.type === "string";
+    case "pcg_component": return true;
   }
 }
 

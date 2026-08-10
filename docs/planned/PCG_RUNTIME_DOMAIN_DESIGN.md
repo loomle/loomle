@@ -114,6 +114,11 @@ or protocol specification. Its useful reference operations include:
 - separate SceneTools, ActorTools, and AssetTools for generic scene and save
   work.
 
+Reading editor and experimental source does not create a build dependency.
+The plugin always enables UE's built-in PCG plugin, and `LoomleBridge` plus
+`LoomleBridgeTests` compile only against the public `PCG` runtime module for
+this family. They never depend on `PCGEditor`.
+
 Its boundary is deliberately not copied:
 
 - listing and instance mutation are centered on `APCGVolume` rather than all
@@ -1469,33 +1474,34 @@ adapters:
 
 ## Implementation Slices
 
-### Slice 0: protocol and registries
+These slices follow the family dependency order. Persistent
+`pcg_component` identity and Query must pass before any typed-runtime registry,
+World ticket, async-kernel extraction, or execution frontend is implemented.
+The separately versioned family `sal.object()` projection slice also lands
+before typed-runtime work begins. Typed execution is the final family stage.
 
-- preserve the three Target-backed family Domains; reject `world_session`,
-  `pcg_execution`, World selectors, and tickets as Target Domain variants;
-- extract the shared async kernel from the existing Python lifecycle without
-  changing ordinary Python behavior, ids, or acceptance results; the separately
-  versioned `sal.object()` annex remains a Python adapter concern;
-- decide and version the typed structured PCG operation schema, public tool
-  surface, and private route;
-- implement the private PCG World epoch/ticket registry and PCG frontend adapter;
-- reuse kernel runtime-affinity, outer statuses, exact continuation, poll,
-  loss, retention, uncertainty, and no-replay rules;
-- expose no PCG execution operation yet.
+### Slice 0: family Target prerequisite
 
-### Slice 1: Query-only Component and source preparation
+- consume the family Phase 0 Target variants and three-way admission rules;
+- accept canonical `pcg_component` in Query and canonical Result/related
+  Targets while rejecting it in Patch before Bridge adapter dispatch;
+- reject `world_session`, `pcg_execution`, World selectors, tickets, and
+  execution ids from every SAL Target and StableRef position;
+- use Domain-specific StableRef identity validation and fail-closed Bridge
+  resolution/dispatch stubs;
+- add protocol round-trip and old/new Client-Bridge mismatch fixtures;
+- add no async kernel, World registry, typed schema, execution frontend,
+  projection envelope, effect schema, save support, or public interface card.
+
+### Slice 1: persistent Query-only Component
 
 - canonical Component Target with `asset, actorId, source, id, type`;
 - native/instance `FName` slot resolution and documented incarnation semantics;
 - SCS owner-Generated-Class plus `VariableGuid` resolution;
 - UCS Components remain live-only and have no persistent source Target;
-- typed-PCG `worldKind`/`playMode` selector normalization;
-- Editor World and one exact in-process PIE/SIE path;
-- source Target to exact live Component-incarnation proof;
-- source-bound opaque `pcgWorldTicket` with stale rejection;
-- Python `sal.object()` exact/authored-source projection interoperability;
 - persistent Graph/Level/Component handoffs;
-- live managed-resource inventory only through typed source preparation;
+- Graph binding and certified persistent Parameter readback where identity is
+  proven;
 - no Component Patch and no execution.
 
 ### Slice 2: Component Parameter readback and mutation research
@@ -1506,7 +1512,27 @@ adapters:
 - internal/external persistence-owner handoff;
 - remain Query-only publicly until every Patch gate passes.
 
-### Slice 3: generate, continuation/poll, and messages
+### Slice 3: typed-runtime foundation and source preparation
+
+- begin only after the separate family `sal.object()` projection slice has
+  preserved ordinary Python behavior and passed its own compatibility gates;
+- extract the shared async kernel from the existing Python lifecycle without
+  changing ordinary Python behavior, ids, or acceptance results;
+- decide and version the typed structured PCG operation schema, public tool
+  surface, and private route;
+- implement the private PCG World epoch/ticket registry and PCG frontend
+  adapter;
+- normalize typed-PCG `worldKind`/`playMode` selectors;
+- support Editor World and one exact in-process PIE/SIE path;
+- prove source Target to exact live Component incarnation and issue a
+  source-bound opaque `pcgWorldTicket` with stale rejection;
+- expose live managed-resource inventory only through typed source
+  preparation;
+- reuse kernel runtime affinity, outer statuses, exact continuation, poll,
+  loss, retention, uncertainty, and no-replay rules;
+- expose no PCG execution operation yet.
+
+### Slice 4: generate, continuation/poll, and messages
 
 - versioned typed PCG start/poll schema on the shared outer envelope;
 - required normalized World selector, matching source-bound World ticket, and
@@ -1521,7 +1547,7 @@ adapters:
 - Editor World first, then exact PIE parity;
 - no inspection in the first sub-slice.
 
-### Slice 4: cancellation, cleanup, and effects
+### Slice 5: cancellation, cleanup, and effects
 
 - execution-id supersession guard around native source-scoped cancellation;
 - Component-scoped `CleanupLocal` as a new context;
@@ -1531,7 +1557,7 @@ adapters:
 - incomplete-result handling;
 - no direct resource deletion and no save.
 
-### Slice 5: inspection and Data View
+### Slice 6: inspection and Data View
 
 - capture choice before generation;
 - per-top-Graph inspection lease;
@@ -1541,7 +1567,7 @@ adapters:
 - attribute projection, pagination, and memory bounds;
 - later Graph edit isolation.
 
-### Slice 6: partition and World hardening
+### Slice 7: partition and World hardening
 
 - hierarchical grid conversion;
 - partition source/local Component aggregation;

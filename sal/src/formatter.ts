@@ -7,12 +7,14 @@ import type {
   PatchOperation,
   Query,
   CollectionOperation,
+  CanonicalTarget,
   QueryOperation,
   RequestBinding,
   RequestRef,
   ResultRef,
   SalObject,
-  TargetBinding,
+  QueryTarget,
+  QueryTargetBinding,
 } from "./index.js";
 import { formatBinding } from "./core/binding.js";
 import { formatCondition } from "./core/condition.js";
@@ -89,11 +91,11 @@ function formatPatch(patch: Patch): string {
   return lines.join("\n");
 }
 
-function formatTarget(binding: TargetBinding | Patch["target"]): string[] {
+function formatTarget(binding: QueryTargetBinding | Patch["target"]): string[] {
   return [`${binding.alias} = ${formatTargetExpression(binding.target)}`, ""];
 }
 
-export function formatTargetExpression(target: TargetBinding["target"] | Patch["target"]["target"]): string {
+export function formatTargetExpression(target: QueryTarget | CanonicalTarget): string {
   const fieldOrder = target.domain === "asset"
     ? ["domain", "path", "type"]
     : target.domain === "blueprint"
@@ -104,7 +106,11 @@ export function formatTargetExpression(target: TargetBinding["target"] | Patch["
           ? ["domain", "asset", "blueprintId", "id", "name"]
           : target.domain === "state_tree"
             ? ["domain", "asset", "type"]
-            : ["domain", "asset", "id"];
+            : target.domain === "widget"
+              ? ["domain", "asset", "id"]
+              : target.domain === "level" || target.domain === "pcg"
+                ? ["domain", "asset", "type"]
+                : ["domain", "asset", "actorId", "source", "id", "type"];
   const fields = fieldOrder
     .filter((key) => key === "domain" || key in target)
     .map((key) => {

@@ -14,7 +14,7 @@
     },
     "LocalIdentifier": {
       "type": "string",
-      "pattern": "^(?!(?:true|false|null|target|domain|tree|context|palette|object|asset|blueprint|class|graph|state_tree|widget)$)[A-Za-z_][A-Za-z0-9_]*$"
+      "pattern": "^(?!(?:true|false|null|target|domain|tree|context|palette|object|asset|blueprint|class|graph|state_tree|widget|level|pcg|pcg_component)$)[A-Za-z_][A-Za-z0-9_]*$"
     },
     "SemanticTag": {
       "type": "string",
@@ -35,7 +35,10 @@
           "class",
           "graph",
           "state_tree",
-          "widget"
+          "widget",
+          "level",
+          "pcg",
+          "pcg_component"
         ]
       }
     },
@@ -344,7 +347,7 @@
       "properties": {
         "kind": { "const": "target" },
         "domain": {
-          "enum": ["asset", "blueprint", "class", "graph", "state_tree", "widget"]
+          "enum": ["asset", "blueprint", "class", "graph", "state_tree", "widget", "level", "pcg", "pcg_component"]
         }
       }
     },
@@ -448,16 +451,56 @@
         "id": { "$ref": "#/$defs/GuidString" }
       }
     },
-    "Target": {
+    "LevelTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "domain", "asset"],
+      "properties": {
+        "kind": { "const": "target" },
+        "domain": { "const": "level" },
+        "asset": { "$ref": "#/$defs/NonEmptyString" },
+        "type": { "$ref": "#/$defs/NonEmptyString" }
+      }
+    },
+    "PcgTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "domain", "asset"],
+      "properties": {
+        "kind": { "const": "target" },
+        "domain": { "const": "pcg" },
+        "asset": { "$ref": "#/$defs/NonEmptyString" },
+        "type": { "$ref": "#/$defs/NonEmptyString" }
+      }
+    },
+    "PcgComponentTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "domain", "asset", "actorId", "source", "id", "type"],
+      "properties": {
+        "kind": { "const": "target" },
+        "domain": { "const": "pcg_component" },
+        "asset": { "$ref": "#/$defs/NonEmptyString" },
+        "actorId": { "$ref": "#/$defs/GuidString" },
+        "source": { "enum": ["native", "scs", "instance"] },
+        "id": { "$ref": "#/$defs/NonEmptyString" },
+        "type": { "$ref": "#/$defs/NonEmptyString" }
+      }
+    },
+    "QueryTarget": {
       "oneOf": [
         { "$ref": "#/$defs/AssetTarget" },
         { "$ref": "#/$defs/BlueprintTarget" },
         { "$ref": "#/$defs/ClassTarget" },
         { "$ref": "#/$defs/GraphTarget" },
         { "$ref": "#/$defs/StateTreeTarget" },
-        { "$ref": "#/$defs/WidgetTarget" }
+        { "$ref": "#/$defs/WidgetTarget" },
+        { "$ref": "#/$defs/LevelTarget" },
+        { "$ref": "#/$defs/PcgTarget" },
+        { "$ref": "#/$defs/PcgComponentTarget" }
       ]
     },
+    "Target": { "$ref": "#/$defs/QueryTarget" },
     "CanonicalAssetTarget": {
       "type": "object",
       "additionalProperties": false,
@@ -514,6 +557,28 @@
         "id": { "$ref": "#/$defs/GuidString" }
       }
     },
+    "CanonicalLevelTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "domain", "asset", "type"],
+      "properties": {
+        "kind": { "const": "target" },
+        "domain": { "const": "level" },
+        "asset": { "$ref": "#/$defs/NonEmptyString" },
+        "type": { "$ref": "#/$defs/NonEmptyString" }
+      }
+    },
+    "CanonicalPcgTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "domain", "asset", "type"],
+      "properties": {
+        "kind": { "const": "target" },
+        "domain": { "const": "pcg" },
+        "asset": { "$ref": "#/$defs/NonEmptyString" },
+        "type": { "$ref": "#/$defs/NonEmptyString" }
+      }
+    },
     "CanonicalTarget": {
       "oneOf": [
         { "$ref": "#/$defs/CanonicalAssetTarget" },
@@ -521,18 +586,34 @@
         { "$ref": "#/$defs/ClassTarget" },
         { "$ref": "#/$defs/CanonicalGraphTarget" },
         { "$ref": "#/$defs/CanonicalStateTreeTarget" },
-        { "$ref": "#/$defs/CanonicalWidgetTarget" }
+        { "$ref": "#/$defs/CanonicalWidgetTarget" },
+        { "$ref": "#/$defs/CanonicalLevelTarget" },
+        { "$ref": "#/$defs/CanonicalPcgTarget" },
+        { "$ref": "#/$defs/PcgComponentTarget" }
       ]
     },
-    "TargetBinding": {
+    "PatchTarget": {
+      "oneOf": [
+        { "$ref": "#/$defs/CanonicalAssetTarget" },
+        { "$ref": "#/$defs/CanonicalBlueprintTarget" },
+        { "$ref": "#/$defs/ClassTarget" },
+        { "$ref": "#/$defs/CanonicalGraphTarget" },
+        { "$ref": "#/$defs/CanonicalStateTreeTarget" },
+        { "$ref": "#/$defs/CanonicalWidgetTarget" },
+        { "$ref": "#/$defs/CanonicalLevelTarget" },
+        { "$ref": "#/$defs/CanonicalPcgTarget" }
+      ]
+    },
+    "QueryTargetBinding": {
       "type": "object",
       "additionalProperties": false,
       "required": ["alias", "target"],
       "properties": {
         "alias": { "$ref": "#/$defs/LocalIdentifier" },
-        "target": { "$ref": "#/$defs/Target" }
+        "target": { "$ref": "#/$defs/QueryTarget" }
       }
     },
+    "TargetBinding": { "$ref": "#/$defs/QueryTargetBinding" },
     "CanonicalTargetBinding": {
       "type": "object",
       "additionalProperties": false,
@@ -540,6 +621,15 @@
       "properties": {
         "alias": { "$ref": "#/$defs/LocalIdentifier" },
         "target": { "$ref": "#/$defs/CanonicalTarget" }
+      }
+    },
+    "PatchTargetBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "target"],
+      "properties": {
+        "alias": { "$ref": "#/$defs/LocalIdentifier" },
+        "target": { "$ref": "#/$defs/PatchTarget" }
       }
     },
     "DomainRootTargetBinding": {
@@ -852,7 +942,7 @@
       "required": ["kind", "target", "operation"],
       "properties": {
         "kind": { "const": "query" },
-        "target": { "$ref": "#/$defs/TargetBinding" },
+        "target": { "$ref": "#/$defs/QueryTargetBinding" },
         "operation": { "$ref": "#/$defs/QueryOperation" },
         "where": { "$ref": "#/$defs/Condition" },
         "with": {
@@ -1093,7 +1183,7 @@
       "required": ["kind", "target", "dryRun", "statements"],
       "properties": {
         "kind": { "const": "patch" },
-        "target": { "$ref": "#/$defs/CanonicalTargetBinding" },
+        "target": { "$ref": "#/$defs/PatchTargetBinding" },
         "dryRun": { "type": "boolean" },
         "statements": {
           "type": "array",

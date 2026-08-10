@@ -31,6 +31,7 @@ public class LoomleBridgeTests : ModuleRules
                 "LevelEditor",
                 "LoomleBridge",
                 "MovieScene",
+                "PCG",
                 "PropertyBindingUtils",
                 "PropertyEditor",
                 "Projects",

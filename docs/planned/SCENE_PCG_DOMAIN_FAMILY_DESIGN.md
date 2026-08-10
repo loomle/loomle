@@ -813,10 +813,14 @@ fallback, not the implementation of structured PCG execution.
 
 The family should land internally in this dependency order:
 
-1. **Shared protocol groundwork**: Target variant/admissibility sets, effect
-   classification, diagnostics, existing Result Text related-Target/handoff
-   parity, exact save-plan support, and the Bridge-owned Python projection
-   envelope.
+1. **Phase 0 — minimal shared Target groundwork**: add the three closed Target
+   variants; separate Query admission, canonical Result/related-Target
+   admission, and Patch admission; move StableRef identity validation into
+   Domain adapters; and add parser/formatter/schema plus Client/Bridge
+   fail-closed fixtures. Bridge resolution and dispatch may land as explicit
+   unavailable stubs. Phase 0 does not add effect classification, save-plan
+   support, `sal.object()` projection, mutation, persistence, an interface
+   card, or a public catalog promise.
 2. **`level` persistent identity and read-only Query**: Actor Guid,
    source-aware Component locator audit, World Partition descriptors, and
    persistent handoffs.
@@ -839,6 +843,12 @@ Read-only `level` and authored `pcg` implementation can proceed in parallel,
 but `pcg_component` must not invent temporary identity while waiting for the
 Level contract. Execution is last because it composes the already verified
 boundaries without merging them.
+
+The family uses UE's built-in PCG plugin as an always-on production
+dependency. `LoomleBridge` and `LoomleBridgeTests` compile against the public
+`PCG` runtime module, and the plugin descriptor enables `PCG`. Neither module
+depends on `PCGEditor`; editor-only and experimental PCG tooling remains source
+reference material rather than a Loomle runtime dependency.
 
 Internal slices are not separate public catalog promises. `level`, `pcg`, and
 Query-only `pcg_component` enter one coordinated nine-Domain SAL catalog
@@ -1031,10 +1041,13 @@ convenient:
     generate/cleanup inside its authored transaction; unsupported native paths
     are unavailable.
 
-## Open Implementation Release Gates
+## Open Public Mutation, Projection, And Execution Release Gates
 
-The architecture is not implementation-ready until these questions are
-source-verified and closed:
+The minimal Phase 0 Target groundwork and the read-only adapter slices are
+ready for internal development. The following questions do not block that
+work. They gate only the public capability that depends on them: persistent
+Target publication where identity proof is required, authored mutation and
+save, Python projection, or typed PCG execution.
 
 - Actor Guid persistence and collision behavior across ordinary Levels,
   World Partition, Level Instances, duplication, and UE 5.7/5.8;
@@ -1066,5 +1079,9 @@ source-verified and closed:
 - joined Automation and packaged fixtures that prove the boundaries without
   enabling UE's experimental PCGToolset.
 
-Until those gates pass, the Target and wire examples remain design proposals
-and must not appear in the public interface catalog.
+Each surface remains a design proposal until its own applicable gates pass.
+In particular, typed-execution or Python-projection gates do not block internal
+Target/read-only implementation, and they do not retroactively become gates
+for the coordinated nine-Domain catalog once the three Target-backed Domains
+have passed their own identity, Query, protocol-parity, and packaged tests.
+Nothing from Phase 0 alone appears in the public interface catalog.

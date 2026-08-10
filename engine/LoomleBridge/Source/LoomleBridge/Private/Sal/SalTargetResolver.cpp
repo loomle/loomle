@@ -63,6 +63,19 @@ TSharedPtr<FJsonObject> InvalidTarget(const FString& Message)
             .Build());
 }
 
+TSharedPtr<FJsonObject> UnavailableDomain(const FString& Domain)
+{
+    return FSalDiagnostics::Result(
+        FSalDiagnostics::Error(
+            TEXT("capability.interface_unavailable"),
+            FString::Printf(
+                TEXT("The %s Domain is recognized but its native adapter is not available in this Bridge build."),
+                *Domain))
+            .Interface(Domain)
+            .Suggestion(TEXT("Use a published Domain capability or install a Bridge build that includes this adapter."))
+            .Build());
+}
+
 bool ReadCall(const TSharedPtr<FJsonObject>& Value, FString& OutCallee, TSharedPtr<FJsonObject>& OutArgs)
 {
     FString Kind;
@@ -354,6 +367,21 @@ bool FSalTargetResolver::ResolveTarget(
             GuidText(OutTarget.Blueprint->GetBlueprintGuid()));
         OutTarget.CanonicalTarget->SetStringField(TEXT("id"), OutTarget.Id);
         return true;
+    }
+
+    if (Domain == TEXT("level")
+        || Domain == TEXT("pcg")
+        || Domain == TEXT("pcg_component"))
+    {
+        OutTarget.Domain = Domain == TEXT("level")
+            ? ESalDomain::Level
+            : Domain == TEXT("pcg")
+                ? ESalDomain::Pcg
+                : ESalDomain::PcgComponent;
+        OutTarget.Interfaces = {FName(*Domain)};
+        Target->TryGetStringField(TEXT("asset"), OutTarget.AssetPath);
+        OutError = UnavailableDomain(Domain);
+        return false;
     }
 
     OutError = InvalidTarget(TEXT("Unknown Target domain."));

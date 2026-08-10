@@ -43,11 +43,12 @@ Identifiers use:
 The parser, normalized Schema, and Bridge validator maintain the same reserved
 set. Parser/Schema parity and Bridge conformance tests keep their behavior
 aligned. The set contains the JSON literals, the retired generic label
-`object`, `target`, `domain`, the six Domain names, and the irreducibly
-ambiguous exact-operation prefixes `tree`, `context`, and `palette`. A reserved
-word cannot be a semantic tag, local alias, or unquoted SAL Name. It remains
-legal as an ordinary object field key, where its position is data rather than
-grammar.
+`object`, `target`, `domain`, all nine protocol-v6 Domain keywords (`asset`,
+`blueprint`, `class`, `graph`, `state_tree`, `widget`, `level`, `pcg`, and
+`pcg_component`), and the irreducibly ambiguous exact-operation prefixes
+`tree`, `context`, and `palette`. A reserved word cannot be a semantic tag,
+local alias, or unquoted SAL Name. It remains legal as an ordinary object field
+key, where its position is data rather than grammar.
 
 JSON strings provide lossless spelling for arbitrary field keys and identity
 segments. Numbers are finite JSON numbers; formatting preserves the distinct
@@ -193,11 +194,19 @@ target_expression =
   "}"
 ```
 
-Domain values are the six structural keywords:
+Protocol v6 recognizes nine structural Domain keywords:
 
 ```text
-asset | blueprint | class | graph | state_tree | widget
+asset | blueprint | class | graph | state_tree | widget |
+level | pcg | pcg_component
 ```
+
+The first six have active public adapters and static interface cards. `level`,
+`pcg`, and `pcg_component` are internal Phase-0 admissions: their syntax,
+normalized shapes, canonical formatting, and Bridge validation are reserved,
+but they do not yet publish an adapter or interface card. Current Bridge
+resolution/dispatch handling fails closed with
+`capability.interface_unavailable`.
 
 Every field after `domain` has a non-empty JSON string value. Domains close
 the accepted field set.
@@ -222,16 +231,23 @@ g = target {
 }
 ```
 
-Target fields and completeness are:
+Target fields and admission are:
 
-| Domain | Query form | Canonical exact form and Patch |
-| --- | --- | --- |
-| Asset | root, or `path` with optional `type` | `path + type` |
-| Blueprint | `asset`, optional `id` | `asset + id` |
-| Class | `path` | `path` |
-| Graph | `asset + id` or `asset + name`, optional `blueprintId` | `asset + blueprintId + id` |
-| StateTree | `asset`, optional `type` | `asset + type` |
-| Widget | `asset`, optional `id` | `asset + id` |
+| Domain | Query form | Canonical exact form | Patch admission |
+| --- | --- | --- | --- |
+| Asset | root, or `path` with optional `type` | `path + type` | same as canonical |
+| Blueprint | `asset`, optional `id` | `asset + id` | same as canonical |
+| Class | `path` | `path` | same as canonical |
+| Graph | `asset + id` or `asset + name`, optional `blueprintId` | `asset + blueprintId + id` | same as canonical |
+| StateTree | `asset`, optional `type` | `asset + type` | same as canonical |
+| Widget | `asset`, optional `id` | `asset + id` | same as canonical |
+| Level (internal Phase 0) | `asset`, optional `type` | `asset + type` | same shape; adapter unavailable |
+| PCG (internal Phase 0) | `asset`, optional `type` | `asset + type` | same shape; adapter unavailable |
+| PCG Component (internal Phase 0) | `asset + actorId + source + id + type` | same exact fields | rejected before dispatch |
+
+For `pcg_component`, `source` is closed to `native`, `instance`, or `scs`.
+Grammar admission is not operation availability; the three internal rows do
+not make a Query or Patch capability public.
 
 When Graph supplies both `id` and `name`, `id` selects identity and `name` is a
 strict readable-state assertion. Canonical readback drops `name`.
@@ -795,21 +811,24 @@ type Domain =
   | "class"
   | "graph"
   | "state_tree"
-  | "widget";
+  | "widget"
+  | "level"
+  | "pcg"
+  | "pcg_component";
 
 interface TargetBase {
   kind: "target";
   domain: Domain;
 }
 
-interface TargetBinding<T extends Target = Target> {
+interface TargetBinding<T extends QueryTarget = QueryTarget> {
   alias: string;
   target: T;
 }
 
 interface QueryRequest {
   kind: "query";
-  target: TargetBinding<QueryAcceptedTarget>;
+  target: TargetBinding<QueryTarget>;
   operation: QueryOperation;
   where?: Condition;
   with?: [string, ...string[]];
@@ -819,7 +838,7 @@ interface QueryRequest {
 
 interface PatchRequest {
   kind: "patch";
-  target: TargetBinding<CanonicalTarget>;
+  target: TargetBinding<PatchTarget>;
   dryRun: boolean;
   statements: [PatchStatement, ...PatchStatement[]];
 }
@@ -915,9 +934,8 @@ canonicalized during lowering. Under-scoped owner identities, target-self
 fused references, and forms that would require a name lookup or UE-assisted
 recovery are rejected with migration guidance.
 
-The protocol v4 Bridge rejects normalized legacy Call and fused-reference
+The protocol-v6 Bridge rejects normalized legacy Call and fused-reference
 shapes; compatibility never changes Domain execution semantics. Current
-formatters never emit the legacy spellings. Protocol v4 explicitly extends the
-reader-only migration window because its Editor transport addition does not
-change SAL syntax; removal requires a later incompatible protocol and release
-note.
+formatters never emit the legacy spellings. This reader-only migration window
+remains a direct parser compatibility option; removal requires a later
+incompatible protocol and release note.

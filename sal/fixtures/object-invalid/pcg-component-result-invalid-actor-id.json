@@ -1,0 +1,34 @@
+{
+  "targetContext": "exact_target",
+  "target": {
+    "alias": "arena",
+    "target": {
+      "kind": "target",
+      "domain": "level",
+      "asset": "/Game/Maps/Arena.Arena",
+      "type": "/Script/Engine.World"
+    }
+  },
+  "relatedTargets": [
+    {
+      "alias": "forestComponent",
+      "target": {
+        "kind": "target",
+        "domain": "pcg_component",
+        "asset": "/Game/Maps/Arena.Arena",
+        "actorId": "not-a-guid",
+        "source": "native",
+        "id": "PCGComponent",
+        "type": "/Script/PCG.PCGComponent"
+      }
+    }
+  ],
+  "handoffs": [
+    {
+      "kind": "target_handoff",
+      "purpose": "inspect generated points",
+      "target": { "kind": "local", "name": "forestComponent" }
+    }
+  ],
+  "diagnostics": []
+}

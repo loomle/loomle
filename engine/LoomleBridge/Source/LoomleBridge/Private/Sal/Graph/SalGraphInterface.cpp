@@ -76,6 +76,7 @@
 #include "Sal/SalObjectBuilder.h"
 #include "Sal/SalResultTargets.h"
 #include "Sal/SalRuntime.h"
+#include "Sal/SalStableIdentity.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "UObject/SavePackage.h"
@@ -7998,6 +7999,13 @@ bool FSalGraphInterface::LowerStableReference(
     OutLegacyId.Reset();
     OutCode = TEXT("resolution.object_not_found");
     OutMessage = TEXT("Stable reference was not found in the bound Graph identity environment.");
+    if (!StableIdentity::ValidateCanonicalGuidPath(
+            IdentityPath,
+            OutCode,
+            OutMessage))
+    {
+        return false;
+    }
     if (Target.Graph == nullptr || !(IdentityPath.Num() == 1 || IdentityPath.Num() == 2))
     {
         return false;

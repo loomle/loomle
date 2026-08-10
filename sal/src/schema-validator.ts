@@ -11,13 +11,13 @@ import type {
   Patch,
   PatchOperation,
   Query,
+  QueryTarget,
   RequestBinding,
   RequestExpr,
   RequestRef,
   ResultExpr,
   ResultRef,
   SalObject,
-  Target,
 } from "./index.js";
 import {
   isLocalRef,
@@ -345,7 +345,7 @@ function bindingTargetKey(target: BindingTarget): string {
     : `${target.object.name}:${JSON.stringify(target.path)}`;
 }
 
-function targetKey(target: Target | CanonicalTarget): string {
+function targetKey(target: QueryTarget | CanonicalTarget): string {
   switch (target.domain) {
     case "asset":
       return JSON.stringify([
@@ -368,6 +368,19 @@ function targetKey(target: Target | CanonicalTarget): string {
       return JSON.stringify(["state_tree", target.asset, target.type ?? null]);
     case "widget":
       return JSON.stringify(["widget", target.asset, target.id ?? null]);
+    case "level":
+      return JSON.stringify(["level", target.asset, target.type ?? null]);
+    case "pcg":
+      return JSON.stringify(["pcg", target.asset, target.type ?? null]);
+    case "pcg_component":
+      return JSON.stringify([
+        "pcg_component",
+        target.asset,
+        target.actorId,
+        target.source,
+        target.id,
+        target.type,
+      ]);
   }
 }
 

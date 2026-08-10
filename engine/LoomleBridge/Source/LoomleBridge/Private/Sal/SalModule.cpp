@@ -295,22 +295,6 @@ bool LowerStableReference(
             Target);
         return false;
     }
-    for (const FString& Segment : IdentityPath)
-    {
-        FGuid Guid;
-        if (!FGuid::Parse(Segment, Guid)
-            || !Guid.IsValid()
-            || Segment
-                != Guid.ToString(EGuidFormats::DigitsWithHyphensLower))
-        {
-            OutError = StableReferenceError(
-                TEXT("validation.invalid_reference"),
-                TEXT("StableRef Guid identity components must use canonical lowercase digits-with-hyphens."),
-                Target);
-            return false;
-        }
-    }
-
     FString LegacyKind;
     FString LegacyId;
     FString Code;
@@ -355,11 +339,32 @@ bool LowerStableReference(
             Message);
         break;
     case ESalDomain::Asset:
+        bResolved = FSalAssetInterface::LowerStableReference(
+            Target,
+            IdentityPath,
+            LegacyKind,
+            LegacyId,
+            Code,
+            Message);
+        break;
     case ESalDomain::Class:
-        Code = TEXT("resolution.insufficient_scope");
-        Message = TEXT("This Domain has no contained StableRef identity environment.");
+        bResolved = FSalClassInterface::LowerStableReference(
+            Target,
+            IdentityPath,
+            LegacyKind,
+            LegacyId,
+            Code,
+            Message);
+        break;
+    case ESalDomain::Level:
+    case ESalDomain::Pcg:
+    case ESalDomain::PcgComponent:
+        Code = TEXT("capability.interface_unavailable");
+        Message = TEXT("This Domain's StableRef identity lowerer is not available in this Bridge build.");
         break;
     default:
+        Code = TEXT("capability.interface_unavailable");
+        Message = TEXT("The active Domain has no registered StableRef identity contract.");
         break;
     }
     if (!bResolved)
@@ -2250,6 +2255,10 @@ TSharedPtr<FJsonObject> DispatchQuery(const FSalQuery& Query, const FSalResolved
         return Operation == TEXT("references")
             ? FSalReferenceInterface::Query(Query, Target)
             : FSalWidgetInterface::Query(Query, Target);
+    case ESalDomain::Level:
+    case ESalDomain::Pcg:
+    case ESalDomain::PcgComponent:
+        return InterfaceError(Operation, Target);
     default:
         return InterfaceError(Operation, Target);
     }
@@ -2271,6 +2280,10 @@ TSharedPtr<FJsonObject> DispatchPatch(const FSalPatch& Patch, const FSalResolved
         return FSalStateTreeInterface::Patch(Patch, Target);
     case ESalDomain::Widget:
         return FSalWidgetInterface::Patch(Patch, Target);
+    case ESalDomain::Level:
+    case ESalDomain::Pcg:
+    case ESalDomain::PcgComponent:
+        return InterfaceError(TEXT("patch"), Target);
     default:
         return InterfaceError(TEXT("patch"), Target);
     }

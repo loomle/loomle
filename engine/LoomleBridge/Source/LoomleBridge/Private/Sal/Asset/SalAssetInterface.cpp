@@ -5,6 +5,7 @@
 #include "../SalDiagnostics.h"
 #include "../SalObjectBuilder.h"
 #include "../SalRuntime.h"
+#include "../SalStableIdentity.h"
 #include "AssetRegistry/AssetData.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
@@ -650,6 +651,29 @@ TSharedPtr<FJsonObject> ResolvedSaveRefs(const FSalResolvedTarget&)
     // Result Target and are not StableRefs in an Asset identity scope.
     return nullptr;
 }
+}
+
+bool FSalAssetInterface::LowerStableReference(
+    const FSalResolvedTarget& Target,
+    const TArray<FString>& IdentityPath,
+    FString& OutLegacyKind,
+    FString& OutLegacyId,
+    FString& OutCode,
+    FString& OutMessage)
+{
+    (void)Target;
+    OutLegacyKind.Reset();
+    OutLegacyId.Reset();
+    OutCode = TEXT("resolution.insufficient_scope");
+    OutMessage = TEXT("Asset Domain has no contained StableRef identity environment.");
+    if (!StableIdentity::ValidateCanonicalGuidPath(
+            IdentityPath,
+            OutCode,
+            OutMessage))
+    {
+        return false;
+    }
+    return false;
 }
 
 TSharedPtr<FJsonObject> FSalAssetInterface::Query(const FSalQuery& Query, const FSalResolvedTarget& Target)

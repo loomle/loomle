@@ -58,9 +58,10 @@ node { id: "node-guid", type: "/Script/BlueprintGraph.K2Node_Event" }
 Domain, validation, creation, or execution. Object fields and context carry
 the information that matters.
 
-JSON literals, the retired generic label `object`, `target`, `domain`, the six
-Domain names, and `tree`, `context`, and `palette` are reserved and cannot be
-semantic tags or aliases.
+JSON literals, the retired generic label `object`, `target`, `domain`, the nine
+protocol-v6 Domain keywords (`asset`, `blueprint`, `class`, `graph`,
+`state_tree`, `widget`, `level`, `pcg`, and `pcg_component`), and `tree`,
+`context`, and `palette` are reserved and cannot be semantic tags or aliases.
 
 Parentheses are reserved for true calls or explicitly defined non-object
 syntax, such as an invoked operation:
@@ -89,7 +90,7 @@ summary
 semantic tags. A Target is flat: every non-`domain` field is a non-empty JSON
 string, and a Target cannot contain another Target or alias.
 
-The six Domains and their Target fields are:
+The resident catalog has six active Domain adapters and interface cards:
 
 | Domain | Discovery Query | Canonical exact Target and Patch |
 | --- | --- | --- |
@@ -99,6 +100,19 @@ The six Domains and their Target fields are:
 | `graph` | `asset + id` or `asset + name`; optional `blueprintId` | `asset + blueprintId + id` |
 | `state_tree` | `asset`, optional `type` | `asset + type` |
 | `widget` | `asset`, optional `id` | `asset + id` |
+
+Protocol v6 also recognizes and reserves three internal Phase-0 Target shapes:
+
+| Domain keyword | Query admission | Canonical Result | Patch admission |
+| --- | --- | --- | --- |
+| `level` | `asset`, optional `type` | `asset + type` | `asset + type` |
+| `pcg` | `asset`, optional `type` | `asset + type` | `asset + type` |
+| `pcg_component` | `asset + actorId + source + id + type` | same exact fields | unavailable |
+
+This admission keeps the parser, normalized schema, formatter, and Bridge in
+lockstep while the adapters are developed. It is not a public capability
+claim: these three keywords have no active `sal_schema` card, and current
+Bridge handling fails closed with `capability.interface_unavailable`.
 
 `type` is a native-Class assertion inside a selected Domain. It never selects
 or adds a Domain. The same `UWidgetBlueprint`, for example, has separate
@@ -319,7 +333,7 @@ constructors, or fused kind references. MCP tools and the default SDK facade do
 not enable it. The reader lowers only forms that are unambiguous in the active
 Domain. Under-scoped owner identities, target-self fused references, ambiguous
 or mixed Domains, and any form that would require UE-assisted recovery are
-rejected. The protocol v5 Bridge rejects normalized legacy shapes and current
-formatters never emit them. Protocol v5 explicitly extends this reader-only
-migration window because the Python fallback addition does not change SAL
-syntax; removal requires a later incompatible protocol and release note.
+rejected. The protocol-v6 Bridge rejects normalized legacy shapes and current
+formatters never emit them. This reader-only migration window remains a direct
+parser compatibility option; removal requires a later incompatible protocol
+and release note.

@@ -5,6 +5,7 @@
 #include "../SalDiagnostics.h"
 #include "../SalObjectBuilder.h"
 #include "../SalRuntime.h"
+#include "../SalStableIdentity.h"
 #include "../Blueprint/SalBlueprintSandbox.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
@@ -2069,6 +2070,29 @@ bool IsLastEditForProperty(const TArray<TSharedPtr<FPlannedEdit>>& Edits, const 
     }
     return true;
 }
+}
+
+bool FSalClassInterface::LowerStableReference(
+    const FSalResolvedTarget& Target,
+    const TArray<FString>& IdentityPath,
+    FString& OutLegacyKind,
+    FString& OutLegacyId,
+    FString& OutCode,
+    FString& OutMessage)
+{
+    (void)Target;
+    OutLegacyKind.Reset();
+    OutLegacyId.Reset();
+    OutCode = TEXT("resolution.insufficient_scope");
+    OutMessage = TEXT("Class Domain has no contained StableRef identity environment.");
+    if (!StableIdentity::ValidateCanonicalGuidPath(
+            IdentityPath,
+            OutCode,
+            OutMessage))
+    {
+        return false;
+    }
+    return false;
 }
 
 TSharedPtr<FJsonObject> FSalClassInterface::Query(const FSalQuery& Query, const FSalResolvedTarget& Target)

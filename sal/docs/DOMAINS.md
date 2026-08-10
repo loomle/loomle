@@ -14,7 +14,9 @@ There is no public resolver, locator layer, interface composition, or
 capability-discovery step between Target and Domain. Routing begins and ends
 with `Target.domain`.
 
-## The Six Domains
+## Protocol Domain Set
+
+The resident public catalog currently has six active Domain adapters:
 
 | Domain | Target identity | Primary scope |
 | --- | --- | --- |
@@ -25,13 +27,25 @@ with `Target.domain`.
 | `state_tree` | Asset Path plus verified StateTree Class | authored StateTree hierarchy and bindings |
 | `widget` | WidgetBlueprint asset plus `BlueprintGuid` | WidgetTree, Widgets, Slots, Widget Palette |
 
-Domain names are structural keywords. They cannot be semantic tags.
+Protocol v6 additionally recognizes and reserves three internal Phase-0 Domain
+keywords and Target shapes:
+
+| Domain | Canonical Target identity | Current status |
+| --- | --- | --- |
+| `level` | source-map Asset Path plus verified native Class | adapter unavailable |
+| `pcg` | PCG Graph Asset Path plus verified native Class | adapter unavailable |
+| `pcg_component` | Level asset, Actor Guid, source-aware component locator, and verified native Class | Query-shaped admission only; adapter unavailable |
+
+All nine Domain names are structural keywords. They cannot be semantic tags,
+local aliases, or unquoted SAL Names. The three internal entries are not active
+interface cards or public operation claims; current Bridge handling fails
+closed with `capability.interface_unavailable`.
 
 ## Target Grammar
 
 ```text
 target {
-  domain: <one of the six Domain keywords>,
+  domain: <one of the nine Domain keywords>,
   <Domain-defined field>: <non-empty JSON string>,
   ...
 }
@@ -47,6 +61,9 @@ Each Domain closes its field set:
 | Graph | `asset`, `id` or exact `name`, optional `blueprintId` for discovery |
 | StateTree | `asset`, optional `type` for discovery |
 | Widget | `asset`, optional `id` for discovery |
+| Level | `asset`, optional `type` for discovery |
+| PCG | `asset`, optional `type` for discovery |
+| PCG Component | exact `asset`, `actorId`, `source`, `id`, and `type` |
 
 Patch requires the canonical exact form:
 
@@ -56,6 +73,12 @@ Patch requires the canonical exact form:
 - Graph: `asset + blueprintId + id`
 - StateTree: `asset + type`
 - Widget: `asset + id`
+- Level: `asset + type` (internal admission; adapter unavailable)
+- PCG: `asset + type` (internal admission; adapter unavailable)
+
+`pcg_component` is admitted for Query and canonical Result shapes only. Patch
+rejects it before adapter dispatch. Its `source` field is closed to `native`,
+`instance`, or `scs`.
 
 Target fields are scalar address or verification facts. They cannot contain an
 alias, ObjectExpr, array, or another Target.

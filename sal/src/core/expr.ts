@@ -10,7 +10,7 @@ import type {
   ScopedStableRef,
   SemanticTag,
   StableRef,
-  Target,
+  QueryTarget,
 } from "../index.js";
 import {
   findTopLevel,
@@ -25,7 +25,7 @@ export interface ExpressionParseOptions {
   compatibility?: "legacy";
   allowScopedRef?: boolean;
   requestTargetAlias?: string;
-  legacyDomain?: Target["domain"];
+  legacyDomain?: QueryTarget["domain"];
 }
 
 export interface LegacyCall {
@@ -41,6 +41,9 @@ export const domainKeywords = new Set([
   "graph",
   "state_tree",
   "widget",
+  "level",
+  "pcg",
+  "pcg_component",
 ]);
 
 export const reservedKeywords = new Set([
@@ -318,7 +321,7 @@ export function tryParseRef(
 function lowerLegacyIdentityPath(
   legacyKind: string,
   rawId: string,
-  domain: Target["domain"] | undefined,
+  domain: QueryTarget["domain"] | undefined,
   line: ParsedLine | undefined,
 ): [string, ...string[]] | undefined {
   const reject = (reason: string): undefined => {
@@ -375,6 +378,10 @@ function lowerLegacyIdentityPath(
       }
       componentCount = 1;
       break;
+    case "level":
+    case "pcg":
+    case "pcg_component":
+      return reject(`${domain} Domain has no legacy StableRef projection.`);
   }
 
   const components = componentCount === 2 ? rawId.split("/") : [rawId];

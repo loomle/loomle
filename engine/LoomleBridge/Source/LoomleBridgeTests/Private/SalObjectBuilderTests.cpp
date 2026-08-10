@@ -45,6 +45,9 @@ bool FSalObjectBuilderNativeNameTest::RunTest(
              FString(TEXT("target")),
              FString(TEXT("object")),
              FString(TEXT("graph")),
+             FString(TEXT("level")),
+             FString(TEXT("pcg")),
+             FString(TEXT("pcg_component")),
              FString(TEXT("state_tree")),
              FString(TEXT("not valid"))})
     {
@@ -62,6 +65,41 @@ bool FSalObjectBuilderNativeNameTest::RunTest(
     TestFalse(
         TEXT("Local identifier predicate rejects Core and Domain words"),
         FSalObjectBuilder::IsLocalIdentifier(TEXT("graph")));
+
+    const TSharedPtr<FJsonObject> StablePin =
+        Value::StableObject(
+            TEXT("pin"),
+            TArray<FString>{
+                TEXT("DensityNode"),
+                TEXT("output"),
+                TEXT("Surface/Height")});
+    const TArray<TSharedPtr<FJsonValue>>* IdentityPath = nullptr;
+    FString NodeSegment;
+    FString DirectionSegment;
+    FString LabelSegment;
+    TestTrue(
+        TEXT("Explicit StableRef identity segments preserve slash-bearing Pin labels"),
+        StablePin.IsValid()
+            && StablePin->TryGetArrayField(
+                TEXT("identityPath"),
+                IdentityPath)
+            && IdentityPath != nullptr
+            && IdentityPath->Num() == 3
+            && (*IdentityPath)[0]->TryGetString(NodeSegment)
+            && NodeSegment == TEXT("DensityNode")
+            && (*IdentityPath)[1]->TryGetString(DirectionSegment)
+            && DirectionSegment == TEXT("output")
+            && (*IdentityPath)[2]->TryGetString(LabelSegment)
+            && LabelSegment == TEXT("Surface/Height"));
+
+    const TSharedPtr<FJsonObject> LegacyStable =
+        Value::StableObject(TEXT("pin"), TEXT("node/pin"));
+    const TArray<TSharedPtr<FJsonValue>>* LegacyPath = nullptr;
+    TestTrue(
+        TEXT("Legacy slash-delimited StableRef helper remains compatible"),
+        LegacyStable->TryGetArrayField(TEXT("identityPath"), LegacyPath)
+            && LegacyPath != nullptr
+            && LegacyPath->Num() == 2);
 
     TSharedRef<FJsonObject> Fields = MakeShared<FJsonObject>();
     Fields->SetField(

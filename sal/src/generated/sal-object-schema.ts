@@ -11,7 +11,16 @@
 export type SALNormalizedObjectSchema = SalObject | ObjectResult;
 export type SalObject = Query | Patch | ObjectText;
 export type LocalIdentifier = string;
-export type Target = AssetTarget | BlueprintTarget | ClassTarget | GraphTarget | StateTreeTarget | WidgetTarget;
+export type QueryTarget =
+  | AssetTarget
+  | BlueprintTarget
+  | ClassTarget
+  | GraphTarget
+  | StateTreeTarget
+  | WidgetTarget
+  | LevelTarget
+  | PcgTarget
+  | PcgComponentTarget;
 export type AssetTarget = AssetRootTarget | AssetPathTarget;
 export type NonEmptyString = string;
 export type GuidString = string;
@@ -35,13 +44,15 @@ export type RequestRef = LocalRef | StableRef | RequestMemberRef;
 export type Condition =
   EqCondition | NeCondition | ContainsCondition | CompareCondition | NotCondition | AndCondition | OrCondition;
 export type RequestExpr = null | boolean | number | string | Name | RequestRef | ObjectExpr | RequestExpr[];
-export type CanonicalTarget =
+export type PatchTarget =
   | CanonicalAssetTarget
   | CanonicalBlueprintTarget
   | ClassTarget
   | CanonicalGraphTarget
   | CanonicalStateTreeTarget
-  | CanonicalWidgetTarget;
+  | CanonicalWidgetTarget
+  | CanonicalLevelTarget
+  | CanonicalPcgTarget;
 export type PatchStatement = RequestBinding | PatchOperation;
 export type BindingTarget = LocalRef | BindingMemberRef;
 export type PatchOperation =
@@ -71,11 +82,21 @@ export type ResultExpr = null | boolean | number | string | Name | ResultRef | R
 export type ResultRef = LocalRef | StableRef | ScopedStableRef | ResultMemberRef;
 export type ObjectResult =
   ExactQueryResult | ExactMutationResult | DomainRootQueryResult | UnresolvedQueryResult | UnresolvedMutationResult;
+export type CanonicalTarget =
+  | CanonicalAssetTarget
+  | CanonicalBlueprintTarget
+  | ClassTarget
+  | CanonicalGraphTarget
+  | CanonicalStateTreeTarget
+  | CanonicalWidgetTarget
+  | CanonicalLevelTarget
+  | CanonicalPcgTarget
+  | PcgComponentTarget;
 export type DiagnosticPath = (string | number)[];
 
 export interface Query {
   kind: "query";
-  target: TargetBinding;
+  target: QueryTargetBinding;
   operation: QueryOperation;
   where?: Condition;
   /**
@@ -88,9 +109,9 @@ export interface Query {
   orderBy?: [OrderBy, ...OrderBy[]];
   page?: Page;
 }
-export interface TargetBinding {
+export interface QueryTargetBinding {
   alias: LocalIdentifier;
-  target: Target;
+  target: QueryTarget;
 }
 export interface AssetRootTarget {
   kind: "target";
@@ -139,6 +160,27 @@ export interface WidgetTarget {
   domain: "widget";
   asset: NonEmptyString;
   id?: GuidString;
+}
+export interface LevelTarget {
+  kind: "target";
+  domain: "level";
+  asset: NonEmptyString;
+  type?: NonEmptyString;
+}
+export interface PcgTarget {
+  kind: "target";
+  domain: "pcg";
+  asset: NonEmptyString;
+  type?: NonEmptyString;
+}
+export interface PcgComponentTarget {
+  kind: "target";
+  domain: "pcg_component";
+  asset: NonEmptyString;
+  actorId: GuidString;
+  source: "native" | "scs" | "instance";
+  id: NonEmptyString;
+  type: NonEmptyString;
 }
 export interface TargetOperation {
   kind: "target";
@@ -319,16 +361,16 @@ export interface Page {
 }
 export interface Patch {
   kind: "patch";
-  target: CanonicalTargetBinding;
+  target: PatchTargetBinding;
   dryRun: boolean;
   /**
    * @minItems 1
    */
   statements: [PatchStatement, ...PatchStatement[]];
 }
-export interface CanonicalTargetBinding {
+export interface PatchTargetBinding {
   alias: LocalIdentifier;
-  target: CanonicalTarget;
+  target: PatchTarget;
 }
 export interface CanonicalAssetTarget {
   kind: "target";
@@ -360,6 +402,18 @@ export interface CanonicalWidgetTarget {
   domain: "widget";
   asset: NonEmptyString;
   id: GuidString;
+}
+export interface CanonicalLevelTarget {
+  kind: "target";
+  domain: "level";
+  asset: NonEmptyString;
+  type: NonEmptyString;
+}
+export interface CanonicalPcgTarget {
+  kind: "target";
+  domain: "pcg";
+  asset: NonEmptyString;
+  type: NonEmptyString;
 }
 export interface RequestBinding {
   target: BindingTarget;
@@ -513,6 +567,10 @@ export interface ExactQueryResult {
   object?: ObjectText;
   diagnostics: Diagnostic[];
   page?: ResultPage;
+}
+export interface CanonicalTargetBinding {
+  alias: LocalIdentifier;
+  target: CanonicalTarget;
 }
 export interface TargetHandoff {
   kind: "target_handoff";

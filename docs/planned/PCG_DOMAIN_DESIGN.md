@@ -1044,11 +1044,12 @@ tested on both:
 - `GetCompatibilityWithOtherPin()` and compatible direct Edge creation;
 - Edge removal and package persistence.
 
-The production baseline depends on the public PCG runtime module. An optional
-editor-only discovery or certified adaptive capability may add a public
-PCGEditor dependency for an exact engine version, but the adapter never
-includes private PCGEditor headers, requires a Graph asset to be open in a
-toolkit, or depends on UE 5.8's experimental PCGToolset.
+The production baseline always enables UE's built-in PCG plugin and both
+`LoomleBridge` and `LoomleBridgeTests` compile against its public `PCG` runtime
+module. Neither module depends on `PCGEditor`. The adapter never includes
+private PCGEditor headers, requires a Graph asset to be open in a toolkit, or
+depends on UE 5.8's experimental PCGToolset. PCGEditor and experimental-tool
+source may still be read as behavioral reference material.
 
 ## Protocol And Catalog Impact
 
@@ -1082,9 +1083,14 @@ Implementation should remain unpublished while a slice lacks its acceptance
 gates. Passing a PCG slice permits internal landing, not an independent public
 catalog release.
 
+The family Phase 0 Target/admission and Domain-specific StableRef work is a
+prerequisite and is not expanded here with effects, save, projection, or
+mutation behavior.
+
 ### Slice 1: Target, identity, and read-only Query
 
-- protocol and static catalog branch;
+- consume the internal family Target/protocol branch without publishing a
+  static interface card;
 - exact Target open/canonicalization;
 - summary, Nodes, exact Node/Pin, data flow, and Parameters;
 - quoted string StableRef resolution;

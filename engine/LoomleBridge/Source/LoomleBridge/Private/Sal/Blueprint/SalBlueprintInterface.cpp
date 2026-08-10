@@ -52,6 +52,7 @@
 #include "Sal/SalObjectBuilder.h"
 #include "Sal/SalResultTargets.h"
 #include "Sal/SalRuntime.h"
+#include "Sal/SalStableIdentity.h"
 #include "ScopedTransaction.h"
 #include "Settings/BlueprintEditorProjectSettings.h"
 #include "BlueprintEditorSettings.h"
@@ -7051,6 +7052,13 @@ bool FSalBlueprintInterface::LowerStableReference(
     OutLegacyId.Reset();
     OutCode = TEXT("resolution.object_not_found");
     OutMessage = TEXT("Stable reference was not found in the bound Blueprint identity environment.");
+    if (!StableIdentity::ValidateCanonicalGuidPath(
+            IdentityPath,
+            OutCode,
+            OutMessage))
+    {
+        return false;
+    }
     UBlueprint* Blueprint = Target.Blueprint;
     if (Blueprint == nullptr || !(IdentityPath.Num() == 1 || IdentityPath.Num() == 2))
     {

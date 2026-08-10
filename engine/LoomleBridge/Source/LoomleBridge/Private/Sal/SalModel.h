@@ -51,6 +51,9 @@ enum class ESalDomain : uint8
     Blueprint,
     Class,
     Graph,
+    Level,
+    Pcg,
+    PcgComponent,
     StateTree,
     Widget
 };

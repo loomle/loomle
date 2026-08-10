@@ -1109,8 +1109,9 @@ schema only when their availability is explicit; they never silently change
 the identity or ownership contract.
 
 The adapter uses UE public runtime/editor APIs and a version-selected parity
-shim. It does not link to PCGEditor Private or other Editor Private
-implementations, drive Slate, or depend on UE 5.8's experimental
+shim. The plugin's always-on PCG integration links only the public `PCG`
+runtime module; neither product nor test code links `PCGEditor` or other Editor
+Private implementations, drives Slate, or depends on UE 5.8's experimental
 ModelContextProtocol or PCGToolset plugins.
 
 Every implementation slice builds and runs first on its selected engine, then
@@ -1146,9 +1147,14 @@ selects exactly one adapter, and one Patch still belongs to one Domain planner.
 
 Each slice remains unpublished until its own gates pass.
 
+The family Phase 0 Target/admission and Domain-specific StableRef work is a
+prerequisite and is not expanded here with effects, save, projection, or
+mutation behavior.
+
 ### Slice 1: Target, Editor Context, identity, and read-only Query
 
-- protocol and static catalog branch;
+- consume the internal family Target/protocol branch without publishing a
+  static interface card;
 - exact saved source-map Target resolution;
 - Level Editor Context upgrade from Asset evidence to Level Target;
 - selected Actor projection as `@ActorGuid`;
@@ -1377,8 +1383,10 @@ decisions remain:
    replacement?
 4. What exact package-status and Source Control fields become the canonical
    multi-package save result?
-5. Which internal implementation slices may land independently before the
-   coordinated public catalog release of `level`, `pcg`, and `pcg_component`?
+
+Internal Phase 0 and read-only slices may land independently. Their presence
+does not publish a Domain; `level`, `pcg`, and Query-only `pcg_component` still
+enter the public catalog only through the coordinated family release.
 
 None of these questions permits changing the persistent `level` Target,
 ActorGuid identity, Level Instance ownership, ActorDesc read-only boundary, or

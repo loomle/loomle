@@ -42,6 +42,7 @@ bool IsLocalIdentifier(const FString& Text)
         TEXT("target"), TEXT("domain"), TEXT("tree"),
         TEXT("context"), TEXT("palette"), TEXT("object"), TEXT("asset"),
         TEXT("blueprint"), TEXT("class"), TEXT("graph"),
+        TEXT("level"), TEXT("pcg"), TEXT("pcg_component"),
         TEXT("state_tree"), TEXT("widget")
     };
     return IsSalJsonIdentifier(Text)
@@ -150,6 +151,7 @@ bool IsSemanticTag(const FString& Text)
         TEXT("target"), TEXT("domain"), TEXT("tree"),
         TEXT("context"), TEXT("palette"), TEXT("object"), TEXT("asset"),
         TEXT("blueprint"), TEXT("class"), TEXT("graph"),
+        TEXT("level"), TEXT("pcg"), TEXT("pcg_component"),
         TEXT("state_tree"), TEXT("widget")
     };
     return IsSalJsonIdentifier(Text) && !Reserved.Contains(Text);
@@ -1011,9 +1013,16 @@ bool ValidateOperation(const TSharedPtr<FJsonObject>& Operation, FString& OutMes
     return true;
 }
 
+enum class ETargetAdmissionMode : uint8
+{
+    QueryDiscovery,
+    CanonicalResult,
+    Patch
+};
+
 bool ValidateNormalizedTarget(
     const TSharedPtr<FJsonObject>& Value,
-    const bool bForPatch,
+    const ETargetAdmissionMode Admission,
     FString& OutMessage)
 {
     FString Kind;
@@ -1064,18 +1073,22 @@ bool ValidateNormalizedTarget(
     FString Id;
     FString BlueprintId;
     FString Name;
+    FString ActorId;
+    FString Source;
+    const bool bRequiresCanonicalIdentity =
+        Admission != ETargetAdmissionMode::QueryDiscovery;
     if (Domain == TEXT("asset"))
     {
         if (!HasOnly(Value, {TEXT("kind"), TEXT("domain"), TEXT("path"), TEXT("type")})
             || !Optional(TEXT("path"), Path)
             || !Optional(TEXT("type"), Type)
             || (Path.IsEmpty() && !Type.IsEmpty())
-            || (bForPatch && (Path.IsEmpty() || Type.IsEmpty())))
+            || (bRequiresCanonicalIdentity && (Path.IsEmpty() || Type.IsEmpty())))
         {
             if (OutMessage.IsEmpty())
             {
-                OutMessage = bForPatch
-                    ? TEXT("Asset Patch requires canonical path and type.")
+                OutMessage = bRequiresCanonicalIdentity
+                    ? TEXT("Canonical Asset Target requires path and type.")
                     : TEXT("Asset Target accepts a root or path with an optional type assertion.");
             }
             return false;
@@ -1086,7 +1099,7 @@ bool ValidateNormalizedTarget(
     {
         return HasOnly(Value, {TEXT("kind"), TEXT("domain"), TEXT("asset"), TEXT("id")})
             && Required(TEXT("asset"), Asset)
-            && GuidField(TEXT("id"), bForPatch, Id);
+            && GuidField(TEXT("id"), bRequiresCanonicalIdentity, Id);
     }
     if (Domain == TEXT("class"))
     {
@@ -1099,16 +1112,16 @@ bool ValidateNormalizedTarget(
                 Value,
                 {TEXT("kind"), TEXT("domain"), TEXT("asset"), TEXT("blueprintId"), TEXT("id"), TEXT("name")})
             || !Required(TEXT("asset"), Asset)
-            || !GuidField(TEXT("blueprintId"), bForPatch, BlueprintId)
-            || !GuidField(TEXT("id"), bForPatch, Id)
+            || !GuidField(TEXT("blueprintId"), bRequiresCanonicalIdentity, BlueprintId)
+            || !GuidField(TEXT("id"), bRequiresCanonicalIdentity, Id)
             || !Optional(TEXT("name"), Name)
             || (Id.IsEmpty() && Name.IsEmpty())
-            || (bForPatch && !Name.IsEmpty()))
+            || (bRequiresCanonicalIdentity && !Name.IsEmpty()))
         {
             if (OutMessage.IsEmpty())
             {
-                OutMessage = bForPatch
-                    ? TEXT("Graph Patch requires canonical asset, blueprintId, and id without name.")
+                OutMessage = bRequiresCanonicalIdentity
+                    ? TEXT("Canonical Graph Target requires asset, blueprintId, and id without name.")
                     : TEXT("Graph Target requires asset and at least one of id or exact name.");
             }
             return false;
@@ -1120,22 +1133,71 @@ bool ValidateNormalizedTarget(
         return HasOnly(Value, {TEXT("kind"), TEXT("domain"), TEXT("asset"), TEXT("type")})
             && Required(TEXT("asset"), Asset)
             && Optional(TEXT("type"), Type)
-            && (!bForPatch || !Type.IsEmpty());
+            && (!bRequiresCanonicalIdentity || !Type.IsEmpty());
     }
     if (Domain == TEXT("widget"))
     {
         return HasOnly(Value, {TEXT("kind"), TEXT("domain"), TEXT("asset"), TEXT("id")})
             && Required(TEXT("asset"), Asset)
-            && GuidField(TEXT("id"), bForPatch, Id);
+            && GuidField(TEXT("id"), bRequiresCanonicalIdentity, Id);
+    }
+    if (Domain == TEXT("level") || Domain == TEXT("pcg"))
+    {
+        if (!HasOnly(Value, {TEXT("kind"), TEXT("domain"), TEXT("asset"), TEXT("type")})
+            || !Required(TEXT("asset"), Asset)
+            || !(bRequiresCanonicalIdentity
+                ? Required(TEXT("type"), Type)
+                : Optional(TEXT("type"), Type)))
+        {
+            if (OutMessage.IsEmpty())
+            {
+                OutMessage = bRequiresCanonicalIdentity
+                    ? FString::Printf(
+                        TEXT("Canonical %s Target requires asset and type."),
+                        *Domain)
+                    : FString::Printf(
+                        TEXT("%s discovery Target requires asset and accepts an optional type assertion."),
+                        *Domain);
+            }
+            return false;
+        }
+        return true;
+    }
+    if (Domain == TEXT("pcg_component"))
+    {
+        if (Admission == ETargetAdmissionMode::Patch)
+        {
+            OutMessage = TEXT("pcg_component is Query-only in this protocol version and cannot be patched.");
+            return false;
+        }
+        if (!HasOnly(
+                Value,
+                {TEXT("kind"), TEXT("domain"), TEXT("asset"), TEXT("actorId"), TEXT("source"), TEXT("id"), TEXT("type")})
+            || !Required(TEXT("asset"), Asset)
+            || !GuidField(TEXT("actorId"), true, ActorId)
+            || !Required(TEXT("source"), Source)
+            || !(Source == TEXT("native")
+                || Source == TEXT("instance")
+                || Source == TEXT("scs"))
+            || !Required(TEXT("id"), Id)
+            || !Required(TEXT("type"), Type))
+        {
+            if (OutMessage.IsEmpty())
+            {
+                OutMessage = TEXT("pcg_component Target requires canonical asset, actorId, source, id, and type; source must be native, instance, or scs.");
+            }
+            return false;
+        }
+        return true;
     }
 
-    OutMessage = TEXT("Target domain must be one of asset, blueprint, class, graph, state_tree, or widget.");
+    OutMessage = TEXT("Target domain must be one of asset, blueprint, class, graph, level, pcg, pcg_component, state_tree, or widget.");
     return false;
 }
 
 bool ValidateTarget(
     const TSharedPtr<FJsonObject>& Target,
-    const bool bForPatch,
+    const ETargetAdmissionMode Admission,
     FString& OutAlias,
     TSharedPtr<FJsonObject>& OutValue,
     FString& OutMessage)
@@ -1152,7 +1214,7 @@ bool ValidateTarget(
         return false;
     }
 
-    if (!ValidateNormalizedTarget(*Value, bForPatch, OutMessage))
+    if (!ValidateNormalizedTarget(*Value, Admission, OutMessage))
     {
         return false;
     }
@@ -2135,6 +2197,24 @@ FString CanonicalTargetKey(const TSharedPtr<FJsonObject>& Target)
             *TargetKeyPart(Target, TEXT("asset")),
             *TargetKeyPart(Target, TEXT("type")));
     }
+    if (Domain == TEXT("level") || Domain == TEXT("pcg"))
+    {
+        return FString::Printf(
+            TEXT("%s|%s|%s"),
+            *Domain,
+            *TargetKeyPart(Target, TEXT("asset")),
+            *TargetKeyPart(Target, TEXT("type")));
+    }
+    if (Domain == TEXT("pcg_component"))
+    {
+        return FString::Printf(
+            TEXT("pcg_component|%s|%s|%s|%s|%s"),
+            *TargetKeyPart(Target, TEXT("asset")),
+            *TargetKeyPart(Target, TEXT("actorId")),
+            *TargetKeyPart(Target, TEXT("source")),
+            *TargetKeyPart(Target, TEXT("id")),
+            *TargetKeyPart(Target, TEXT("type")));
+    }
     return FString();
 }
 
@@ -2153,7 +2233,10 @@ bool ValidateCanonicalTargetBinding(
         || !IsLocalIdentifier(OutAlias)
         || !Binding->TryGetObjectField(TEXT("target"), Target)
         || Target == nullptr
-        || !ValidateNormalizedTarget(*Target, true, OutMessage))
+        || !ValidateNormalizedTarget(
+            *Target,
+            ETargetAdmissionMode::CanonicalResult,
+            OutMessage))
     {
         if (OutMessage.IsEmpty())
         {
@@ -2407,7 +2490,10 @@ bool FSalJson::ValidateCanonicalTarget(
     FString& OutMessage)
 {
     OutMessage.Reset();
-    if (ValidateNormalizedTarget(Target, true, OutMessage))
+    if (ValidateNormalizedTarget(
+            Target,
+            ETargetAdmissionMode::CanonicalResult,
+            OutMessage))
     {
         return true;
     }
@@ -2441,7 +2527,7 @@ bool FSalJson::DecodeQuery(
         || Target == nullptr
         || !ValidateTarget(
             *Target,
-            false,
+            ETargetAdmissionMode::QueryDiscovery,
             OutQuery.Alias,
             OutQuery.TargetValue,
             Message)
@@ -2524,7 +2610,7 @@ bool FSalJson::DecodePatch(
         || Target == nullptr
         || !ValidateTarget(
             *Target,
-            true,
+            ETargetAdmissionMode::Patch,
             OutPatch.Alias,
             OutPatch.TargetValue,
             Message)

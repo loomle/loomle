@@ -25,6 +25,11 @@ const cases: Array<{ name: string; text: string; code: string }> = [
     code: "language.reserved_semantic_tag",
   },
   {
+    name: "new Domain reserved semantic tag",
+    text: "value = pcg_component {id: \"C\"}",
+    code: "language.reserved_semantic_tag",
+  },
+  {
     name: "operation keyword semantic tag",
     text: "value = tree {id: \"T\"}",
     code: "language.reserved_semantic_tag",
@@ -58,6 +63,16 @@ const cases: Array<{ name: string; text: string; code: string }> = [
     name: "incomplete patch target",
     text: "g = target {domain: graph, asset: \"/Game/BP.BP\", name: \"EventGraph\"}\npatch g\nsave",
     code: "language.incomplete_patch_target",
+  },
+  {
+    name: "pcg component is Query-only",
+    text: "c = target {domain: pcg_component, asset: \"/Game/Maps/Arena.Arena\", actorId: \"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\", source: \"native\", id: \"PCGComponent\", type: \"/Script/PCG.PCGComponent\"}\npatch c\nsave",
+    code: "language.invalid_patch_target",
+  },
+  {
+    name: "pcg component source is closed",
+    text: "c = target {domain: pcg_component, asset: \"/Game/Maps/Arena.Arena\", actorId: \"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\", source: \"runtime\", id: \"PCGComponent\", type: \"/Script/PCG.PCGComponent\"}\nquery c",
+    code: "language.invalid_target_value",
   },
   {
     name: "scoped request reference",

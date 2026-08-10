@@ -17,6 +17,7 @@ bool IsReservedLocalIdentifier(const FString& Text)
         TEXT("target"), TEXT("domain"), TEXT("tree"),
         TEXT("context"), TEXT("palette"), TEXT("object"), TEXT("asset"),
         TEXT("blueprint"), TEXT("class"), TEXT("graph"),
+        TEXT("level"), TEXT("pcg"), TEXT("pcg_component"),
         TEXT("state_tree"), TEXT("widget")
     };
     return Reserved.Contains(Text);
@@ -137,13 +138,20 @@ TSharedPtr<FJsonValue> Local(const FString& InName)
 
 TSharedPtr<FJsonObject> StableObject(const FString& InKind, const FString& InId)
 {
-    TSharedPtr<FJsonObject> Object = MakeKindObject(TEXT("stable_ref"));
     TArray<FString> IdentityPath;
     InId.ParseIntoArray(IdentityPath, TEXT("/"), false);
     if (IdentityPath.IsEmpty() && !InId.IsEmpty())
     {
         IdentityPath.Add(InId);
     }
+    return StableObject(InKind, IdentityPath);
+}
+
+TSharedPtr<FJsonObject> StableObject(
+    const FString& InKind,
+    const TArray<FString>& IdentityPath)
+{
+    TSharedPtr<FJsonObject> Object = MakeKindObject(TEXT("stable_ref"));
     TArray<TSharedPtr<FJsonValue>> Segments;
     Segments.Reserve(IdentityPath.Num());
     for (const FString& Segment : IdentityPath)
@@ -162,6 +170,13 @@ TSharedPtr<FJsonObject> StableObject(const FString& InKind, const FString& InId)
 TSharedPtr<FJsonValue> Stable(const FString& InKind, const FString& InId)
 {
     return MakeExplicitExpressionValue(StableObject(InKind, InId));
+}
+
+TSharedPtr<FJsonValue> Stable(
+    const FString& InKind,
+    const TArray<FString>& IdentityPath)
+{
+    return MakeExplicitExpressionValue(StableObject(InKind, IdentityPath));
 }
 
 TSharedPtr<FJsonValue> Name(const FString& InName)

@@ -8,6 +8,8 @@ import type {
   ObjectResult,
   Patch,
   Query,
+  QueryTarget,
+  QueryTargetBinding,
   ResultPage,
   SalObject,
   TargetHandoff,
@@ -30,6 +32,8 @@ export type {
   CanonicalAssetTarget,
   CanonicalBlueprintTarget,
   CanonicalGraphTarget,
+  CanonicalLevelTarget,
+  CanonicalPcgTarget,
   CanonicalStateTreeTarget,
   CanonicalTarget,
   CanonicalTargetBinding,
@@ -61,6 +65,7 @@ export type {
   Insert,
   Invoke,
   InvokeOutput,
+  LevelTarget,
   LocalIdentifier,
   LocalRef,
   Move,
@@ -81,9 +86,15 @@ export type {
   Patch,
   PatchOperation,
   PatchStatement,
+  PatchTarget,
+  PatchTargetBinding,
+  PcgComponentTarget,
+  PcgTarget,
   Point,
   Query,
   QueryOperation,
+  QueryTarget,
+  QueryTargetBinding,
   RequestBinding,
   RequestExpr,
   RequestMemberRef,
@@ -111,8 +122,6 @@ export type {
   Statement,
   SummaryOperation,
   TargetOperation,
-  Target,
-  TargetBinding,
   TargetHandoff,
   TargetSelfMemberRef,
   TargetSelfRef,
@@ -123,6 +132,11 @@ export type {
   WidgetTarget,
   Wrap,
 } from "./generated/sal-object-schema.js";
+
+/** @deprecated Use QueryTarget to make request admissibility explicit. */
+export type Target = QueryTarget;
+/** @deprecated Use QueryTargetBinding to make request admissibility explicit. */
+export type TargetBinding = QueryTargetBinding;
 
 export type QueryResult = ExactQueryResult | DomainRootQueryResult | UnresolvedQueryResult;
 export type PatchResult = ExactMutationResult | UnresolvedMutationResult;

@@ -19,11 +19,17 @@ LOOMLEBRIDGE_API TSharedPtr<FJsonValue> Name(const FString& InName);
 LOOMLEBRIDGE_API TSharedPtr<FJsonValue> NameOrString(const FString& InName);
 LOOMLEBRIDGE_API TSharedPtr<FJsonValue> Local(const FString& InName);
 LOOMLEBRIDGE_API TSharedPtr<FJsonValue> Stable(const FString& InKind, const FString& InId);
+LOOMLEBRIDGE_API TSharedPtr<FJsonValue> Stable(
+    const FString& InKind,
+    const TArray<FString>& IdentityPath);
 LOOMLEBRIDGE_API TSharedPtr<FJsonValue> Member(const TSharedPtr<FJsonObject>& ObjectRef, const TArray<FString>& Path);
 LOOMLEBRIDGE_API TSharedPtr<FJsonValue> Call(const FString& Callee, const TSharedPtr<FJsonObject>& Args);
 LOOMLEBRIDGE_API bool IsExplicitExpression(const TSharedPtr<FJsonValue>& InValue);
 LOOMLEBRIDGE_API TSharedPtr<FJsonObject> LocalObject(const FString& InName);
 LOOMLEBRIDGE_API TSharedPtr<FJsonObject> StableObject(const FString& InKind, const FString& InId);
+LOOMLEBRIDGE_API TSharedPtr<FJsonObject> StableObject(
+    const FString& InKind,
+    const TArray<FString>& IdentityPath);
 LOOMLEBRIDGE_API TSharedPtr<FJsonObject> MemberObject(const TSharedPtr<FJsonObject>& ObjectRef, const TArray<FString>& Path);
 LOOMLEBRIDGE_API TSharedPtr<FJsonObject> CallObject(const FString& Callee, const TSharedPtr<FJsonObject>& Args);
 }
