@@ -83,6 +83,7 @@ jobs:
             LoomleBridge/LoomleBridge.uplugin \
             LoomleBridge/Source/LoomleBridge/LoomleBridge.Build.cs \
             LoomleBridge/Resources/Loomle/darwin-arm64/loomle \
+            LoomleBridge/Resources/Loomle/darwin-arm64/distribution.json \
             LoomleBridge/Content/ \
             LoomleBridge/LICENSE \
             LoomleBridge/THIRD_PARTY_NOTICES.txt; do
@@ -104,6 +105,12 @@ jobs:
             echo "Fab source archive did not preserve the Client executable bit." >&2
             exit 1
           }
+          node -e '
+            const value = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+            if (value.schemaVersion !== 1 || value.channel !== "fab" || Object.keys(value).length !== 2) {
+              throw new Error("Fab source archive has invalid distribution metadata.");
+            }
+          ' "$audit/LoomleBridge/Resources/Loomle/darwin-arm64/distribution.json"
 
           archive_sha="$archive.sha256"
           archive_hash="$(shasum -a 256 "$archive" | awk '{print $1}')"
@@ -347,6 +354,7 @@ jobs:
           archive_entries="$RUNNER_TEMP/loomle-fab-archive-entries-$UE_SLUG-darwin-arm64.txt"
           /usr/bin/unzip -Z1 "$archive" > "$archive_entries"
           grep -Fxq 'LoomleBridge/Resources/Loomle/darwin-arm64/loomle' "$archive_entries"
+          grep -Fxq 'LoomleBridge/Resources/Loomle/darwin-arm64/distribution.json' "$archive_entries"
           grep -Fxq 'LoomleBridge/Content/' "$archive_entries"
           grep -Fxq 'LoomleBridge/LICENSE' "$archive_entries"
           grep -Fxq 'LoomleBridge/THIRD_PARTY_NOTICES.txt' "$archive_entries"

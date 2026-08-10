@@ -86,6 +86,13 @@ defined in
 [`../docs/PROJECT_BINDING_AND_RUNTIME_LIVENESS.md`](../docs/PROJECT_BINDING_AND_RUNTIME_LIVENESS.md).
 Client update discovery and platform-specific update guidance are defined in
 [`../docs/CLIENT_STATUS_AND_UPDATES.md`](../docs/CLIENT_STATUS_AND_UPDATES.md).
+Published Clients report their `github`, `fab`, `mcp_registry`, or `claude`
+distribution. That packaging identity selects only the matching update
+authority. Agent-channel Clients additionally report the exact matching GitHub
+Bridge release for the installed UE version; they never install it. An
+unpackaged checkout reports `development` and performs no public update check.
+Codex users follow the GitHub distribution; Loomle does not maintain a separate
+Codex marketplace version.
 
 ## Build And Test
 

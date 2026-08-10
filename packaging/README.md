@@ -11,6 +11,9 @@ Current responsibilities:
   its matching source, then merge the verified
   Mac and Windows fragments into one cross-platform source package and one
   cross-platform compiled plugin without source or binary drift;
+- `agent/`: derive independent MCP Registry and Claude MCPB candidates plus an
+  internal Codex compatibility package from one byte-identical
+  `client/dist/main.cjs`;
 - `tools/`: derive and verify the product and Client–Bridge protocol versions
   from the root `package.json`;
 - `release/`: document release promotion and the currently accepted targets.
@@ -20,12 +23,14 @@ The canonical local path is:
 ```text
 npm Client build
   -> client/dist/main.cjs
-  -> packaging/client
-  -> .tmp/client/<platform-arch>/loomle(.exe)
-  -> packaging/fab
-  -> native QA fragments
-  -> one cross-platform LoomleBridge source package
-  -> one cross-platform compiled LoomleBridge package
+      -> packaging/client
+      -> .tmp/client/<platform-arch>/loomle(.exe)
+      -> packaging/fab
+      -> native QA fragments
+      -> one cross-platform LoomleBridge source package
+      -> one cross-platform compiled LoomleBridge package
+      -> packaging/agent
+      -> Registry MCPB + Claude MCPB + internal Codex compatibility snapshot
 ```
 
 The packaged Client contains SAL, Interfaces, MCP support, and its runtime. A

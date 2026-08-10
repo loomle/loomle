@@ -25,20 +25,23 @@ The staged plugin is assembled from:
 
 ## Versioned Engine Package Contract
 
-Loomle publishes one source artifact and one complete artifact per supported
-Unreal Engine version:
+Loomle publishes separately identified Fab and GitHub source artifacts plus one
+complete GitHub artifact per supported Unreal Engine version:
 
 ```text
+loomle-bridge-<version>-fab-source.zip
 loomle-bridge-<version>-source.zip
 loomle-bridge-<version>-ue5.7.zip
 loomle-bridge-<version>-ue5.8.zip
 ```
 
-The source ZIP is the single Fab Project File Link. It contains the complete
-Bridge `Source/`, both native Clients, and no UE-generated build output. The
-complete ZIPs are the GitHub installation packages. Each retains every
-source-package file and adds both Bridge binaries compiled by the matching UE
-version under `Binaries/Mac` and `Binaries/Win64`.
+The Fab source ZIP is the single Fab Project File Link. It contains the
+complete Bridge `Source/`, both native Clients, `fab` distribution metadata,
+and no UE-generated build output. The GitHub source ZIP has the same product
+source and exact Client executable bytes but carries `github` distribution
+metadata. The complete GitHub ZIPs retain that GitHub source tree and add both
+Bridge binaries compiled by the matching UE version under `Binaries/Mac` and
+`Binaries/Win64`.
 
 Assembly normalizes release text files to LF before native compilation and
 archiving. This prevents a persistent Windows checkout from creating
@@ -72,7 +75,10 @@ manifest, and proves the production Bridge binary SHA-256 did not change.
 Each native Client is copied to
 `LoomleBridge/Resources/Loomle/<platform-arch>/loomle(.exe)`. No alternative
 Client implementation or resource tree is consumed. The merged package
-contains both accepted target directories. It includes an empty `Content/`
+contains both accepted target directories. A strict `distribution.json`
+beside the executable identifies the package as `fab` during Fab assembly;
+GitHub promotion changes only that external file to `github` and proves the
+Client executable hashes are unchanged. It includes an empty `Content/`
 directory while keeping `CanContainContent=false`; no Unreal asset is invented
 merely to retain it. It also includes Loomle's `LICENSE` and a generated
 `THIRD_PARTY_NOTICES.txt` covering the pinned Node runtime and bundled
@@ -117,6 +123,7 @@ LoomleBridge/Content/
 LoomleBridge/Config/FilterPlugin.ini
 LoomleBridge/Source/LoomleBridge/LoomleBridge.Build.cs
 LoomleBridge/Resources/Loomle/<platform-arch>/loomle(.exe)
+LoomleBridge/Resources/Loomle/<platform-arch>/distribution.json
 LoomleBridge/Resources/AgentSkills/format-unreal-blueprints/SKILL.md
 ```
 
@@ -190,9 +197,11 @@ loomle-fab-plugin-ue<engine-version>-<platform-arch>.zip
 
 All have SHA-256 sidecars and remain inputs to promotion only. Promotion
 extracts, validates, and mechanically combines them. The public GitHub Release
-contains the source archive, both engine-specific archives, and their sidecars:
+contains the Fab source candidate, GitHub source archive, both engine-specific
+archives, and their sidecars:
 
 ```text
+loomle-bridge-<version>-fab-source.zip
 loomle-bridge-<version>-source.zip
 loomle-bridge-<version>-ue5.7.zip
 loomle-bridge-<version>-ue5.8.zip
@@ -208,4 +217,4 @@ loomle-bridge-ue5.8.zip
 
 These aliases exist so documentation can use GitHub's
 `releases/latest/download/...` route. Fab Project File Links remain pinned to
-the immutable `loomle-bridge-<version>-source.zip` asset.
+the immutable `loomle-bridge-<version>-fab-source.zip` asset.

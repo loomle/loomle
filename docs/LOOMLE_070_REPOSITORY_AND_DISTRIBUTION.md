@@ -128,8 +128,8 @@ installation of `node_modules`, SAL documents, or schemas.
 
 ## Fab Layout
 
-Fab is the 0.7 installation channel. Its one Project Version contains the UE
-Bridge source and both supported standalone Clients:
+Fab and GitHub are native 0.7 installation channels. A Fab Project Version
+contains the UE Bridge source and both supported standalone Clients:
 
 ```text
 LoomleBridge/
@@ -151,16 +151,20 @@ LoomleBridge/
     Loomle/
       darwin-arm64/
         loomle
+        distribution.json
       win32-x64/
         loomle.exe
+        distribution.json
   LoomleBridge.uplugin
 ```
 
 Fab receives one cross-platform source archive named
-`loomle-bridge-<version>-source.zip`. It contains no UE-generated `Binaries/`,
-`Intermediate/`, or `Saved/` tree. The public GitHub installation archive is
-named `loomle-bridge-<version>.zip`; it contains the same source and both
-Clients, then adds the exact verified Mac and Win64 Bridge binaries:
+`loomle-bridge-<version>-fab-source.zip`. It contains no UE-generated
+`Binaries/`, `Intermediate/`, or `Saved/` tree and its adjacent distribution
+documents identify `fab`. The public GitHub source and engine installation
+archives use `github` distribution documents. They contain the same source and
+exact Client executable bytes, with the engine packages adding the verified
+Mac and Win64 Bridge binaries:
 
 ```text
 LoomleBridge/

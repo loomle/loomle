@@ -46,8 +46,16 @@ test("assembles the Bridge source and only the canonical TypeScript Client execu
     assert.equal(result.client, stagedClient);
     assert.equal(result.target, "darwin-arm64");
     assert.equal(result.packageKind, "fab-plugin");
+    assert.equal(result.distribution, "fab");
     assert.match(result.clientSha256, /^[0-9a-f]{64}$/);
     assert.equal(await readFile(stagedClient, "utf8"), "canonical-client");
+    assert.deepEqual(
+      JSON.parse(await readFile(
+        join(pluginRoot, "Resources", "Loomle", "darwin-arm64", "distribution.json"),
+        "utf8",
+      )),
+      { schemaVersion: 1, channel: "fab" },
+    );
     if (process.platform !== "win32") {
       assert.notEqual((await stat(stagedClient)).mode & 0o111, 0);
     }
