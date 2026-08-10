@@ -3,10 +3,10 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 import { verifyRegistryCandidate } from "./verify-registry-candidate.mjs";
+import { writeZipFromDirectory } from "../tools/zip.mjs";
 
 test("verifies one immutable Registry MCPB candidate", async () => {
   const fixture = await createFixture();
@@ -55,9 +55,7 @@ async function createFixture() {
       },
     },
   })}\n`);
-  const zipped = spawnSync("zip", ["-X", "-q", "-r", archive, "."], { cwd: staging });
-  if (zipped.error) throw zipped.error;
-  if (zipped.status !== 0) throw new Error(zipped.stderr?.toString());
+  await writeZipFromDirectory({ sourceDirectory: staging, destination: archive });
   const sha256 = createHash("sha256").update(await readFile(archive)).digest("hex");
   const shaFilePath = `${archive}.sha256`;
   await writeFile(shaFilePath, `${sha256}  ${archiveName}\n`);

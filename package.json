@@ -34,6 +34,7 @@
     "test": "npm run check:version && npm run check:channels && node --test packaging/tools/product-version.test.mjs packaging/tools/pe-machine.test.mjs packaging/tools/distribution.test.mjs packaging/tools/channel-document.test.mjs packaging/client/runtime-cache.test.mjs && npm run test:fab && npm run test:release && npm run test:agents && npm run test:ue-runner && npm run test:packaged-smoke-unit && npm run test --workspace @loomle/sal && npm run test --workspace @loomle/interfaces && npm run test --workspace @loomle/client"
   },
   "devDependencies": {
+    "fflate": "0.8.2",
     "postject": "1.0.0-alpha.6"
   }
 }

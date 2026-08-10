@@ -11,11 +11,11 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { renderThirdPartyNotices } from "../release/third-party-notices.mjs";
 import { checkProductVersion } from "../tools/product-version.mjs";
+import { writeZipFromDirectory } from "../tools/zip.mjs";
 
 const DEFAULT_REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const REGISTRY_SCHEMA = "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json";
@@ -87,8 +87,11 @@ export async function assembleAgentPackages({
   });
   const codexArchiveName = `loomle-codex-marketplace-${version}.zip`;
   const codexArchive = join(output, "codex", codexArchiveName);
-  await mkdir(dirname(codexArchive), { recursive: true });
-  run("zip", ["-X", "-q", "-r", codexArchive, "codex-marketplace"], output);
+  await writeZipFromDirectory({
+    sourceDirectory: codexRoot,
+    destination: codexArchive,
+    prefix: "codex-marketplace",
+  });
 
   const registryServer = {
     $schema: REGISTRY_SCHEMA,
@@ -166,8 +169,7 @@ async function createMcpb({
   await copyFile(readme, join(staging, "README.md"));
   await writeFile(join(staging, "THIRD_PARTY_NOTICES.txt"), notices);
   await writeJson(join(staging, "manifest.json"), mcpbManifest(version, channel));
-  await mkdir(dirname(destination), { recursive: true });
-  run("zip", ["-X", "-q", "-r", destination, "."], staging);
+  await writeZipFromDirectory({ sourceDirectory: staging, destination });
   return {
     destination,
     archiveSha256: await sha256(destination),
@@ -307,12 +309,6 @@ async function sha256(path) {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(path)) hash.update(chunk);
   return hash.digest("hex");
-}
-
-function run(command, args, cwd) {
-  const result = spawnSync(command, args, { cwd, stdio: "inherit" });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`${command} failed with exit code ${result.status}.`);
 }
 
 function parseArguments(args) {

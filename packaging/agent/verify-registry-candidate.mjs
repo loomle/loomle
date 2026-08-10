@@ -4,8 +4,9 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+
+import { readZipText } from "../tools/zip.mjs";
 
 const SCHEMA = "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json";
 const SERVER_NAME = "io.github.loomle/loomle";
@@ -115,15 +116,7 @@ function parseShaFile(value) {
 }
 
 function readArchiveEntry(archive, entry) {
-  const result = spawnSync("unzip", ["-p", archive, entry], {
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    throw new Error(`Cannot read ${entry} from Registry MCPB: ${result.stderr.trim()}`);
-  }
-  return result.stdout;
+  return readZipText(archive, entry);
 }
 
 function requireExactKeys(value, expected) {

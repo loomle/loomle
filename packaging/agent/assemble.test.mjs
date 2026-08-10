@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, stat, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 import { assembleAgentPackages } from "./assemble.mjs";
+import { readZipText } from "../tools/zip.mjs";
 
 test("derives Registry, Claude, and Codex packages from one Client bundle", async () => {
   const root = await mkdtemp(join(tmpdir(), "loomle-agent-packages-"));
@@ -105,10 +105,7 @@ test("refuses an output that can erase the repository", async () => {
 });
 
 function readArchive(archive, entry) {
-  const result = spawnSync("unzip", ["-p", archive, entry], { encoding: "utf8" });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(result.stderr);
-  return result.stdout;
+  return readZipText(archive, entry);
 }
 
 async function write(path, contents) {
