@@ -439,7 +439,6 @@ bool FSalPhase0PublicPathTest::RunTest(const FString& Parameters)
 
     for (const TSharedRef<FJsonObject>& Target : {
              AssetDomainTarget(TEXT("level")),
-             AssetDomainTarget(TEXT("pcg")),
              PcgComponentTarget()})
     {
         const TSharedPtr<FJsonObject> Result =

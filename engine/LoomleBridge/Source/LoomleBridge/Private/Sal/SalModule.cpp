@@ -14,6 +14,7 @@
 #include "Graph/SalGraphInterface.h"
 #include "Misc/Base64.h"
 #include "Misc/SecureHash.h"
+#include "PCG/SalPCGInterface.h"
 #include "Reference/SalReferenceInterface.h"
 #include "Serialization/JsonSerializer.h"
 #include "SalDiagnostics.h"
@@ -295,6 +296,27 @@ bool LowerStableReference(
             Target);
         return false;
     }
+    if (Target.Domain == ESalDomain::Pcg)
+    {
+        FString Code;
+        FString Message;
+        if (FSalPCGInterface::LowerStableReference(
+                Target,
+                IdentityPath,
+                Ref,
+                Code,
+                Message))
+        {
+            return true;
+        }
+        OutError = StableReferenceError(
+            Code.IsEmpty() ? TEXT("resolution.object_not_found") : Code,
+            Message.IsEmpty()
+                ? TEXT("Stable reference could not be resolved in the active PCG Target.")
+                : Message,
+            Target);
+        return false;
+    }
     FString LegacyKind;
     FString LegacyId;
     FString Code;
@@ -357,7 +379,6 @@ bool LowerStableReference(
             Message);
         break;
     case ESalDomain::Level:
-    case ESalDomain::Pcg:
     case ESalDomain::PcgComponent:
         Code = TEXT("capability.interface_unavailable");
         Message = TEXT("This Domain's StableRef identity lowerer is not available in this Bridge build.");
@@ -620,13 +641,10 @@ bool LowerQueryForDomain(
         {
             return false;
         }
-        FString LegacyKind;
-        FString LegacyId;
-        (*RefPointer)->TryGetStringField(TEXT("kind"), LegacyKind);
-        (*RefPointer)->TryGetStringField(TEXT("id"), LegacyId);
-        Query.Operation->Values.Reset();
-        Query.Operation->SetStringField(TEXT("kind"), LegacyKind);
-        Query.Operation->SetStringField(TEXT("id"), LegacyId);
+        // The Domain lowerer owns the private exact-operation shape. Legacy
+        // Domains still produce {kind,id}; structured identity Domains such as
+        // PCG retain owner, direction, and label as independent fields.
+        Query.Operation = *RefPointer;
     }
     else if (!LowerExpression(
         MakeShared<FJsonValueObject>(Query.Operation),
@@ -2255,8 +2273,9 @@ TSharedPtr<FJsonObject> DispatchQuery(const FSalQuery& Query, const FSalResolved
         return Operation == TEXT("references")
             ? FSalReferenceInterface::Query(Query, Target)
             : FSalWidgetInterface::Query(Query, Target);
-    case ESalDomain::Level:
     case ESalDomain::Pcg:
+        return FSalPCGInterface::Query(Query, Target);
+    case ESalDomain::Level:
     case ESalDomain::PcgComponent:
         return InterfaceError(Operation, Target);
     default:

@@ -10,6 +10,7 @@
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
 #include "Misc/PackageName.h"
+#include "PCGGraph.h"
 #include "SalDiagnostics.h"
 #include "StateTree.h"
 #include "UObject/SoftObjectPath.h"
@@ -369,15 +370,61 @@ bool FSalTargetResolver::ResolveTarget(
         return true;
     }
 
-    if (Domain == TEXT("level")
-        || Domain == TEXT("pcg")
-        || Domain == TEXT("pcg_component"))
+    if (Domain == TEXT("pcg"))
+    {
+        FString Asset;
+        FString ExpectedType;
+        Target->TryGetStringField(TEXT("asset"), Asset);
+        Target->TryGetStringField(TEXT("type"), ExpectedType);
+
+        TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
+        Args->SetStringField(TEXT("path"), Asset);
+        if (!ResolveValue(Alias, MakeCall(TEXT("asset"), Args), bForPatch, OutTarget, OutError))
+        {
+            return false;
+        }
+
+        UPCGGraph* Graph = Cast<UPCGGraph>(OutTarget.Object);
+        if (Graph == nullptr)
+        {
+            OutError = FSalDiagnostics::Result(
+                FSalDiagnostics::Error(
+                    TEXT("capability.interface_unavailable"),
+                    TEXT("PCG Domain requires a top-level asset-backed UPCGGraph target."))
+                    .Ref(OutTarget.AssetPath)
+                    .Build());
+            return false;
+        }
+        if (!Graph->IsAsset() || Graph->GetTypedOuter<UPCGGraph>() != nullptr)
+        {
+            OutError = InvalidTarget(
+                TEXT("PCG Domain rejects embedded or instance-owned Graph objects; open an independently saved UPCGGraph asset."));
+            return false;
+        }
+
+        const FString ActualType = Graph->GetClass()->GetPathName();
+        if (!ExpectedType.IsEmpty() && ExpectedType != ActualType)
+        {
+            OutError = InvalidTarget(FString::Printf(
+                TEXT("PCG target type %s does not match resolved native Class %s."),
+                *ExpectedType,
+                *ActualType));
+            return false;
+        }
+
+        OutTarget.Domain = ESalDomain::Pcg;
+        OutTarget.Interfaces = {FName(TEXT("pcg"))};
+        OutTarget.CanonicalTarget = MakeCanonicalTarget(TEXT("pcg"));
+        OutTarget.CanonicalTarget->SetStringField(TEXT("asset"), OutTarget.AssetPath);
+        OutTarget.CanonicalTarget->SetStringField(TEXT("type"), ActualType);
+        return true;
+    }
+
+    if (Domain == TEXT("level") || Domain == TEXT("pcg_component"))
     {
         OutTarget.Domain = Domain == TEXT("level")
             ? ESalDomain::Level
-            : Domain == TEXT("pcg")
-                ? ESalDomain::Pcg
-                : ESalDomain::PcgComponent;
+            : ESalDomain::PcgComponent;
         OutTarget.Interfaces = {FName(*Domain)};
         Target->TryGetStringField(TEXT("asset"), OutTarget.AssetPath);
         OutError = UnavailableDomain(Domain);

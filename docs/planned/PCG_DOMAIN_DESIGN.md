@@ -17,6 +17,13 @@ documents decide which adapter owns it.
 > certified Settings fields, execution protocol naming, and result effect
 > schemas remain implementation release gates.
 
+> Current implementation slice: the internal read-only PCG Graph v1 remains on
+> Client-Bridge protocol v6 and publishes no `pcg` interface card. It implements
+> only Target open/canonicalization, `target`, `summary`, `nodes`, exact Node and
+> Pin reads, exact schema, persisted layout, and incident Edge projection.
+> `context`, `data flow`, Parameters, Palette, mutation, and execution remain
+> deferred.
+
 The baseline boundary and syntax direction are confirmed for design work:
 
 - PCG uses the existing `sal_query`, `sal_patch`, and `sal_schema` tools;
@@ -29,17 +36,18 @@ The baseline boundary and syntax direction are confirmed for design work:
 - baseline `connect` accepts only a directly compatible connection into an
   unoccupied input; filter/conversion insertion is a capability-gated later
   extension;
-- Graph Parameters are queryable by their native descriptor Guid, while every
-  Graph-default Parameter mutation in `pcg` is deferred to a future
-  multi-Target migration contract outside ordinary SAL Query/Patch; this does
-  not define the separate `pcg_component` override boundary;
+- Graph Parameter identity is reserved as its native descriptor Guid, while
+  Parameter Query is deferred beyond the current read-only slice and every
+  Graph-default Parameter mutation in `pcg` is deferred to a future multi-Target
+  migration contract outside ordinary SAL Query/Patch; this does not define the
+  separate `pcg_component` override boundary;
 - package persistence is a separate terminal-only `save` Patch.
 
-This document is not a public interface card. No Client parser branch, Bridge
-route, static catalog entry, packaged schema, or native adapter is implied by
-its presence. Exact field sets, Palette encodings, diagnostics, effect shapes,
-and the new Target variants remain release gates until implemented and tested
-on both UE 5.7 and UE 5.8.
+This document is not a public interface card. The internal protocol v6 Target
+reservation does not publish a static catalog entry, packaged schema, or native
+capability by itself. Exact field sets, Palette encodings, diagnostics, effect
+shapes, and new public Domain cards remain release gates until implemented and
+tested on both UE 5.7 and UE 5.8.
 
 ## Decision
 
@@ -174,8 +182,15 @@ Important source facts that constrain this design are:
 - `UPCGPin` has no Guid, and native lookup selects input or output direction
   before looking up `FPCGPinProperties::Label`;
 - input and output Pins may have the same Label;
+- Pin allowed and current types are structured `FPCGDataTypeIdentifier` values:
+  each preserves one or more `FPCGDataTypeBaseId` records plus the identifier's
+  `CustomSubtype`, rather than only a legacy `EPCGDataType` mask or display name;
 - an Edge has no independent persistent identity;
 - a Graph Parameter descriptor has a persistent `FGuid`;
+- a Node's `SettingsInterface` pointer proves reachability, not mutation
+  ownership; ownership of the interface and its effective Settings must be
+  classified independently by walking each UObject's Outer chain to the exact
+  selected `UPCGGraph`;
 - Settings changes can synchronously reconstruct Pins, propagate dynamic
   types, and remove incompatible Edges;
 - native adaptive connection may insert one filter Node or one or more
@@ -250,12 +265,17 @@ UPCGGraph
 |- DefaultInputNode: UPCGNode
 |- DefaultOutputNode: UPCGNode
 |- Nodes[]: UPCGNode
-|  |- SettingsInterface: UPCGSettingsInterface
+|  |- SettingsInterface -> UPCGSettingsInterface
 |  |- InputPins[]: UPCGPin
 |  |- OutputPins[]: UPCGPin
 |  `- incident UPCGEdge relationships
 `- UserParameters: FInstancedPropertyBag
 ```
+
+The arrow marks `SettingsInterface` as a native UObject reference, not an
+ownership assertion. The adapter classifies that object and the effective
+`UPCGSettings` returned by `GetSettings()` separately from their actual Outer
+chains.
 
 A PCG Node is not identified by its behavior Class. Most behavior is defined
 by the concrete `UPCGSettings` returned by the Node's Settings interface. A
@@ -339,44 +359,75 @@ the current Graph state instead of retaining stale `UPCGPin*` pointers.
 ### Parameter identity and collision policy
 
 A Graph Parameter uses its `FPropertyBagPropertyDesc::ID`. Rename preserves
-that Guid. Parameter display name and authored order are not identity.
+that Guid. Parameter display name and authored order are not identity. This
+identity contract is reserved now even though Parameter collection and exact
+Parameter Query are deferred beyond the current slice.
 
 Node names and Parameter Guids both occupy the one-segment identity shape.
-The Domain audits all one-segment categories together. If a Node name and a
-Parameter Guid decode to the same identity text, resolution fails closed with
-`resolution.identity_conflict`. `node @x` and `parameter @x` tags cannot
-disambiguate the collision.
+Once Parameter Query is activated, the Domain must audit all one-segment
+categories together. If a Node name and a Parameter Guid decode to the same
+identity text, resolution fails closed with `resolution.identity_conflict`.
+`node @x` and `parameter @x` tags cannot disambiguate the collision.
+
+Slice 1 does not enumerate or resolve Parameters, so its one-segment lowerer
+resolves Nodes only. The Parameter-only diagnostic and cross-category collision
+audit are release gates for the later slice that first activates Parameter
+collection or exact Parameter Query; the adapter must add both atomically and
+must not publish Parameter identity before that audit exists.
 
 ### Bridge identity validation
 
-The normalized StableRef schema already accepts a non-empty string path. The
-current Bridge nevertheless validates every path segment as a canonical
-`FGuid` before Domain dispatch. PCG requires that generic precondition to move
-into Domain-owned identity lowerers:
+The normalized StableRef schema accepts a non-empty string `identityPath`.
+Domain-owned identity lowerers, rather than one global Guid precondition,
+validate and resolve that structured path:
 
 - the shared layer validates only a non-empty string path;
 - Blueprint, Graph, StateTree, and Widget retain their current Guid rules;
-- PCG validates the one-segment Node/Parameter union or the three-segment
-  Node/direction/Label Pin shape.
+- the Slice 1 PCG lowerer resolves a one-segment path as an exact Node `FName`;
+- it resolves a three-segment path only when segment two is exactly `in` or
+  `out`, then resolves the Node followed by the Pin's exact directional Label;
+- it rejects every other arity, direction, empty segment, missing object, or
+  ambiguous Label before the Query adapter projects a result.
+
+The PCG lowerer consumes the segment array directly. It never joins segments
+with `/`, splits a Pin Label on punctuation, or round-trips through a fused
+legacy identifier. A quoted Label such as `"A/B"` therefore remains one exact
+third segment. The one-segment Parameter branch remains reserved by the same
+identity contract but is not enabled as a Query subject in this slice.
 
 This is a correction to Domain ownership, not a global relaxation of existing
 Guid identities. PCG does not participate in legacy fused-reference lowering.
 
 ## Query
 
-The static Query surface is:
+The current internal read-only Query surface is:
 
 ```sal
 target
 summary
 nodes ["text"]
-parameters ["text"]
 @identity
+```
+
+Exact Target, Node, and Pin reads may use `with schema`. `nodes` and exact Node
+or Pin reads may use `with layout`. Exact Node and Pin projections include
+their incident Edges as relationships; incident Edge projection is not a
+separate traversal operation.
+
+The following planned Query forms remain deferred and are neither accepted nor
+advertised by this slice:
+
+```sal
+parameters ["text"]
+@guid
 context @identity [depth N]
 data flow from|to @identity [depth N]
 palette entries ["text"] [from|to @node/in-or-out/label]
 palette @id
 ```
+
+All Patch mutation and all PCG execution are deferred as well. Execution stays
+on the separate typed async frontend rather than becoming a Graph Query form.
 
 PCG does not expose `exec flow`; authored PCG connections are data
 relationships even when a Pin represents an execution dependency.
@@ -390,21 +441,22 @@ with schema
 ```
 
 Collections use bounded cursor pagination. Their final searchable fields,
-filters, and ordering keys must be closed by the static interface card rather
-than inherited accidentally from Blueprint Graph. At minimum, Node search
-must consider native object name, computed title, authored title/comment,
-actual Node Class, and Settings Class without treating any of them as
-identity.
+filters, and ordering keys must eventually be closed by the static interface
+card rather than inherited accidentally from Blueprint Graph. At minimum, Node
+search must consider native object name, computed title, authored
+title/comment, actual Node Class, and Settings Class without treating any of
+them as identity.
 
 `summary` returns a compact Graph description, counts, default Input/Output
-Pin schemas, Graph Parameters, and structural diagnostics. It does not claim
-a persistent compile status.
+Pin schemas, and structural diagnostics. The current slice does not project
+Parameter descriptors, values, or Parameter-derived counts through `summary`.
+It does not claim a persistent compile status.
 
-Exact Node, Pin, Parameter, Target, and Palette reads may use `with schema`.
-Collections, summary, ambiguous Palette search, context, and flows do not.
+Current exact Node, Pin, and Target reads may use `with schema`. Collections
+and summary do not.
 
-`context` and `data flow` accept only a StableRef, not a member path. The PCG
-adapter limits them to applicable Node and Pin subjects.
+When later enabled, `context` and `data flow` accept only a StableRef, not a
+member path, and remain limited to applicable Node and Pin subjects.
 
 ### Layout
 
@@ -435,8 +487,14 @@ surface = node {
 surface.in.Surface = pin {
   id: "Surface",
   direction: in,
-  allowedTypes: [{ struct: "/Script/PCG.PCGSpatialData" }],
-  currentTypes: [{ struct: "/Script/PCG.PCGPointData" }],
+  allowedTypes: {
+    ids: [{ struct: "/Script/PCG.PCGDataTypeInfoSpatial" }],
+    customSubtype: -1
+  },
+  currentTypes: {
+    ids: [{ struct: "/Script/PCG.PCGDataTypeInfoPoint" }],
+    customSubtype: -1
+  },
   typeDisplay: "Point",
   allowsMultipleConnections: false,
   required: true
@@ -445,8 +503,14 @@ surface.in.Surface = pin {
 surface.out.Out = pin {
   id: "Out",
   direction: out,
-  allowedTypes: [{ struct: "/Script/PCG.PCGPointData" }],
-  currentTypes: [{ struct: "/Script/PCG.PCGPointData" }],
+  allowedTypes: {
+    ids: [{ struct: "/Script/PCG.PCGDataTypeInfoPoint" }],
+    customSubtype: -1
+  },
+  currentTypes: {
+    ids: [{ struct: "/Script/PCG.PCGDataTypeInfoPoint" }],
+    customSubtype: -1
+  },
   typeDisplay: "Point",
   allowsMultipleConnections: true,
   required: false
@@ -461,11 +525,14 @@ override. `SettingsInterface.type` is the actual Settings interface Class and
 is never substituted for `node.type`.
 
 Pin `id` is the exact native Label within the returned direction. PCG type
-information is not compressed into a single legacy enum or display string:
-schema and results distinguish the allowed type union from the current
-dynamically resolved type union. Each exact entry preserves the native type's
-`UScriptStruct` Class Path and optional custom subtype; `typeDisplay` is
-non-authoritative presentation text.
+information is not compressed into a single legacy enum or display string.
+Both `allowedTypes` and `currentTypes` preserve the native
+`FPCGDataTypeIdentifier` shape: `ids` is the ordered composition of
+`FPCGDataTypeBaseId` records, each carrying the exact `UScriptStruct` Class Path
+for an `FPCGDataTypeInfo` subtype, and `customSubtype` is the identifier's exact
+integer value (`-1` means no custom subtype). This keeps the declared allowed
+union distinct from the dynamically resolved current union. `typeDisplay` is
+derived, non-authoritative presentation text.
 
 Local result member keys are presentation handles. A safe, non-conflicting Pin
 Label may be used directly. Textually unsafe Labels or collisions with another
@@ -493,55 +560,91 @@ Edges are emitted as relationships between local Pin bindings:
 surface.out.Out -> transform.in.In
 ```
 
-There is no Edge tag, object, Guid, index, or StableRef. Exact edge mutation
-always names both endpoint Pins.
+In the current slice, an exact Node returns Edges incident to any of its Pins,
+and an exact Pin returns Edges incident to that Pin. The adapter includes the
+compact opposite endpoint bindings needed to make each relationship exact;
+this does not recursively expand into `context` or `data flow`. There is no
+Edge tag, object, Guid, index, or StableRef. In a later mutation slice, exact
+Edge mutation always names both endpoint Pins.
 
 ## Settings Interface
 
 `SettingsInterface` is not a convenient configuration dictionary invented by
-SAL. It is the native `UPCGNode::SettingsInterface` ownership boundary.
+SAL. It is the native `UPCGNode::SettingsInterface` reference surface. Pointer
+reachability from a Node does not by itself grant mutation ownership.
 
-### Owned Settings
+The adapter classifies each Settings-interface UObject and the effective
+`UPCGSettings` returned by `GetSettings()` independently. An object is
+Graph-owned only when walking its actual `GetOuter()` chain reaches the exact
+selected top-level `UPCGGraph`; otherwise it is external. Direct ownership by
+the Node is the common shape, but is not the rule. Sharing the Graph package,
+appearing below `SettingsInterface` in Result Text, or being reachable through
+a property is not a substitute for the Outer-chain proof.
+
+### Graph-owned Settings
 
 For an ordinary native Node, the interface object is itself a concrete
-`UPCGSettings` owned by the Node:
+`UPCGSettings`, and its usual Outer chain passes through the Node to the Graph:
 
 ```sal
 SettingsInterface: {
   type: "/Script/PCG.PCGSurfaceSamplerSettings",
+  isInstance: false,
+  ownership: owned,
+  interfaceOwnership: owned,
+  effectiveOwnership: owned,
   bEnabled: true,
   Seed: 42
 }
 ```
 
-Exact Node schema lists the readable, writable, resettable, and unavailable
-member paths on that concrete instance. Writable does not follow automatically
-from `EditAnywhere`: the capability registry is keyed by exact engine version,
-exact Settings Class, and exact member path, and records the certified native
-lifecycle and ownership boundary. Settings Class selects behavior, Pin
-declarations, dynamic type propagation, and execution element; it does not
-become the Node's UObject Class.
+The current exact Node schema lists the bounded readable member paths and
+native property types on that concrete instance, and reports `operations:
+none`. A later authored slice may add writable, resettable, and unavailable
+sets. Writable does not follow automatically from `EditAnywhere`: the
+capability registry is keyed by exact engine version, exact Settings Class, and
+exact member path, and records the certified native lifecycle and Graph
+ownership boundary. Settings Class selects behavior, Pin declarations, dynamic
+type propagation, and execution element; it does not become the Node's UObject
+Class.
 
-### External Settings instance
+### External Settings and Settings instances
 
-A Node may instead own a `UPCGSettingsInstance` wrapper that references a
-Settings object in another package:
+A Node may instead reference a Graph-owned `UPCGSettingsInstance` wrapper whose
+effective Settings object is external:
 
 ```sal
 SettingsInterface: {
   type: "/Script/PCG.PCGSettingsInstance",
+  isInstance: true,
+  ownership: external,
+  interfaceOwnership: owned,
+  effectiveOwnership: external,
   bEnabled: true,
   Settings: "/Game/PCG/Settings/PS_Forest.PS_Forest"
 }
 ```
 
-The wrapper is reachable from the current Graph Target, but the entire wrapper
-is read-only in the baseline capability, including `bEnabled`, the `Settings`
-pointer, and every `Settings.*` descendant. Query may return the referenced
-object as a related canonical Asset Target when it is asset-backed, using Asset
-Domain `path + type`. The result retains that Target through an explicit
-handoff; a native object-path string alone is not a Target reference and does
-not grant cross-package mutation authority.
+Every object whose Outer chain does not reach the selected Graph is external
+and always read-only through this Target, including an external interface
+object or the effective Settings referenced by a wrapper. This remains true if
+the object happens to share a package with the Graph. When a Graph-owned wrapper
+delegates to external effective Settings, the entire wrapper is also read-only
+in the baseline capability, including `bEnabled`, the `Settings` pointer, and
+every `Settings.*` descendant.
+
+`interfaceOwnership` and `effectiveOwnership` report the two independent
+Outer-chain classifications. The aggregate `ownership` field is the mutation
+boundary: it is `owned` only for a non-instance interface whose interface and
+effective Settings are both Graph-owned; otherwise it is `external` and the
+whole surface is read-only.
+
+The current slice returns an external object's native Class and object path as
+read-only data when needed by an exact Node result; it does not create a related
+Target or handoff. A later related-Target capability may return an asset-backed
+external object as a canonical Asset Target using Asset Domain `path + type`
+and retain it through an explicit handoff. A native object-path string alone is
+not a Target reference and never grants external mutation authority.
 
 This stricter rule is required for dry-run isolation. Duplicating the Graph
 duplicates the wrapper but can leave its effective Settings pointer attached
@@ -580,6 +683,9 @@ isolation are not admitted to the capability registry.
 Transient debugging and inspection flags are not authored v1 fields.
 
 ## Palette
+
+This section retains the later Palette contract; none of it is enabled by the
+current read-only slice.
 
 Every directly created Node starts from a Palette result. A caller never
 guesses a Settings Class, Node name, Pin, or Palette id. Parameter type
@@ -658,6 +764,8 @@ the creation, reads back the actual Node and quoted Pin StableRef, then uses a
 following Patch.
 
 ## Patch
+
+All mutation in this section is deferred beyond the current read-only slice.
 
 PCG reuses the existing core Patch grammar:
 
@@ -772,7 +880,8 @@ Pin and Edge changes are effects.
 
 Graph Parameters are descriptors and default values in the Graph's
 `FInstancedPropertyBag`. They are not Node Settings, runtime instance
-overrides, or Get Parameter Nodes.
+overrides, or Get Parameter Nodes. The identity contract below is reserved,
+but its collection and exact Query forms are not enabled in the current slice.
 
 ### Query and identity
 
@@ -1001,7 +1110,8 @@ Parameter type, or Palette id.
 
 ## Cross-Domain Handoffs
 
-A PCG Query may return independent related Targets:
+This result projection is deferred beyond the current read-only slice. A later
+PCG Query may return independent related Targets:
 
 - Asset Target for the current Graph asset;
 - PCG Target for an independently saved subgraph asset;
@@ -1053,10 +1163,8 @@ source may still be read as behavioral reference material.
 
 ## Protocol And Catalog Impact
 
-`pcg` becomes a new closed authored Domain. This changes normalized protocol
-values and therefore requires an exact Client-Bridge protocol version bump.
-
-Required protocol work includes:
+The internal family Phase 0 work allocates `pcg` as a new closed authored
+Domain in Client-Bridge protocol v6. That v6 groundwork includes:
 
 - add `pcg` to Domain keywords and reserved keywords;
 - add PCG discovery and canonical Target shapes;
@@ -1066,15 +1174,26 @@ Required protocol work includes:
 - add `pcg` to the Result Target and handoff Target variant sets;
 - add `pcg` to formatter ordering, schema-validator `targetKey`, related-Target
   deduplication, and canonical Result validation branches;
+- move premature global Guid StableRef validation into Domain adapters.
+
+Slice 1 consumes those v6 shapes unchanged. Its `target`, `summary`, `nodes`,
+exact-object, schema, layout, and Result-relationship forms already exist in
+the normalized protocol, so this slice does not bump v6 to v7. It adds no
+public MCP method or private RPC route.
+
+The current slice also creates no `interfaces/pcg.md`, static catalog entry,
+packaged schema card, or `sal_schema({module: "pcg"})` result. Later coordinated
+publication work includes:
+
 - update `LANGUAGE_CORE.md`, `DOMAINS.md`, and the local schema guide together;
 - add the static `pcg` interface card only when its advertised capability is
   packaged and live-tested;
 - make `sal_schema({module: "pcg"})` local and Bridge-independent;
 - generalize parser diagnostics that currently say "Graph Palette" when they
-  mean any Pin-context Palette;
-- move premature global Guid StableRef validation into Domain adapters.
+  mean any Pin-context Palette.
 
-No public MCP method or private RPC route is added. `sal_query` and `sal_patch`
+Unless a later slice changes normalized wire values, those later capability and
+catalog additions continue to use protocol v6. `sal_query` and `sal_patch`
 continue to carry normalized requests through the existing private protocol.
 
 ## Implementation Slices
@@ -1083,19 +1202,25 @@ Implementation should remain unpublished while a slice lacks its acceptance
 gates. Passing a PCG slice permits internal landing, not an independent public
 catalog release.
 
-The family Phase 0 Target/admission and Domain-specific StableRef work is a
-prerequisite and is not expanded here with effects, save, projection, or
-mutation behavior.
+The family Phase 0 Target/admission and Domain-specific StableRef dispatch
+groundwork is a prerequisite. Slice 1 supplies the PCG Node/Pin lowerer but does
+not expand that groundwork with effects, save, mutation, or execution behavior.
 
 ### Slice 1: Target, identity, and read-only Query
 
-- consume the internal family Target/protocol branch without publishing a
-  static interface card;
+- consume the internal family protocol v6 Target branch without publishing a
+  static interface card or adding a catalog/schema module;
 - exact Target open/canonicalization;
-- summary, Nodes, exact Node/Pin, data flow, and Parameters;
-- quoted string StableRef resolution;
-- exact schema and persistent layout readback;
-- related Target discovery.
+- `target`, `summary`, and bounded `nodes` Query;
+- structured Node and Pin StableRef lowering, including quoted Pin Labels and
+  strict rejection of empty or ambiguous native Pin identity;
+- exact Node and Pin reads, exact schema, and persistent layout readback;
+- incident Edge relationships on exact Node and Pin projections;
+- independent Outer-chain classification of the Settings interface and its
+  effective Settings, including evidence-only external Settings instances.
+
+`context`, `data flow`, Parameters, Palette, related Target/handoff projection,
+all mutation, and all execution remain deferred beyond Slice 1.
 
 ### Slice 2: Blueprint-grade certified authored core
 
@@ -1104,7 +1229,8 @@ mutation behavior.
 - native/preconfigured Node Palette;
 - Node add/remove;
 - certified graph-owned Settings set/reset lifecycle;
-- external Settings instance read-only boundary;
+- external Settings mutation guards and sandbox shadows for any future
+  wrapper-owned writable capability;
 - absolute move;
 - compatible direct connection into an unoccupied input;
 - direct disconnect/break;
@@ -1140,11 +1266,14 @@ mutation behavior.
 
 - `pcg` Target parse, format, normalization, and reserved-keyword tests;
 - quoted Node/Pin StableRef round-trip tests;
-- three-segment Pin identity and deep member-path tests;
+- structured one-segment Node and three-segment Pin lowering tests, including a
+  Label containing `/` that remains one segment;
 - generated schema/type parity;
-- static catalog membership and `sal_schema({module: "pcg"})` offline behavior;
+- protocol remains exactly v6 across Client and Bridge Slice 1 fixtures;
+- static catalog absence and unavailable `sal_schema({module: "pcg"})` behavior
+  through Slice 1;
 - exact Client-Bridge protocol mismatch fixtures;
-- one-line connection formatter tests.
+- one-line connection formatter tests when the later mutation slice lands.
 
 ### Target and identity
 
@@ -1156,22 +1285,26 @@ mutation behavior.
 - duplication creates Target-scoped or Node-unique identity as appropriate;
 - input/output Pins with equal Labels remain distinct;
 - quoted Labels containing spaces, dots, and slashes;
-- Parameter Guid persistence across unrelated Graph edits and save/reload;
-- cross-category one-segment collision fails closed;
+- Parameter collection, Parameter-only lookup, and cross-category collision
+  audit remain unavailable together;
 - empty or duplicate native Label corruption diagnostics.
 
 ### Query
 
-- target, summary, Nodes, Parameters, exact Node, exact Pin, context, and data
-  flow;
+- target, summary, Nodes, exact Node, and exact Pin only;
 - default Input/Output Nodes;
 - actual Node and Settings Classes;
-- allowed/current PCG type unions;
-- pagination, depth, result budget, and deterministic order;
+- allowed/current structured `FPCGDataTypeIdentifier` values, including
+  composed IDs and `CustomSubtype`;
+- persistent layout on Node-bearing operations;
+- exact Node and Pin incident Edges without recursive traversal;
+- pagination, result budget, and deterministic order;
 - Query never changes package dirty state or Undo history;
-- external Settings returns a related Asset Target without mutation authority.
+- external Settings is classified by Outer chain and remains read-only;
+- Parameters, `context`, `data flow`, Palette, related Targets, and handoffs are
+  rejected as unavailable rather than partially projected.
 
-### Patch lifecycle
+### Patch lifecycle for later slices
 
 - dry run leaves source Graph, package dirty state, Undo/Redo, external assets,
   Nodes, Pins, Edges, Settings, and Parameters unchanged;
