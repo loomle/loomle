@@ -23,6 +23,10 @@ assert.equal(schema.$defs.TargetBinding.$ref, "#/$defs/QueryTargetBinding");
 assert.equal(schema.$defs.Query.properties.target.$ref, "#/$defs/QueryTargetBinding");
 assert.equal(schema.$defs.Patch.properties.target.$ref, "#/$defs/PatchTargetBinding");
 assert.equal(schema.$defs.ExactQueryResult.properties.target.$ref, "#/$defs/CanonicalTargetBinding");
+assert.ok(
+  schema.$defs.CollectionOperation.properties.kind.enum.includes("actors"),
+  "protocol v6 must admit the Level actors collection operation",
+);
 assert.equal(
   schema.$defs.PatchTarget.oneOf.some(
     (entry: { $ref: string }) => entry.$ref === "#/$defs/PcgComponentTarget",

@@ -830,9 +830,9 @@ bool ValidateOperation(const TSharedPtr<FJsonObject>& Operation, FString& OutMes
         return false;
     }
     const TSet<FString> Collections = {
-        TEXT("assets"), TEXT("variables"), TEXT("dispatchers"), TEXT("graphs"), TEXT("components"),
-        TEXT("nodes"), TEXT("properties"), TEXT("functions"), TEXT("defaults"), TEXT("widgets"),
-        TEXT("states"), TEXT("parameters")};
+        TEXT("assets"), TEXT("actors"), TEXT("variables"), TEXT("dispatchers"), TEXT("graphs"),
+        TEXT("components"), TEXT("nodes"), TEXT("properties"), TEXT("functions"), TEXT("defaults"),
+        TEXT("widgets"), TEXT("states"), TEXT("parameters")};
     const TSet<FString> Named = {
         TEXT("variable"), TEXT("dispatcher"), TEXT("graph"), TEXT("component"), TEXT("property"),
         TEXT("function"), TEXT("default"), TEXT("widget")};

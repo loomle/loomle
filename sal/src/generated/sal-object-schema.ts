@@ -191,6 +191,7 @@ export interface SummaryOperation {
 export interface CollectionOperation {
   kind:
     | "assets"
+    | "actors"
     | "variables"
     | "dispatchers"
     | "graphs"

@@ -7,6 +7,7 @@
     { "code": "capability.detail_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Detail unavailable" },
     { "code": "capability.interface_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Interface unavailable" },
     { "code": "capability.layout_geometry_unavailable", "layer": "capability", "defaultSeverity": "warning", "title": "Layout geometry unavailable" },
+    { "code": "capability.level_not_loaded", "layer": "capability", "defaultSeverity": "error", "title": "Level not loaded" },
     { "code": "capability.mixed_patch_interfaces_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Mixed Patch interfaces unavailable" },
     { "code": "capability.move_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Move unavailable" },
     { "code": "capability.operation_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Operation unavailable" },

@@ -3,13 +3,18 @@
 #include "SalTargetResolver.h"
 
 #include "AssetRegistry/AssetData.h"
+#include "AssetRegistry/AssetRegistryModule.h"
 #include "BlueprintAssetHandler.h"
 #include "Blueprint/UserWidgetBlueprint.h"
 #include "Dom/JsonObject.h"
 #include "EdGraph/EdGraph.h"
+#include "Editor.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
+#include "Engine/Level.h"
+#include "Engine/World.h"
 #include "Misc/PackageName.h"
+#include "Modules/ModuleManager.h"
 #include "PCGGraph.h"
 #include "SalDiagnostics.h"
 #include "StateTree.h"
@@ -21,6 +26,12 @@ namespace Loomle::Sal
 {
 namespace
 {
+constexpr EObjectFlags IncompleteLoadFlags =
+    RF_NeedLoad
+    | RF_NeedPostLoad
+    | RF_NeedPostLoadSubobjects
+    | RF_WillBeLoaded;
+
 FString GuidText(const FGuid& Guid)
 {
     return Guid.ToString(EGuidFormats::DigitsWithHyphensLower);
@@ -420,11 +431,96 @@ bool FSalTargetResolver::ResolveTarget(
         return true;
     }
 
-    if (Domain == TEXT("level") || Domain == TEXT("pcg_component"))
+    if (Domain == TEXT("level"))
     {
-        OutTarget.Domain = Domain == TEXT("level")
-            ? ESalDomain::Level
-            : ESalDomain::PcgComponent;
+        FString Asset;
+        FString ExpectedType;
+        Target->TryGetStringField(TEXT("asset"), Asset);
+        Target->TryGetStringField(TEXT("type"), ExpectedType);
+
+        const FString ObjectPath = NormalizeObjectPath(Asset);
+        const FAssetRegistryModule& AssetRegistryModule =
+            FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+        const FAssetData AssetData = AssetRegistryModule.Get().GetAssetByObjectPath(
+            FSoftObjectPath(ObjectPath),
+            true);
+        const FString PackageName = AssetData.PackageName.ToString();
+        if (!AssetData.IsValid()
+            || !FPackageName::IsValidLongPackageName(PackageName)
+            || FPackageName::IsTempPackage(PackageName))
+        {
+            OutError = ResolutionError(
+                TEXT("Level Domain requires one registered saved source-map asset and never loads a map to resolve it."),
+                ObjectPath,
+                TEXT("Save the source map, then retry its exact top-level object path."));
+            return false;
+        }
+
+        const FString ActualType = AssetData.AssetClassPath.ToString();
+        const FString WorldType = UWorld::StaticClass()->GetClassPathName().ToString();
+        if (ActualType != WorldType)
+        {
+            OutError = ResolutionError(
+                FString::Printf(
+                    TEXT("Level target %s resolves to native Class %s instead of %s."),
+                    *ObjectPath,
+                    *ActualType,
+                    *WorldType),
+                ObjectPath);
+            return false;
+        }
+        if (!ExpectedType.IsEmpty() && ExpectedType != ActualType)
+        {
+            OutError = InvalidTarget(FString::Printf(
+                TEXT("Level target type %s does not match resolved native Class %s."),
+                *ExpectedType,
+                *ActualType));
+            return false;
+        }
+
+        const FString CanonicalPath = AssetData.GetSoftObjectPath().ToString();
+        UWorld* LoadedWorld = FindObject<UWorld>(
+            AssetData.GetSoftObjectPath().GetAssetPath());
+        if (!IsValid(LoadedWorld)
+            || LoadedWorld->HasAnyFlags(IncompleteLoadFlags))
+        {
+            LoadedWorld = nullptr;
+        }
+        UWorld* EditorWorld = GEditor != nullptr
+            ? GEditor->GetEditorWorldContext().World()
+            : nullptr;
+        ULevel* SourceLevel = LoadedWorld != nullptr
+            ? LoadedWorld->PersistentLevel
+            : nullptr;
+        if (LoadedWorld != nullptr
+            && (!IsValid(EditorWorld)
+                || EditorWorld->HasAnyFlags(IncompleteLoadFlags)
+                || EditorWorld->WorldType != EWorldType::Editor
+                || (LoadedWorld->WorldType != EWorldType::Editor
+                    && LoadedWorld->WorldType != EWorldType::Inactive)
+                || !IsValid(SourceLevel)
+                || SourceLevel->HasAnyFlags(IncompleteLoadFlags)
+                || SourceLevel->GetWorld() != EditorWorld))
+        {
+            LoadedWorld = nullptr;
+        }
+
+        OutTarget.Kind = ESalTargetKind::Asset;
+        OutTarget.Domain = ESalDomain::Level;
+        OutTarget.AssetPath = CanonicalPath;
+        OutTarget.Name = AssetData.AssetName.ToString();
+        OutTarget.Object = LoadedWorld;
+        OutTarget.Package = LoadedWorld != nullptr ? LoadedWorld->GetOutermost() : nullptr;
+        OutTarget.Interfaces = {FName(TEXT("level"))};
+        OutTarget.CanonicalTarget = MakeCanonicalTarget(TEXT("level"));
+        OutTarget.CanonicalTarget->SetStringField(TEXT("asset"), CanonicalPath);
+        OutTarget.CanonicalTarget->SetStringField(TEXT("type"), ActualType);
+        return true;
+    }
+
+    if (Domain == TEXT("pcg_component"))
+    {
+        OutTarget.Domain = ESalDomain::PcgComponent;
         OutTarget.Interfaces = {FName(*Domain)};
         Target->TryGetStringField(TEXT("asset"), OutTarget.AssetPath);
         OutError = UnavailableDomain(Domain);

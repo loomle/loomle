@@ -86,10 +86,16 @@ TSharedRef<FJsonObject> Handoff(
 }
 
 TSharedRef<FJsonObject> QueryArguments(
-    const TSharedRef<FJsonObject>& Target)
+    const TSharedRef<FJsonObject>& Target,
+    const FString& OperationKind = TEXT("target"),
+    const FString& SearchText = FString())
 {
     TSharedRef<FJsonObject> Operation = MakeShared<FJsonObject>();
-    Operation->SetStringField(TEXT("kind"), TEXT("target"));
+    Operation->SetStringField(TEXT("kind"), OperationKind);
+    if (!SearchText.IsEmpty())
+    {
+        Operation->SetStringField(TEXT("text"), SearchText);
+    }
 
     TSharedRef<FJsonObject> Query = MakeShared<FJsonObject>();
     Query->SetStringField(TEXT("kind"), TEXT("query"));
@@ -270,6 +276,32 @@ bool FSalTargetAdmissionModesTest::RunTest(const FString& Parameters)
     TestTrue(
         TEXT("Level Query admission accepts discovery without type"),
         DecodeQueryTarget(LevelDiscovery));
+    FSalQuery ActorsQuery;
+    TSharedPtr<FJsonObject> ActorsError;
+    TestTrue(
+        TEXT("Protocol v6 accepts the Level actors collection operation with search text"),
+        FSalJson::DecodeQuery(
+            QueryArguments(LevelDiscovery, TEXT("actors"), TEXT("light")),
+            ActorsQuery,
+            ActorsError));
+    FString ActorsKind;
+    FString ActorsSearch;
+    TestTrue(
+        TEXT("Decoded actors operation retains its normalized kind"),
+        ActorsQuery.Operation.IsValid()
+            && ActorsQuery.Operation->TryGetStringField(TEXT("kind"), ActorsKind));
+    TestEqual(
+        TEXT("Decoded actors operation kind remains actors"),
+        ActorsKind,
+        FString(TEXT("actors")));
+    TestTrue(
+        TEXT("Decoded actors operation retains optional search text"),
+        ActorsQuery.Operation.IsValid()
+            && ActorsQuery.Operation->TryGetStringField(TEXT("text"), ActorsSearch));
+    TestEqual(
+        TEXT("Decoded actors search text remains exact"),
+        ActorsSearch,
+        FString(TEXT("light")));
     TestFalse(
         TEXT("Canonical Result admission rejects a discovery-only Level Target"),
         FSalJson::ValidateCanonicalTarget(LevelDiscovery, Message));
@@ -437,21 +469,26 @@ bool FSalPhase0PublicPathTest::RunTest(const FString& Parameters)
             LegacyAssetReference,
             TEXT("validation.invalid_reference")));
 
-    for (const TSharedRef<FJsonObject>& Target : {
-             AssetDomainTarget(TEXT("level")),
-             PcgComponentTarget()})
-    {
-        const TSharedPtr<FJsonObject> Result =
-            FSalModule::BuildQueryResult(QueryArguments(Target));
-        TestTrue(
-            TEXT("Recognized Phase 0 Query Target reports the unavailable native resolver"),
-            HasDiagnostic(
-                Result,
-                TEXT("capability.interface_unavailable")));
-        TestTrue(
-            TEXT("Unavailable Phase 0 Query Target remains unresolved"),
-            HasTargetContext(Result, TEXT("unresolved_target")));
-    }
+    const TSharedPtr<FJsonObject> MissingLevel =
+        FSalModule::BuildQueryResult(
+            QueryArguments(AssetDomainTarget(TEXT("level"))));
+    TestTrue(
+        TEXT("Level resolution requires a registered saved source map"),
+        HasDiagnostic(MissingLevel, TEXT("resolution.target_not_found")));
+    TestTrue(
+        TEXT("A missing Level source map remains unresolved"),
+        HasTargetContext(MissingLevel, TEXT("unresolved_target")));
+
+    const TSharedPtr<FJsonObject> MissingComponent =
+        FSalModule::BuildQueryResult(QueryArguments(PcgComponentTarget()));
+    TestTrue(
+        TEXT("pcg_component retains its unavailable native resolver"),
+        HasDiagnostic(
+            MissingComponent,
+            TEXT("capability.interface_unavailable")));
+    TestTrue(
+        TEXT("Unavailable pcg_component remains unresolved"),
+        HasTargetContext(MissingComponent, TEXT("unresolved_target")));
 
     const TSharedPtr<FJsonObject> LevelPatch =
         FSalModule::BuildPatchResult(
@@ -460,12 +497,12 @@ bool FSalPhase0PublicPathTest::RunTest(const FString& Parameters)
                     TEXT("level"),
                     TEXT("/Script/Engine.World"))));
     TestTrue(
-        TEXT("Exact Level Patch passes JSON admission then reports unavailable native resolution"),
+        TEXT("Exact Level Patch passes JSON admission then requires a registered source map"),
         HasDiagnostic(
             LevelPatch,
-            TEXT("capability.interface_unavailable")));
+            TEXT("resolution.target_not_found")));
     TestTrue(
-        TEXT("Unavailable Level Patch remains unresolved"),
+        TEXT("Missing Level Patch target remains unresolved"),
         HasTargetContext(LevelPatch, TEXT("unresolved_target")));
 
     const TSharedPtr<FJsonObject> ComponentPatch =

@@ -12,6 +12,7 @@
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
 #include "Graph/SalGraphInterface.h"
+#include "Level/SalLevelInterface.h"
 #include "Misc/Base64.h"
 #include "Misc/SecureHash.h"
 #include "PCG/SalPCGInterface.h"
@@ -379,6 +380,14 @@ bool LowerStableReference(
             Message);
         break;
     case ESalDomain::Level:
+        bResolved = FSalLevelInterface::LowerStableReference(
+            Target,
+            IdentityPath,
+            LegacyKind,
+            LegacyId,
+            Code,
+            Message);
+        break;
     case ESalDomain::PcgComponent:
         Code = TEXT("capability.interface_unavailable");
         Message = TEXT("This Domain's StableRef identity lowerer is not available in this Bridge build.");
@@ -2276,6 +2285,7 @@ TSharedPtr<FJsonObject> DispatchQuery(const FSalQuery& Query, const FSalResolved
     case ESalDomain::Pcg:
         return FSalPCGInterface::Query(Query, Target);
     case ESalDomain::Level:
+        return FSalLevelInterface::Query(Query, Target);
     case ESalDomain::PcgComponent:
         return InterfaceError(Operation, Target);
     default:

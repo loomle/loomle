@@ -1,0 +1,1445 @@
+// Copyright 2026 Loomle contributors.
+
+#include "SalLevelInterface.h"
+
+#include "../SalDiagnostics.h"
+#include "../SalObjectBuilder.h"
+#include "../SalRuntime.h"
+#include "Dom/JsonObject.h"
+#include "Dom/JsonValue.h"
+#include "Editor.h"
+#include "Engine/Level.h"
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
+#include "Helpers/PCGHelpers.h"
+#include "Misc/PackageName.h"
+#include "UObject/Package.h"
+#include "Misc/SecureHash.h"
+#include "UObject/UObjectGlobals.h"
+#include "WorldPartition/ActorDescContainerInstance.h"
+#include "WorldPartition/WorldPartition.h"
+#include "WorldPartition/WorldPartitionActorDesc.h"
+#include "WorldPartition/WorldPartitionActorDescInstance.h"
+
+namespace Loomle::Sal
+{
+namespace
+{
+constexpr int32 DefaultCollectionLimit = 50;
+constexpr int32 MaxCollectionLimit = 200;
+constexpr int32 MaxQueryDiagnostics = 64;
+constexpr int32 MaxIdentityConflictMatches = 32;
+constexpr int32 MaxLevelExaminedCandidates = 100000;
+constexpr int64 MaxLevelSnapshotStringBytes = 64ll * 1024ll * 1024ll;
+constexpr EObjectFlags IncompleteLoadFlags =
+    RF_NeedLoad
+    | RF_NeedPostLoad
+    | RF_NeedPostLoadSubobjects
+    | RF_WillBeLoaded;
+
+FString GuidText(const FGuid& Guid)
+{
+    return Guid.ToString(EGuidFormats::DigitsWithHyphensLower);
+}
+
+TSharedPtr<FJsonObject> QueryError(
+    const FString& Code,
+    const FString& Message,
+    const FString& Operation,
+    const FString& Ref = FString(),
+    const TArray<FString>& Supported = {})
+{
+    FSalDiagnosticBuilder Diagnostic = FSalDiagnostics::Error(Code, Message)
+        .Interface(TEXT("level"))
+        .Operation(Operation);
+    if (!Ref.IsEmpty())
+    {
+        Diagnostic.Ref(Ref);
+    }
+    if (!Supported.IsEmpty())
+    {
+        Diagnostic.Supported(Supported);
+    }
+    return FSalDiagnostics::Result(Diagnostic.Build());
+}
+
+TSharedPtr<FJsonObject> Warning(
+    const FString& Code,
+    const FString& Message,
+    const FString& Operation,
+    const FString& Ref = FString())
+{
+    FSalDiagnosticBuilder Diagnostic = FSalDiagnostics::Warning(Code, Message)
+        .Interface(TEXT("level"))
+        .Operation(Operation);
+    if (!Ref.IsEmpty())
+    {
+        Diagnostic.Ref(Ref);
+    }
+    return Diagnostic.Build();
+}
+
+FString TargetType(const FSalResolvedTarget& Target)
+{
+    FString Type;
+    if (Target.CanonicalTarget.IsValid())
+    {
+        Target.CanonicalTarget->TryGetStringField(TEXT("type"), Type);
+    }
+    return Type.IsEmpty()
+        ? UWorld::StaticClass()->GetPathName()
+        : Type;
+}
+
+FString TargetName(const FSalResolvedTarget& Target)
+{
+    if (!Target.Name.IsEmpty())
+    {
+        return Target.Name;
+    }
+    const FString Name = FPackageName::ObjectPathToObjectName(Target.AssetPath);
+    return Name.IsEmpty() ? TEXT("Level") : Name;
+}
+
+bool IsExactLoadedSource(
+    const FSalResolvedTarget& Target,
+    UWorld*& OutWorld,
+    ULevel*& OutLevel,
+    FString& OutReason)
+{
+    OutWorld = nullptr;
+    OutLevel = nullptr;
+    OutReason.Reset();
+
+    UWorld* World = Target.Domain == ESalDomain::Level
+            && IsValid(Target.Object)
+        ? Cast<UWorld>(Target.Object)
+        : nullptr;
+    if (World == nullptr)
+    {
+        OutReason = TEXT("The exact saved Level Target is not loaded as an authored Editor source World.");
+        return false;
+    }
+    if (Target.AssetPath.IsEmpty()
+        || !World->GetPathName().Equals(
+            Target.AssetPath,
+            ESearchCase::CaseSensitive))
+    {
+        OutReason = TEXT("The loaded World does not exactly match the canonical Level Target path.");
+        return false;
+    }
+    if (World->HasAnyFlags(IncompleteLoadFlags)
+        || (World->WorldType != EWorldType::Editor
+            && World->WorldType != EWorldType::Inactive))
+    {
+        OutReason = TEXT("Level content Query accepts only an Editor source World or an inactive source World whose PersistentLevel belongs to the active Editor World; PIE, game, and preview Worlds are rejected.");
+        return false;
+    }
+    if (World->IsTemplate()
+        || World->HasAnyFlags(RF_Transient)
+        || World->GetOutermost() == GetTransientPackage()
+        || World->GetOutermost()->HasAnyFlags(RF_Transient)
+        || World->GetOutermost()->HasAnyPackageFlags(PKG_PlayInEditor))
+    {
+        OutReason = TEXT("The loaded World is transient, a template, or a PIE package rather than the saved authored source World.");
+        return false;
+    }
+    ULevel* Level = World->PersistentLevel;
+    if (!IsValid(Level)
+        || Level->HasAnyFlags(IncompleteLoadFlags)
+        || Level->GetTypedOuter<UWorld>() != World
+        || Level->GetOutermost() != World->GetOutermost())
+    {
+        OutReason = TEXT("The loaded source World has no exact package-owned PersistentLevel.");
+        return false;
+    }
+    UWorld* OwningWorld = Level->GetWorld();
+    UWorld* ActiveEditorWorld = GEditor != nullptr
+        ? GEditor->GetEditorWorldContext().World()
+        : nullptr;
+    if (!IsValid(OwningWorld)
+        || OwningWorld->HasAnyFlags(IncompleteLoadFlags)
+        || OwningWorld != ActiveEditorWorld
+        || OwningWorld->WorldType != EWorldType::Editor)
+    {
+        OutReason = TEXT("The exact source PersistentLevel does not belong to the active authored Editor World.");
+        return false;
+    }
+
+    OutWorld = World;
+    OutLevel = Level;
+    return true;
+}
+
+bool IsPersistedLevelActor(const AActor* Actor, const ULevel* Level)
+{
+    if (!IsValid(Actor)
+        || Level == nullptr
+        || Actor->GetLevel() != Level
+        || Actor->IsChildActor()
+        || Actor->GetActorInstanceGuid() != Actor->GetActorGuid()
+        || Actor->HasExternalContent()
+        || Actor->ActorHasTag(PCGHelpers::DefaultPCGActorTag)
+        || Actor->ActorHasTag(PCGHelpers::MarkedForCleanupPCGTag)
+        || Actor->IsTemplate()
+        || Actor->HasAnyFlags(
+            RF_Transient
+            | RF_ClassDefaultObject
+            | RF_ArchetypeObject))
+    {
+        return false;
+    }
+    const UPackage* Package = Actor->GetOutermost();
+    return Package != nullptr
+        && Package != GetTransientPackage()
+        && !Package->HasAnyFlags(RF_Transient)
+        && !Package->HasAnyPackageFlags(PKG_PlayInEditor);
+}
+
+bool IsExcludedDescriptor(const FWorldPartitionActorDesc* ActorDesc)
+{
+    if (ActorDesc == nullptr)
+    {
+        return true;
+    }
+    const TArray<FName>& Tags = ActorDesc->GetTags();
+    return Tags.Contains(PCGHelpers::DefaultPCGActorTag)
+        || Tags.Contains(PCGHelpers::MarkedForCleanupPCGTag);
+}
+
+struct FLevelActorEntry
+{
+    FGuid Guid;
+    FString Type;
+    FString Name;
+    FString Label;
+    FString ObjectPath;
+    FString PackagePath;
+    FTransform Transform = FTransform::Identity;
+    FBox Bounds = FBox(ForceInit);
+    bool bLoaded = false;
+    bool bHasDescriptor = false;
+    bool bExternal = false;
+    bool bHasTransform = false;
+    bool bHasBounds = false;
+    int32 IdentityMultiplicity = 0;
+
+    FString EvidenceKey() const
+    {
+        if (!ObjectPath.IsEmpty())
+        {
+            return ObjectPath;
+        }
+        if (!PackagePath.IsEmpty())
+        {
+            return PackagePath + TEXT(":") + Name;
+        }
+        if (!Name.IsEmpty())
+        {
+            return Name;
+        }
+        return Type.IsEmpty() ? TEXT("<unknown actor>") : Type;
+    }
+
+};
+
+struct FLevelSnapshot
+{
+    UWorld* World = nullptr;
+    ULevel* Level = nullptr;
+    TArray<FLevelActorEntry> Actors;
+    TArray<TSharedPtr<FJsonObject>> Diagnostics;
+    int32 RootDescriptorCount = 0;
+    int32 InvalidGuidCount = 0;
+    int32 DuplicateGuidCount = 0;
+    int32 StableActorCount = 0;
+    bool bIdentityComplete = true;
+    bool bDiagnosticsTruncated = false;
+
+    void AddDiagnostic(const TSharedPtr<FJsonObject>& Diagnostic)
+    {
+        if (Diagnostics.Num() < MaxQueryDiagnostics)
+        {
+            Diagnostics.Add(Diagnostic);
+        }
+        else
+        {
+            bDiagnosticsTruncated = true;
+        }
+    }
+
+    TArray<TSharedPtr<FJsonObject>> FinalDiagnostics(
+        const FString& Operation) const
+    {
+        TArray<TSharedPtr<FJsonObject>> Result = Diagnostics;
+        if (bDiagnosticsTruncated && Result.Num() < MaxQueryDiagnostics + 1)
+        {
+            Result.Add(Warning(
+                TEXT("validation.reference_scan_incomplete"),
+                TEXT("Additional Level identity diagnostics were omitted after the bounded diagnostic limit."),
+                Operation));
+        }
+        return Result;
+    }
+};
+
+FLevelActorEntry LoadedActorEntry(const AActor* Actor)
+{
+    FLevelActorEntry Entry;
+    Entry.Guid = Actor->GetActorGuid();
+    Entry.Type = Actor->GetClass()->GetPathName();
+    Entry.Name = Actor->GetFName().ToString();
+#if WITH_EDITOR
+    Entry.Label = Actor->GetActorLabel(false);
+#endif
+    Entry.ObjectPath = Actor->GetPathName();
+    Entry.PackagePath = Actor->GetOutermost()->GetName();
+    Entry.Transform = Actor->GetActorTransform();
+    Entry.bLoaded = true;
+    Entry.bExternal = Actor->IsPackageExternal();
+    Entry.bHasTransform = true;
+    return Entry;
+}
+
+FLevelActorEntry DescriptorEntry(
+    const FWorldPartitionActorDesc* ActorDesc,
+    const FName SourcePackage,
+    FString ObjectPath)
+{
+    FLevelActorEntry Entry;
+    Entry.Guid = ActorDesc->GetGuid();
+    const FTopLevelAssetPath BaseClass = ActorDesc->GetBaseClass();
+    Entry.Type = (BaseClass.IsValid()
+        ? BaseClass
+        : ActorDesc->GetNativeClass()).ToString();
+    Entry.Name = ActorDesc->GetActorNameString();
+    Entry.Label = ActorDesc->GetActorLabelString();
+    Entry.ObjectPath = MoveTemp(ObjectPath);
+    Entry.PackagePath = ActorDesc->GetActorPackage().ToString();
+    // Slice 1A reports unloaded descriptor evidence in the exact source
+    // asset's coordinate space. Do not apply a live container-instance
+    // transform, and do not expand the current contract with descriptor
+    // Transform: only the raw authored bounds are emitted.
+    Entry.Bounds = ActorDesc->GetEditorBounds();
+    Entry.bHasDescriptor = true;
+    Entry.bExternal = ActorDesc->GetActorPackage() != SourcePackage;
+    Entry.bHasBounds = Entry.Bounds.IsValid != 0;
+    return Entry;
+}
+
+class FLevelScanBudget
+{
+public:
+    bool TryExamineCandidate()
+    {
+        if (ExaminedCandidates >= MaxLevelExaminedCandidates)
+        {
+            return false;
+        }
+        ++ExaminedCandidates;
+        return true;
+    }
+
+    bool TryConsumeString(const FString& Value)
+    {
+        return TryConsumeBytes(StringStorageBytes(Value));
+    }
+
+    bool TryConsumeEntryStrings(
+        const FLevelActorEntry& Entry,
+        const int32 ObjectPathCopies,
+        const bool bIncludeName = true,
+        const bool bIncludeLabel = true)
+    {
+        int64 Bytes = StringStorageBytes(Entry.Type)
+            + StringStorageBytes(Entry.PackagePath);
+        if (bIncludeName)
+        {
+            Bytes += StringStorageBytes(Entry.Name);
+        }
+        if (bIncludeLabel)
+        {
+            Bytes += StringStorageBytes(Entry.Label);
+        }
+        for (int32 Copy = 0; Copy < ObjectPathCopies; ++Copy)
+        {
+            Bytes += StringStorageBytes(Entry.ObjectPath);
+        }
+        return TryConsumeBytes(Bytes);
+    }
+
+private:
+    static int64 StringStorageBytes(const FString& Value)
+    {
+        return Value.IsEmpty()
+            ? 0
+            : (static_cast<int64>(Value.Len()) + 1) * sizeof(TCHAR);
+    }
+
+    bool TryConsumeBytes(const int64 Bytes)
+    {
+        if (Bytes < 0
+            || Bytes > MaxLevelSnapshotStringBytes - SnapshotStringBytes)
+        {
+            return false;
+        }
+        SnapshotStringBytes += Bytes;
+        return true;
+    }
+
+    int32 ExaminedCandidates = 0;
+    int64 SnapshotStringBytes = 0;
+};
+
+void AuditIdentities(
+    FLevelSnapshot& Snapshot,
+    const FString& Operation)
+{
+    TMap<FGuid, TArray<int32>> ByGuid;
+    for (int32 Index = 0; Index < Snapshot.Actors.Num(); ++Index)
+    {
+        FLevelActorEntry& Entry = Snapshot.Actors[Index];
+        if (!Entry.Guid.IsValid())
+        {
+            ++Snapshot.InvalidGuidCount;
+            Snapshot.AddDiagnostic(Warning(
+                TEXT("resolution.identity_conflict"),
+                TEXT("A persisted Level Actor or root World Partition descriptor has an invalid ActorGuid and cannot receive a StableRef."),
+                Operation,
+                Entry.EvidenceKey()));
+            continue;
+        }
+        ByGuid.FindOrAdd(Entry.Guid).Add(Index);
+    }
+
+    for (const TPair<FGuid, TArray<int32>>& Pair : ByGuid)
+    {
+        const int32 Multiplicity = Pair.Value.Num();
+        for (const int32 Index : Pair.Value)
+        {
+            Snapshot.Actors[Index].IdentityMultiplicity = Multiplicity;
+        }
+        if (Multiplicity == 1)
+        {
+            if (Snapshot.bIdentityComplete)
+            {
+                ++Snapshot.StableActorCount;
+            }
+            continue;
+        }
+
+        ++Snapshot.DuplicateGuidCount;
+        TArray<FString> Matches;
+        Matches.Reserve(FMath::Min(
+            Multiplicity,
+            MaxIdentityConflictMatches));
+        for (const int32 Index : Pair.Value)
+        {
+            FString Evidence = Snapshot.Actors[Index].EvidenceKey();
+            if (Matches.Num() < MaxIdentityConflictMatches)
+            {
+                Matches.Add(MoveTemp(Evidence));
+                continue;
+            }
+            int32 GreatestIndex = 0;
+            for (int32 MatchIndex = 1;
+                 MatchIndex < Matches.Num();
+                 ++MatchIndex)
+            {
+                if (Matches[GreatestIndex].Compare(Matches[MatchIndex]) < 0)
+                {
+                    GreatestIndex = MatchIndex;
+                }
+            }
+            if (Evidence.Compare(Matches[GreatestIndex]) < 0)
+            {
+                Matches[GreatestIndex] = MoveTemp(Evidence);
+            }
+        }
+        Matches.Sort();
+        const int32 OmittedMatches = Multiplicity - Matches.Num();
+        const FString Message = OmittedMatches > 0
+            ? FString::Printf(
+                TEXT("Multiple persisted Level Actor records share one ActorGuid; none can receive that StableRef. A bounded deterministic evidence subset is shown and %d additional matches were omitted."),
+                OmittedMatches)
+            : TEXT("Multiple persisted Level Actor records share one ActorGuid; none can receive that StableRef.");
+        FSalDiagnosticBuilder Diagnostic = FSalDiagnostics::Warning(
+                TEXT("resolution.identity_conflict"),
+                Message)
+            .Interface(TEXT("level"))
+            .Operation(Operation)
+            .Ref(GuidText(Pair.Key))
+            .Matches(Matches);
+        Snapshot.AddDiagnostic(Diagnostic.Build());
+    }
+}
+
+bool BuildSnapshot(
+    const FSalResolvedTarget& Target,
+    const FString& Operation,
+    FLevelSnapshot& Out,
+    FString& OutReason)
+{
+    Out = FLevelSnapshot();
+    if (!IsExactLoadedSource(
+            Target,
+            Out.World,
+            Out.Level,
+            OutReason))
+    {
+        return false;
+    }
+
+    bool bScanLimitReached = false;
+    const auto MarkScanLimitReached = [&](const FString& Limit)
+    {
+        if (bScanLimitReached)
+        {
+            return;
+        }
+        bScanLimitReached = true;
+        Out.bIdentityComplete = false;
+        Out.AddDiagnostic(Warning(
+            TEXT("validation.reference_scan_incomplete"),
+            FString::Printf(
+                TEXT("The Level Actor identity scan reached its bounded %s budget; Actor StableRefs are fail-closed."),
+                *Limit),
+            Operation,
+            Target.AssetPath));
+    };
+
+    FLevelScanBudget ScanBudget;
+    TSet<const AActor*> SeenLoadedActors;
+    TMap<FString, int32> LoadedActorIndicesByPath;
+    TMap<FGuid, TArray<int32>> LoadedActorIndicesByGuid;
+    for (AActor* Actor : Out.Level->Actors)
+    {
+        if (!ScanBudget.TryExamineCandidate())
+        {
+            MarkScanLimitReached(TEXT("examined-candidate"));
+            break;
+        }
+        if (!IsPersistedLevelActor(Actor, Out.Level))
+        {
+            continue;
+        }
+        if (SeenLoadedActors.Contains(Actor))
+        {
+            Out.AddDiagnostic(Warning(
+                TEXT("validation.reference_scan_incomplete"),
+                TEXT("The PersistentLevel Actor array contains the same native Actor pointer more than once; the repeated storage entry was ignored before materializing Actor text."),
+                Operation,
+                Actor->GetFName().ToString()));
+            continue;
+        }
+        SeenLoadedActors.Add(Actor);
+        const FString& ActorLabel = Actor->GetActorLabel(false);
+        if (!ScanBudget.TryConsumeString(ActorLabel))
+        {
+            MarkScanLimitReached(TEXT("snapshot-string-byte"));
+            break;
+        }
+        FLevelActorEntry Entry = LoadedActorEntry(Actor);
+        if (LoadedActorIndicesByPath.Contains(Entry.ObjectPath))
+        {
+            if (!ScanBudget.TryConsumeEntryStrings(
+                    Entry,
+                    1,
+                    true,
+                    false))
+            {
+                MarkScanLimitReached(TEXT("snapshot-string-byte"));
+                break;
+            }
+            Out.AddDiagnostic(Warning(
+                TEXT("validation.reference_scan_incomplete"),
+                TEXT("The PersistentLevel Actor array contains the same native Actor more than once; the repeated storage entry was ignored."),
+                Operation,
+                Entry.ObjectPath));
+            continue;
+        }
+        if (!ScanBudget.TryConsumeEntryStrings(
+                Entry,
+                2,
+                true,
+                false))
+        {
+            MarkScanLimitReached(TEXT("snapshot-string-byte"));
+            break;
+        }
+        const int32 Index = Out.Actors.Add(MoveTemp(Entry));
+        LoadedActorIndicesByPath.Add(Out.Actors[Index].ObjectPath, Index);
+        if (Out.Actors[Index].Guid.IsValid())
+        {
+            LoadedActorIndicesByGuid.FindOrAdd(
+                Out.Actors[Index].Guid).Add(Index);
+        }
+    }
+
+    UWorldPartition* WorldPartition = Out.World->GetWorldPartition();
+    if (WorldPartition != nullptr && !bScanLimitReached)
+    {
+        if (!IsValid(WorldPartition) || WorldPartition->HasAnyFlags(IncompleteLoadFlags))
+        {
+            Out.bIdentityComplete = false;
+            Out.AddDiagnostic(Warning(TEXT("validation.reference_scan_incomplete"),
+                                      TEXT("The source World Partition is being loaded or torn "
+                                           "down; Actor StableRefs are fail-closed."),
+                                      Operation,
+                                      Target.AssetPath));
+        }
+        else
+        {
+            UActorDescContainerInstance* Root = WorldPartition->GetActorDescContainerInstance();
+            const FName SourcePackage = Out.World->GetOutermost()->GetFName();
+            if (!IsValid(Root) || Root->HasAnyFlags(IncompleteLoadFlags) ||
+                !Root->IsInitialized() || Root->GetContainerPackage() != SourcePackage)
+            {
+                Out.bIdentityComplete = false;
+                Out.AddDiagnostic(Warning(
+                    TEXT("validation.reference_scan_incomplete"),
+                    TEXT(
+                        "The root World Partition Actor descriptor container is unavailable or "
+                        "does not match the exact source World; Actor StableRefs are fail-closed."),
+                    Operation,
+                    Target.AssetPath));
+            }
+            else
+            {
+                for (UActorDescContainerInstance::TConstIterator<> Iterator(Root); Iterator;
+                     ++Iterator)
+                {
+                    if (!ScanBudget.TryExamineCandidate())
+                    {
+                        MarkScanLimitReached(TEXT("examined-candidate"));
+                        break;
+                    }
+                    const FWorldPartitionActorDescInstance* Descriptor = *Iterator;
+                    const FWorldPartitionActorDesc* ActorDesc =
+                        Descriptor != nullptr ? Descriptor->GetActorDesc() : nullptr;
+                    if (ActorDesc == nullptr)
+                    {
+                        Out.bIdentityComplete = false;
+                        Out.AddDiagnostic(
+                            Warning(TEXT("validation.reference_scan_incomplete"),
+                                    TEXT("The root World Partition container contains an invalid "
+                                         "Actor descriptor; Actor StableRefs are fail-closed."),
+                                    Operation,
+                                    Target.AssetPath));
+                        continue;
+                    }
+                    if (IsExcludedDescriptor(ActorDesc))
+                    {
+                        continue;
+                    }
+                    ++Out.RootDescriptorCount;
+
+                    const FGuid DescriptorGuid = ActorDesc->GetGuid();
+                    FString DescriptorPath = ActorDesc->GetActorSoftPath().ToString();
+                    if (!ScanBudget.TryConsumeString(DescriptorPath))
+                    {
+                        MarkScanLimitReached(TEXT("snapshot-string-byte"));
+                        break;
+                    }
+                    int32 LoadedIndex = INDEX_NONE;
+                    if (DescriptorGuid.IsValid())
+                    {
+                        if (const TArray<int32>* GuidMatches =
+                                LoadedActorIndicesByGuid.Find(DescriptorGuid))
+                        {
+                            for (const int32 Candidate : *GuidMatches)
+                            {
+                                if (Out.Actors.IsValidIndex(Candidate) &&
+                                    Out.Actors[Candidate].ObjectPath == DescriptorPath)
+                                {
+                                    LoadedIndex = Candidate;
+                                    break;
+                                }
+                            }
+                            if (LoadedIndex == INDEX_NONE && !GuidMatches->IsEmpty())
+                            {
+                                LoadedIndex = (*GuidMatches)[0];
+                            }
+                        }
+                    }
+                    if (Out.Actors.IsValidIndex(LoadedIndex))
+                    {
+                        FLevelActorEntry& GuidMatch = Out.Actors[LoadedIndex];
+                        GuidMatch.bHasDescriptor = true;
+                        if (GuidMatch.ObjectPath != DescriptorPath)
+                        {
+                            Out.AddDiagnostic(Warning(
+                                TEXT("resolution.identity_conflict"),
+                                TEXT("A loaded Actor and root World Partition descriptor share "
+                                     "ActorGuid but disagree on object path; ActorGuid remains the "
+                                     "identity and the loaded Actor evidence wins."),
+                                Operation,
+                                GuidText(DescriptorGuid)));
+                        }
+                        continue;
+                    }
+
+                    if (const int32* PathMatch = LoadedActorIndicesByPath.Find(DescriptorPath))
+                    {
+                        Out.bIdentityComplete = false;
+                        Out.AddDiagnostic(
+                            Warning(TEXT("resolution.identity_conflict"),
+                                    TEXT("A loaded Actor and root World Partition descriptor share "
+                                         "an object path but disagree on ActorGuid; both records "
+                                         "are preserved and Actor StableRefs are fail-closed."),
+                                    Operation,
+                                    Out.Actors.IsValidIndex(*PathMatch)
+                                        ? Out.Actors[*PathMatch].EvidenceKey()
+                                        : DescriptorPath));
+                    }
+                    const FString& DescriptorName = ActorDesc->GetActorNameString();
+                    const FString& DescriptorLabel = ActorDesc->GetActorLabelString();
+                    if (!ScanBudget.TryConsumeString(DescriptorName) ||
+                        !ScanBudget.TryConsumeString(DescriptorLabel))
+                    {
+                        MarkScanLimitReached(TEXT("snapshot-string-byte"));
+                        break;
+                    }
+                    FLevelActorEntry Entry =
+                        DescriptorEntry(ActorDesc, SourcePackage, MoveTemp(DescriptorPath));
+                    if (!ScanBudget.TryConsumeEntryStrings(Entry, 0, false, false))
+                    {
+                        MarkScanLimitReached(TEXT("snapshot-string-byte"));
+                        break;
+                    }
+                    Out.Actors.Add(MoveTemp(Entry));
+                }
+            }
+        }
+    }
+
+    AuditIdentities(Out, Operation);
+    Out.Actors.Sort([](
+        const FLevelActorEntry& Left,
+        const FLevelActorEntry& Right)
+    {
+        if (Left.Guid != Right.Guid)
+        {
+            return Left.Guid < Right.Guid;
+        }
+        if (Left.bLoaded != Right.bLoaded)
+        {
+            return Left.bLoaded;
+        }
+        const int32 ObjectPathOrder = Left.ObjectPath.Compare(Right.ObjectPath);
+        if (ObjectPathOrder != 0)
+        {
+            return ObjectPathOrder < 0;
+        }
+        const int32 PackageOrder = Left.PackagePath.Compare(Right.PackagePath);
+        if (PackageOrder != 0)
+        {
+            return PackageOrder < 0;
+        }
+        const int32 NameOrder = Left.Name.Compare(Right.Name);
+        if (NameOrder != 0)
+        {
+            return NameOrder < 0;
+        }
+        return Left.Type < Right.Type;
+    });
+    return true;
+}
+
+TSharedPtr<FJsonValue> VectorValue(const FVector& Vector)
+{
+    TSharedPtr<FJsonObject> Fields = MakeShared<FJsonObject>();
+    Fields->SetNumberField(TEXT("X"), Vector.X);
+    Fields->SetNumberField(TEXT("Y"), Vector.Y);
+    Fields->SetNumberField(TEXT("Z"), Vector.Z);
+    return Value::Call(TEXT("vector"), Fields);
+}
+
+TSharedPtr<FJsonValue> QuaternionValue(const FQuat& Rotation)
+{
+    TSharedPtr<FJsonObject> Fields = MakeShared<FJsonObject>();
+    Fields->SetNumberField(TEXT("X"), Rotation.X);
+    Fields->SetNumberField(TEXT("Y"), Rotation.Y);
+    Fields->SetNumberField(TEXT("Z"), Rotation.Z);
+    Fields->SetNumberField(TEXT("W"), Rotation.W);
+    return Value::Call(TEXT("quaternion"), Fields);
+}
+
+TSharedPtr<FJsonValue> TransformValue(const FTransform& Transform)
+{
+    TSharedPtr<FJsonObject> Fields = MakeShared<FJsonObject>();
+    Fields->SetField(
+        TEXT("Translation"),
+        VectorValue(Transform.GetTranslation()));
+    Fields->SetField(
+        TEXT("Rotation"),
+        QuaternionValue(Transform.GetRotation()));
+    Fields->SetField(
+        TEXT("Scale3D"),
+        VectorValue(Transform.GetScale3D()));
+    return Value::Call(TEXT("transform"), Fields);
+}
+
+TSharedPtr<FJsonValue> BoundsValue(const FBox& Bounds)
+{
+    TSharedPtr<FJsonObject> Fields = MakeShared<FJsonObject>();
+    Fields->SetField(TEXT("Min"), VectorValue(Bounds.Min));
+    Fields->SetField(TEXT("Max"), VectorValue(Bounds.Max));
+    return Value::Call(TEXT("bounds"), Fields);
+}
+
+TSharedPtr<FJsonValue> LevelValue(
+    const FSalResolvedTarget& Target,
+    const FLevelSnapshot* Snapshot,
+    const bool bSummary)
+{
+    UWorld* World = nullptr;
+    ULevel* Level = nullptr;
+    FString Reason;
+    const bool bLoaded = Snapshot != nullptr
+        || IsExactLoadedSource(Target, World, Level, Reason);
+
+    TSharedPtr<FJsonObject> Fields = MakeShared<FJsonObject>();
+    Fields->SetStringField(TEXT("path"), Target.AssetPath);
+    Fields->SetStringField(TEXT("type"), TargetType(Target));
+    Fields->SetStringField(TEXT("name"), TargetName(Target));
+    Fields->SetArrayField(
+        TEXT("domains"),
+        {Value::String(TEXT("asset")), Value::String(TEXT("level"))});
+    Fields->SetBoolField(TEXT("loaded"), bLoaded);
+    if (bLoaded)
+    {
+        UWorld* LoadedWorld = Snapshot != nullptr ? Snapshot->World : World;
+        Fields->SetStringField(TEXT("worldType"), TEXT("Editor"));
+        Fields->SetBoolField(
+            TEXT("worldPartition"),
+            LoadedWorld != nullptr
+                && LoadedWorld->GetWorldPartition() != nullptr);
+    }
+    if (bSummary && Snapshot != nullptr)
+    {
+        int32 LoadedActors = 0;
+        int32 UnloadedDescriptors = 0;
+        int32 ExternalActors = 0;
+        for (const FLevelActorEntry& Entry : Snapshot->Actors)
+        {
+            LoadedActors += Entry.bLoaded ? 1 : 0;
+            UnloadedDescriptors += !Entry.bLoaded && Entry.bHasDescriptor ? 1 : 0;
+            ExternalActors += Entry.bExternal ? 1 : 0;
+        }
+        Fields->SetNumberField(TEXT("actorCount"), Snapshot->Actors.Num());
+        Fields->SetNumberField(TEXT("loadedActorCount"), LoadedActors);
+        Fields->SetNumberField(
+            TEXT("unloadedDescriptorCount"),
+            UnloadedDescriptors);
+        Fields->SetNumberField(
+            TEXT("rootDescriptorCount"),
+            Snapshot->RootDescriptorCount);
+        Fields->SetNumberField(TEXT("externalActorCount"), ExternalActors);
+        Fields->SetNumberField(
+            TEXT("stableActorCount"),
+            Snapshot->StableActorCount);
+        Fields->SetNumberField(
+            TEXT("invalidActorGuidCount"),
+            Snapshot->InvalidGuidCount);
+        Fields->SetNumberField(
+            TEXT("duplicateActorGuidCount"),
+            Snapshot->DuplicateGuidCount);
+        Fields->SetBoolField(
+            TEXT("identityComplete"),
+            Snapshot->bIdentityComplete);
+    }
+    return Value::Call(TEXT("asset"), Fields);
+}
+
+TSharedPtr<FJsonValue> ActorValue(
+    const FLevelActorEntry& Entry,
+    const FString& LevelAlias,
+    const bool bIdentityComplete)
+{
+    TSharedPtr<FJsonObject> Fields = MakeShared<FJsonObject>();
+    Fields->SetStringField(TEXT("id"), GuidText(Entry.Guid));
+    Fields->SetStringField(TEXT("type"), Entry.Type);
+    if (!Entry.Name.IsEmpty())
+    {
+        Fields->SetStringField(TEXT("Name"), Entry.Name);
+    }
+    if (!Entry.Label.IsEmpty())
+    {
+        Fields->SetStringField(TEXT("ActorLabel"), Entry.Label);
+    }
+    if (!Entry.ObjectPath.IsEmpty())
+    {
+        Fields->SetStringField(TEXT("path"), Entry.ObjectPath);
+    }
+    if (!Entry.PackagePath.IsEmpty())
+    {
+        Fields->SetStringField(TEXT("package"), Entry.PackagePath);
+    }
+    Fields->SetField(TEXT("level"), Value::Local(LevelAlias));
+    Fields->SetBoolField(TEXT("loaded"), Entry.bLoaded);
+    Fields->SetBoolField(TEXT("external"), Entry.bExternal);
+    if (!Entry.bLoaded && Entry.bHasDescriptor)
+    {
+        Fields->SetBoolField(TEXT("descriptor"), true);
+    }
+    if (Entry.bHasTransform)
+    {
+        Fields->SetField(TEXT("Transform"), TransformValue(Entry.Transform));
+    }
+    if (Entry.bHasBounds)
+    {
+        Fields->SetField(TEXT("bounds"), BoundsValue(Entry.Bounds));
+    }
+
+    const bool bIdentityValid = Entry.Guid.IsValid();
+    const bool bIdentityUnique = Entry.IdentityMultiplicity == 1;
+    const bool bStableRefAvailable =
+        bIdentityComplete && bIdentityValid && bIdentityUnique;
+    Fields->SetBoolField(TEXT("identityValid"), bIdentityValid);
+    Fields->SetBoolField(TEXT("identityUnique"), bIdentityUnique);
+    Fields->SetBoolField(
+        TEXT("stableRefAvailable"),
+        bStableRefAvailable);
+    if (bStableRefAvailable)
+    {
+        Fields->SetField(
+            TEXT("ref"),
+            Value::Stable(TEXT("actor"), GuidText(Entry.Guid)));
+    }
+    Fields->SetField(
+        TEXT("identityStatus"),
+        Value::Name(
+            !bIdentityComplete
+                ? TEXT("incomplete")
+                : !bIdentityValid
+                    ? TEXT("invalid")
+                    : !bIdentityUnique
+                        ? TEXT("conflict")
+                        : TEXT("stable")));
+    return Value::Call(TEXT("actor"), Fields);
+}
+
+bool EntryMatchesText(
+    const FLevelActorEntry& Entry,
+    const FString& SearchText)
+{
+    if (SearchText.IsEmpty())
+    {
+        return true;
+    }
+    for (const FString& Field : {
+             GuidText(Entry.Guid),
+             Entry.Name,
+             Entry.Label,
+             Entry.ObjectPath,
+             Entry.PackagePath,
+             Entry.Type})
+    {
+        if (Field.Contains(SearchText, ESearchCase::IgnoreCase))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+class FCursorFingerprintBuilder
+{
+public:
+    void Add(const FString& Value)
+    {
+        const FString Length = LexToString(Value.Len());
+        Hash.UpdateWithString(*Length, Length.Len());
+        Hash.UpdateWithString(TEXT(":"), 1);
+        Hash.UpdateWithString(*Value, Value.Len());
+        Hash.UpdateWithString(TEXT(";"), 1);
+    }
+
+    FString Finalize()
+    {
+        Hash.Final();
+        uint8 Digest[FSHA1::DigestSize];
+        Hash.GetHash(Digest);
+        return BytesToHex(Digest, UE_ARRAY_COUNT(Digest)).ToLower();
+    }
+
+private:
+    FSHA1 Hash;
+};
+
+void AppendVectorFingerprint(
+    FCursorFingerprintBuilder& Out,
+    const FVector& Vector)
+{
+    Out.Add(LexToString(Vector.X));
+    Out.Add(LexToString(Vector.Y));
+    Out.Add(LexToString(Vector.Z));
+}
+
+void AppendQuaternionFingerprint(
+    FCursorFingerprintBuilder& Out,
+    const FQuat& Quaternion)
+{
+    Out.Add(LexToString(Quaternion.X));
+    Out.Add(LexToString(Quaternion.Y));
+    Out.Add(LexToString(Quaternion.Z));
+    Out.Add(LexToString(Quaternion.W));
+}
+
+FString CursorFingerprint(
+    const FSalQuery& Query,
+    const FSalResolvedTarget& Target,
+    const FLevelSnapshot& Snapshot,
+    const int32 Limit)
+{
+    FString SearchText;
+    Query.Operation->TryGetStringField(TEXT("text"), SearchText);
+    FCursorFingerprintBuilder Fingerprint;
+    Fingerprint.Add(Target.AssetPath);
+    Fingerprint.Add(SearchText);
+    Fingerprint.Add(LexToString(Limit));
+    Fingerprint.Add(
+        Snapshot.bIdentityComplete ? TEXT("complete") : TEXT("incomplete"));
+    for (const FLevelActorEntry& Entry : Snapshot.Actors)
+    {
+        Fingerprint.Add(GuidText(Entry.Guid));
+        Fingerprint.Add(Entry.Type);
+        Fingerprint.Add(Entry.Name);
+        Fingerprint.Add(Entry.Label);
+        Fingerprint.Add(Entry.ObjectPath);
+        Fingerprint.Add(Entry.PackagePath);
+        Fingerprint.Add(Entry.bLoaded ? TEXT("loaded") : TEXT("unloaded"));
+        Fingerprint.Add(
+            Entry.bHasDescriptor ? TEXT("descriptor") : TEXT("no_descriptor"));
+        Fingerprint.Add(
+            Entry.bExternal ? TEXT("external") : TEXT("internal"));
+        Fingerprint.Add(
+            Entry.bHasTransform ? TEXT("transform") : TEXT("no_transform"));
+        if (Entry.bHasTransform)
+        {
+            AppendVectorFingerprint(
+                Fingerprint,
+                Entry.Transform.GetTranslation());
+            AppendQuaternionFingerprint(
+                Fingerprint,
+                Entry.Transform.GetRotation());
+            AppendVectorFingerprint(
+                Fingerprint,
+                Entry.Transform.GetScale3D());
+        }
+        Fingerprint.Add(
+            Entry.bHasBounds ? TEXT("bounds") : TEXT("no_bounds"));
+        if (Entry.bHasBounds)
+        {
+            AppendVectorFingerprint(Fingerprint, Entry.Bounds.Min);
+            AppendVectorFingerprint(Fingerprint, Entry.Bounds.Max);
+        }
+        Fingerprint.Add(LexToString(Entry.IdentityMultiplicity));
+    }
+    return Fingerprint.Finalize();
+}
+
+bool DecodePage(
+    const FSalQuery& Query,
+    const FSalResolvedTarget& Target,
+    const FLevelSnapshot& Snapshot,
+    FSalPage& OutPage,
+    FString& OutFingerprint)
+{
+    OutPage.Offset = 0;
+    OutPage.Limit = FMath::Clamp(
+        Query.PageLimit > 0 ? Query.PageLimit : DefaultCollectionLimit,
+        1,
+        MaxCollectionLimit);
+    OutFingerprint = CursorFingerprint(
+        Query,
+        Target,
+        Snapshot,
+        OutPage.Limit);
+    if (Query.PageAfter.IsEmpty())
+    {
+        return true;
+    }
+    TArray<FString> Parts;
+    Query.PageAfter.ParseIntoArray(Parts, TEXT(":"), false);
+    return Parts.Num() == 3
+        && Parts[0] == TEXT("level1")
+        && Parts[1].Equals(OutFingerprint, ESearchCase::IgnoreCase)
+        && ParseNonNegativeInt32(Parts[2], OutPage.Offset);
+}
+
+void SetPage(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& Fingerprint,
+    const int32 NextOffset,
+    const bool bHasNext)
+{
+    if (!Result.IsValid() || !bHasNext)
+    {
+        return;
+    }
+    TSharedPtr<FJsonObject> PageObject = MakeShared<FJsonObject>();
+    PageObject->SetStringField(
+        TEXT("next"),
+        TEXT("level1:") + Fingerprint + TEXT(":") +
+            LexToString(NextOffset));
+    Result->SetObjectField(TEXT("page"), PageObject);
+}
+
+bool HasAnyClauses(const FSalQuery& Query)
+{
+    return Query.Where.IsValid()
+        || !Query.With.IsEmpty()
+        || !Query.OrderBy.IsEmpty()
+        || Query.PageLimit > 0
+        || !Query.PageAfter.IsEmpty();
+}
+
+TSharedPtr<FJsonObject> ContentUnavailable(
+    const FString& Operation,
+    const FSalResolvedTarget& Target,
+    const FString& Reason)
+{
+    return QueryError(
+        TEXT("capability.level_not_loaded"),
+        Reason.IsEmpty()
+            ? TEXT("The exact Level Target is not loaded as an authored Editor source World.")
+            : Reason,
+        Operation,
+        Target.AssetPath);
+}
+
+TSharedPtr<FJsonObject> QueryTarget(
+    const FSalQuery& Query,
+    const FSalResolvedTarget& Target)
+{
+    if (HasAnyClauses(Query))
+    {
+        return QueryError(
+            TEXT("capability.clause_unavailable"),
+            TEXT("Exact Level target read accepts no Query clauses in this read-only slice."),
+            TEXT("target"));
+    }
+    FSalObjectBuilder Builder;
+    const FString Alias = Builder.UniqueAlias(
+        Query.Alias.IsEmpty() ? TargetName(Target) : Query.Alias);
+    Builder.AddLocalBinding(Alias, LevelValue(Target, nullptr, false));
+    return Builder.BuildResult();
+}
+
+TSharedPtr<FJsonObject> QuerySummary(
+    const FSalQuery& Query,
+    const FSalResolvedTarget& Target)
+{
+    if (HasAnyClauses(Query))
+    {
+        return QueryError(
+            TEXT("capability.clause_unavailable"),
+            TEXT("Level summary accepts no Query clauses."),
+            TEXT("summary"));
+    }
+    FLevelSnapshot Snapshot;
+    FString Reason;
+    if (!BuildSnapshot(Target, TEXT("summary"), Snapshot, Reason))
+    {
+        return ContentUnavailable(TEXT("summary"), Target, Reason);
+    }
+    FSalObjectBuilder Builder;
+    const FString Alias = Builder.UniqueAlias(
+        Query.Alias.IsEmpty() ? TargetName(Target) : Query.Alias);
+    Builder.AddLocalBinding(
+        Alias,
+        LevelValue(Target, &Snapshot, true));
+    return Builder.BuildResult(Snapshot.FinalDiagnostics(TEXT("summary")));
+}
+
+TSharedPtr<FJsonObject> QueryActors(
+    const FSalQuery& Query,
+    const FSalResolvedTarget& Target)
+{
+    if (Query.Where.IsValid()
+        || !Query.With.IsEmpty()
+        || !Query.OrderBy.IsEmpty())
+    {
+        return QueryError(
+            TEXT("capability.clause_unavailable"),
+            TEXT("Level actors accepts only optional text search and cursor page clauses in this read-only slice."),
+            TEXT("actors"));
+    }
+    FLevelSnapshot Snapshot;
+    FString Reason;
+    if (!BuildSnapshot(Target, TEXT("actors"), Snapshot, Reason))
+    {
+        return ContentUnavailable(TEXT("actors"), Target, Reason);
+    }
+    FSalPage Page;
+    FString Fingerprint;
+    if (!DecodePage(Query, Target, Snapshot, Page, Fingerprint))
+    {
+        return QueryError(
+            TEXT("validation.invalid_cursor"),
+            TEXT("Level cursor does not belong to this Target, Actor snapshot, search, or page limit. Re-run the first page."),
+            TEXT("actors"),
+            Query.PageAfter);
+    }
+
+    FString SearchText;
+    Query.Operation->TryGetStringField(TEXT("text"), SearchText);
+    TArray<const FLevelActorEntry*> Matches;
+    for (const FLevelActorEntry& Entry : Snapshot.Actors)
+    {
+        if (EntryMatchesText(Entry, SearchText))
+        {
+            Matches.Add(&Entry);
+        }
+    }
+    if (Page.Offset > Matches.Num())
+    {
+        return QueryError(
+            TEXT("validation.invalid_cursor"),
+            TEXT("Level cursor offset is outside the current Actor result set. Re-run the first page."),
+            TEXT("actors"),
+            Query.PageAfter);
+    }
+    const int32 End = static_cast<int32>(FMath::Min<int64>(
+        Matches.Num(),
+        static_cast<int64>(Page.Offset) + Page.Limit));
+
+    FSalObjectBuilder Builder;
+    const FString LevelAlias = Builder.UniqueAlias(
+        Query.Alias.IsEmpty() ? TargetName(Target) : Query.Alias);
+    Builder.AddLocalBinding(
+        LevelAlias,
+        LevelValue(Target, &Snapshot, false));
+    for (int32 Index = Page.Offset; Index < End; ++Index)
+    {
+        const FLevelActorEntry& Entry = *Matches[Index];
+        const FString Preferred = !Entry.Label.IsEmpty()
+            ? Entry.Label
+            : !Entry.Name.IsEmpty()
+                ? Entry.Name
+                : TEXT("actor");
+        const FString Alias = Builder.UniqueAlias(Preferred);
+        Builder.AddLocalBinding(
+            Alias,
+            ActorValue(
+                Entry,
+                LevelAlias,
+                Snapshot.bIdentityComplete));
+    }
+    if (Matches.IsEmpty())
+    {
+        Builder.AddComment(TEXT("no matches"));
+    }
+    TSharedPtr<FJsonObject> Result = Builder.BuildResult(
+        Snapshot.FinalDiagnostics(TEXT("actors")));
+    SetPage(
+        Result,
+        Fingerprint,
+        End,
+        End < Matches.Num());
+    return Result;
+}
+
+bool ParseActorGuid(const FString& Text, FGuid& OutGuid)
+{
+    OutGuid.Invalidate();
+    return FGuid::ParseExact(
+            Text,
+            EGuidFormats::DigitsWithHyphens,
+            OutGuid)
+        && OutGuid.IsValid()
+        && GuidText(OutGuid).Equals(Text, ESearchCase::CaseSensitive);
+}
+
+TSharedPtr<FJsonObject> QueryExactActor(
+    const FSalQuery& Query,
+    const FSalResolvedTarget& Target)
+{
+    if (HasAnyClauses(Query))
+    {
+        return QueryError(
+            TEXT("capability.clause_unavailable"),
+            TEXT("Exact Level Actor read accepts no Query clauses in this read-only slice."),
+            TEXT("actor"));
+    }
+    FString Id;
+    Query.Operation->TryGetStringField(TEXT("id"), Id);
+    FGuid Guid;
+    if (!ParseActorGuid(Id, Guid))
+    {
+        return QueryError(
+            TEXT("validation.invalid_reference"),
+            TEXT("Exact Level Actor identity must be one valid hyphenated ActorGuid."),
+            TEXT("actor"),
+            Id);
+    }
+
+    FLevelSnapshot Snapshot;
+    FString Reason;
+    if (!BuildSnapshot(Target, TEXT("actor"), Snapshot, Reason))
+    {
+        return ContentUnavailable(TEXT("actor"), Target, Reason);
+    }
+    if (!Snapshot.bIdentityComplete)
+    {
+        return QueryError(
+            TEXT("validation.reference_scan_incomplete"),
+            TEXT("The Level Actor identity environment is incomplete; exact Actor resolution is fail-closed."),
+            TEXT("actor"),
+            Id);
+    }
+
+    const FLevelActorEntry* Match = nullptr;
+    int32 MatchCount = 0;
+    for (const FLevelActorEntry& Entry : Snapshot.Actors)
+    {
+        if (Entry.Guid == Guid)
+        {
+            Match = &Entry;
+            ++MatchCount;
+        }
+    }
+    if (MatchCount != 1 || Match == nullptr)
+    {
+        return QueryError(
+            MatchCount > 1
+                ? TEXT("resolution.identity_conflict")
+                : TEXT("resolution.object_not_found"),
+            MatchCount > 1
+                ? TEXT("Multiple persisted Level Actor records share this ActorGuid.")
+                : TEXT("No persisted Actor or root World Partition descriptor has this ActorGuid in the exact Level Target."),
+            TEXT("actor"),
+            Id);
+    }
+
+    FSalObjectBuilder Builder;
+    const FString LevelAlias = Builder.UniqueAlias(
+        Query.Alias.IsEmpty() ? TargetName(Target) : Query.Alias);
+    Builder.AddLocalBinding(
+        LevelAlias,
+        LevelValue(Target, &Snapshot, false));
+    const FString Preferred = !Match->Label.IsEmpty()
+        ? Match->Label
+        : !Match->Name.IsEmpty()
+            ? Match->Name
+            : TEXT("actor");
+    const FString ActorAlias = Builder.UniqueAlias(Preferred);
+    Builder.AddLocalBinding(
+        ActorAlias,
+        ActorValue(*Match, LevelAlias, true));
+    return Builder.BuildResult(Snapshot.FinalDiagnostics(TEXT("actor")));
+}
+}
+
+TSharedPtr<FJsonObject> FSalLevelInterface::Query(
+    const FSalQuery& Query,
+    const FSalResolvedTarget& Target)
+{
+    FString Operation;
+    if (!Query.Operation.IsValid()
+        || !Query.Operation->TryGetStringField(TEXT("kind"), Operation))
+    {
+        return QueryError(
+            TEXT("capability.operation_unavailable"),
+            TEXT("Level Query has no supported primary operation."),
+            TEXT("query"),
+            FString(),
+            {TEXT("target"), TEXT("summary"), TEXT("actors"), TEXT("actor")});
+    }
+    if (Operation == TEXT("target"))
+    {
+        return QueryTarget(Query, Target);
+    }
+    if (Operation == TEXT("summary"))
+    {
+        return QuerySummary(Query, Target);
+    }
+    if (Operation == TEXT("actors"))
+    {
+        return QueryActors(Query, Target);
+    }
+    if (Operation == TEXT("actor"))
+    {
+        return QueryExactActor(Query, Target);
+    }
+    return QueryError(
+        TEXT("capability.operation_unavailable"),
+        FString::Printf(
+            TEXT("Level Query operation is not active in this read-only slice: %s."),
+            *Operation),
+        Operation,
+        FString(),
+        {TEXT("target"), TEXT("summary"), TEXT("actors"), TEXT("actor")});
+}
+
+bool FSalLevelInterface::LowerStableReference(
+    const FSalResolvedTarget& Target,
+    const TArray<FString>& IdentityPath,
+    FString& OutKind,
+    FString& OutId,
+    FString& OutCode,
+    FString& OutMessage)
+{
+    OutKind.Reset();
+    OutId.Reset();
+    OutCode = TEXT("resolution.object_not_found");
+    OutMessage = TEXT("Actor StableRef was not found in the exact Level Target.");
+    if (IdentityPath.Num() != 1 || IdentityPath[0].IsEmpty())
+    {
+        OutCode = TEXT("validation.invalid_reference");
+        OutMessage = TEXT("Level Actor StableRef identity must contain exactly one ActorGuid segment.");
+        return false;
+    }
+    FGuid Guid;
+    if (!ParseActorGuid(IdentityPath[0], Guid))
+    {
+        OutCode = TEXT("validation.invalid_reference");
+        OutMessage = TEXT("Level Actor StableRef identity must be one valid hyphenated ActorGuid.");
+        return false;
+    }
+
+    FLevelSnapshot Snapshot;
+    FString Reason;
+    if (!BuildSnapshot(Target, TEXT("actor"), Snapshot, Reason))
+    {
+        OutCode = TEXT("capability.level_not_loaded");
+        OutMessage = Reason.IsEmpty()
+            ? TEXT("Level Actor StableRef resolution requires an exact loaded authored Editor source World.")
+            : Reason;
+        return false;
+    }
+    if (!Snapshot.bIdentityComplete)
+    {
+        OutCode = TEXT("validation.reference_scan_incomplete");
+        OutMessage = TEXT("The Level Actor identity environment is incomplete; StableRef resolution is fail-closed.");
+        return false;
+    }
+
+    const FLevelActorEntry* Match = nullptr;
+    int32 MatchCount = 0;
+    for (const FLevelActorEntry& Entry : Snapshot.Actors)
+    {
+        if (Entry.Guid == Guid)
+        {
+            Match = &Entry;
+            ++MatchCount;
+        }
+    }
+    if (MatchCount != 1 || Match == nullptr)
+    {
+        OutCode = MatchCount > 1
+            ? TEXT("resolution.identity_conflict")
+            : TEXT("resolution.object_not_found");
+        OutMessage = MatchCount > 1
+            ? TEXT("Multiple persisted Level Actor records share this ActorGuid; the StableRef is ambiguous.")
+            : TEXT("No persisted Actor or root World Partition descriptor has this ActorGuid in the exact Level Target.");
+        return false;
+    }
+
+    OutKind = TEXT("actor");
+    OutId = GuidText(Guid);
+    return true;
+}
+}

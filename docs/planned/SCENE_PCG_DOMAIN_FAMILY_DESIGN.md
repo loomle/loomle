@@ -872,7 +872,8 @@ level, pcg, pcg_component
 
 `pcg_execution` is not added to that list.
 
-The Target-backed work requires an exact Client/Bridge protocol bump and:
+The internal Target groundwork allocated Client/Bridge protocol v6 on the
+unpublished family feature branch. The current v6 wire contract includes:
 
 - three new structural/reserved Domain keywords;
 - closed Target fields and canonical formatter order:
@@ -885,11 +886,16 @@ The Target-backed work requires an exact Client/Bridge protocol bump and:
   Patch Target before Bridge dispatch; publishing the later Component edit
   guard requires a coordinated protocol capability bump;
 - parser, formatter, lowering, Bridge validation, and diagnostic parity;
+- the normalized `actors` collection operation required by the first Level
+  read-only slice;
 - Result Target, related Target, scoped reference, and existing result-only
-  handoff Target-variant updates;
+  handoff Target-variant updates; and
+- protocol fixtures proving old/new Bridge mismatch fails closed.
+
+The coordinated public catalog release additionally requires:
+
 - three static `sal_schema` cards with offline availability;
 - removal of hard-coded “six Domain” catalog counts and messages;
-- protocol fixtures proving old/new Bridge mismatch fails closed;
 - effect metadata capable of distinguishing authored, derived, and
   persistence outcomes.
 
@@ -906,8 +912,11 @@ contract rather than redesigned, while frontend ids and typed payloads remain
 separate. Its schema discovery does not masquerade as a
 `sal_schema({module: "pcg_execution"})` card while it is not a SAL Domain.
 
-No protocol version number or public tool count is chosen in this planned
-document.
+Protocol v6 is private to this coordinated family upgrade until the public
+release gates pass. Adding `actors` while that branch remains unpublished
+completes v6 rather than allocating v7. No public tool count changes: the
+family reuses existing `sal_query`, `sal_patch`, `sal_schema`, Editor Context,
+and Python entry points, with typed PCG execution still separately gated.
 
 ## Joint Acceptance Workflow
 

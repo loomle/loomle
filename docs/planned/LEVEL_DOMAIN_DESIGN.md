@@ -230,6 +230,15 @@ loaded retains its exact Target and returns
 `capability.level_not_loaded` for content Query or Patch. A missing,
 ambiguous, temporary, or wrong-Class map remains `unresolved_target`.
 
+`target` is deliberately the one non-content Level Query. It succeeds from
+Asset Registry evidence alone and returns the canonical exact Target even
+when the source `UWorld` is not loaded. In that state the normalized resolved
+Target has no live World or Level object. The Level adapter, rather than the
+generic Target resolver, rejects `summary`, `actors`, exact-object, and other
+content operations with `capability.level_not_loaded` while preserving
+`targetContext: exact_target`. This absence is an authored loading-state fact,
+not unresolved identity and never authorizes the resolver to load the map.
+
 An unsaved Editor World has no persistent Level Target. Editor Context remains
 `unresolved_target`, reports the temporary package as evidence, and suggests
 saving the map. It never turns a temporary package name into a Target or
@@ -253,6 +262,34 @@ The resolver audits all locally owned persisted Actors and World Partition
 Actor descriptors as one injective set. Resolution succeeds only when exactly
 one native Actor or descriptor matches. Invalid or duplicate ActorGuids remain
 readable as corruption evidence but receive no StableRef.
+
+The Actor set is closed as follows:
+
+- its root is the exact source `UWorld::PersistentLevel` selected by the
+  Target;
+- a loaded candidate must be a non-template, non-transient, save-eligible
+  Actor owned directly by that root Level, including a newly authored unsaved
+  Actor that would be serialized by the next Level save;
+- `AWorldSettings` and `ALevelScriptActor` are included because they are
+  authored root-Level Actors, although later exact schema may expose only a
+  restricted surface for them;
+- World Partition external Actors remain members of the source Level even
+  though their storage package differs from the map package;
+- streamed sublevel Actors, ordinary Level Instance composed-Level Actors,
+  World Partition child-container Actors, templates, preview Actors,
+  construction-only ChildActor/UCS products, PCG-generated Actors, and other
+  runtime/transient projections are excluded;
+- an excluded live projection never suppresses or conflicts with the source
+  Actor or descriptor that owns the persistent identity.
+
+On a World Partition source map, the adapter indexes only the root container's
+Actor descriptors. A loaded Actor and its own descriptor with the same Guid
+are one logical candidate, not a duplicate, and the live Actor wins because
+its in-memory authored fields may be newer. An unloaded root descriptor is the
+read-only representation of that same identity. Two independent root
+candidates with one Guid are a real identity conflict. If the adapter cannot
+prove root-container scope or complete the descriptor scan, it fails closed
+with structural diagnostics rather than publishing a partial identity set.
 
 The following are not Actor identity:
 
@@ -1151,19 +1188,45 @@ The family Phase 0 Target/admission and Domain-specific StableRef work is a
 prerequisite and is not expanded here with effects, save, projection, or
 mutation behavior.
 
-### Slice 1: Target, Editor Context, identity, and read-only Query
+### Slice 1A: Target and Actor identity Query
 
 - consume the internal family Target/protocol branch without publishing a
-  static interface card;
-- exact saved source-map Target resolution;
-- Level Editor Context upgrade from Asset evidence to Level Target;
-- selected Actor projection as `@ActorGuid`;
-- deterministic loaded Actor Query;
-- World Partition ActorDesc Query without loading;
-- exact Actor and supported Component reads;
-- duplicate/invalid identity audits;
-- Level Instance source-Level handoff;
-- Asset, Blueprint, Class, and candidate PCG Component related Targets.
+  static interface card or changing the already allocated, unpublished v6
+  family protocol number;
+- add the normalized `actors` collection operation to that v6 contract;
+- canonicalize an exact saved source-map Target through Asset Registry without
+  loading or switching maps;
+- preserve an unloaded map as `exact_target`, allowing `target` while content
+  Query reports `capability.level_not_loaded`;
+- build one deterministic root Actor/ActorDesc identity index;
+- return truthful `target`, `summary`, paginated `actors`, and exact Actor or
+  unloaded-descriptor reads;
+- merge a loaded Actor with its own root World Partition descriptor, preferring
+  the live Actor;
+- diagnose duplicate, invalid, incomplete, and out-of-scope identity evidence;
+- prove that every Query preserves current World/Level, selection, transaction,
+  construction, package dirty, and World Partition loaded state.
+
+### Slice 1B: Level Instance source ownership
+
+- keep the placement Actor in the containing Level identity environment;
+- resolve the exact saved source World without loading it;
+- return a related `level` Target retained by an `inspect_source_level`
+  handoff;
+- reject temporary instance packages, `ActorInstanceGuid`, child-container
+  composition, and ambiguous or unsaved sources.
+
+### Slice 1C: Component identity and Editor Context
+
+- implement the native/SCS/instance Component locator and exact read-only
+  Component Query;
+- add Asset, Blueprint, Class, and candidate `pcg_component` related Targets;
+- upgrade Level Editor Context from Asset evidence to the shared Level
+  resolver and identity index;
+- project one selected source Actor as `@ActorGuid` only after the full root
+  Actor/ActorDesc audit succeeds;
+- keep loading, pinning, selection changes, and transient runtime objects in
+  explicit Python workflows outside SAL.
 
 ### Slice 2: Exact schema and Palette discovery
 

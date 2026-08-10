@@ -186,7 +186,7 @@ function formatExactName(name: string): string {
 }
 
 function isCollectionOperation(operation: QueryOperation): operation is CollectionOperation {
-  return ["assets", "variables", "dispatchers", "graphs", "components", "nodes", "properties", "functions", "defaults", "widgets", "states", "parameters"].includes(operation.kind);
+  return ["assets", "actors", "variables", "dispatchers", "graphs", "components", "nodes", "properties", "functions", "defaults", "widgets", "states", "parameters"].includes(operation.kind);
 }
 
 function isBinding(value: Patch["statements"][number]): value is RequestBinding {

@@ -47,6 +47,7 @@ import { isObjectResultContextSafe } from "./schema-validator.js";
 
 const collectionKinds = new Set([
   "assets",
+  "actors",
   "variables",
   "dispatchers",
   "graphs",

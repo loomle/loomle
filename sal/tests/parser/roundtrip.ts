@@ -55,6 +55,11 @@ widgets`,
 
 query arena
 summary`,
+  `arena = target {domain: level, asset: "/Game/Maps/Arena.Arena"}
+
+query arena
+actors "light"
+page limit 25`,
   `arena = target {domain: level, asset: "/Game/Maps/Arena.Arena", type: "/Script/Engine.World"}
 
 patch arena dry run
