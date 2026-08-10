@@ -45,6 +45,20 @@ asset. The test compiles and passes on the official UE 5.7 and UE 5.8 Launcher
 installations for Mac arm64. Client, Skill-validation, site-build, and Fab
 packaging tests also pass for the unified guidance chain.
 
+The later Scene/PCG design reuses this tool's proven outer async lifecycle as
+the basis of a shared internal execution kernel. That is a future internal
+refactor gate for the typed PCG frontend.
+
+The 2026-08-10 Scene/PCG boundary decision adds one planned, coordinated Python
+result extension: runner-injected `sal.object(UObject)` can explicitly submit a
+returned UObject for read-only projection through already published SAL Domain
+projectors. This extension is not implemented or released yet. It preserves
+the existing `run`/`poll` lifecycle, ids, Game-Thread safe-entry rules, logs,
+traceback, concurrency, and all ordinary JSON-result behavior, but it requires
+a versioned optional Bridge-owned `sal` field in terminal success results.
+Skill guidance will be updated only after the implementation and live workflow
+are validated.
+
 ## Decision
 
 `python` is Loomle's high-privilege escape hatch for Unreal Editor behavior
@@ -68,10 +82,20 @@ python(operation: "run" | "poll")
 - `poll` exists only when an earlier `run` exceeded Loomle's short inline
   completion window and returned an `executionId` plus an exact continuation.
 
+Future typed async frontends may reuse an internal kernel for execution-record
+transitions, exact continuation, poll, retention/expiry, runtime loss,
+`stateMayHaveChanged`, and no-replay behavior. They do not call `python.run`,
+accept Python execution ids, or inherit Python script/result payloads.
+
 There is no caller-provided purpose or reason string. Natural-language intent
 is not machine-verifiable, does not constrain what the script can do, and
 would duplicate information already available to the agent and reviewing
 user. The source and its actual effects remain authoritative.
+
+`sal.object()` is not Python-based SAL orchestration. It requests a bounded
+terminal read projection of one explicitly selected UObject. It never runs
+`sal_query` or `sal_patch`, never chooses a Domain from user-supplied text, and
+never grants the returned script a structured mutation capability.
 
 ## Agent Guidance Layering
 
@@ -291,13 +315,21 @@ contain only:
 - lists of compatible values;
 - dictionaries with string keys and compatible values.
 
+The planned projection extension adds one explicit value-only exception: an
+opaque marker returned by the runner-injected `sal.object(UObject)` helper.
+The marker is replaced by a JSON projection placeholder before the public
+`result` is serialized. It cannot be used as a dictionary key.
+
 Cycles, integers outside the safe range, tuples, sets, bytes, NaN, infinity,
-UObject wrappers, reflected structs, and other Python values are rejected.
+unwrapped UObject wrappers, reflected structs, and other Python values are
+rejected.
 The safe-integer rule prevents Python's arbitrary-precision integers from
 silently changing value when they cross MCP JSON and the TypeScript Client.
-Loomle does not guess how to serialize a UE object. The script must project it
-into stable, useful facts such as an object path, class path, GUID, name, or
-ordinary properties.
+Loomle does not guess how to serialize a UE object or scan a return tree for
+objects to expose. The script normally projects it into stable, useful facts
+such as a Class, GUID, name, or ordinary properties. When the caller also wants
+a registered SAL projector to examine that exact UObject, it must opt in with
+`sal.object()`.
 
 For example, this is invalid:
 
@@ -314,17 +346,217 @@ return {
 }
 ```
 
+This is also valid once the projection extension ships:
+
+```python
+def run():
+    actor = ...
+    components = ...
+    return {
+        "mode": "sie",
+        "actor": sal.object(actor),
+        "components": [sal.object(component) for component in components],
+    }
+```
+
 The agent defines the domain-specific result shape in its own code. Loomle
 validates only the stable outer contract and JSON compatibility; it does not
 require a duplicate caller-provided result schema.
 
+## SAL Object Projection
+
+### Injected helper
+
+Every Python execution namespace receives a runner-owned `sal` value. The v1
+surface has exactly one member:
+
+```text
+sal.object(value: unreal.Object) -> opaque marker
+```
+
+No import is needed or supported. The member is read-only, although ordinary
+Python can shadow the local name and thereby lose access to it. There are no
+`domain`, `target`, `path`, `ref`, `view`, `patch`, `handoff`, or operation
+arguments. A script cannot assert that an object is supported or handwrite its
+canonical Target.
+
+Markers may appear in dictionary values, list elements, and nested values. A
+marker that is created but does not appear in the returned tree is discarded.
+Reusing one marker records all result paths. Repeated markers for the same
+native UObject are deduplicated to one candidate during terminalization.
+Loomle never walks properties, Actor Components, references, or the UObject
+graph automatically.
+
+Calling `sal.object()` with a non-UObject, placing a marker in a dictionary key,
+or exceeding the candidate/occurrence bounds makes the Python result invalid.
+A valid UObject that later becomes unavailable is a projection outcome rather
+than an invalid Python return.
+
+### Public result relationship
+
+The script-owned `result` remains JSON. Each reachable marker becomes a compact
+location placeholder such as:
+
+```json
+{
+  "mode": "sie",
+  "actor": { "$salObject": "o0" }
+}
+```
+
+The trusted projection data is not inserted into the script-owned object. It is
+returned in an optional top-level `sal` member generated only by the Bridge:
+
+```json
+{
+  "complete": true,
+  "projections": [
+    {
+      "id": "o0",
+      "resultPaths": [["actor"]],
+      "status": "projected",
+      "views": [
+        {
+          "relation": "authored_source",
+          "schemaModule": "level",
+          "subject": {
+            "targetContext": "exact_target",
+            "target": {
+              "alias": "levelTarget",
+              "target": {
+                "kind": "target",
+                "domain": "level",
+                "asset": "/Game/Maps/Forest.Forest",
+                "type": "/Script/Engine.World"
+              }
+            },
+            "object": {
+              "statements": [
+                {
+                  "target": { "kind": "local", "name": "actor" },
+                  "value": {
+                    "kind": "stable_ref",
+                    "identityPath": ["11111111-1111-1111-1111-111111111111"],
+                    "semanticTag": "actor"
+                  }
+                }
+              ]
+            },
+            "diagnostics": []
+          },
+          "query": {
+            "tool": "sal_query",
+            "arguments": {
+              "text": "levelTarget = target {\n  domain: level,\n  asset: \"/Game/Maps/Forest.Forest\",\n  type: \"/Script/Engine.World\"\n}\nquery levelTarget\n@11111111-1111-1111-1111-111111111111\nwith schema"
+            }
+          }
+        }
+      ],
+      "diagnostics": []
+    }
+  ]
+}
+```
+
+The `subject` above is a normalized SAL exact Query result with Object Text;
+the release schema reuses that existing closed definition rather than
+accepting arbitrary objects, mutation results, Domain-root results, or
+unresolved results. `query` is a required Bridge-generated read-only next
+request that must itself be valid canonical SAL. It is a
+convenience, not a continuation, handoff, lease, or authority token. A
+projection never generates a Patch. `schemaModule` identifies the static card
+the agent can inspect before choosing any mutation.
+
+The script may return an ordinary field named `sal` inside `result`; it remains
+untrusted user data and cannot spoof the Bridge-owned top-level `sal` member.
+Likewise, a script-authored dictionary resembling `{ "$salObject": "o0" }`
+has no projection meaning unless the runner registered the corresponding
+marker and the Bridge emitted its top-level record.
+
+### Projection outcomes and views
+
+Projection status and successful source relationship are separate dimensions:
+
+```text
+status   = projected | unsupported | ambiguous | stale | failed
+relation = exact | authored_source
+```
+
+- `exact` means that the observed UObject itself has the canonical published
+  SAL view.
+- `authored_source` means that a PIE/SIE or other live duplicate maps uniquely
+  to a persistent authored source. Every later SAL request addresses that
+  source, not the live duplicate.
+- `unsupported` means that the object is valid but no currently published SAL
+  projector owns a faithful view. A planned-but-unpublished Domain does not
+  count as support.
+- `ambiguous` means that native evidence cannot prove one source identity.
+- `stale` means that the object became invalid between marker creation and
+  terminal projection.
+- `failed` means that a registered projector or Bridge integrity check failed.
+
+One candidate may produce several `views`, for example generic Asset and a
+specialized authored Domain. That is not ambiguity. The Bridge invokes every
+applicable published projector and does not infer one preferred Domain merely
+from native Class.
+
+Unsupported, ambiguous, and stale candidates do not fail the Python execution;
+they are complete classified results. A projector integrity failure preserves
+the already completed script result, marks that candidate `failed`, emits a
+diagnostic, and sets `sal.complete: false`. A Bridge-generated `subject` that
+does not pass the shared exact-Query-result validator is never returned as a
+usable Target.
+
+### Trust, lifetime, and authority
+
+The runner registers the actual execution-local UObject, not a caller-written
+object path. After `run()` returns and while still on the Game Thread, the
+Bridge performs bounded read-only projection before publishing the terminal
+record. Projectors must not load or switch maps, load assets, dirty objects,
+change selection/focus, start or stop PIE/SIE, generate PCG, save, or emit
+notifications with authored effects.
+
+The registry may hold candidates strongly only until terminalization. It then
+releases all Python and UObject references. Fast success and polled success
+return the same fixed JSON and normalized SAL records; `poll` never resolves or
+projects the UObject again. Retention stores no UObject pointer.
+
+A later SAL request always re-resolves its canonical Target and StableRef. The
+projection is evidence and routing help, not a snapshot guarantee, bearer
+credential, runtime handle, or permission to mutate. Transient Worlds, runtime
+tasks, generated resources, Data Views, selection, cameras, and other objects
+without faithful SAL identity remain ordinary Python facts or belong to a
+separate typed frontend.
+
 ## Result Model
 
-The canonical MCP payload is `structuredContent`. `content` contains a concise
-text/JSON mirror for hosts that do not expose structured results. Logs never
-replace the returned object.
+The canonical MCP payload is `structuredContent`. Logs never replace the
+returned object. The existing `content` JSON mirror of the complete Python
+envelope remains unchanged for ordinary results and remains present when a
+projection annex exists. For each successful projection view, the Client then
+appends two deterministic text blocks: first an ordinary metadata block with
+projection id, result paths, and relation; then a separate block containing
+only that view's canonical SAL Result Text. Metadata never prefixes or alters
+the canonical block. Projections follow numeric id order, paths follow return-
+tree traversal order, and views follow published Domain catalog order.
 
-The public output schema is:
+The heterogeneous Python result has no one active Target and must not be
+formatted as `result exact_target` or rewritten into a new mixed Object Text
+syntax. In particular, the JSON placeholder stays exactly
+`{ "$salObject": "o0" }`; presentation never changes its field name or wraps
+it in a semantic tag. Each successful projection view's `subject`, by
+contrast, is an independently valid normalized exact Query result and may be
+formatted as its own canonical SAL Result Text.
+
+The public output schema below is the Python frontend's closed concretization
+of the shared outer async lifecycle, not a schema that every future frontend
+inherits verbatim. `continuation.tool: "python"`, Python error phases, logs,
+and traceback are Python-only. A typed PCG frontend may reuse the kernel's
+outer states, continuation discipline, retention, runtime-loss, uncertainty,
+and no-replay rules only through its own closed typed schema and namespaced
+ids.
+
+The Python public output schema is:
 
 ```json
 {
@@ -342,6 +574,7 @@ The public output schema is:
       "type": "object",
       "additionalProperties": true
     },
+    "sal": { "$ref": "#/$defs/SalProjectionAnnex" },
     "error": {
       "type": "object",
       "required": ["code", "phase", "message", "retryable"],
@@ -395,19 +628,223 @@ The public output schema is:
       "additionalProperties": false
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "running" } },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["executionId", "elapsedMs", "continuation"],
+        "properties": { "stateMayHaveChanged": { "const": true } },
+        "not": {
+          "anyOf": [
+            { "required": ["result"] },
+            { "required": ["sal"] },
+            { "required": ["error"] },
+            { "required": ["logs"] },
+            { "required": ["logsTruncated"] },
+            { "required": ["durationMs"] }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "succeeded" } },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["result", "logs", "logsTruncated", "durationMs"],
+        "properties": { "stateMayHaveChanged": { "const": true } },
+        "not": {
+          "anyOf": [
+            { "required": ["error"] },
+            { "required": ["elapsedMs"] },
+            { "required": ["continuation"] }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "failed" } },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["error"],
+        "not": {
+          "anyOf": [
+            { "required": ["result"] },
+            { "required": ["sal"] },
+            { "required": ["elapsedMs"] },
+            { "required": ["continuation"] }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "lost" } },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["executionId", "error"],
+        "properties": { "stateMayHaveChanged": { "const": true } },
+        "not": {
+          "anyOf": [
+            { "required": ["result"] },
+            { "required": ["sal"] },
+            { "required": ["logs"] },
+            { "required": ["logsTruncated"] },
+            { "required": ["durationMs"] },
+            { "required": ["elapsedMs"] },
+            { "required": ["continuation"] }
+          ]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "ResultPath": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          { "type": "integer", "minimum": 0 }
+        ]
+      }
+    },
+    "SalReadbackQuery": {
+      "type": "object",
+      "required": ["tool", "arguments"],
+      "properties": {
+        "tool": { "const": "sal_query" },
+        "arguments": {
+          "type": "object",
+          "required": ["text"],
+          "properties": {
+            "text": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "SalProjectionView": {
+      "type": "object",
+      "required": ["relation", "schemaModule", "subject", "query"],
+      "properties": {
+        "relation": { "enum": ["exact", "authored_source"] },
+        "schemaModule": { "type": "string", "minLength": 1 },
+        "subject": {
+          "allOf": [
+            { "$ref": "./sal-object.schema.json#/$defs/ExactQueryResult" },
+            { "required": ["object"] }
+          ]
+        },
+        "query": { "$ref": "#/$defs/SalReadbackQuery" }
+      },
+      "additionalProperties": false
+    },
+    "SalProjection": {
+      "type": "object",
+      "required": ["id", "resultPaths", "status", "views", "diagnostics"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^o[0-9]+$" },
+        "resultPaths": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": { "$ref": "#/$defs/ResultPath" }
+        },
+        "status": {
+          "enum": ["projected", "unsupported", "ambiguous", "stale", "failed"]
+        },
+        "views": {
+          "type": "array",
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/SalProjectionView" }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "./sal-object.schema.json#/$defs/Diagnostic"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "projected" } },
+            "required": ["status"]
+          },
+          "then": { "properties": { "views": { "minItems": 1 } } },
+          "else": {
+            "properties": {
+              "views": { "maxItems": 0 },
+              "diagnostics": { "minItems": 1 }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "SalProjectionAnnex": {
+      "type": "object",
+      "required": ["complete", "projections"],
+      "properties": {
+        "complete": { "type": "boolean" },
+        "projections": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/SalProjection" }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
   "additionalProperties": false
 }
 ```
 
+`SalProjectionAnnex` is a closed Python-output definition. It requires
+`complete` and bounded `projections`. Each projection requires `id`,
+`resultPaths`, `status`, `views`, and `diagnostics`; each view requires
+`relation`, `schemaModule`, a `subject` validated as an exact read-only Query
+result with Object Text, and a canonical read-only `query`. The source schema
+uses a package-local reference to `sal-object.schema.json`; the build resolves
+and inlines those definitions into the advertised MCP `outputSchema`. A host
+never needs network access, and the Client/Bridge protocol version pins the
+exact bundled SAL schema revision.
+
+`schemaModule` must match the projected subject's main Target Domain and its
+published static card. Parsing `query.arguments.text` must yield a read-only
+exact Query for that same canonical Target and the same projected object. It
+may request schema alongside the object, but it cannot broaden to a collection
+or Domain root. A view that cannot supply all of this is not `projected`.
+
+The JSON Schema expresses per-record shape. The Client and Bridge additionally
+enforce cross-record integrity: projection ids are unique; result paths are
+unique and point to the matching placeholder; there are no orphan or extra
+placeholders; and the sum of all marker occurrences is at most 128. The
+`complete` field is `false` exactly when at least one projection has status
+`failed`; ordinary `unsupported`, `ambiguous`, and `stale` classifications are
+complete.
+
 The status-specific invariants are normative:
 
 - `running` requires `executionId`, `elapsedMs`, and `continuation`; it has no
-  `result`, `error`, `logs`, or `durationMs`;
+  `result`, `sal`, `error`, `logs`, or `durationMs`;
 - `succeeded` requires `result`, `logs`, `logsTruncated`, and `durationMs`; it
-  has no `error`, `elapsedMs`, or continuation;
+  has no `error`, `elapsedMs`, or continuation; `sal` is present only when at
+  least one reachable `sal.object()` marker was returned;
 - `failed` requires `error`; an executed failure also returns terminal logs and
   duration, while a pre-execution failure may omit them;
-- `lost` requires `executionId` and `error` and has no result;
+- `failed` and `lost` never contain `sal`; `lost` requires `executionId` and
+  `error` and has no result;
 - terminal results returned through `poll` include `executionId`; fast terminal
   `run` results do not.
 
@@ -438,6 +875,70 @@ directly:
 A fast terminal result does not expose an `executionId`. Loomle may use an
 internal record while the call is running, but normal agent workflows do not
 need to see a job abstraction.
+
+When the script returns `sal.object(actor)`, the same fast success may include:
+
+```json
+{
+  "status": "succeeded",
+  "stateMayHaveChanged": true,
+  "result": {
+    "mode": "sie",
+    "actor": { "$salObject": "o0" }
+  },
+  "sal": {
+    "complete": true,
+    "projections": [
+      {
+        "id": "o0",
+        "resultPaths": [["actor"]],
+        "status": "projected",
+        "views": [
+          {
+            "relation": "authored_source",
+            "schemaModule": "level",
+            "subject": {
+              "targetContext": "exact_target",
+              "target": {
+                "alias": "levelTarget",
+                "target": {
+                  "kind": "target",
+                  "domain": "level",
+                  "asset": "/Game/Maps/Forest.Forest",
+                  "type": "/Script/Engine.World"
+                }
+              },
+              "object": {
+                "statements": [
+                  {
+                    "target": { "kind": "local", "name": "actor" },
+                    "value": {
+                      "kind": "stable_ref",
+                      "identityPath": ["11111111-1111-1111-1111-111111111111"],
+                      "semanticTag": "actor"
+                    }
+                  }
+                ]
+              },
+              "diagnostics": []
+            },
+            "query": {
+              "tool": "sal_query",
+              "arguments": {
+                "text": "levelTarget = target {\n  domain: level,\n  asset: \"/Game/Maps/Forest.Forest\",\n  type: \"/Script/Engine.World\"\n}\nquery levelTarget\n@11111111-1111-1111-1111-111111111111\nwith schema"
+              }
+            }
+          }
+        ],
+        "diagnostics": []
+      }
+    ]
+  },
+  "logs": [],
+  "logsTruncated": false,
+  "durationMs": 12
+}
+```
 
 ### Running continuation
 
@@ -504,7 +1005,10 @@ When the detached execution completes successfully, `poll` returns:
 
 The terminal `poll` result retains `executionId` so the response remains
 self-identifying. Repeating the same `poll` during its retention period returns
-the same terminal outcome and does not re-execute Python.
+the same terminal outcome and does not re-execute Python. If it contains a
+projection annex, every placeholder, status, view, diagnostic, and subject is
+the terminal snapshot formed once after `run()` returned; polling never
+reprojects the UObject.
 
 ### Executed failure
 
@@ -563,10 +1067,19 @@ terminal outcome, `poll` returns an error result:
 
 ### Output bounds
 
-The structured result is bounded to 1 MiB of UTF-8 encoded JSON. It is never
-silently truncated because truncation would change the agent-defined shape. An
-oversized result fails with `runtime.python_result_too_large` after execution
-and therefore reports `stateMayHaveChanged=true`.
+The serialized script-owned `result` plus optional Bridge-owned `sal`
+projection annex is bounded to 1 MiB of UTF-8 encoded JSON. Outer lifecycle
+fields and logs do not count toward that 1 MiB result bound; logs retain their
+separate limit below. The result/annex pair is never silently truncated because
+truncation would change the agent-defined shape or detach a marker from its
+projection. An oversized pair fails with `runtime.python_result_too_large`
+after execution and therefore reports `stateMayHaveChanged=true`.
+
+V1 accepts at most 32 unique reachable UObject candidates and 128 total marker
+occurrences. Repeated references to the same candidate reuse one projection id
+and list all bounded `resultPaths`. The implementation also applies the
+existing nesting/depth defenses before native candidate registration. It never
+truncates candidates or views to make the payload fit.
 
 Terminal log output preserves UE's ordered `info`, `warning`, and `error`
 entries. It is bounded to 1,000 entries and 256 KiB of combined UTF-8 text.
@@ -578,6 +1091,33 @@ call finishes. The first version therefore returns logs with terminal results;
 `poll` is not a live log-streaming API. Captured Python output is not a complete
 copy of UE's global Output Log, and asynchronous output after `run()` returns
 is outside the execution result.
+
+## Shared Kernel And Python Adapter Boundary
+
+The future shared internal kernel owns only frontend-neutral lifecycle:
+
+- namespaced opaque execution-id allocation and exact runtime routing;
+- synchronized outer `running`/`succeeded`/`failed`/`lost` transitions;
+- exact continuation/poll bookkeeping;
+- bounded retention, expiry, runtime loss, `stateMayHaveChanged`, and no
+  automatic replay.
+
+The Python adapter continues to own:
+
+- the one-active-Python-execution policy and Core Ticker pending slot;
+- source staging, interpreter initialization, and safe Game Thread entry;
+- Python result validation, logs, traceback, and Python-specific diagnostics;
+- injected `sal.object()` marker handling, candidate registration, terminal SAL
+  projection, and the optional projection annex;
+- the versioned `python.run`/`python.poll` public and private schemas.
+
+The existing `Loomle::Python::FPythonExecutionService` may be internally
+factored so its frontend-neutral record lifecycle uses the shared kernel. That
+refactor must not independently change timing semantics, concurrency policy,
+ordinary JSON results, or packaged behavior. The separately versioned
+`sal.object()` extension changes only terminal successful output when a marker
+is reachable. A PCG adapter uses a separate namespaced frontend and never
+reaches native PCG by submitting Python.
 
 ## Execution Lifecycle
 
@@ -685,6 +1225,10 @@ Both use the existing JSON-RPC transport. Implementation increments the
 current Client-Bridge protocol version and advertises both operations through
 `rpc.capabilities`.
 
+These remain the Python frontend's private routes. The shared kernel is an
+internal service, not a new public RPC namespace, and another typed frontend
+must define and advertise its own private operation schema.
+
 The `executionId` is opaque and unique to one Editor runtime. It is not an
 idempotency key, caller-selected request id, permission token, or durable
 cross-restart job identity.
@@ -703,10 +1247,10 @@ project `Saved` directory:
 - a Loomle runner file;
 - a result JSON path.
 
-The runner executes the source in a fresh dictionary, validates and calls
-`run()`, recursively validates its returned value, and serializes it with
-strict JSON rules including finite numbers. The Bridge invokes the runner
-through `FPythonCommandEx` using:
+The runner executes the source in a fresh dictionary, injects the execution-local
+`sal` helper, validates and calls `run()`, recursively validates its returned
+value, and serializes it with strict JSON rules including finite numbers. The
+Bridge invokes the runner through `FPythonCommandEx` using:
 
 ```text
 ExecutionMode = ExecuteFile
@@ -714,10 +1258,35 @@ FileExecutionScope = Private
 Flags = Unattended
 ```
 
+The projection extension adds an execution-local native candidate registry.
+During sentinel-aware result traversal, each reachable marker registers the
+actual UObject through a private Bridge binding and receives an opaque ordinal.
+That traversal also records the ordinal and every exact result path in an
+authoritative native registry table. The transport file contains JSON
+placeholders, candidate ordinals, and an untrusted mirror of that occurrence
+table; it never uses an object path to reconstruct the candidate. The registry rejects a wrong
+execution, invalid UObject, over-limit candidate, duplicate ordinal, duplicate
+path, orphan placeholder, or any mismatch between the native table and the
+returned JSON. The Bridge never discovers trusted occurrences by scanning for
+caller-authored dictionaries that merely resemble a placeholder. It briefly
+retains each unique candidate until terminalization.
+
 The runner writes only its result transport document to the result path. The
-Bridge reads and independently validates that document, combines it with
-native `CommandResult` and `LogOutput`, publishes the terminal execution
-record, and removes all staging files on ordinary success and failure.
+Bridge reads and independently validates that document. Still on the Game
+Thread after `ExecPythonCommandEx` returns, it verifies the untrusted mirror
+against the authoritative native occurrence table, every exact path, every
+placeholder, the global
+128-occurrence limit, and every reachable registered candidate; it then
+invokes the published read-only Domain projectors, validates each resulting
+exact Query subject, and assembles the top-level `sal` annex. It then releases
+every candidate and helper-owned Python/UObject reference before publishing
+the terminal execution record.
+
+The retained execution record contains only bounded JSON, normalized SAL data,
+native logs, and outcome metadata. `python.poll` never touches the candidate
+registry or Game Thread. Failure at any staging, validation, projection, or
+terminal-formatting boundary releases all candidates. The Bridge removes all
+staging files on ordinary success and failure.
 
 The source path gives Python tracebacks a useful filename. Paths containing
 spaces must be correctly quoted for UE's native `.py` command parser.
@@ -733,7 +1302,7 @@ The service must live in a focused Python execution component. It must not
 restore Loomle 0.6's direct-tool runtime, monkey-patch `unreal`, install
 process-global signal handlers, or depend on shared console globals.
 
-## Python Availability and Editor State
+## Python Availability And Explicit Editor/PIE/SIE Control
 
 The Bridge declares `PythonScriptPlugin` as a plugin/module dependency and
 requests Python enablement during Editor initialization, outside an agent
@@ -744,34 +1313,45 @@ admission.
 A tool call never busy-waits for interpreter initialization on the Game
 Thread. Not ready and unavailable states return distinct errors.
 
-`run` remains available while PIE is active. Loomle does not choose an Editor
-World or Play World and does not own a second PIE lifecycle state machine. The
-script must explicitly obtain the world required by the task through UE's
-native Python APIs.
+`run` remains available while PIE or SIE is active. Loomle does not choose an
+Editor World or Play World and does not own a second play-session lifecycle
+state machine. The script must explicitly obtain the world required by the
+task through UE's native Python APIs.
 
-PIE start and stop requests are asynchronous Game Thread state transitions.
-One Python execution can submit a request through `LevelEditorSubsystem`, but
-it must return before UE can advance that request on later Editor ticks. An
-agent therefore controls PIE with multiple short `python.run` calls:
+PIE/SIE start and stop requests are asynchronous Game Thread state transitions.
+One Python execution can submit the exact engine-supported request, but it must
+return before UE can advance that request on later Editor ticks. An agent
+therefore controls PIE or SIE with multiple short `python.run` calls:
 
 1. inspect the current play state and request start when necessary;
-2. return immediately, then use a new `python.run` call to confirm that PIE is
-   active and `UnrealEditorSubsystem.get_game_world()` returns a world;
+2. return immediately, then use a new `python.run` call to confirm the exact
+   requested play/simulate mode and reacquire the resulting World;
 3. run short observation or mutation scripts, reacquiring the world and every
    UObject on each call;
-4. request end play in a separate call and later confirm that PIE stopped.
+4. request end play in a separate call and later confirm that PIE/SIE stopped.
+
+Possess/eject, selection, viewport camera, session-only visibility, Actor
+loading/pinning, and similar transient Editor controls also belong to explicit
+short Python calls with native postcondition readback. They are not SAL Patch,
+do not gain authored transaction/save semantics, and have no parallel SAL
+Session Domain. A later readback call may return selected persistent or live
+duplicate UObjects through `sal.object()` so the Bridge can project exact or
+`authored_source` SAL views; that projection does not represent the transient
+World itself. The resident Skills will carry the exact version-appropriate
+procedures after the structured Domain family and projection extension are
+implemented and validated.
 
 `python.poll` is only the continuation for one already-running Python
-execution. It must not be used to wait for PIE to start, stop, or advance a
-frame. A Python script must not sleep or busy-wait for PIE state because it
-occupies the Game Thread and prevents the transition or gameplay tick it is
-waiting for.
+execution. It must not be used to wait for PIE/SIE to start, stop, change
+possess/eject state, or advance a frame. A Python script must not sleep or
+busy-wait for play-session state because it occupies the Game Thread and
+prevents the transition or gameplay tick it is waiting for.
 
-Starting PIE changes the user's active Editor session. Agent workflow guidance
-must ask for permission before requesting start unless the user's current
-instruction already explicitly authorizes running or debugging PIE. The agent
-should normally stop a session it started after completing the requested
-debugging, unless the user asks to leave it running.
+Starting PIE or SIE and changing possess/eject state changes the user's active
+Editor session. Agent workflow guidance must ask for permission unless the
+current instruction already explicitly authorizes running or debugging that
+mode. The agent should normally stop a session it started after completing the
+requested debugging, unless the user asks to leave it running.
 
 ## Dry Run, Transactions, and Side Effects
 
@@ -844,6 +1424,14 @@ The stable planned errors are:
 | `runtime.editor_unresponsive` | Game Thread did not admit the task | retry only after Editor responsiveness returns |
 | `runtime.editor_shutting_down` | Editor is draining | retry after restart and state inspection |
 
+An invalid `sal.object()` argument, marker in an illegal result position,
+candidate-limit breach, or forged/unregistered placeholder is
+`runtime.python_invalid_result` with phase `result`. Valid per-candidate
+`unsupported`, `ambiguous`, and `stale` outcomes are not outer Python errors;
+they use registered projection diagnostics inside the Bridge-owned annex. A
+projector/integrity failure likewise preserves the script's successful result,
+marks the affected projection `failed`, and sets `sal.complete: false`.
+
 Project binding, multiple-Editor, startup, protocol, and transport errors retain
 their existing codes. Python-specific formatting must override any generic
 “retryable timeout” suggestion after execution may have started.
@@ -855,7 +1443,8 @@ The first implementation changes:
 - the Client public tool definition, routing, validation, structured result
   formatting, and tests;
 - Bridge capabilities and the `python.run`/`python.poll` RPC paths;
-- a focused staged Python runner and thread-safe execution-record service;
+- a focused staged Python runner and thread-safe Python execution-record
+  service;
 - plugin/module dependency declarations and initialization tracking;
 - the generated private protocol version;
 - diagnostic catalog entries;
@@ -864,17 +1453,34 @@ The first implementation changes:
 - current tool-count, dry-run-policy, coverage, packaging, and release-test
   documentation.
 
+The planned `sal.object()` extension additionally changes:
+
+- the generated runner to inject the helper and encode explicit markers;
+- a private execution-local native UObject candidate registry;
+- a read-only projector registry backed only by published SAL Domains;
+- terminal Game-Thread projection, shared exact-Query-result validation, and
+  deterministic release of every candidate;
+- the Client/Bridge closed success schema with optional top-level `sal`;
+- succeeded-result text formatting that preserves the existing complete JSON
+  mirror and appends a metadata block plus a separate canonical Result Text
+  block for each successful projection view;
+- protocol version, diagnostics, tests, and packaged acceptance.
+
 It does not add:
 
 - `exec` or `eval` public modes;
 - arbitrary caller-provided script paths;
 - caller-provided purpose, schema, timeout, or execution id;
-- cancellation, priority, parallel execution, or a general job system;
+- cancellation, priority, parallel execution, or a public arbitrary job
+  system; the frontend-neutral internal lifecycle kernel is not such a public
+  system;
 - live log streaming;
-- automatic UObject serialization;
+- automatic UObject scanning or serialization; only explicit `sal.object()`
+  candidates are projected;
 - cross-Editor restart recovery;
 - fake dry-run, transaction, or rollback claims;
-- Python-based orchestration of SAL.
+- Python-based orchestration of SAL; generated readback queries are returned as
+  data and execute only through a later explicit `sal_query` call.
 
 ## Verification
 
@@ -894,6 +1500,15 @@ Tests must prove:
   errors;
 - terminal polled failures retain error, logs, traceback, and
   `stateMayHaveChanged` detail;
+- an ordinary succeeded JSON result omits top-level `sal` and remains byte-for-
+  byte structurally compatible;
+- a succeeded result with markers validates the closed annex, imported SAL
+  exact Query result, canonical readback query, and status-specific field rules;
+- running, failed, and lost results reject `sal`; script-owned `result.sal` and
+  forged `$salObject` dictionaries cannot spoof a Bridge projection;
+- Client text preserves the complete Python-envelope JSON mirror, then formats
+  each successful view as an ordinary metadata block followed by an independent
+  canonical Result Text block, never one multi-Target result;
 - cancellation or transport failure never causes automatic replay.
 
 ### UE Automation
@@ -904,14 +1519,30 @@ Native tests must cover:
 - a script can import `unreal`, define `run()`, and return a nested JSON object;
 - empty dictionaries, Unicode, lists, nulls, Booleans, and finite numbers
   round-trip exactly;
-- non-string keys, cycles, out-of-range integers, UObject values, tuples, NaN,
-  and infinity fail as invalid results;
+- non-string keys, cycles, out-of-range integers, unwrapped UObject values,
+  tuples, NaN, and infinity fail as invalid results;
+- `sal.object()` accepts an exact UObject and rejects non-UObject arguments,
+  marker keys, forged placeholders, wrong-execution registry entries, and
+  candidate/occurrence overflow;
+- nested markers, lists, repeated marker paths, and repeated calls for the same
+  UObject deduplicate deterministically;
+- published projectors can return multiple valid Domain views; unsupported,
+  ambiguous, and stale candidates preserve outer success; projector integrity
+  failure sets `complete: false` without returning an invalid Target;
+- projection performs no load, map switch, dirtying, selection/focus, PIE/SIE
+  transition, PCG generation, notification mutation, or save;
+- fast and polled terminal paths return the same fixed annex, and repeated poll
+  never reprojects;
+- every candidate strong reference is released before terminal publication;
+  retained records survive GC using only JSON and normalized SAL data;
 - missing, parameterized, async, and generator `run()` definitions fail;
 - syntax and runtime errors preserve useful tracebacks and prior native logs;
 - source and runner paths containing spaces execute correctly;
 - staging files are removed after ordinary success and failure;
 - cleanup failure does not replace the execution outcome;
 - the result size limit fails without producing malformed JSON;
+- the combined `result + sal` 1 MiB bound fails without truncating markers,
+  views, paths, or diagnostics;
 - log truncation is deterministic and does not change success;
 - Python submitted by an RPC worker starts from the Core Ticker rather than a
   TaskGraph Game Thread callback;
@@ -935,6 +1566,27 @@ Tests must use transient objects or copied fixtures and clean them explicitly.
 Ordinary suites must not execute an infinite loop. Any destructive watchdog
 test must own a disposable Editor process and its cleanup.
 
+### Later Scene/PCG integration gates
+
+Before the typed PCG frontend ships, integration tests must prove:
+
+- extracting the shared kernel preserves the exact public Python schema and
+  all fast-terminal/continuation behavior;
+- a PCG-namespaced execution id is rejected by `python.poll` without probing a
+  PCG adapter or another runtime;
+- SIE start/stop and PIE start/stop use separate short Python calls with later
+  native-state confirmation; `python.poll` is never used to wait for either
+  Editor transition;
+- possess/eject, selection, viewport camera, session-only visibility, and
+  Actor loading/pinning controls use explicit short Python calls with native
+  postcondition readback and are never invoked by a SAL Query/Patch;
+- an Editor original Component projects as an exact published source view, a
+  uniquely proven PIE/SIE duplicate projects only as `authored_source`, and a
+  runtime-only/generated object produces no persistent Target;
+- the typed PCG frontend obtains its own World selector and
+  `pcgWorldTicket`; it never treats `sal.object()` or a projected Target as a
+  live World ticket.
+
 ### Packaged end-to-end
 
 The exact release archive must:
@@ -945,8 +1597,11 @@ The exact release archive must:
 3. surface one controlled Python exception with its traceback;
 4. execute one deliberately delayed script, receive a continuation, and poll
    its final structured result;
-5. prove the Editor remains responsive after all terminal executions;
-6. leave no Loomle staging files after normal completion.
+5. execute one explicit `sal.object()` projection and verify its canonical
+   independent SAL Result Text and readback query;
+6. prove the Editor remains responsive after all terminal executions;
+7. leave no Loomle staging files or candidate references after normal
+   completion.
 
 Release audit must also prove the Python plugin dependency is present and the
 packaged Bridge still contains only the intended Loomle module set.
@@ -959,6 +1614,8 @@ The design is implemented only when:
   this document;
 - full `import unreal` execution works in the bound UE 5.7 Editor;
 - `run()` returns a real structured object rather than using logs as data;
+- ordinary JSON-only scripts remain compatible, while explicit `sal.object()`
+  markers produce only Bridge-validated published SAL views;
 - the common fast path completes in one MCP call;
 - a slower admitted execution promptly returns a usable `poll` continuation;
 - polling stays independent of the blocked Game Thread and never changes
@@ -967,5 +1624,7 @@ The design is implemented only when:
   safely cancellable, or automatically retryable;
 - current documentation continues to prefer structured Loomle interfaces for
   the semantics they cover;
+- no Python projection is described or accepted as a live-object lease,
+  handoff, World Target, Patch authorization, or PCG World ticket;
 - focused Client tests, UE Automation, and packaged end-to-end validation pass
   on every supported platform.
