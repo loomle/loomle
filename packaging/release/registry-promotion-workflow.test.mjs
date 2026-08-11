@@ -19,10 +19,11 @@ test("Registry promotion is manual, OIDC-authenticated, and version-immutable", 
 
 test("Registry promotion verifies exact Release assets before publishing", async () => {
   const workflow = await readFile(workflowUrl, "utf8");
+  const install = workflow.indexOf("run: npm ci");
   const verify = workflow.indexOf("node packaging/agent/verify-registry-candidate.mjs");
   const authenticate = workflow.indexOf("mcp-publisher login github-oidc");
   const publish = workflow.indexOf("mcp-publisher publish $CANDIDATE/server.json");
-  assert.ok(verify >= 0 && verify < authenticate && authenticate < publish);
+  assert.ok(install >= 0 && install < verify && verify < authenticate && authenticate < publish);
   assert.match(workflow, /loomle-mcp-registry-\$version\.mcpb/);
   assert.match(workflow, /loomle-mcp-registry-\$version\.mcpb\.sha256/);
   assert.match(workflow, /--pattern "server\.json"/);

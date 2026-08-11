@@ -29,6 +29,9 @@ jobs:
         with:
           node-version: 24
 
+      - name: Install Dependencies
+        run: npm ci
+
       - name: Download Exact Release Candidate
         id: candidate
         shell: bash
