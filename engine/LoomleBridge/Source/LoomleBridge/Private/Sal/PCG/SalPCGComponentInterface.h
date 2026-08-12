@@ -15,5 +15,12 @@ public:
     static TSharedPtr<FJsonObject> Query(
         const FSalQuery& Query,
         const FSalResolvedTarget& Target);
+
+    static bool LowerStableReference(
+        const FSalResolvedTarget& Target,
+        const TArray<FString>& IdentityPath,
+        const TSharedPtr<FJsonObject>& Ref,
+        FString& OutCode,
+        FString& OutMessage);
 };
 }

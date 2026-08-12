@@ -12,13 +12,12 @@ cross-owner architecture and complements
 [`PCG_DOMAIN_DESIGN.md`](PCG_DOMAIN_DESIGN.md), which owns asset-backed
 `UPCGGraph` authorship. If the documents disagree, the family design governs.
 
-The first persistent Component implementation is now split into two confirmed
-internal slices. Slice 1C-B-A is implemented internally and activates only
-canonical resolution, `target`,
+The first persistent Component implementation is split into two confirmed
+internal slices. Slice 1C-B-A implements canonical resolution, `target`,
 `summary`, exact schema, bounded zero-load Graph-binding readback, and related
-Level/Graph handoffs. Slice 1C-B-B later owns Parameter enumeration and exact
-Parameter readback. Neither slice enables Patch, execution, live resources, or
-a public interface card by itself.
+Level/Graph handoffs. Slice 1C-B-B implements bounded Parameter enumeration and
+exact Parameter readback. Neither slice enables Patch, execution, live
+resources, or a public interface card by itself.
 
 The runtime model has one Target-backed SAL Domain, one non-Target execution
 owner, and one private World-binding service:
@@ -672,12 +671,11 @@ Component incarnation belong to Python observation or the typed PCG
 discovery/execution surface. They are intentionally absent from the persistent
 Component Query baseline.
 
-### Slice 1C-B-B: deferred Instance Parameter readback
+### Slice 1C-B-B: implemented internal Instance Parameter readback
 
-Nothing in the preceding target/summary slice reads a Property Bag, returns a
-Parameter count or value, lowers a Parameter StableRef, or infers an override
-source. The following shape remains the intended semantic direction, but its
-exact type/value encoding and result schema are not frozen until Slice 1C-B-B.
+The Parameter slice adds `parameters ["text"]` and exact `@<descriptor-guid>`
+Query to the read-only Component Target. It does not add Parameter mutation,
+Graph declaration mutation, or any live execution state.
 
 Each Parameter result is keyed by the top Graph descriptor Guid and reports:
 
@@ -685,13 +683,46 @@ Each Parameter result is keyed by the top Graph descriptor Guid and reports:
 density = parameter {
   id: "22222222-2222-2222-2222-222222222222",
   name: "Density",
-  type: "<native-property-bag-type>",
+  type: {
+    valueType: double,
+    containerTypes: [],
+    valueTypeObject: null
+  },
+  valueStatus: available,
   overridden: true,
   localValue: 0.35,
   effectiveValue: 0.35,
-  effectiveSource: component_override
+  effectiveSource: component_override,
+  stableRefAvailable: true,
+  ref: @22222222-2222-2222-2222-222222222222
 }
 ```
+
+This is a closed ten-field shape for an available local override. `localValue`
+is the only conditional field: it is absent unless `overridden` is true. The
+other nine fields are always present for a canonical Parameter. For a value
+type that this slice does not certify, `valueStatus` is `unsupported`,
+`localValue` is absent, and `effectiveValue` is `null`; the descriptor identity,
+type, override bit, and `effectiveSource` remain readable. `valueStatus` is
+`available` only when the selected effective and optional local values were
+both read without type, storage, numeric, or size loss. A certified scalar
+getter/storage failure makes the snapshot incomplete; an over-limit certified
+string fails with `validation.result_too_large`. Neither condition is mislabeled
+as an unsupported type.
+
+`type` is one anonymous object containing exactly:
+
+- `valueType`: one lower-snake native `EPropertyBagPropertyType` token;
+- `containerTypes`: the ordered native container chain as lower-snake tokens;
+  and
+- `valueTypeObject`: the already-resolved exact native type-object path, or
+  `null` when the value type has no type object.
+
+An unresolved, invalid, incomplete, superseded, or over-budget type object makes
+the Parameter identity/value snapshot incomplete; Query does not resolve or load
+the handle. Descriptor equality is explicit over Guid, name, value type,
+container chain, type-object identity, and valid owned `CachedProperty`; neither
+`FPropertyBagPropertyDesc::operator==` nor `CompatibleType` is sufficient.
 
 The supported semantic sources are:
 
@@ -706,6 +737,45 @@ local override bit. `effectiveValue` is resolved through the full native Graph
 interface chain. An inherited external GraphInstance value must not be labeled
 as a top-Graph default.
 
+The first certified scalar value set is deliberately narrower than the native
+Property Bag type set:
+
+```text
+bool
+byte
+int32
+uint32
+int64
+uint64
+float
+double
+name
+string
+enum
+```
+
+`bool`, `byte`, `int32`, and `uint32` use JSON boolean/number values. `int64` and
+`uint64` use exact base-10 strings so JavaScript number precision cannot alter
+them. Finite `float` and `double` use JSON numbers; non-finite values use the
+exact strings `nan`, `+infinity`, or `-infinity`. `name` and `string` use native
+strings, each limited to 8 Ki UTF-16 code units. `enum` uses an anonymous object
+with exactly `type`, `name`, and `value`; `type` is the already-resolved UEnum
+path, `name` is the exact authored enumerator name or `null`, and `value` is an
+exact signed base-10 string. This avoids both JavaScript precision loss and the
+wide-enum truncation of the older UE getter shape. A missing or unsafe enum type
+object is incomplete, not a guessed byte.
+
+Containers, `text`, `struct`, hard or soft object/class references, `none`, and
+future native value kinds are descriptor-only with `valueStatus: unsupported`
+in this slice. UE 5.8's `int8`, `int16`, and `uint16` descriptors are recognized
+but remain descriptor-only. A UE 5.8 `map` fails the whole Parameter snapshot
+closed because its independent key type and key type object cannot be expressed
+by the frozen three-field public type shape; the adapter never publishes a
+partial map descriptor. In particular, it never calls generic `ExportText`,
+`GetValueSerializedString`, hard-object getters, `FText::ToString`, or a
+container iterator as a fallback. Those paths are either lossy, can materialize
+an unbounded value before a limit is enforced, or can resolve an object handle.
+
 Parameter declaration schema, name, type, order, and Guid belong to the Graph.
 `pcg_component` cannot create, remove, rename, or retype a Graph Parameter.
 
@@ -719,12 +789,34 @@ name exists in the instance bag and therefore must not be used as the local
 override test. No read path may call refresh, migration, mutable-bag accessors,
 callback setup, or notification APIs.
 
-Before Slice 1C-B-B can activate, it must freeze lossless common-engine value
-encoding, native type spelling, large integer and non-finite number behavior,
-container/object/reference bounds, duplicate or invalid descriptor-Guid
-handling, parent-instance source inference, and incomplete-chain diagnostics.
-Until then, tests assert that `parameters` and exact Parameter Query are
-unavailable in Slice 1C-B-A.
+The bounded snapshot accepts at most 4,096 top-Graph descriptors, 32 loaded
+GraphInterface links, one shared 64 Ki UTF-16 budget for Graph-chain, type, and
+descriptor evidence, one separate 64 Ki aggregate budget for certified
+string/name/enum-name values, 8 Ki per such value, and the ordinary collection
+page limit of 200. It audits every bag in the proved chain even when the top
+Graph declares zero Parameters. Invalid or duplicate Guids, duplicate names,
+missing or mismatched descriptors, invalid native storage, stale override bits,
+or unsafe type-object evidence fail before any Parameter StableRef is published.
+Any such failure, an incomplete Graph binding, or a bound chain with no terminal
+top Graph fails the whole Parameter Query with
+`validation.reference_scan_incomplete`; it never returns a partial identity or
+value set. An unbound Component has a complete empty Parameter collection.
+
+Collection order is canonical descriptor Guid order. Search matches name, Guid,
+value-type token, container token, type-object path, and effective-source token.
+The cursor fingerprint covers the exact Component Target, search, effective page
+limit, complete Graph-interface chain evidence, every emitted descriptor/type/
+override/value fact, and the full canonical match order. A rename, removal,
+override-bit change, effective-value change, source change, or binding change
+makes an old cursor invalid.
+
+Exact Parameter Query accepts only optional `with schema`. The one-segment
+StableRef must be a non-zero canonical lowercase digits-with-hyphens descriptor
+Guid. Lowering re-runs the complete bounded snapshot, then rewrites it to private
+`{kind:"parameter", id:"<canonical-guid>"}` form. A missing Guid returns
+`resolution.object_not_found`; a duplicate or incomplete identity environment
+fails closed. Rename preserves the Guid and the StableRef; removal invalidates
+it. Exact schema remains explicitly read-only.
 
 ### Planned Component mutation gate
 
@@ -1528,9 +1620,9 @@ Slice 1C-B-A consumes the already allocated protocol-v6 Target and ordinary
 result fields, static internal card, and diagnostics does not add a Target
 field, Query operation kind, StableRef form, or protocol-version bump.
 Slice 1C-B-B likewise uses the existing `parameters` collection and StableRef
-grammar, but its operation advertisement and exact result capability must be
-versioned together across Client, Bridge, and the static card when that later
-slice is enabled.
+grammar without changing protocol v6. Its operation advertisement and exact
+result capability must still be enabled atomically across Client, Bridge, and
+the static card when the Domain is published.
 
 Those Target sets are type/admissibility sets only. After admission, the
 request's single `Target.domain` selects exactly one adapter. A set never
@@ -1588,8 +1680,7 @@ The Bridge needs:
 adapters:
 
 - Component Slice 1C-B-A resolves persistent authored slots and read-only
-  Graph-binding facts; Slice 1C-B-B later adds proved GraphInstance override
-  facts;
+  Graph-binding facts; Slice 1C-B-B adds proved GraphInstance override facts;
 - Python projectors map explicitly returned UObjects only to already published
   persistent SAL views;
 - the typed PCG runtime resolves exact live Worlds, source Component

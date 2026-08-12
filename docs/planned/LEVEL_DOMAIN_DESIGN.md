@@ -21,14 +21,15 @@ The unpublished scene/PCG family branch currently contains:
   for bounded, proved native, SCS, and instance identities; and
 - Slice 1C-B-A's internal Query-only `pcg_component` `target`/`summary`
   adapter, bounded Graph-binding reader, and matching Level-to-Component
-  handoff.
+  handoff; and
+- Slice 1C-B-B's bounded Graph Parameter collection, exact descriptor-Guid
+  StableRef Query, effective-source readback, and read-only value projection.
 
-These are internal contracts and adapters, not public interface cards. Slice
-1C-B-B Parameter readback, other referenced
-ownership and Editor Context, schema, Palette, mutation, save, and the static
-`level` catalog entry remain planned. Slices 1A through 1C-A also retain the
-real unloaded-World-Partition and temporary Level Instance edit/composition
-fixture gates described below.
+These are internal contracts and adapters, not public interface cards. Other
+referenced ownership and Editor Context, schema, Palette, mutation, save, and
+the static `level` catalog entry remain planned. Slices 1A through 1C-A also
+retain the real unloaded-World-Partition and temporary Level Instance
+edit/composition fixture gates described below.
 
 The core boundary is confirmed:
 
@@ -1513,12 +1514,12 @@ pass `Loomle.Sal.PCGComponent.Query.AuthoredTargetSummaryAndBoundaries` plus
 the full five-test `Loomle.Sal.Level.Query` regression. The fixture covers
 saved versus unsaved top Graph navigation, direct unbound state, a parent
 GraphInstance whose chain ends unbound, bounded-depth failure, frozen nested
-field closure, unavailable Parameters, and read-only Level/Component/Graph
-invariants. A real World Partition descriptor-only Component owner remains a
-public-release fixture gate; an entirely unloaded source map is separately
-covered by `capability.level_not_loaded`.
+field closure, the complete empty-Parameter case, and read-only
+Level/Component/Graph invariants. A real World Partition descriptor-only
+Component owner remains a public-release fixture gate; an entirely unloaded
+source map is separately covered by `capability.level_not_loaded`.
 
-### Slice 1C-B-B: PCG Component Parameter readback — planned
+### Slice 1C-B-B: PCG Component Parameter readback — implemented internally
 
 - address declarations only by the top Graph property-bag descriptor Guid;
 - prove descriptor alignment through the bounded Graph-interface chain before
@@ -1526,9 +1527,28 @@ covered by `capability.level_not_loaded`.
 - derive the Component-owned local override bit from
   `UPCGGraphInstance::IsPropertyOverridden` on the aligned native property,
   not `IsGraphParameterOverridden(FName)`; and
-- freeze lossless type/value encoding, effective-source semantics, result
-  bounds, exact Parameter StableRef lowering, and incomplete-chain behavior
-  before exposing `parameters` or an exact Parameter Query.
+- use the frozen lossless type/value encoding, effective-source semantics,
+  result bounds, exact Parameter StableRef lowering, and incomplete-chain
+  behavior documented in `PCG_RUNTIME_DOMAIN_DESIGN.md`.
+
+The official UE 5.7 and UE 5.8 arm64 persistent hosts compile this slice and
+pass the full `Loomle.Sal.PCGComponent.Query` group. The Parameter fixture
+proves local, inherited, and Graph-default sources; canonical Guid identity
+through rename and removal; exact and paged Query; representative certified
+scalar encodings and descriptor-only unsupported value paths; bounded
+GraphInstance-chain failure; and unchanged bags, override bits, delegates,
+task/resource state, packages, and transactions. UE 5.8 additionally covers
+the descriptor-only `int8`, `int16`,
+and `uint16` additions. A native `map` descriptor remains intentionally
+fail-closed until its key shape has a lossless public representation.
+
+This internal acceptance is not the public-release hostile-fixture matrix.
+Before publication, Automation must still exercise a native UE 5.8 `map`
+descriptor, the exact 8 Ki per-value and 64 Ki aggregate/evidence boundaries,
+and a zero-declaration chain containing a stale override bit. The internal
+suite already covers invalid zero-declaration instance storage and exact
+Parameter `with schema`; the remaining hostile fixtures must prove fail-closed
+behavior without weakening the current bounds.
 
 ### Slice 1C-C: other referenced ownership and Editor Context — planned
 

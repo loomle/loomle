@@ -347,15 +347,27 @@ bool LowerStableReference(
         return false;
     }
     if (Target.Domain == ESalDomain::Pcg
-        || Target.Domain == ESalDomain::Level)
+        || Target.Domain == ESalDomain::Level
+        || Target.Domain == ESalDomain::PcgComponent)
     {
         FString Code;
         FString Message;
-        const bool bResolved = Target.Domain == ESalDomain::Pcg
-            ? FSalPCGInterface::LowerStableReference(
-                Target, IdentityPath, Ref, Code, Message)
-            : FSalLevelInterface::LowerStableReference(
+        bool bResolved = false;
+        if (Target.Domain == ESalDomain::Pcg)
+        {
+            bResolved = FSalPCGInterface::LowerStableReference(
                 Target, IdentityPath, Ref, Code, Message);
+        }
+        else if (Target.Domain == ESalDomain::Level)
+        {
+            bResolved = FSalLevelInterface::LowerStableReference(
+                Target, IdentityPath, Ref, Code, Message);
+        }
+        else
+        {
+            bResolved = FSalPCGComponentInterface::LowerStableReference(
+                Target, IdentityPath, Ref, Code, Message);
+        }
         if (bResolved)
         {
             return true;
@@ -430,8 +442,8 @@ bool LowerStableReference(
             Message);
         break;
     case ESalDomain::PcgComponent:
-        Code = TEXT("capability.interface_unavailable");
-        Message = TEXT("This Domain's StableRef identity lowerer is not available in this Bridge build.");
+        // Structured-identity Domains are handled before the legacy switch.
+        checkNoEntry();
         break;
     default:
         Code = TEXT("capability.interface_unavailable");

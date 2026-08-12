@@ -388,14 +388,14 @@ This family adds these constraints:
 surface. Exact instance schema decides which native fields are readable,
 writable, resettable, or invokable on the supported engine version.
 
-Its implemented first internal Query slice is intentionally narrower than
-that eventual surface: Slice 1C-B-A exposes only canonical resolution,
-`target`, `summary`,
-exact schema, bounded zero-load direct/top Graph-binding facts, and fixed
-`inspect_level` / conditional `inspect_graph` navigation. Graph Parameter
-enumeration, exact Parameter StableRefs, override-source inference, and values
-belong to the later Slice 1C-B-B. The Level-to-specialized direction uses the
-fixed `inspect_pcg_component` purpose. No Query-only result emits `save`.
+Its implemented internal Query surface remains intentionally narrower than
+that eventual surface. Slice 1C-B-A exposes canonical resolution, `target`,
+`summary`, exact schema, bounded zero-load direct/top Graph-binding facts, and
+fixed `inspect_level` / conditional `inspect_graph` navigation. Slice 1C-B-B
+adds bounded Graph Parameter enumeration, exact descriptor-Guid StableRefs,
+override-source proof, and lossless certified scalar readback. The
+Level-to-specialized direction uses the fixed `inspect_pcg_component` purpose.
+No Query-only result emits `save`.
 
 For an SCS-backed Component, this Target may eventually write only a value
 that UE truly serializes as an override on this exact placed Actor instance.

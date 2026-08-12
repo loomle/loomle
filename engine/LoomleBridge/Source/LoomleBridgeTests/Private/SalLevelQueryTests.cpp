@@ -32,12 +32,14 @@
 #include "LevelInstance/LevelInstanceSubsystem.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/CoreDelegates.h"
+#include "Misc/EngineVersionComparison.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "PCGComponent.h"
 #include "PCGGraph.h"
 #include "PCGVolume.h"
+#include "StructUtils/PropertyBag.h"
 #include "UObject/GarbageCollection.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
@@ -197,7 +199,9 @@ TSharedRef<FJsonObject> LevelQueryArguments(
 TSharedRef<FJsonObject> PCGComponentQueryArguments(
     const TSharedRef<FJsonObject>& Target,
     const TSharedRef<FJsonObject>& Operation,
-    const bool bWithSchema = false)
+    const bool bWithSchema = false,
+    const int32 PageLimit = 0,
+    const FString& PageAfter = FString())
 {
     TSharedRef<FJsonObject> Binding = MakeShared<FJsonObject>();
     Binding->SetStringField(TEXT("alias"), TEXT("pcg_component_scope"));
@@ -213,10 +217,44 @@ TSharedRef<FJsonObject> PCGComponentQueryArguments(
             TEXT("with"),
             {MakeShared<FJsonValueString>(TEXT("schema"))});
     }
+    if (PageLimit > 0 || !PageAfter.IsEmpty())
+    {
+        TSharedRef<FJsonObject> Page = MakeShared<FJsonObject>();
+        if (PageLimit > 0)
+        {
+            Page->SetNumberField(TEXT("limit"), PageLimit);
+        }
+        if (!PageAfter.IsEmpty())
+        {
+            Page->SetStringField(TEXT("after"), PageAfter);
+        }
+        Query->SetObjectField(TEXT("page"), Page);
+    }
 
     TSharedRef<FJsonObject> Arguments = MakeShared<FJsonObject>();
     Arguments->SetObjectField(TEXT("object"), Query);
     return Arguments;
+}
+
+TSharedRef<FJsonObject> PCGComponentParameterStableRef(
+    const FGuid& ParameterId)
+{
+    TSharedRef<FJsonObject> Ref = MakeShared<FJsonObject>();
+    Ref->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    Ref->SetArrayField(
+        TEXT("identityPath"),
+        LevelStringValues({LevelGuidText(ParameterId)}));
+    return Ref;
+}
+
+TSharedRef<FJsonObject> PCGComponentExactParameterOperation(
+    const FGuid& ParameterId)
+{
+    TSharedRef<FJsonObject> Operation = LevelOperation(TEXT("object"));
+    Operation->SetObjectField(
+        TEXT("target"),
+        PCGComponentParameterStableRef(ParameterId));
+    return Operation;
 }
 
 TSharedRef<FJsonObject> PCGComponentPatchArguments(
@@ -693,6 +731,41 @@ bool ReadLevelNameField(
         && Kind == TEXT("name")
         && (*Value)->TryGetStringField(TEXT("name"), OutName)
         && !OutName.IsEmpty();
+}
+
+bool ReadLevelNameArrayField(
+    const TSharedPtr<FJsonObject>& Fields,
+    const FString& FieldName,
+    TArray<FString>& OutNames)
+{
+    OutNames.Reset();
+    const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+    if (!Fields.IsValid()
+        || !Fields->TryGetArrayField(FieldName, Values)
+        || Values == nullptr)
+    {
+        return false;
+    }
+    for (const TSharedPtr<FJsonValue>& Value : *Values)
+    {
+        const TSharedPtr<FJsonObject>* NameObject = nullptr;
+        FString Kind;
+        FString Name;
+        if (!Value.IsValid()
+            || !Value->TryGetObject(NameObject)
+            || NameObject == nullptr
+            || !(*NameObject).IsValid()
+            || !(*NameObject)->TryGetStringField(TEXT("kind"), Kind)
+            || Kind != TEXT("name")
+            || !(*NameObject)->TryGetStringField(TEXT("name"), Name)
+            || Name.IsEmpty())
+        {
+            OutNames.Reset();
+            return false;
+        }
+        OutNames.Add(MoveTemp(Name));
+    }
+    return true;
 }
 
 bool ReadLevelStableRefField(
@@ -3400,6 +3473,549 @@ private:
     int32 RelevantObjectModifiedCount = 0;
 };
 
+class FScopedPCGComponentParameterFixture
+{
+public:
+    bool Build(
+        FScopedLevelQueryFixture& LevelFixture,
+        FScopedLevelComponentQueryFixture& ComponentFixture,
+        FString& OutError)
+    {
+        OutError.Reset();
+        Graph = ComponentFixture.PCGComponent != nullptr
+            ? ComponentFixture.PCGComponent->GetGraph()
+            : nullptr;
+        if (Graph == nullptr
+            || ComponentFixture.Actor == nullptr
+            || ComponentFixture.PCGComponent == nullptr)
+        {
+            OutError = TEXT(
+                "PCG Parameter fixture requires the unregistered instance "
+                "Component and its already-loaded Graph.");
+            return false;
+        }
+
+        TArray<FPropertyBagPropertyDesc> Descriptors;
+        Descriptors.Reserve(11);
+        const auto AddDescriptor = [&Descriptors](
+            const FName Name,
+            const FGuid& Id,
+            const EPropertyBagPropertyType ValueType,
+            const UObject* ValueTypeObject = nullptr)
+        {
+            FPropertyBagPropertyDesc Desc(
+                Name,
+                ValueType,
+                ValueTypeObject);
+            Desc.ID = Id;
+            Descriptors.Add(MoveTemp(Desc));
+        };
+        AddDescriptor(
+            GraphDefaultName,
+            GraphDefaultId,
+            EPropertyBagPropertyType::Double);
+        AddDescriptor(
+            ParentOverrideName,
+            ParentOverrideId,
+            EPropertyBagPropertyType::Int64);
+        AddDescriptor(
+            RenamedFromName,
+            ComponentOverrideId,
+            EPropertyBagPropertyType::String);
+        AddDescriptor(
+            SoftObjectName,
+            SoftObjectId,
+            EPropertyBagPropertyType::SoftObject,
+            UWorld::StaticClass());
+        AddDescriptor(
+            UnsupportedStructName,
+            UnsupportedStructId,
+            EPropertyBagPropertyType::Struct,
+            TBaseStructure<FVector>::Get());
+        FPropertyBagPropertyDesc ArrayDesc(
+            UnsupportedArrayName,
+            EPropertyBagContainerType::Array,
+            EPropertyBagPropertyType::Double);
+        ArrayDesc.ID = UnsupportedArrayId;
+        Descriptors.Add(MoveTemp(ArrayDesc));
+#if UE_VERSION_NEWER_THAN_OR_EQUAL(5, 8, 0)
+        AddDescriptor(
+            UnsupportedInt8Name,
+            UnsupportedInt8Id,
+            EPropertyBagPropertyType::Int8);
+        AddDescriptor(
+            UnsupportedInt16Name,
+            UnsupportedInt16Id,
+            EPropertyBagPropertyType::Int16);
+        AddDescriptor(
+            UnsupportedUInt16Name,
+            UnsupportedUInt16Id,
+            EPropertyBagPropertyType::UInt16);
+#endif
+        AddDescriptor(
+            EnumName,
+            EnumId,
+            EPropertyBagPropertyType::Enum,
+            StaticEnum<EPropertyBagPropertyType>());
+        AddDescriptor(
+            RemovedName,
+            RemovedId,
+            EPropertyBagPropertyType::Double);
+
+        if (Graph->AddUserParameters(Descriptors)
+                != EPropertyBagAlterationResult::Success
+            || Graph->SetGraphParameter<double>(
+                    GraphDefaultName,
+                    GraphDefaultValue)
+                != EPropertyBagResult::Success
+            || Graph->SetGraphParameter<int64>(
+                    ParentOverrideName,
+                    GraphParentDefaultValue)
+                != EPropertyBagResult::Success
+            || Graph->SetGraphParameter<FString>(
+                    RenamedFromName,
+                    GraphComponentDefaultValue)
+                != EPropertyBagResult::Success
+            || Graph->SetGraphParameter<FSoftObjectPath>(
+                    SoftObjectName,
+                    FSoftObjectPath(LevelFixture.Unloaded.ObjectPath))
+                != EPropertyBagResult::Success
+            || Graph->SetGraphParameter<FVector>(
+                    UnsupportedStructName,
+                    FVector(1.0, 2.0, 3.0))
+                != EPropertyBagResult::Success
+            || Graph->SetGraphParameter(
+                    EnumName,
+                    static_cast<uint64>(EPropertyBagPropertyType::Double),
+                    StaticEnum<EPropertyBagPropertyType>())
+                != EPropertyBagResult::Success
+            || Graph->SetGraphParameter<double>(
+                    RemovedName,
+                    RemovedValue)
+                != EPropertyBagResult::Success)
+        {
+            OutError = TEXT(
+                "UE failed to create the fixed-Guid PCG Parameter declarations "
+                "and Graph defaults.");
+            return false;
+        }
+
+        ParentGraphInstance = NewObject<UPCGGraphInstance>(
+            ComponentFixture.Actor,
+            UPCGGraphInstance::StaticClass(),
+            FName(TEXT("LoomleParameterParentGraphInstance")),
+            RF_Transactional);
+        if (ParentGraphInstance == nullptr)
+        {
+            OutError = TEXT(
+                "UE failed to create the external parent GraphInstance.");
+            return false;
+        }
+        ParentGraphInstance->SetGraph(Graph);
+        if (ParentGraphInstance->SetGraphParameter<int64>(
+                ParentOverrideName,
+                ParentOverrideValue)
+            != EPropertyBagResult::Success)
+        {
+            OutError = TEXT(
+                "UE failed to author the parent GraphInstance override.");
+            return false;
+        }
+
+        Component = ComponentFixture.PCGComponent;
+        Component->SetGraphLocal(ParentGraphInstance);
+        OwnedGraphInstance = Component->GetGraphInstance();
+        if (OwnedGraphInstance == nullptr
+            || OwnedGraphInstance->SetGraphParameter<FString>(
+                    RenamedFromName,
+                    ComponentOverrideValue)
+                != EPropertyBagResult::Success)
+        {
+            OutError = TEXT(
+                "UE failed to author the Component-owned GraphInstance override.");
+            return false;
+        }
+
+        if (Graph->RenameUserParameter(
+                RenamedFromName,
+                ComponentOverrideName)
+            != EPropertyBagAlterationResult::Success)
+        {
+            OutError = TEXT(
+                "UE failed to propagate a same-Guid Parameter rename.");
+            return false;
+        }
+        EPropertyBagAlterationResult RemoveResult =
+            EPropertyBagAlterationResult::InternalError;
+        Graph->UpdateUserParametersStruct(
+            [this, &RemoveResult](FInstancedPropertyBag& Bag)
+            {
+                RemoveResult = Bag.RemovePropertyByName(RemovedName);
+            });
+        if (RemoveResult != EPropertyBagAlterationResult::Success)
+        {
+            OutError = TEXT(
+                "UE failed to propagate a removed Parameter declaration.");
+            return false;
+        }
+
+        DeepComponent = NewObject<UPCGComponent>(
+            ComponentFixture.Actor,
+            UPCGComponent::StaticClass(),
+            FName(TEXT("LoomleDeepParameterPCGComponent")),
+            RF_Transactional);
+        if (DeepComponent == nullptr)
+        {
+            OutError = TEXT(
+                "UE failed to create the bounded Parameter-chain Component.");
+            return false;
+        }
+        ComponentFixture.Actor->AddInstanceComponent(DeepComponent);
+        DeepComponent->OnComponentCreated();
+        constexpr int32 DeepGraphInstanceCount = 32;
+        DeepGraphInstances.Reserve(DeepGraphInstanceCount);
+        for (int32 Index = 0; Index < DeepGraphInstanceCount; ++Index)
+        {
+            DeepGraphInstances.Add(NewObject<UPCGGraphInstance>(
+                ComponentFixture.Actor,
+                UPCGGraphInstance::StaticClass(),
+                FName(*FString::Printf(
+                    TEXT("LoomleParameterDeepGraphInstance_%02d"),
+                    Index)),
+                RF_Transactional));
+        }
+        if (DeepGraphInstances.Contains(nullptr))
+        {
+            OutError = TEXT(
+                "UE failed to create the bounded GraphInstance chain.");
+            return false;
+        }
+        for (int32 Index = DeepGraphInstances.Num() - 1;
+             Index >= 0;
+             --Index)
+        {
+            UPCGGraphInterface* Parent = Graph;
+            if (Index + 1 < DeepGraphInstances.Num())
+            {
+                Parent = DeepGraphInstances[Index + 1];
+            }
+            DeepGraphInstances[Index]->SetGraph(Parent);
+        }
+        DeepComponent->SetGraphLocal(DeepGraphInstances[0]);
+
+        const FInstancedPropertyBag* GraphBag =
+            Graph->GetUserParametersStruct();
+        const FInstancedPropertyBag* ParentBag =
+            ParentGraphInstance->GetUserParametersStruct();
+        const FInstancedPropertyBag* OwnedBag =
+            OwnedGraphInstance->GetUserParametersStruct();
+        const FPropertyBagPropertyDesc* GraphDefaultOwnedDesc =
+            OwnedBag != nullptr
+            ? OwnedBag->FindPropertyDescByID(GraphDefaultId)
+            : nullptr;
+        const FPropertyBagPropertyDesc* ParentDesc =
+            ParentBag != nullptr
+            ? ParentBag->FindPropertyDescByID(ParentOverrideId)
+            : nullptr;
+        const FPropertyBagPropertyDesc* OwnedDesc =
+            OwnedBag != nullptr
+            ? OwnedBag->FindPropertyDescByID(ComponentOverrideId)
+            : nullptr;
+        const FPropertyBagPropertyDesc* RenamedGraphDesc =
+            GraphBag != nullptr
+            ? GraphBag->FindPropertyDescByID(ComponentOverrideId)
+            : nullptr;
+#if UE_VERSION_NEWER_THAN_OR_EQUAL(5, 8, 0)
+        constexpr int32 ExpectedLiveParameterCount = 10;
+#else
+        constexpr int32 ExpectedLiveParameterCount = 7;
+#endif
+        if (GraphBag == nullptr
+            || ParentBag == nullptr
+            || OwnedBag == nullptr
+            || GraphBag->GetPropertyBagStruct() == nullptr
+            || GraphBag->GetPropertyBagStruct()->GetPropertyDescs().Num()
+                != ExpectedLiveParameterCount
+            || GraphDefaultOwnedDesc == nullptr
+            || GraphDefaultOwnedDesc->CachedProperty == nullptr
+            || ParentDesc == nullptr
+            || ParentDesc->CachedProperty == nullptr
+            || OwnedDesc == nullptr
+            || OwnedDesc->CachedProperty == nullptr
+            || RenamedGraphDesc == nullptr
+            || RenamedGraphDesc->ID != ComponentOverrideId
+            || RenamedGraphDesc->Name != ComponentOverrideName
+            || GraphBag->FindPropertyDescByName(RenamedFromName) != nullptr
+            || GraphBag->FindPropertyDescByID(RemovedId) != nullptr
+            || ParentBag->FindPropertyDescByID(RemovedId) != nullptr
+            || OwnedBag->FindPropertyDescByID(RemovedId) != nullptr
+            || OwnedGraphInstance->IsPropertyOverridden(
+                GraphDefaultOwnedDesc->CachedProperty)
+            || !OwnedGraphInstance->IsGraphParameterOverridden(
+                GraphDefaultName)
+            || !ParentGraphInstance->IsPropertyOverridden(
+                ParentDesc->CachedProperty)
+            || !OwnedGraphInstance->IsPropertyOverridden(
+                OwnedDesc->CachedProperty))
+        {
+            OutError = TEXT(
+                "The PCG Parameter fixture could not prove Guid alignment, "
+                "rename/removal propagation, or native override bits.");
+            return false;
+        }
+
+        World = LevelFixture.Loaded.World;
+        WorldPackage = World != nullptr ? World->GetOutermost() : nullptr;
+        GraphPackage = Graph->GetOutermost();
+        if (WorldPackage != nullptr)
+        {
+            WorldPackage->SetDirtyFlag(false);
+        }
+        if (GraphPackage != nullptr)
+        {
+            GraphPackage->SetDirtyFlag(false);
+        }
+        return true;
+    }
+
+    TArray<UPCGGraphInterface*> GetParameterInterfaces() const
+    {
+        TArray<UPCGGraphInterface*> Interfaces = {
+            Graph,
+            ParentGraphInstance,
+            OwnedGraphInstance,
+            DeepComponent != nullptr
+                ? DeepComponent->GetGraphInstance()
+                : nullptr};
+        for (UPCGGraphInstance* Instance : DeepGraphInstances)
+        {
+            Interfaces.Add(Instance);
+        }
+        Interfaces.Remove(nullptr);
+        return Interfaces;
+    }
+
+    void ClearSetupDirtyFlags() const
+    {
+        if (WorldPackage != nullptr)
+        {
+            WorldPackage->SetDirtyFlag(false);
+        }
+        if (GraphPackage != nullptr)
+        {
+            GraphPackage->SetDirtyFlag(false);
+        }
+    }
+
+    static inline const FName GraphDefaultName =
+        FName(TEXT("GraphDefaultDensity"));
+    static inline const FName ParentOverrideName =
+        FName(TEXT("ParentOverrideSeed"));
+    static inline const FName RenamedFromName =
+        FName(TEXT("OldComponentOverrideLabel"));
+    static inline const FName ComponentOverrideName =
+        FName(TEXT("ComponentOverrideLabel"));
+    static inline const FName SoftObjectName =
+        FName(TEXT("SoftObjectDescriptor"));
+    static inline const FName UnsupportedStructName =
+        FName(TEXT("UnsupportedStructVector"));
+    static inline const FName UnsupportedArrayName =
+        FName(TEXT("UnsupportedDoubleArray"));
+#if UE_VERSION_NEWER_THAN_OR_EQUAL(5, 8, 0)
+    static inline const FName UnsupportedInt8Name =
+        FName(TEXT("UnsupportedInt8"));
+    static inline const FName UnsupportedInt16Name =
+        FName(TEXT("UnsupportedInt16"));
+    static inline const FName UnsupportedUInt16Name =
+        FName(TEXT("UnsupportedUInt16"));
+#endif
+    static inline const FName EnumName =
+        FName(TEXT("SupportedEnum"));
+    static inline const FName RemovedName =
+        FName(TEXT("RemovedParameter"));
+
+    static inline const FGuid GraphDefaultId =
+        FGuid(0x10000001, 0x10000002, 0x10000003, 0x10000004);
+    static inline const FGuid ParentOverrideId =
+        FGuid(0x20000001, 0x20000002, 0x20000003, 0x20000004);
+    static inline const FGuid ComponentOverrideId =
+        FGuid(0x30000001, 0x30000002, 0x30000003, 0x30000004);
+    static inline const FGuid SoftObjectId =
+        FGuid(0x40000001, 0x40000002, 0x40000003, 0x40000004);
+    static inline const FGuid UnsupportedStructId =
+        FGuid(0x50000001, 0x50000002, 0x50000003, 0x50000004);
+    static inline const FGuid UnsupportedArrayId =
+        FGuid(0x60000001, 0x60000002, 0x60000003, 0x60000004);
+#if UE_VERSION_NEWER_THAN_OR_EQUAL(5, 8, 0)
+    static inline const FGuid UnsupportedInt8Id =
+        FGuid(0x65000001, 0x65000002, 0x65000003, 0x65000004);
+    static inline const FGuid UnsupportedInt16Id =
+        FGuid(0x66000001, 0x66000002, 0x66000003, 0x66000004);
+    static inline const FGuid UnsupportedUInt16Id =
+        FGuid(0x67000001, 0x67000002, 0x67000003, 0x67000004);
+#endif
+    static inline const FGuid EnumId =
+        FGuid(0x68000001, 0x68000002, 0x68000003, 0x68000004);
+    static inline const FGuid RemovedId =
+        FGuid(0x70000001, 0x70000002, 0x70000003, 0x70000004);
+
+    static constexpr double GraphDefaultValue = 1.25;
+    static constexpr int64 GraphParentDefaultValue = 9007199254740993LL;
+    static constexpr int64 ParentOverrideValue = -9007199254740993LL;
+    static constexpr double RemovedValue = 9.25;
+    static inline const FString GraphComponentDefaultValue =
+        TEXT("graph-default");
+    static inline const FString ComponentOverrideValue =
+        TEXT("component-local");
+    static inline const FString StaleComponentOverrideValue =
+        TEXT("component-local-after-cursor");
+
+    UPCGGraph* Graph = nullptr;
+    UPCGGraphInstance* ParentGraphInstance = nullptr;
+    UPCGComponent* Component = nullptr;
+    UPCGGraphInstance* OwnedGraphInstance = nullptr;
+    UPCGComponent* DeepComponent = nullptr;
+    TArray<UPCGGraphInstance*> DeepGraphInstances;
+
+private:
+    UWorld* World = nullptr;
+    UPackage* WorldPackage = nullptr;
+    UPackage* GraphPackage = nullptr;
+};
+
+struct FFixturePCGParameterBagState
+{
+    TWeakObjectPtr<UPCGGraphInterface> Interface;
+    FInstancedPropertyBag Parameters;
+    TSet<FGuid> OverrideIds;
+    bool bGraphInstance = false;
+#if WITH_EDITOR
+    FDelegateHandle GraphChangedHandle;
+    FDelegateHandle ParametersChangedHandle;
+#endif
+};
+
+class FPCGParameterReadInvariant
+{
+public:
+    explicit FPCGParameterReadInvariant(
+        const TArray<UPCGGraphInterface*>& Interfaces)
+    {
+        for (UPCGGraphInterface* Interface : Interfaces)
+        {
+            const FInstancedPropertyBag* Parameters = Interface != nullptr
+                ? Interface->GetUserParametersStruct()
+                : nullptr;
+            if (Interface == nullptr || Parameters == nullptr)
+            {
+                continue;
+            }
+            FFixturePCGParameterBagState& State =
+                States.AddDefaulted_GetRef();
+            State.Interface = Interface;
+            State.Parameters = *Parameters;
+            if (UPCGGraphInstance* Instance =
+                    Cast<UPCGGraphInstance>(Interface))
+            {
+                State.bGraphInstance = true;
+                State.OverrideIds =
+                    Instance->ParametersOverrides.PropertiesIDsOverridden;
+            }
+#if WITH_EDITOR
+            State.GraphChangedHandle =
+                Interface->OnGraphChangedDelegate.AddLambda(
+                    [this](UPCGGraphInterface*, EPCGChangeType)
+                    {
+                        ++GraphChangedCount;
+                    });
+            State.ParametersChangedHandle =
+                Interface->OnGraphParametersChangedDelegate.AddLambda(
+                    [this](
+                        UPCGGraphInterface*,
+                        EPCGGraphParameterEvent,
+                        FName)
+                    {
+                        ++ParametersChangedCount;
+                    });
+#endif
+        }
+    }
+
+    ~FPCGParameterReadInvariant()
+    {
+#if WITH_EDITOR
+        for (const FFixturePCGParameterBagState& State : States)
+        {
+            if (UPCGGraphInterface* Interface = State.Interface.Get())
+            {
+                Interface->OnGraphChangedDelegate.Remove(
+                    State.GraphChangedHandle);
+                Interface->OnGraphParametersChangedDelegate.Remove(
+                    State.ParametersChangedHandle);
+            }
+        }
+#endif
+    }
+
+    bool Verify(FAutomationTestBase& Test) const
+    {
+        bool bOk = true;
+#if WITH_EDITOR
+        bOk &= Test.TestEqual(
+            TEXT("PCG Parameter Query broadcasts no Graph change"),
+            GraphChangedCount,
+            0);
+        bOk &= Test.TestEqual(
+            TEXT("PCG Parameter Query broadcasts no Parameter change"),
+            ParametersChangedCount,
+            0);
+#endif
+        for (const FFixturePCGParameterBagState& State : States)
+        {
+            UPCGGraphInterface* Interface = State.Interface.Get();
+            bOk &= Test.TestNotNull(
+                TEXT("PCG Parameter Query preserves every Graph interface"),
+                Interface);
+            const FInstancedPropertyBag* Current = Interface != nullptr
+                ? Interface->GetUserParametersStruct()
+                : nullptr;
+            bOk &= Test.TestTrue(
+                TEXT("PCG Parameter Query preserves every Property Bag exactly"),
+                Current != nullptr
+                    && Current->GetPropertyBagStruct()
+                        == State.Parameters.GetPropertyBagStruct()
+                    && Current->Identical(&State.Parameters, 0));
+            if (State.bGraphInstance)
+            {
+                const UPCGGraphInstance* Instance =
+                    Cast<UPCGGraphInstance>(Interface);
+                bool bOverridesMatch = Instance != nullptr
+                    && Instance->ParametersOverrides.PropertiesIDsOverridden.Num()
+                        == State.OverrideIds.Num();
+                if (bOverridesMatch)
+                {
+                    for (const FGuid& Id : State.OverrideIds)
+                    {
+                        bOverridesMatch &= Instance->ParametersOverrides
+                            .PropertiesIDsOverridden.Contains(Id);
+                    }
+                }
+                bOk &= Test.TestTrue(
+                    TEXT("PCG Parameter Query preserves every native override bit"),
+                    bOverridesMatch);
+            }
+        }
+        return bOk;
+    }
+
+private:
+    TArray<FFixturePCGParameterBagState> States;
+#if WITH_EDITOR
+    int32 GraphChangedCount = 0;
+    int32 ParametersChangedCount = 0;
+#endif
+};
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FSalLevelNoLoadTargetTest,
     "Loomle.Sal.Level.Query.NoLoadCanonicalTarget",
@@ -5438,10 +6054,11 @@ bool FSalPCGComponentAuthoredQueryTest::RunTest(
                 ParameterTarget,
                 LevelOperation(TEXT("parameters"))));
     TestTrue(
-        TEXT("PCG Component parameters remain explicitly unavailable in slice A"),
-        LevelHasDiagnostic(
-            ParametersResult,
-            TEXT("capability.operation_unavailable"))
+        TEXT("A bound Graph with no declarations returns a complete empty Parameter collection"),
+        !LevelHasError(ParametersResult)
+            && LevelTaggedObjectFields(
+                ParametersResult,
+                TEXT("parameter")).IsEmpty()
             && LevelHasTargetContext(
                 ParametersResult,
                 TEXT("exact_target"))
@@ -5451,6 +6068,35 @@ bool FSalPCGComponentAuthoredQueryTest::RunTest(
                 ComponentFixture.NativePCGActorId,
                 TEXT("native"),
                 ComponentFixture.NativePCGId));
+
+    UPCGGraphInstance* EmptyOwnedGraphInstance =
+        ComponentFixture.NativePCGComponent != nullptr
+        ? ComponentFixture.NativePCGComponent->GetGraphInstance()
+        : nullptr;
+    TestNotNull(
+        TEXT("Empty-Parameter corruption fixture has a Component-owned GraphInstance"),
+        EmptyOwnedGraphInstance);
+    if (EmptyOwnedGraphInstance != nullptr)
+    {
+        const FInstancedPropertyBag EmptyBagBefore =
+            EmptyOwnedGraphInstance->ParametersOverrides.Parameters;
+        EmptyOwnedGraphInstance->ParametersOverrides.Parameters.Reset();
+        const TSharedPtr<FJsonObject> InvalidEmptyBagResult =
+            FSalModule::BuildQueryResult(
+                PCGComponentQueryArguments(
+                    ParameterTarget,
+                    LevelOperation(TEXT("parameters"))));
+        TestTrue(
+            TEXT("A bound zero-declaration GraphInstance with invalid storage fails closed"),
+            LevelHasDiagnostic(
+                InvalidEmptyBagResult,
+                TEXT("validation.reference_scan_incomplete"))
+                && LevelTaggedObjectFields(
+                    InvalidEmptyBagResult,
+                    TEXT("parameter")).IsEmpty());
+        EmptyOwnedGraphInstance->ParametersOverrides.Parameters =
+            EmptyBagBefore;
+    }
 
     const TSharedRef<FJsonObject> WrongTypeTarget = PCGComponentTarget(
         LevelFixture.Loaded.ObjectPath,
@@ -5570,6 +6216,758 @@ bool FSalPCGComponentAuthoredQueryTest::RunTest(
     TestTrue(
         TEXT("All specialized reads preserve PCG authored and runtime state"),
         PCGInvariant.Verify(*this));
+
+    Error.Reset();
+    if (!LevelFixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    Error.Reset();
+    if (!ComponentFixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalPCGComponentParameterReadbackTest,
+    "Loomle.Sal.PCGComponent.Query.ParameterReadbackAndBoundaries",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalPCGComponentParameterReadbackTest::RunTest(
+    const FString& Parameters)
+{
+    // Keep this declaration order: the Level releases Component and Graph
+    // references before the authored fixture removes its asset records.
+    FScopedLevelComponentQueryFixture ComponentFixture;
+    FScopedLevelQueryFixture LevelFixture;
+    FString Error;
+    if (!TestTrue(
+            TEXT("PCG Parameter Level fixture builds"),
+            LevelFixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("PCG Parameter source Level becomes the active Editor World"),
+            LevelFixture.Activate(LevelFixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("PCG Parameter Component fixture builds"),
+            ComponentFixture.Build(LevelFixture, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+
+    FScopedPCGComponentParameterFixture ParameterFixture;
+    if (!TestTrue(
+            TEXT("PCG Parameter GraphInstance fixture builds through public UE APIs"),
+            ParameterFixture.Build(
+                LevelFixture,
+                ComponentFixture,
+                Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+
+    const TSharedRef<FJsonObject> Target = PCGComponentTarget(
+        LevelFixture.Loaded.ObjectPath,
+        ComponentFixture.ActorId,
+        TEXT("instance"),
+        ComponentFixture.PCGId);
+    const TSharedRef<FJsonObject> DeepTarget = PCGComponentTarget(
+        LevelFixture.Loaded.ObjectPath,
+        ComponentFixture.ActorId,
+        TEXT("instance"),
+        ParameterFixture.DeepComponent->GetFName().ToString());
+
+    FLevelReadInvariant LevelInvariant(LevelFixture.Loaded.World);
+    FLevelComponentReadInvariant OwnerInvariant(
+        ComponentFixture.Actor,
+        ComponentFixture.GetBlueprintPackage());
+    FPCGComponentReadInvariant ComponentInvariant({
+        ParameterFixture.Component,
+        ParameterFixture.DeepComponent});
+    FPCGParameterReadInvariant ParameterInvariant(
+        ParameterFixture.GetParameterInterfaces());
+
+    const TSharedPtr<FJsonObject> CollectionResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                Target,
+                LevelOperation(TEXT("parameters"))));
+    const TArray<TSharedPtr<FJsonObject>> ParameterFields =
+        LevelTaggedObjectFields(CollectionResult, TEXT("parameter"));
+    TestTrue(
+        TEXT("Parameter collection resolves the exact authored PCG Component"),
+        !LevelHasError(CollectionResult)
+            && LevelHasTargetContext(
+                CollectionResult,
+                TEXT("exact_target"))
+            && HasCanonicalPCGComponentTarget(
+                CollectionResult,
+                LevelFixture.Loaded.ObjectPath,
+                ComponentFixture.ActorId,
+                TEXT("instance"),
+                ComponentFixture.PCGId));
+
+    struct FExpectedParameter
+    {
+        FGuid Id;
+        FString Name;
+        FString ValueType;
+        TArray<FString> ContainerTypes;
+        FString ValueTypeObject;
+        bool bOverridden = false;
+        FString EffectiveSource;
+        FString ValueStatus;
+    };
+    const TArray<FExpectedParameter> ExpectedParameters = {
+        {
+            FScopedPCGComponentParameterFixture::GraphDefaultId,
+            FScopedPCGComponentParameterFixture::GraphDefaultName.ToString(),
+            TEXT("double"),
+            {},
+            FString(),
+            false,
+            TEXT("graph_default"),
+            TEXT("available")
+        },
+        {
+            FScopedPCGComponentParameterFixture::ParentOverrideId,
+            FScopedPCGComponentParameterFixture::ParentOverrideName.ToString(),
+            TEXT("int64"),
+            {},
+            FString(),
+            false,
+            TEXT("parent_instance"),
+            TEXT("available")
+        },
+        {
+            FScopedPCGComponentParameterFixture::ComponentOverrideId,
+            FScopedPCGComponentParameterFixture::ComponentOverrideName.ToString(),
+            TEXT("string"),
+            {},
+            FString(),
+            true,
+            TEXT("component_override"),
+            TEXT("available")
+        },
+        {
+            FScopedPCGComponentParameterFixture::SoftObjectId,
+            FScopedPCGComponentParameterFixture::SoftObjectName.ToString(),
+            TEXT("soft_object"),
+            {},
+            UWorld::StaticClass()->GetPathName(),
+            false,
+            TEXT("graph_default"),
+            TEXT("unsupported")
+        },
+        {
+            FScopedPCGComponentParameterFixture::UnsupportedStructId,
+            FScopedPCGComponentParameterFixture::UnsupportedStructName.ToString(),
+            TEXT("struct"),
+            {},
+            TBaseStructure<FVector>::Get()->GetPathName(),
+            false,
+            TEXT("graph_default"),
+            TEXT("unsupported")
+        },
+        {
+            FScopedPCGComponentParameterFixture::UnsupportedArrayId,
+            FScopedPCGComponentParameterFixture::UnsupportedArrayName.ToString(),
+            TEXT("double"),
+            {TEXT("array")},
+            FString(),
+            false,
+            TEXT("graph_default"),
+            TEXT("unsupported")
+        },
+#if UE_VERSION_NEWER_THAN_OR_EQUAL(5, 8, 0)
+        {
+            FScopedPCGComponentParameterFixture::UnsupportedInt8Id,
+            FScopedPCGComponentParameterFixture::UnsupportedInt8Name.ToString(),
+            TEXT("int8"),
+            {},
+            FString(),
+            false,
+            TEXT("graph_default"),
+            TEXT("unsupported")
+        },
+        {
+            FScopedPCGComponentParameterFixture::UnsupportedInt16Id,
+            FScopedPCGComponentParameterFixture::UnsupportedInt16Name.ToString(),
+            TEXT("int16"),
+            {},
+            FString(),
+            false,
+            TEXT("graph_default"),
+            TEXT("unsupported")
+        },
+        {
+            FScopedPCGComponentParameterFixture::UnsupportedUInt16Id,
+            FScopedPCGComponentParameterFixture::UnsupportedUInt16Name.ToString(),
+            TEXT("uint16"),
+            {},
+            FString(),
+            false,
+            TEXT("graph_default"),
+            TEXT("unsupported")
+        },
+#endif
+        {
+            FScopedPCGComponentParameterFixture::EnumId,
+            FScopedPCGComponentParameterFixture::EnumName.ToString(),
+            TEXT("enum"),
+            {},
+            StaticEnum<EPropertyBagPropertyType>()->GetPathName(),
+            false,
+            TEXT("graph_default"),
+            TEXT("available")
+        }
+    };
+    TestEqual(
+        TEXT("Parameter collection returns every canonical Graph descriptor"),
+        ParameterFields.Num(),
+        ExpectedParameters.Num());
+    for (int32 Index = 0;
+         Index < FMath::Min(
+             ParameterFields.Num(),
+             ExpectedParameters.Num());
+         ++Index)
+    {
+        const FExpectedParameter& Expected = ExpectedParameters[Index];
+        const TSharedPtr<FJsonObject>& Fields = ParameterFields[Index];
+        FString Id;
+        FString Name;
+        TSharedPtr<FJsonObject> TypeFields;
+        FString ValueType;
+        TArray<FString> ContainerTypes;
+        FString ValueTypeObject;
+        FString EffectiveSource;
+        FString ValueStatus;
+        bool bOverridden = false;
+        bool bStableRefAvailable = false;
+        TArray<FString> IdentityPath;
+        TestTrue(
+            *FString::Printf(
+                TEXT("Parameter %d preserves the closed descriptor, value-status, source, and StableRef fields"),
+                Index),
+            Fields.IsValid()
+                && Fields->Values.Num()
+                    == (Expected.bOverridden
+                        && Expected.ValueStatus == TEXT("available")
+                        ? 10
+                        : 9)
+                && Fields->TryGetStringField(TEXT("id"), Id)
+                && Id == LevelGuidText(Expected.Id)
+                && Fields->TryGetStringField(TEXT("name"), Name)
+                && Name == Expected.Name
+                && ReadNestedObjectField(
+                    Fields,
+                    TEXT("type"),
+                    TypeFields)
+                && TypeFields->Values.Num() == 3
+                && ReadLevelNameField(
+                    TypeFields,
+                    TEXT("valueType"),
+                    ValueType)
+                && ValueType == Expected.ValueType
+                && ReadLevelNameArrayField(
+                    TypeFields,
+                    TEXT("containerTypes"),
+                    ContainerTypes)
+                && ContainerTypes == Expected.ContainerTypes
+                && (Expected.ValueTypeObject.IsEmpty()
+                    ? LevelFieldIsNull(
+                        TypeFields,
+                        TEXT("valueTypeObject"))
+                    : TypeFields->TryGetStringField(
+                            TEXT("valueTypeObject"),
+                            ValueTypeObject)
+                        && ValueTypeObject == Expected.ValueTypeObject)
+                && ReadLevelNameField(
+                    Fields,
+                    TEXT("valueStatus"),
+                    ValueStatus)
+                && ValueStatus == Expected.ValueStatus
+                && Fields->TryGetBoolField(TEXT("overridden"), bOverridden)
+                && bOverridden == Expected.bOverridden
+                && ReadLevelNameField(
+                    Fields,
+                    TEXT("effectiveSource"),
+                    EffectiveSource)
+                && EffectiveSource == Expected.EffectiveSource
+                && Fields->TryGetBoolField(
+                    TEXT("stableRefAvailable"),
+                    bStableRefAvailable)
+                && bStableRefAvailable
+                && ReadLevelStableRefField(
+                    Fields,
+                    TEXT("ref"),
+                    TEXT("parameter"),
+                    IdentityPath)
+                && IdentityPath.Num() == 1
+                && IdentityPath[0] == LevelGuidText(Expected.Id));
+    }
+    TArray<FGuid> UnsupportedIds = {
+        FScopedPCGComponentParameterFixture::SoftObjectId,
+        FScopedPCGComponentParameterFixture::UnsupportedStructId,
+        FScopedPCGComponentParameterFixture::UnsupportedArrayId};
+#if UE_VERSION_NEWER_THAN_OR_EQUAL(5, 8, 0)
+    UnsupportedIds.Add(
+        FScopedPCGComponentParameterFixture::UnsupportedInt8Id);
+    UnsupportedIds.Add(
+        FScopedPCGComponentParameterFixture::UnsupportedInt16Id);
+    UnsupportedIds.Add(
+        FScopedPCGComponentParameterFixture::UnsupportedUInt16Id);
+#endif
+    for (const FGuid& UnsupportedId : UnsupportedIds)
+    {
+        const TSharedPtr<FJsonObject> UnsupportedFields =
+            FindLevelFieldsById(
+                ParameterFields,
+                LevelGuidText(UnsupportedId));
+        FString ValueStatus;
+        TestTrue(
+            TEXT("Descriptor-only Parameter remains readable without projecting a value"),
+            UnsupportedFields.IsValid()
+                && ReadLevelNameField(
+                    UnsupportedFields,
+                    TEXT("valueStatus"),
+                    ValueStatus)
+                && ValueStatus == TEXT("unsupported")
+                && LevelFieldIsNull(
+                    UnsupportedFields,
+                    TEXT("effectiveValue"))
+                && !UnsupportedFields->HasField(TEXT("localValue")));
+    }
+
+    const TSharedPtr<FJsonObject> GraphDefaultFields =
+        FindLevelFieldsById(
+            ParameterFields,
+            LevelGuidText(
+                FScopedPCGComponentParameterFixture::GraphDefaultId));
+    const TSharedPtr<FJsonObject> ParentOverrideFields =
+        FindLevelFieldsById(
+            ParameterFields,
+            LevelGuidText(
+                FScopedPCGComponentParameterFixture::ParentOverrideId));
+    const TSharedPtr<FJsonObject> ComponentOverrideFields =
+        FindLevelFieldsById(
+            ParameterFields,
+            LevelGuidText(
+                FScopedPCGComponentParameterFixture::ComponentOverrideId));
+    const TSharedPtr<FJsonObject> EnumFields =
+        FindLevelFieldsById(
+            ParameterFields,
+            LevelGuidText(
+                FScopedPCGComponentParameterFixture::EnumId));
+    double GraphDefaultValue = 0.0;
+    FString ParentValue;
+    FString LocalValue;
+    FString EffectiveLocalValue;
+    TestTrue(
+        TEXT("Graph default Double remains a lossless JSON number without a local value"),
+        GraphDefaultFields.IsValid()
+            && GraphDefaultFields->TryGetNumberField(
+                TEXT("effectiveValue"),
+                GraphDefaultValue)
+            && FMath::IsNearlyEqual(
+                GraphDefaultValue,
+                FScopedPCGComponentParameterFixture::GraphDefaultValue)
+            && !GraphDefaultFields->HasField(TEXT("localValue")));
+    TestTrue(
+        TEXT("Inherited Int64 outside JSON's exact range remains decimal text"),
+        ParentOverrideFields.IsValid()
+            && ParentOverrideFields->TryGetStringField(
+                TEXT("effectiveValue"),
+                ParentValue)
+            && ParentValue
+                == LexToString(
+                    FScopedPCGComponentParameterFixture::ParentOverrideValue)
+            && !ParentOverrideFields->HasField(TEXT("localValue")));
+    TestTrue(
+        TEXT("Component override exposes matching local and effective String values"),
+        ComponentOverrideFields.IsValid()
+            && ComponentOverrideFields->TryGetStringField(
+                TEXT("localValue"),
+                LocalValue)
+            && LocalValue
+                == FScopedPCGComponentParameterFixture::ComponentOverrideValue
+            && ComponentOverrideFields->TryGetStringField(
+                TEXT("effectiveValue"),
+                EffectiveLocalValue)
+            && EffectiveLocalValue == LocalValue);
+    TSharedPtr<FJsonObject> EnumValueFields;
+    FString EnumType;
+    FString EnumName;
+    FString EnumNumber;
+    TestTrue(
+        TEXT("Enum readback preserves its resolved type, authored name, and exact decimal value"),
+        EnumFields.IsValid()
+            && ReadNestedObjectField(
+                EnumFields,
+                TEXT("effectiveValue"),
+                EnumValueFields)
+            && EnumValueFields->Values.Num() == 3
+            && EnumValueFields->TryGetStringField(TEXT("type"), EnumType)
+            && EnumType
+                == StaticEnum<EPropertyBagPropertyType>()->GetPathName()
+            && EnumValueFields->TryGetStringField(TEXT("name"), EnumName)
+            && EnumName == TEXT("Double")
+            && EnumValueFields->TryGetStringField(TEXT("value"), EnumNumber)
+            && EnumNumber == LexToString(
+                static_cast<int64>(EPropertyBagPropertyType::Double)));
+
+    for (const FExpectedParameter& Expected : ExpectedParameters)
+    {
+        const TSharedPtr<FJsonObject> ExactResult =
+            FSalModule::BuildQueryResult(
+                PCGComponentQueryArguments(
+                    Target,
+                    PCGComponentExactParameterOperation(Expected.Id)));
+        const TArray<TSharedPtr<FJsonObject>> ExactFields =
+            LevelTaggedObjectFields(ExactResult, TEXT("parameter"));
+        TestTrue(
+            TEXT("Exact Parameter StableRef resolves by descriptor Guid"),
+            !LevelHasError(ExactResult)
+                && ExactFields.Num() == 1
+                && FindLevelFieldsById(
+                    ExactFields,
+                    LevelGuidText(Expected.Id)).IsValid());
+    }
+    const TSharedPtr<FJsonObject> ExactSchemaResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                Target,
+                PCGComponentExactParameterOperation(
+                    FScopedPCGComponentParameterFixture::GraphDefaultId),
+                true));
+    TestTrue(
+        TEXT("Exact Parameter Query accepts the frozen read-only schema detail"),
+        !LevelHasError(ExactSchemaResult)
+            && LevelTaggedObjectFields(
+                ExactSchemaResult,
+                TEXT("parameter")).Num() == 1);
+
+    const TSharedPtr<FJsonObject> RemovedResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                Target,
+                PCGComponentExactParameterOperation(
+                    FScopedPCGComponentParameterFixture::RemovedId)));
+    TestTrue(
+        TEXT("A removed descriptor Guid fails exact Parameter resolution closed"),
+        LevelHasDiagnostic(
+            RemovedResult,
+            TEXT("resolution.object_not_found"))
+            && LevelTaggedObjectFields(
+                RemovedResult,
+                TEXT("parameter")).IsEmpty());
+    const TSharedPtr<FJsonObject> UnsupportedExactResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                Target,
+                PCGComponentExactParameterOperation(
+                    FScopedPCGComponentParameterFixture::UnsupportedStructId)));
+    const TArray<TSharedPtr<FJsonObject>> UnsupportedExactFields =
+        LevelTaggedObjectFields(
+            UnsupportedExactResult,
+            TEXT("parameter"));
+    FString UnsupportedExactStatus;
+    TestTrue(
+        TEXT("Exact unsupported Parameter returns its full descriptor-only projection"),
+        !LevelHasError(UnsupportedExactResult)
+            && UnsupportedExactFields.Num() == 1
+            && ReadLevelNameField(
+                UnsupportedExactFields[0],
+                TEXT("valueStatus"),
+                UnsupportedExactStatus)
+            && UnsupportedExactStatus == TEXT("unsupported")
+            && LevelFieldIsNull(
+                UnsupportedExactFields[0],
+                TEXT("effectiveValue"))
+            && !UnsupportedExactFields[0]->HasField(TEXT("localValue")));
+
+    const TSharedPtr<FJsonObject> RenamedSearchResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                Target,
+                LevelOperation(
+                    TEXT("parameters"),
+                    TEXT("ComponentOverride"))));
+    const TArray<TSharedPtr<FJsonObject>> RenamedSearchFields =
+        LevelTaggedObjectFields(
+            RenamedSearchResult,
+            TEXT("parameter"));
+    TestTrue(
+        TEXT("Parameter search uses the current Graph declaration name"),
+        !LevelHasError(RenamedSearchResult)
+            && RenamedSearchFields.Num() == 1
+            && FindLevelFieldsById(
+                RenamedSearchFields,
+                LevelGuidText(
+                    FScopedPCGComponentParameterFixture::ComponentOverrideId))
+                    .IsValid());
+    const TSharedPtr<FJsonObject> OldNameSearchResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                Target,
+                LevelOperation(
+                    TEXT("parameters"),
+                    FScopedPCGComponentParameterFixture::RenamedFromName
+                        .ToString())));
+    TestTrue(
+        TEXT("Parameter search does not retain a stale pre-rename name"),
+        !LevelHasError(OldNameSearchResult)
+            && LevelTaggedObjectFields(
+                OldNameSearchResult,
+                TEXT("parameter")).IsEmpty());
+
+    const TSharedPtr<FJsonObject> FirstPageResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                Target,
+                LevelOperation(TEXT("parameters")),
+                false,
+                2));
+    const TArray<TSharedPtr<FJsonObject>> FirstPageFields =
+        LevelTaggedObjectFields(
+            FirstPageResult,
+            TEXT("parameter"));
+    FString FirstPageFirstId;
+    FString FirstPageSecondId;
+    FString Cursor;
+    TestTrue(
+        TEXT("First Parameter page preserves descriptor order and returns a cursor"),
+        !LevelHasError(FirstPageResult)
+            && FirstPageFields.Num() == 2
+            && FirstPageFields[0]->TryGetStringField(
+                TEXT("id"),
+                FirstPageFirstId)
+            && FirstPageFirstId == LevelGuidText(
+                FScopedPCGComponentParameterFixture::GraphDefaultId)
+            && FirstPageFields[1]->TryGetStringField(
+                TEXT("id"),
+                FirstPageSecondId)
+            && FirstPageSecondId == LevelGuidText(
+                FScopedPCGComponentParameterFixture::ParentOverrideId)
+            && ReadLevelNextCursor(FirstPageResult, Cursor));
+    if (!Cursor.IsEmpty())
+    {
+        const TSharedPtr<FJsonObject> SecondPageResult =
+            FSalModule::BuildQueryResult(
+                PCGComponentQueryArguments(
+                    Target,
+                    LevelOperation(TEXT("parameters")),
+                    false,
+                    2,
+                    Cursor));
+        const TArray<TSharedPtr<FJsonObject>> SecondPageFields =
+            LevelTaggedObjectFields(
+                SecondPageResult,
+                TEXT("parameter"));
+        FString SecondPageFirstId;
+        FString SecondPageSecondId;
+        TestTrue(
+            TEXT("Second Parameter page resumes without duplicates or skips"),
+            !LevelHasError(SecondPageResult)
+                && SecondPageFields.Num() == 2
+                && SecondPageFields[0]->TryGetStringField(
+                    TEXT("id"),
+                    SecondPageFirstId)
+                && SecondPageFirstId == LevelGuidText(
+                    FScopedPCGComponentParameterFixture::ComponentOverrideId)
+                && SecondPageFields[1]->TryGetStringField(
+                    TEXT("id"),
+                    SecondPageSecondId)
+                && SecondPageSecondId == LevelGuidText(
+                    FScopedPCGComponentParameterFixture::SoftObjectId));
+
+        const TSharedPtr<FJsonObject> ChangedSearchCursorResult =
+            FSalModule::BuildQueryResult(
+                PCGComponentQueryArguments(
+                    Target,
+                    LevelOperation(TEXT("parameters"), TEXT("Override")),
+                    false,
+                    2,
+                    Cursor));
+        TestTrue(
+            TEXT("A Parameter cursor is bound to its exact search"),
+            LevelHasDiagnostic(
+                ChangedSearchCursorResult,
+                TEXT("validation.invalid_cursor")));
+    }
+
+    const TSharedPtr<FJsonObject> DeepCollectionResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                DeepTarget,
+                LevelOperation(TEXT("parameters"))));
+    TestTrue(
+        TEXT("An incomplete GraphInstance chain fails Parameter collection closed"),
+        LevelHasDiagnostic(
+            DeepCollectionResult,
+            TEXT("validation.reference_scan_incomplete"))
+            && LevelTaggedObjectFields(
+                DeepCollectionResult,
+                TEXT("parameter")).IsEmpty());
+    const TSharedPtr<FJsonObject> DeepExactResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                DeepTarget,
+                PCGComponentExactParameterOperation(
+                    FScopedPCGComponentParameterFixture::GraphDefaultId)));
+    TestTrue(
+        TEXT("An incomplete GraphInstance chain fails exact Parameter readback closed"),
+        LevelHasDiagnostic(
+            DeepExactResult,
+            TEXT("validation.reference_scan_incomplete"))
+            && LevelTaggedObjectFields(
+                DeepExactResult,
+                TEXT("parameter")).IsEmpty());
+
+    UWorld* EditorWorldBefore = GEditor != nullptr
+        ? GEditor->GetEditorWorldContext().World()
+        : nullptr;
+    const int32 UndoBefore = GEditor != nullptr && GEditor->Trans != nullptr
+        ? GEditor->Trans->GetUndoCount()
+        : -1;
+    TestTrue(
+        TEXT("Unloaded Parameter evidence begins with no loaded source map"),
+        LevelFixture.IsUnloadedMapStillUnloaded());
+    const TSharedPtr<FJsonObject> UnloadedParametersResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                PCGComponentTarget(
+                    LevelFixture.Unloaded.ObjectPath,
+                    LevelFixture.UnloadedPCGActorId,
+                    TEXT("native"),
+                    LevelFixture.UnloadedPCGId),
+                LevelOperation(TEXT("parameters"))));
+    TestTrue(
+        TEXT("Parameter readback never loads its source Level or changes Editor state"),
+        LevelHasDiagnostic(
+            UnloadedParametersResult,
+            TEXT("capability.level_not_loaded"))
+            && LevelFixture.IsUnloadedMapStillUnloaded()
+            && (GEditor == nullptr
+                || (GEditor->GetEditorWorldContext().World()
+                        == EditorWorldBefore
+                    && (GEditor->Trans == nullptr
+                        || GEditor->Trans->GetUndoCount()
+                            == UndoBefore))));
+
+    TestTrue(
+        TEXT("All PCG Parameter reads preserve Level and Editor state"),
+        LevelInvariant.Verify(*this));
+    TestTrue(
+        TEXT("All PCG Parameter reads preserve Component owner state"),
+        OwnerInvariant.Verify(*this));
+    TestTrue(
+        TEXT("All PCG Parameter reads preserve PCG runtime state"),
+        ComponentInvariant.Verify(*this));
+    TestTrue(
+        TEXT("All PCG Parameter reads preserve bags, override bits, and delegates"),
+        ParameterInvariant.Verify(*this));
+
+    // Cursor staleness is a separate read-invariant scope because this native
+    // authored change is deliberate fixture setup, not Query behavior.
+    if (!Cursor.IsEmpty())
+    {
+        const FPropertyBagPropertyDesc* OwnedDesc =
+            ParameterFixture.OwnedGraphInstance
+                ->GetUserParametersStruct()
+                ->FindPropertyDescByID(
+                    FScopedPCGComponentParameterFixture::ComponentOverrideId);
+        TestNotNull(
+            TEXT("Cursor-stale fixture reacquires the owned descriptor by Guid"),
+            OwnedDesc);
+        if (OwnedDesc != nullptr)
+        {
+            TestEqual(
+                TEXT("Cursor-stale fixture changes one local override through native PCG API"),
+                ParameterFixture.OwnedGraphInstance
+                    ->SetGraphParameter<FString>(
+                        OwnedDesc->Name,
+                        FScopedPCGComponentParameterFixture::
+                            StaleComponentOverrideValue),
+                EPropertyBagResult::Success);
+            ParameterFixture.ClearSetupDirtyFlags();
+            FPCGComponentReadInvariant StaleComponentInvariant({
+                ParameterFixture.Component});
+            FPCGParameterReadInvariant StaleParameterInvariant(
+                ParameterFixture.GetParameterInterfaces());
+            const TSharedPtr<FJsonObject> StaleCursorResult =
+                FSalModule::BuildQueryResult(
+                    PCGComponentQueryArguments(
+                        Target,
+                        LevelOperation(TEXT("parameters")),
+                        false,
+                        2,
+                        Cursor));
+            TestTrue(
+                TEXT("A Parameter cursor expires after an effective value changes"),
+                LevelHasDiagnostic(
+                    StaleCursorResult,
+                    TEXT("validation.invalid_cursor")));
+            TestTrue(
+                TEXT("Stale-cursor rejection preserves PCG Component runtime state"),
+                StaleComponentInvariant.Verify(*this));
+            TestTrue(
+                TEXT("Stale-cursor rejection preserves current bags and override bits"),
+                StaleParameterInvariant.Verify(*this));
+
+            TestEqual(
+                TEXT("Floating cursor fixture restores the original String override"),
+                ParameterFixture.OwnedGraphInstance
+                    ->SetGraphParameter<FString>(
+                        OwnedDesc->Name,
+                        FScopedPCGComponentParameterFixture::
+                            ComponentOverrideValue),
+                EPropertyBagResult::Success);
+            constexpr double SubDisplayPrecisionDelta = 0.0000001;
+            TestEqual(
+                TEXT("Floating cursor fixture changes a Double below six-decimal text precision"),
+                ParameterFixture.Graph->SetGraphParameter<double>(
+                    FScopedPCGComponentParameterFixture::GraphDefaultName,
+                    FScopedPCGComponentParameterFixture::GraphDefaultValue
+                        + SubDisplayPrecisionDelta),
+                EPropertyBagResult::Success);
+            ParameterFixture.ClearSetupDirtyFlags();
+            FPCGComponentReadInvariant FloatingComponentInvariant({
+                ParameterFixture.Component});
+            FPCGParameterReadInvariant FloatingParameterInvariant(
+                ParameterFixture.GetParameterInterfaces());
+            const TSharedPtr<FJsonObject> FloatingStaleCursorResult =
+                FSalModule::BuildQueryResult(
+                    PCGComponentQueryArguments(
+                        Target,
+                        LevelOperation(TEXT("parameters")),
+                        false,
+                        2,
+                        Cursor));
+            TestTrue(
+                TEXT("A Parameter cursor expires after a sub-six-decimal Double change"),
+                LevelHasDiagnostic(
+                    FloatingStaleCursorResult,
+                    TEXT("validation.invalid_cursor")));
+            TestTrue(
+                TEXT("Floating cursor rejection preserves PCG Component runtime state"),
+                FloatingComponentInvariant.Verify(*this));
+            TestTrue(
+                TEXT("Floating cursor rejection preserves current bags and override bits"),
+                FloatingParameterInvariant.Verify(*this));
+        }
+    }
 
     Error.Reset();
     if (!LevelFixture.Cleanup(Error))
