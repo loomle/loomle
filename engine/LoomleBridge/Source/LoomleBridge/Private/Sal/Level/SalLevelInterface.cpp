@@ -342,6 +342,13 @@ struct FPendingLevelInstanceHandoff
     FString PreferredAlias;
 };
 
+struct FPendingPcgComponentHandoff
+{
+    TSharedPtr<FJsonObject> ComponentFields;
+    TSharedPtr<FJsonObject> Target;
+    FString PreferredAlias;
+};
+
 struct FLevelSnapshot
 {
     UWorld* World = nullptr;
@@ -1370,7 +1377,8 @@ TSharedPtr<FJsonValue> ActorValue(
 }
 
 TSharedPtr<FJsonValue> ComponentValue(
-    const FSalLevelComponentEntry& Entry)
+    const FSalLevelComponentEntry& Entry,
+    TSharedPtr<FJsonObject>* OutFields = nullptr)
 {
     TSharedPtr<FJsonObject> Fields = MakeShared<FJsonObject>();
     const FString ActorId = GuidText(Entry.ActorGuid);
@@ -1398,7 +1406,37 @@ TSharedPtr<FJsonValue> ComponentValue(
         Value::Stable(
             TEXT("component"),
             TArray<FString>{ActorId, Entry.Source, Entry.Id}));
+    if (OutFields != nullptr)
+    {
+        *OutFields = Fields;
+    }
     return Value::Call(TEXT("component"), Fields);
+}
+
+TSharedPtr<FJsonObject> PcgComponentTargetValue(
+    const FSalResolvedTarget& LevelTarget,
+    const FSalLevelComponentEntry& Entry)
+{
+    UPCGComponent* Component = Cast<UPCGComponent>(Entry.Component.Get());
+    if (LevelTarget.AssetPath.IsEmpty()
+        || !IsValid(Component)
+        || Component->IsLocalComponent()
+        || Component->GetConstOriginalComponent() != Component
+        || Entry.Type != Component->GetClass()->GetPathName())
+    {
+        return nullptr;
+    }
+    TSharedPtr<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("target"));
+    Target->SetStringField(TEXT("domain"), TEXT("pcg_component"));
+    Target->SetStringField(TEXT("asset"), LevelTarget.AssetPath);
+    Target->SetStringField(
+        TEXT("actorId"),
+        GuidText(Entry.ActorGuid));
+    Target->SetStringField(TEXT("source"), Entry.Source);
+    Target->SetStringField(TEXT("id"), Entry.Id);
+    Target->SetStringField(TEXT("type"), Entry.Type);
+    return Target;
 }
 
 bool ComponentMatchesText(
@@ -1450,6 +1488,35 @@ void AddLevelInstanceHandoffs(
         {
             Item.ActorFields->SetField(
                 TEXT("sourceLevel"),
+                Value::Local(Alias));
+        }
+    }
+}
+
+void AddPcgComponentHandoffs(
+    const TSharedPtr<FJsonObject>& Result,
+    const TArray<FPendingPcgComponentHandoff>& Pending)
+{
+    if (!Result.IsValid())
+    {
+        return;
+    }
+    for (const FPendingPcgComponentHandoff& Item : Pending)
+    {
+        if (!Item.ComponentFields.IsValid()
+            || !Item.Target.IsValid())
+        {
+            continue;
+        }
+        const FString Alias = ResultTargets::AddHandoff(
+            Result,
+            Item.Target,
+            Item.PreferredAlias,
+            TEXT("inspect_pcg_component"));
+        if (!Alias.IsEmpty())
+        {
+            Item.ComponentFields->SetField(
+                TEXT("pcgComponent"),
                 Value::Local(Alias));
         }
     }
@@ -2000,13 +2067,27 @@ TSharedPtr<FJsonObject> QueryComponents(
     Builder.AddLocalBinding(
         LevelAlias,
         LevelValue(Target, &LevelSnapshot, false));
+    TArray<FPendingPcgComponentHandoff> PendingPcgHandoffs;
     for (int32 Index = Page.Offset; Index < End; ++Index)
     {
         const FSalLevelComponentEntry& Entry = *Matches[Index];
+        TSharedPtr<FJsonObject> ComponentFields;
         Builder.AddLocalBinding(
             Builder.UniqueAlias(
                 Entry.Name.IsEmpty() ? TEXT("component") : Entry.Name),
-            ComponentValue(Entry));
+            ComponentValue(Entry, &ComponentFields));
+        TSharedPtr<FJsonObject> PcgTarget =
+            PcgComponentTargetValue(Target, Entry);
+        if (ComponentFields.IsValid() && PcgTarget.IsValid())
+        {
+            FPendingPcgComponentHandoff& Pending =
+                PendingPcgHandoffs.AddDefaulted_GetRef();
+            Pending.ComponentFields = MoveTemp(ComponentFields);
+            Pending.Target = MoveTemp(PcgTarget);
+            Pending.PreferredAlias = Entry.Name.IsEmpty()
+                ? TEXT("pcg_component")
+                : Entry.Name + TEXT("_pcg");
+        }
     }
     if (Matches.IsEmpty())
     {
@@ -2014,6 +2095,7 @@ TSharedPtr<FJsonObject> QueryComponents(
     }
     TSharedPtr<FJsonObject> Result = Builder.BuildResult(
         LevelSnapshot.FinalDiagnostics(TEXT("components")));
+    AddPcgComponentHandoffs(Result, PendingPcgHandoffs);
     SetComponentPage(
         Result,
         Fingerprint,
@@ -2274,12 +2356,26 @@ TSharedPtr<FJsonObject> QueryExactComponent(
     Builder.AddLocalBinding(
         LevelAlias,
         LevelValue(Target, &LevelSnapshot, false));
+    TSharedPtr<FJsonObject> ComponentFields;
     Builder.AddLocalBinding(
         Builder.UniqueAlias(
             Match->Name.IsEmpty() ? TEXT("component") : Match->Name),
-        ComponentValue(*Match));
-    return Builder.BuildResult(
+        ComponentValue(*Match, &ComponentFields));
+    TSharedPtr<FJsonObject> Result = Builder.BuildResult(
         LevelSnapshot.FinalDiagnostics(TEXT("component")));
+    TSharedPtr<FJsonObject> PcgTarget =
+        PcgComponentTargetValue(Target, *Match);
+    if (ComponentFields.IsValid() && PcgTarget.IsValid())
+    {
+        FPendingPcgComponentHandoff Pending;
+        Pending.ComponentFields = MoveTemp(ComponentFields);
+        Pending.Target = MoveTemp(PcgTarget);
+        Pending.PreferredAlias = Match->Name.IsEmpty()
+            ? TEXT("pcg_component")
+            : Match->Name + TEXT("_pcg");
+        AddPcgComponentHandoffs(Result, {Pending});
+    }
+    return Result;
 }
 }
 
@@ -2330,6 +2426,156 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Query(
         Operation,
         FString(),
         {TEXT("target"), TEXT("summary"), TEXT("actors"), TEXT("components"), TEXT("actor"), TEXT("component")});
+}
+
+bool FSalLevelInterface::ResolveExactComponent(
+    const FSalResolvedTarget& Target,
+    const FString& ActorId,
+    const FString& Source,
+    const FString& Id,
+    UActorComponent*& OutComponent,
+    FString& OutCanonicalActorId,
+    FString& OutCanonicalSource,
+    FString& OutCanonicalId,
+    FString& OutName,
+    FString& OutType,
+    FString& OutCreationMethod,
+    FString& OutDeclaringClass,
+    FString& OutCode,
+    FString& OutMessage)
+{
+    OutComponent = nullptr;
+    OutCanonicalActorId.Reset();
+    OutCanonicalSource.Reset();
+    OutCanonicalId.Reset();
+    OutName.Reset();
+    OutType.Reset();
+    OutCreationMethod.Reset();
+    OutDeclaringClass.Reset();
+    OutCode = TEXT("resolution.object_not_found");
+    OutMessage = TEXT("No persistent Component matches this exact source-qualified identity.");
+
+    FGuid ActorGuid;
+    if (!ParseActorGuid(ActorId, ActorGuid)
+        || (Source != TEXT("native")
+            && Source != TEXT("scs")
+            && Source != TEXT("instance"))
+        || Id.IsEmpty())
+    {
+        OutCode = TEXT("validation.invalid_reference");
+        OutMessage = TEXT("Component identity requires a canonical ActorGuid, source native/scs/instance, and a non-empty source-qualified slot id.");
+        return false;
+    }
+
+    FLevelSnapshot LevelSnapshot;
+    FString Reason;
+    if (!BuildSnapshot(
+            Target,
+            TEXT("pcg_component_target"),
+            LevelSnapshot,
+            Reason))
+    {
+        OutCode = TEXT("capability.level_not_loaded");
+        OutMessage = Reason.IsEmpty()
+            ? TEXT("Component Target resolution requires an exact loaded authored Editor source World.")
+            : Reason;
+        return false;
+    }
+    if (!LevelSnapshot.bIdentityComplete)
+    {
+        OutCode = TEXT("validation.reference_scan_incomplete");
+        OutMessage = TEXT("The Level Actor identity environment is incomplete; Component Target resolution is fail-closed.");
+        return false;
+    }
+
+    const FLevelActorEntry* Owner = nullptr;
+    int32 OwnerMatches = 0;
+    for (const FLevelActorEntry& Entry : LevelSnapshot.Actors)
+    {
+        if (Entry.Guid == ActorGuid)
+        {
+            Owner = &Entry;
+            ++OwnerMatches;
+        }
+    }
+    if (OwnerMatches != 1 || Owner == nullptr)
+    {
+        OutCode = OwnerMatches > 1
+            ? TEXT("resolution.identity_conflict")
+            : TEXT("resolution.object_not_found");
+        OutMessage = OwnerMatches > 1
+            ? TEXT("Multiple persisted Level Actor records share the Component owner ActorGuid.")
+            : TEXT("The Component owner ActorGuid was not found in the exact Level Target.");
+        return false;
+    }
+
+    AActor* OwnerActor = Owner->Actor.Get();
+    if (!Owner->bLoaded || !IsValid(OwnerActor))
+    {
+        OutCode = TEXT("capability.component_owner_not_loaded");
+        OutMessage = TEXT("Component Target resolution will not load or pin an unloaded Actor descriptor.");
+        return false;
+    }
+
+    FSalLevelComponentSnapshot ComponentSnapshot;
+    if (!BuildLevelComponentSnapshot(
+            TArray<AActor*>{OwnerActor},
+            TEXT("pcg_component_target"),
+            ComponentSnapshot,
+            Reason)
+        || !ComponentSnapshot.bIdentityComplete)
+    {
+        OutCode = TEXT("validation.reference_scan_incomplete");
+        OutMessage = Reason.IsEmpty()
+            ? TEXT("The Component source identity scan is incomplete; Target resolution is fail-closed.")
+            : Reason;
+        return false;
+    }
+
+    const FSalLevelComponentEntry* Match = nullptr;
+    int32 MatchCount = 0;
+    for (const FSalLevelComponentEntry& Entry : ComponentSnapshot.Entries)
+    {
+        if (Entry.ActorGuid == ActorGuid
+            && Entry.Source == Source
+            && Entry.Id == Id)
+        {
+            Match = &Entry;
+            ++MatchCount;
+        }
+    }
+    if (MatchCount != 1 || Match == nullptr)
+    {
+        OutCode = MatchCount > 1
+            ? TEXT("resolution.identity_conflict")
+            : TEXT("resolution.object_not_found");
+        OutMessage = MatchCount > 1
+            ? TEXT("Multiple persistent Components share this source-qualified slot identity.")
+            : TEXT("No persistent Component matches this exact source-qualified identity.");
+        return false;
+    }
+
+    UActorComponent* Component = Match->Component.Get();
+    if (!IsValid(Component)
+        || Component->GetOwner() != OwnerActor
+        || Component->GetOuter() != OwnerActor)
+    {
+        OutCode = TEXT("validation.reference_scan_incomplete");
+        OutMessage = TEXT("The resolved Component changed ownership or lifetime during the bounded identity audit.");
+        return false;
+    }
+
+    OutComponent = Component;
+    OutCanonicalActorId = GuidText(Match->ActorGuid);
+    OutCanonicalSource = Match->Source;
+    OutCanonicalId = Match->Id;
+    OutName = Match->Name;
+    OutType = Match->Type;
+    OutCreationMethod = Match->CreationMethod;
+    OutDeclaringClass = Match->DeclaringClass;
+    OutCode.Reset();
+    OutMessage.Reset();
+    return true;
 }
 
 bool FSalLevelInterface::LowerStableReference(

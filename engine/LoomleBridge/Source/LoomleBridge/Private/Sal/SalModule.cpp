@@ -16,6 +16,7 @@
 #include "Misc/Base64.h"
 #include "Misc/SecureHash.h"
 #include "PCG/SalPCGInterface.h"
+#include "PCG/SalPCGComponentInterface.h"
 #include "Reference/SalReferenceInterface.h"
 #include "Serialization/JsonSerializer.h"
 #include "SalDiagnostics.h"
@@ -116,6 +117,79 @@ TOptional<int64> CondensedJsonUtf8Size(const TSharedPtr<FJsonObject>& Result)
     return Utf8.Length();
 }
 
+bool IsValidQueryResultWithinSizeLimit(
+    const TSharedPtr<FJsonObject>& Result)
+{
+    const TOptional<int64> SizeBytes = CondensedJsonUtf8Size(Result);
+    if (!SizeBytes.IsSet()
+        || SizeBytes.GetValue() > MaxQueryResultUtf8Bytes)
+    {
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> ValidationError;
+    return FSalJson::ValidateResult(Result, ValidationError);
+}
+
+TSharedPtr<FJsonObject> BoundQueryErrorContext(
+    const TSharedPtr<FJsonObject>& Error,
+    const TSharedPtr<FJsonObject>& SourceResult)
+{
+    Error->SetStringField(TEXT("targetContext"), TEXT("unresolved_target"));
+    if (SourceResult.IsValid())
+    {
+        for (const TCHAR* Field : {
+                 TEXT("targetContext"),
+                 TEXT("target"),
+                 TEXT("relatedTargets"),
+                 TEXT("handoffs")})
+        {
+            if (const TSharedPtr<FJsonValue> Value = SourceResult->TryGetField(Field);
+                Value.IsValid())
+            {
+                Error->SetField(Field, Value);
+            }
+        }
+    }
+
+    if (IsValidQueryResultWithinSizeLimit(Error))
+    {
+        return Error;
+    }
+
+    // Related Targets and handoffs are useful context only when the complete
+    // table is both contract-valid and bounded. Keep the primary Target when
+    // possible, but never let retained navigation context defeat the hard
+    // result-size gate.
+    Error->RemoveField(TEXT("relatedTargets"));
+    Error->RemoveField(TEXT("handoffs"));
+    if (IsValidQueryResultWithinSizeLimit(Error))
+    {
+        return Error;
+    }
+
+    // A malformed or pathologically large primary Target must not escape the
+    // same limit. An unresolved diagnostic is the smallest valid Query result.
+    Error->RemoveField(TEXT("target"));
+    Error->SetStringField(TEXT("targetContext"), TEXT("unresolved_target"));
+    if (IsValidQueryResultWithinSizeLimit(Error))
+    {
+        return Error;
+    }
+
+    // This branch is defensive: current diagnostics are fixed and small, but
+    // the hard limit must remain true even if a future caller supplies an
+    // unexpectedly large diagnostic payload.
+    TSharedPtr<FJsonObject> Minimal = FSalDiagnostics::Result(
+        FSalDiagnostics::Error(
+            TEXT("validation.result_too_large"),
+            TEXT("Query result exceeded the 131072-byte safety limit."))
+        .Suggestion(TEXT("Narrow the Query and retry."))
+        .Build());
+    Minimal->SetStringField(TEXT("targetContext"), TEXT("unresolved_target"));
+    return Minimal;
+}
+
 TSharedPtr<FJsonObject> EnforceQueryResultSize(
     const TSharedPtr<FJsonObject>& Result,
     const FSalQuery& Query)
@@ -136,23 +210,9 @@ TSharedPtr<FJsonObject> EnforceQueryResultSize(
         {
             Diagnostic.Operation(Operation);
         }
-        TSharedPtr<FJsonObject> Error = FSalDiagnostics::Result(Diagnostic.Build());
-        if (Result.IsValid())
-        {
-            for (const TCHAR* Field : {
-                     TEXT("targetContext"),
-                     TEXT("target"),
-                     TEXT("relatedTargets"),
-                     TEXT("handoffs")})
-            {
-                if (const TSharedPtr<FJsonValue> Value = Result->TryGetField(Field);
-                    Value.IsValid())
-                {
-                    Error->SetField(Field, Value);
-                }
-            }
-        }
-        return Error;
+        return BoundQueryErrorContext(
+            FSalDiagnostics::Result(Diagnostic.Build()),
+            Result);
     }
     if (SizeBytes.GetValue() <= MaxQueryResultUtf8Bytes)
     {
@@ -169,20 +229,9 @@ TSharedPtr<FJsonObject> EnforceQueryResultSize(
     {
         Diagnostic.Operation(Operation);
     }
-    TSharedPtr<FJsonObject> Error = FSalDiagnostics::Result(Diagnostic.Build());
-    for (const TCHAR* Field : {
-             TEXT("targetContext"),
-             TEXT("target"),
-             TEXT("relatedTargets"),
-             TEXT("handoffs")})
-    {
-        if (const TSharedPtr<FJsonValue> Value = Result->TryGetField(Field);
-            Value.IsValid())
-        {
-            Error->SetField(Field, Value);
-        }
-    }
-    return Error;
+    return BoundQueryErrorContext(
+        FSalDiagnostics::Result(Diagnostic.Build()),
+        Result);
 }
 
 TSharedPtr<FJsonObject> MutationFailure(
@@ -2279,7 +2328,7 @@ TSharedPtr<FJsonObject> DispatchQuery(const FSalQuery& Query, const FSalResolved
     case ESalDomain::Level:
         return FSalLevelInterface::Query(Query, Target);
     case ESalDomain::PcgComponent:
-        return InterfaceError(Operation, Target);
+        return FSalPCGComponentInterface::Query(Query, Target);
     default:
         return InterfaceError(Operation, Target);
     }
@@ -2393,6 +2442,12 @@ TSharedPtr<FJsonObject> FSalModule::BuildPatchResult(const TSharedPtr<FJsonObjec
 }
 
 #if WITH_DEV_AUTOMATION_TESTS
+TSharedPtr<FJsonObject> FSalModule::EnforceQueryResultSizeForTesting(
+    const TSharedPtr<FJsonObject>& Result)
+{
+    return EnforceQueryResultSize(Result, FSalQuery());
+}
+
 bool FSalModule::NormalizeOutputExpressionForTesting(
     const TSharedPtr<FJsonValue>& Value)
 {

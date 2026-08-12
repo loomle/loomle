@@ -16,7 +16,10 @@ control, and its planned `sal.object()` helper lets a script submit selected
 UObjects for read-only Bridge projection into already published SAL views.
 
 None of the new surfaces described here is part of the current public Loomle
-interface catalog. The existing catalog still has six SAL Domains. The
+interface catalog. The existing catalog still has six SAL Domains. Internal
+read-only implementations now exist for the persistent `level`, `pcg`, and
+query-only `pcg_component` slices described below; this branch does not make
+them public interface cards. The
 `pcg`-specific authored Graph contract remains in
 [`PCG_DOMAIN_DESIGN.md`](PCG_DOMAIN_DESIGN.md); this document governs the
 ownership and handoff boundaries around it.
@@ -384,6 +387,15 @@ This family adds these constraints:
 `pcg_component` owns only the original serialized Component's PCG-specific
 surface. Exact instance schema decides which native fields are readable,
 writable, resettable, or invokable on the supported engine version.
+
+Its implemented first internal Query slice is intentionally narrower than
+that eventual surface: Slice 1C-B-A exposes only canonical resolution,
+`target`, `summary`,
+exact schema, bounded zero-load direct/top Graph-binding facts, and fixed
+`inspect_level` / conditional `inspect_graph` navigation. Graph Parameter
+enumeration, exact Parameter StableRefs, override-source inference, and values
+belong to the later Slice 1C-B-B. The Level-to-specialized direction uses the
+fixed `inspect_pcg_component` purpose. No Query-only result emits `save`.
 
 For an SCS-backed Component, this Target may eventually write only a value
 that UE truly serializes as an override on this exact placed Actor instance.
@@ -824,25 +836,31 @@ The family should land internally in this dependency order:
 2. **`level` persistent identity and read-only Query**: Actor Guid,
    source-aware Component locator audit, World Partition descriptors, and
    persistent handoffs.
-3. **`pcg` authored Graph**: the independently specified Graph slices through
-   terminal save and 5.7/5.8 parity.
-4. **`level` authored mutation and exact save**, including external Actor
-   package tests.
-5. **`pcg_component`**: depends on Level Actor/Component identity and PCG Graph
-   Target/handoff semantics.
-6. **Python `sal.object()` projection**: explicit marker registration,
+3. **`pcg` Graph identity and read-only Query**: enough independently
+   specified Graph Target semantics to validate factual Graph navigation.
+4. **`pcg_component` binding Query**: canonical `target`/`summary`, bounded
+   zero-load Graph-interface traversal, and Level/Graph handoffs; depends on
+   Level Actor/Component identity and PCG Graph Target semantics.
+5. **`pcg_component` Parameter Query**: descriptor-Guid alignment, lossless
+   value encoding, and effective override-source proof; remains separate from
+   Component mutation research.
+6. **`level` and `pcg` authored mutation and exact save**: each follows its
+   independent transaction, persistence, failure-injection, and 5.7/5.8 gates;
+   neither is a prerequisite for the Query-only Component adapter.
+7. **Python `sal.object()` projection**: explicit marker registration,
    read-only Domain projectors, standard SAL exact Query results, bounded
    terminal retention, and later Skill guidance. Editor/PIE/SIE control remains
    explicit Python outside SAL.
-7. **shared async-kernel extraction and typed PCG execution frontend**:
+8. **shared async-kernel extraction and typed PCG execution frontend**:
    preserve ordinary Python behavior, then add private World epoch/ticket
    discovery, exact source input, PCG leases, derived-effect ownership,
    cancellation, cleanup, and inspection.
 
-Read-only `level` and authored `pcg` implementation can proceed in parallel,
-but `pcg_component` must not invent temporary identity while waiting for the
-Level contract. Execution is last because it composes the already verified
-boundaries without merging them.
+Read-only `level` and `pcg` implementation can proceed in parallel, but
+`pcg_component` must not invent temporary identity while waiting for either
+Target contract. Their authored mutation/save slices remain independent of
+the Query-only Component adapter. Execution is last because it composes the
+already verified boundaries without merging them.
 
 The family uses UE's built-in PCG plugin as an always-on production
 dependency. `LoomleBridge` and `LoomleBridgeTests` compile against the public

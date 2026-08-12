@@ -30,6 +30,8 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/AutomationTest.h"
+#include "Policies/CondensedJsonPrintPolicy.h"
+#include "Serialization/JsonSerializer.h"
 #include "StateTree.h"
 #include "StateTreeEditingSubsystem.h"
 #include "StateTreeEditorData.h"
@@ -1074,6 +1076,24 @@ bool IsValidPublicPathOutgoingResult(
         }
     }
     return false;
+}
+
+TOptional<int64> PublicPathCondensedJsonUtf8Size(
+    const TSharedPtr<FJsonObject>& Result)
+{
+    if (!Result.IsValid())
+    {
+        return {};
+    }
+    FString Serialized;
+    const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+        TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Serialized);
+    if (!FJsonSerializer::Serialize(Result.ToSharedRef(), Writer))
+    {
+        return {};
+    }
+    const FTCHARToUTF8 Utf8(*Serialized);
+    return Utf8.Length();
 }
 
 bool UnloadPublicPathFixturePackage(
@@ -3321,6 +3341,109 @@ bool FSalModuleQueryResultSizeGateTest::RunTest(
     TestFalse(
         TEXT("Oversized public Query returns no partial object"),
         Result.IsValid() && Result->HasField(TEXT("object")));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalModuleQueryResultContextSizeGateTest,
+    "Loomle.Sal.PublicPath.Query.FinalResultContextSizeGate",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalModuleQueryResultContextSizeGateTest::RunTest(
+    const FString& Parameters)
+{
+    constexpr int64 QueryResultLimitBytes = 128 * 1024;
+
+    TSharedRef<FJsonObject> Oversized = MakeShared<FJsonObject>();
+    Oversized->SetStringField(TEXT("targetContext"), TEXT("exact_target"));
+    Oversized->SetObjectField(
+        TEXT("target"),
+        PublicPathTarget(
+            TEXT("main_scope"),
+            PublicPathAssetCall(
+                TEXT("/Game/Main.Main"),
+                TEXT("/Script/Engine.World"))));
+    Oversized->SetArrayField(
+        TEXT("diagnostics"),
+        TArray<TSharedPtr<FJsonValue>>{});
+
+    TArray<TSharedPtr<FJsonValue>> RelatedTargets;
+    TArray<TSharedPtr<FJsonValue>> Handoffs;
+    RelatedTargets.Reserve(1024);
+    Handoffs.Reserve(1024);
+    for (int32 Index = 0; Index < 1024; ++Index)
+    {
+        const FString Alias = FString::Printf(TEXT("related_%04d"), Index);
+        const FString AssetName = FString::Printf(TEXT("Asset%04d"), Index);
+        RelatedTargets.Add(
+            MakeShared<FJsonValueObject>(
+                PublicPathTarget(
+                    Alias,
+                    PublicPathAssetCall(
+                        FString::Printf(
+                            TEXT("/Game/Related/%s.%s"),
+                            *AssetName,
+                            *AssetName),
+                        TEXT("/Script/CoreUObject.Object")))));
+
+        TSharedRef<FJsonObject> Handoff = MakeShared<FJsonObject>();
+        Handoff->SetStringField(TEXT("kind"), TEXT("target_handoff"));
+        Handoff->SetStringField(TEXT("purpose"), TEXT("inspect"));
+        Handoff->SetObjectField(
+            TEXT("target"),
+            PublicPathLocalReference(Alias));
+        Handoffs.Add(MakeShared<FJsonValueObject>(Handoff));
+    }
+    Oversized->SetArrayField(TEXT("relatedTargets"), RelatedTargets);
+    Oversized->SetArrayField(TEXT("handoffs"), Handoffs);
+
+    FString InputValidationError;
+    const bool bInputValid = IsValidPublicPathOutgoingResult(
+        Oversized,
+        InputValidationError);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Oversized context fixture is a valid SAL result: %s"),
+            *InputValidationError),
+        bInputValid);
+    const TOptional<int64> OriginalSize =
+        PublicPathCondensedJsonUtf8Size(Oversized);
+    TestTrue(
+        TEXT("Related Targets and handoffs exceed the 128 KiB result limit"),
+        OriginalSize.IsSet()
+            && OriginalSize.GetValue() > QueryResultLimitBytes);
+
+    const TSharedPtr<FJsonObject> Bounded =
+        FSalModule::EnforceQueryResultSizeForTesting(Oversized);
+    FString OutputValidationError;
+    const bool bOutputValid = IsValidPublicPathOutgoingResult(
+        Bounded,
+        OutputValidationError);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Bounded context error remains a valid SAL result: %s"),
+            *OutputValidationError),
+        bOutputValid);
+    TestTrue(
+        TEXT("Bounded context returns result_too_large"),
+        PublicPathHasDiagnosticCode(
+            Bounded,
+            TEXT("validation.result_too_large")));
+    const TOptional<int64> BoundedSize =
+        PublicPathCondensedJsonUtf8Size(Bounded);
+    TestTrue(
+        TEXT("Replacement result itself is at most 128 KiB"),
+        BoundedSize.IsSet()
+            && BoundedSize.GetValue() <= QueryResultLimitBytes);
+    TestTrue(
+        TEXT("Bounded context preserves the primary Target"),
+        Bounded.IsValid() && Bounded->HasField(TEXT("target")));
+    TestFalse(
+        TEXT("Oversized related Targets are omitted from the replacement"),
+        Bounded.IsValid() && Bounded->HasField(TEXT("relatedTargets")));
+    TestFalse(
+        TEXT("Handoffs into omitted related Targets are omitted too"),
+        Bounded.IsValid() && Bounded->HasField(TEXT("handoffs")));
     return true;
 }
 

@@ -18,13 +18,17 @@ The unpublished scene/PCG family branch currently contains:
   Actor descriptors; and
 - Slice 1C-A read-only `components` collection, summary counts, exact
   Component Query, and structured ActorGuid/source/slot StableRef lowering
-  for bounded, proved native, SCS, and instance identities.
+  for bounded, proved native, SCS, and instance identities; and
+- Slice 1C-B-A's internal Query-only `pcg_component` `target`/`summary`
+  adapter, bounded Graph-binding reader, and matching Level-to-Component
+  handoff.
 
-These are internal adapters, not public interface cards. Slice 1C-B referenced
+These are internal contracts and adapters, not public interface cards. Slice
+1C-B-B Parameter readback, other referenced
 ownership and Editor Context, schema, Palette, mutation, save, and the static
-`level` catalog entry remain planned. Slices 1A through 1C-A also retain the real
-unloaded-World-Partition and temporary Level Instance edit/composition fixture
-gates described below.
+`level` catalog entry remain planned. Slices 1A through 1C-A also retain the
+real unloaded-World-Partition and temporary Level Instance edit/composition
+fixture gates described below.
 
 The core boundary is confirmed:
 
@@ -527,7 +531,7 @@ generated Class path; its `id` and `ref` retain the qualified Class-path/Guid
 key even if the SCS variable and Component UObject are renamed.
 
 Once the specialized query-only `pcg_component` adapter is active in the same
-coordinated slice, an exact serialized original `UPCGComponent` may
+coordinated Slice 1C-B-A, an exact serialized original `UPCGComponent` may
 additionally retain one specialized Target:
 
 ```sal
@@ -559,6 +563,8 @@ Query-only. Multiple emitted references to the same canonical Component
 Target share one related Target and one handoff. A local partition Component,
 a generated/debug/cleanup projection, or a Component whose
 `GetConstOriginalComponent()` is not itself produces no persistent Target.
+This handoff does not require, imply, or wait for Graph Parameter readback;
+that is the separate Slice 1C-B-B.
 
 Results preserve exact native Class paths, names, property names, enum values,
 and value shapes. The adapter does not translate them into a parallel scene
@@ -1476,13 +1482,58 @@ World Partition unloaded-owner fixture, native/SCS reconstruction and
 save/reload persistence fixtures, same-slot/different-Actor coverage, and the
 remaining negative matrix under `Test Requirements`.
 
-### Slice 1C-B: referenced ownership and Editor Context — planned
+### Slice 1C-B-A: PCG Component binding Query and handoff — implemented internally
+
+- activate only query-only `pcg_component` `target`, `summary`, and
+  `target with schema`;
+- resolve the exact Component by reusing the Level source-map, ActorGuid, and
+  native/SCS/instance slot proofs from Slice 1C-A, without another identity
+  model;
+- read the Component-owned GraphInstance's direct `Graph` binding and its
+  bounded top-Graph chain without loading an asset, switching a map, pinning
+  an Actor, refreshing a GraphInstance, or retaining a native pointer as
+  identity;
+- keep Graph Parameter enumeration, exact Parameter StableRefs, values, and
+  override-source inference out of this slice;
+- add the candidate Target to Level Component results through the explicit
+  `pcgComponent` LocalRef and fixed `inspect_pcg_component` handoff only after
+  that Target resolves successfully; and
+- keep local partition, generated, preview, UCS, incomplete, non-original,
+  ambiguous, and unloaded-owner Components outside the specialized Target
+  surface.
+
+The specialized adapter's exact fields and reverse `inspect_level` /
+`inspect_graph` handoffs are frozen in
+[`PCG_RUNTIME_DOMAIN_DESIGN.md`](PCG_RUNTIME_DOMAIN_DESIGN.md). No `save`
+handoff is emitted from this Query-only slice because no authored state was
+changed.
+
+The official UE 5.7 and UE 5.8 arm64 persistent hosts compile this slice and
+pass `Loomle.Sal.PCGComponent.Query.AuthoredTargetSummaryAndBoundaries` plus
+the full five-test `Loomle.Sal.Level.Query` regression. The fixture covers
+saved versus unsaved top Graph navigation, direct unbound state, a parent
+GraphInstance whose chain ends unbound, bounded-depth failure, frozen nested
+field closure, unavailable Parameters, and read-only Level/Component/Graph
+invariants. A real World Partition descriptor-only Component owner remains a
+public-release fixture gate; an entirely unloaded source map is separately
+covered by `capability.level_not_loaded`.
+
+### Slice 1C-B-B: PCG Component Parameter readback — planned
+
+- address declarations only by the top Graph property-bag descriptor Guid;
+- prove descriptor alignment through the bounded Graph-interface chain before
+  returning local, inherited, or default values;
+- derive the Component-owned local override bit from
+  `UPCGGraphInstance::IsPropertyOverridden` on the aligned native property,
+  not `IsGraphParameterOverridden(FName)`; and
+- freeze lossless type/value encoding, effective-source semantics, result
+  bounds, exact Parameter StableRef lowering, and incomplete-chain behavior
+  before exposing `parameters` or an exact Parameter Query.
+
+### Slice 1C-C: other referenced ownership and Editor Context — planned
 
 - add proven Asset, Blueprint, and Class related Targets for read-only
   navigation without granting cross-Domain authority;
-- activate the query-only `pcg_component` adapter and only then add candidate
-  Targets retained by an explicit `pcgComponent` LocalRef plus
-  `inspect_pcg_component` handoff;
 - upgrade Level Editor Context from Asset evidence to the shared Level
   resolver and identity index;
 - project one selected source Actor as `@ActorGuid` only after the full root
@@ -1569,6 +1620,12 @@ remaining negative matrix under `Test Requirements`.
 - native, SCS, instance, transient, generated, and reconstructed Component
   classification;
 - deterministic Actor and Component ordering and pagination;
+- eligible original PCG Components retain one canonical `pcgComponent` LocalRef
+  and deduplicated `inspect_pcg_component` handoff only after the specialized
+  Target resolves;
+- local, generated, debug, cleanup, preview, UCS, incomplete, ambiguous,
+  wrong-Class, and unloaded-owner PCG Components produce no specialized
+  Target or handoff;
 - target, summary, collection, exact object, context, and schema reads;
 - Query does not dirty, transact, load Actors, pin World Partition, change
   selection, or rerun construction.

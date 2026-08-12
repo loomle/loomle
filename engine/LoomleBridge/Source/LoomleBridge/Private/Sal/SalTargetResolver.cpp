@@ -16,6 +16,8 @@
 #include "Misc/PackageName.h"
 #include "Modules/ModuleManager.h"
 #include "PCGGraph.h"
+#include "PCGComponent.h"
+#include "Level/SalLevelInterface.h"
 #include "SalDiagnostics.h"
 #include "StateTree.h"
 #include "UObject/SoftObjectPath.h"
@@ -85,6 +87,19 @@ TSharedPtr<FJsonObject> UnavailableDomain(const FString& Domain)
                 *Domain))
             .Interface(Domain)
             .Suggestion(TEXT("Use a published Domain capability or install a Bridge build that includes this adapter."))
+            .Build());
+}
+
+TSharedPtr<FJsonObject> PcgComponentResolutionError(
+    const FString& Code,
+    const FString& Message,
+    const FString& Ref)
+{
+    return FSalDiagnostics::Result(
+        FSalDiagnostics::Error(Code, Message)
+            .Interface(TEXT("pcg_component"))
+            .Path({TEXT("object"), TEXT("target")})
+            .Ref(Ref)
             .Build());
 }
 
@@ -520,11 +535,130 @@ bool FSalTargetResolver::ResolveTarget(
 
     if (Domain == TEXT("pcg_component"))
     {
+        if (bForPatch)
+        {
+            OutError = InvalidTarget(
+                TEXT("pcg_component is a Query-only Target and cannot be used by sal_patch."));
+            return false;
+        }
+
+        FString Asset;
+        FString ActorId;
+        FString Source;
+        FString Id;
+        FString ExpectedType;
+        if (!Target->TryGetStringField(TEXT("asset"), Asset)
+            || !Target->TryGetStringField(TEXT("actorId"), ActorId)
+            || !Target->TryGetStringField(TEXT("source"), Source)
+            || !Target->TryGetStringField(TEXT("id"), Id)
+            || !Target->TryGetStringField(TEXT("type"), ExpectedType))
+        {
+            OutError = InvalidTarget(
+                TEXT("pcg_component Target requires asset, actorId, source, id, and type."));
+            return false;
+        }
+
+        TSharedPtr<FJsonObject> LevelTargetValue =
+            MakeCanonicalTarget(TEXT("level"));
+        LevelTargetValue->SetStringField(TEXT("asset"), Asset);
+        LevelTargetValue->SetStringField(
+            TEXT("type"),
+            UWorld::StaticClass()->GetPathName());
+        FSalResolvedTarget LevelTarget;
+        if (!ResolveTarget(
+                Alias,
+                LevelTargetValue,
+                false,
+                LevelTarget,
+                OutError))
+        {
+            return false;
+        }
+
+        UActorComponent* Component = nullptr;
+        FString CanonicalActorId;
+        FString CanonicalSource;
+        FString CanonicalId;
+        FString Name;
+        FString ActualType;
+        FString CreationMethod;
+        FString DeclaringClass;
+        FString Code;
+        FString Message;
+        if (!FSalLevelInterface::ResolveExactComponent(
+                LevelTarget,
+                ActorId,
+                Source,
+                Id,
+                Component,
+                CanonicalActorId,
+                CanonicalSource,
+                CanonicalId,
+                Name,
+                ActualType,
+                CreationMethod,
+                DeclaringClass,
+                Code,
+                Message))
+        {
+            OutError = PcgComponentResolutionError(
+                Code.IsEmpty()
+                    ? TEXT("resolution.object_not_found")
+                    : Code,
+                Message.IsEmpty()
+                    ? TEXT("The exact persistent Component could not be resolved without loading authored state.")
+                    : Message,
+                ActorId + TEXT("/") + Source + TEXT("/") + Id);
+            return false;
+        }
+
+        UPCGComponent* PCGComponent = Cast<UPCGComponent>(Component);
+        if (PCGComponent == nullptr
+            || PCGComponent->IsLocalComponent()
+            || PCGComponent->GetConstOriginalComponent() != PCGComponent)
+        {
+            OutError = PcgComponentResolutionError(
+                TEXT("capability.interface_unavailable"),
+                TEXT("pcg_component Target requires one original authored UPCGComponent, not a generic, local, generated, or cleanup projection Component."),
+                CanonicalId);
+            return false;
+        }
+        if (ExpectedType != ActualType)
+        {
+            OutError = InvalidTarget(FString::Printf(
+                TEXT("pcg_component target type %s does not match resolved native Class %s."),
+                *ExpectedType,
+                *ActualType));
+            return false;
+        }
+
+        OutTarget.Kind = ESalTargetKind::Asset;
         OutTarget.Domain = ESalDomain::PcgComponent;
-        OutTarget.Interfaces = {FName(*Domain)};
-        Target->TryGetStringField(TEXT("asset"), OutTarget.AssetPath);
-        OutError = UnavailableDomain(Domain);
-        return false;
+        OutTarget.Alias = Alias;
+        OutTarget.AssetPath = LevelTarget.AssetPath;
+        OutTarget.Id = CanonicalId;
+        OutTarget.Name = Name;
+        OutTarget.Object = PCGComponent;
+        OutTarget.Package = PCGComponent->GetOutermost();
+        OutTarget.Interfaces = {FName(TEXT("pcg_component"))};
+        OutTarget.CanonicalTarget = MakeCanonicalTarget(
+            TEXT("pcg_component"));
+        OutTarget.CanonicalTarget->SetStringField(
+            TEXT("asset"),
+            LevelTarget.AssetPath);
+        OutTarget.CanonicalTarget->SetStringField(
+            TEXT("actorId"),
+            CanonicalActorId);
+        OutTarget.CanonicalTarget->SetStringField(
+            TEXT("source"),
+            CanonicalSource);
+        OutTarget.CanonicalTarget->SetStringField(
+            TEXT("id"),
+            CanonicalId);
+        OutTarget.CanonicalTarget->SetStringField(
+            TEXT("type"),
+            ActualType);
+        return true;
     }
 
     OutError = InvalidTarget(TEXT("Unknown Target domain."));

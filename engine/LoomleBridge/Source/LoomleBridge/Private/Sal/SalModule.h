@@ -16,6 +16,8 @@ public:
     static TSharedPtr<FJsonObject> BuildQueryResult(const TSharedPtr<FJsonObject>& Arguments);
     static TSharedPtr<FJsonObject> BuildPatchResult(const TSharedPtr<FJsonObject>& Arguments);
 #if WITH_DEV_AUTOMATION_TESTS
+    static TSharedPtr<FJsonObject> EnforceQueryResultSizeForTesting(
+        const TSharedPtr<FJsonObject>& Result);
     static bool NormalizeOutputExpressionForTesting(
         const TSharedPtr<FJsonValue>& Value);
 #endif

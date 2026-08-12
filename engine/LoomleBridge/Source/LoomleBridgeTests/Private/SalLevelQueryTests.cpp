@@ -36,6 +36,8 @@
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "PCGComponent.h"
+#include "PCGGraph.h"
+#include "PCGVolume.h"
 #include "UObject/GarbageCollection.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
@@ -78,6 +80,24 @@ TSharedRef<FJsonObject> LevelTarget(
     {
         Target->SetStringField(TEXT("type"), Type);
     }
+    return Target;
+}
+
+TSharedRef<FJsonObject> PCGComponentTarget(
+    const FString& Asset,
+    const FGuid& ActorId,
+    const FString& Source,
+    const FString& Id,
+    const FString& Type = UPCGComponent::StaticClass()->GetPathName())
+{
+    TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("target"));
+    Target->SetStringField(TEXT("domain"), TEXT("pcg_component"));
+    Target->SetStringField(TEXT("asset"), Asset);
+    Target->SetStringField(TEXT("actorId"), LevelGuidText(ActorId));
+    Target->SetStringField(TEXT("source"), Source);
+    Target->SetStringField(TEXT("id"), Id);
+    Target->SetStringField(TEXT("type"), Type);
     return Target;
 }
 
@@ -174,6 +194,54 @@ TSharedRef<FJsonObject> LevelQueryArguments(
     return Arguments;
 }
 
+TSharedRef<FJsonObject> PCGComponentQueryArguments(
+    const TSharedRef<FJsonObject>& Target,
+    const TSharedRef<FJsonObject>& Operation,
+    const bool bWithSchema = false)
+{
+    TSharedRef<FJsonObject> Binding = MakeShared<FJsonObject>();
+    Binding->SetStringField(TEXT("alias"), TEXT("pcg_component_scope"));
+    Binding->SetObjectField(TEXT("target"), Target);
+
+    TSharedRef<FJsonObject> Query = MakeShared<FJsonObject>();
+    Query->SetStringField(TEXT("kind"), TEXT("query"));
+    Query->SetObjectField(TEXT("target"), Binding);
+    Query->SetObjectField(TEXT("operation"), Operation);
+    if (bWithSchema)
+    {
+        Query->SetArrayField(
+            TEXT("with"),
+            {MakeShared<FJsonValueString>(TEXT("schema"))});
+    }
+
+    TSharedRef<FJsonObject> Arguments = MakeShared<FJsonObject>();
+    Arguments->SetObjectField(TEXT("object"), Query);
+    return Arguments;
+}
+
+TSharedRef<FJsonObject> PCGComponentPatchArguments(
+    const TSharedRef<FJsonObject>& Target)
+{
+    TSharedRef<FJsonObject> Binding = MakeShared<FJsonObject>();
+    Binding->SetStringField(TEXT("alias"), TEXT("pcg_component_scope"));
+    Binding->SetObjectField(TEXT("target"), Target);
+
+    TSharedRef<FJsonObject> Save = MakeShared<FJsonObject>();
+    Save->SetStringField(TEXT("kind"), TEXT("save"));
+
+    TSharedRef<FJsonObject> Patch = MakeShared<FJsonObject>();
+    Patch->SetStringField(TEXT("kind"), TEXT("patch"));
+    Patch->SetObjectField(TEXT("target"), Binding);
+    Patch->SetBoolField(TEXT("dryRun"), true);
+    Patch->SetArrayField(
+        TEXT("statements"),
+        {MakeShared<FJsonValueObject>(Save)});
+
+    TSharedRef<FJsonObject> Arguments = MakeShared<FJsonObject>();
+    Arguments->SetObjectField(TEXT("object"), Patch);
+    return Arguments;
+}
+
 bool LevelHasDiagnostic(
     const TSharedPtr<FJsonObject>& Result,
     const FString& ExpectedCode)
@@ -262,6 +330,46 @@ bool HasCanonicalLevelTarget(
         && Type == UWorld::StaticClass()->GetPathName();
 }
 
+bool HasCanonicalPCGComponentTarget(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& ExpectedAsset,
+    const FGuid& ExpectedActorId,
+    const FString& ExpectedSource,
+    const FString& ExpectedId,
+    const FString& ExpectedType = UPCGComponent::StaticClass()->GetPathName())
+{
+    const TSharedPtr<FJsonObject>* Binding = nullptr;
+    const TSharedPtr<FJsonObject>* Target = nullptr;
+    FString Kind;
+    FString Domain;
+    FString Asset;
+    FString ActorId;
+    FString Source;
+    FString Id;
+    FString Type;
+    return Result.IsValid()
+        && Result->TryGetObjectField(TEXT("target"), Binding)
+        && Binding != nullptr
+        && (*Binding).IsValid()
+        && (*Binding)->TryGetObjectField(TEXT("target"), Target)
+        && Target != nullptr
+        && (*Target).IsValid()
+        && (*Target)->TryGetStringField(TEXT("kind"), Kind)
+        && Kind == TEXT("target")
+        && (*Target)->TryGetStringField(TEXT("domain"), Domain)
+        && Domain == TEXT("pcg_component")
+        && (*Target)->TryGetStringField(TEXT("asset"), Asset)
+        && Asset == ExpectedAsset
+        && (*Target)->TryGetStringField(TEXT("actorId"), ActorId)
+        && ActorId == LevelGuidText(ExpectedActorId)
+        && (*Target)->TryGetStringField(TEXT("source"), Source)
+        && Source == ExpectedSource
+        && (*Target)->TryGetStringField(TEXT("id"), Id)
+        && Id == ExpectedId
+        && (*Target)->TryGetStringField(TEXT("type"), Type)
+        && Type == ExpectedType;
+}
+
 bool TryReadLevelObjectFields(
     const TSharedPtr<FJsonValue>& Value,
     const TSharedPtr<FJsonObject>*& OutFields,
@@ -325,6 +433,41 @@ TArray<TSharedPtr<FJsonObject>> LevelTaggedObjectFields(
         }
     }
     return Matches;
+}
+
+bool LevelHasCommentContaining(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& Fragment)
+{
+    const TSharedPtr<FJsonObject>* Object = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* Statements = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetObjectField(TEXT("object"), Object)
+        || Object == nullptr
+        || !(*Object).IsValid()
+        || !(*Object)->TryGetArrayField(TEXT("statements"), Statements)
+        || Statements == nullptr)
+    {
+        return false;
+    }
+    for (const TSharedPtr<FJsonValue>& StatementValue : *Statements)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        FString Kind;
+        FString Text;
+        if (StatementValue.IsValid()
+            && StatementValue->TryGetObject(Statement)
+            && Statement != nullptr
+            && (*Statement).IsValid()
+            && (*Statement)->TryGetStringField(TEXT("kind"), Kind)
+            && Kind == TEXT("comment")
+            && (*Statement)->TryGetStringField(TEXT("text"), Text)
+            && Text.Contains(Fragment))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 TSharedPtr<FJsonObject> FindLevelFieldsById(
@@ -419,6 +562,64 @@ TSharedPtr<FJsonObject> FirstLevelAssetFields(
     return Fields->Values.IsEmpty() ? nullptr : Fields;
 }
 
+TSharedPtr<FJsonObject> CollectLocalMemberFields(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& ExpectedAlias)
+{
+    const TSharedPtr<FJsonObject>* Object = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* Statements = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetObjectField(TEXT("object"), Object)
+        || Object == nullptr
+        || !(*Object).IsValid()
+        || !(*Object)->TryGetArrayField(TEXT("statements"), Statements)
+        || Statements == nullptr)
+    {
+        return nullptr;
+    }
+
+    TSharedPtr<FJsonObject> Fields = MakeShared<FJsonObject>();
+    for (const TSharedPtr<FJsonValue>& StatementValue : *Statements)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        const TSharedPtr<FJsonObject>* Target = nullptr;
+        const TSharedPtr<FJsonObject>* Owner = nullptr;
+        const TArray<TSharedPtr<FJsonValue>>* Path = nullptr;
+        FString TargetKind;
+        FString OwnerKind;
+        FString OwnerName;
+        FString FieldName;
+        if (StatementValue.IsValid()
+            && StatementValue->TryGetObject(Statement)
+            && Statement != nullptr
+            && (*Statement).IsValid()
+            && (*Statement)->TryGetObjectField(TEXT("target"), Target)
+            && Target != nullptr
+            && (*Target).IsValid()
+            && (*Target)->TryGetStringField(TEXT("kind"), TargetKind)
+            && TargetKind == TEXT("member")
+            && (*Target)->TryGetObjectField(TEXT("object"), Owner)
+            && Owner != nullptr
+            && (*Owner).IsValid()
+            && (*Owner)->TryGetStringField(TEXT("kind"), OwnerKind)
+            && OwnerKind == TEXT("local")
+            && (*Owner)->TryGetStringField(TEXT("name"), OwnerName)
+            && OwnerName == ExpectedAlias
+            && (*Target)->TryGetArrayField(TEXT("path"), Path)
+            && Path != nullptr
+            && Path->Num() == 1
+            && (*Path)[0].IsValid()
+            && (*Path)[0]->TryGetString(FieldName)
+            && !FieldName.IsEmpty())
+        {
+            Fields->SetField(
+                FieldName,
+                (*Statement)->TryGetField(TEXT("value")));
+        }
+    }
+    return Fields->Values.IsEmpty() ? nullptr : Fields;
+}
+
 bool ReadLevelNextCursor(
     const TSharedPtr<FJsonObject>& Result,
     FString& OutCursor)
@@ -449,6 +650,31 @@ bool ReadLevelLocalField(
         && Kind == TEXT("local")
         && (*Ref)->TryGetStringField(TEXT("name"), OutAlias)
         && !OutAlias.IsEmpty();
+}
+
+bool ReadNestedObjectField(
+    const TSharedPtr<FJsonObject>& Fields,
+    const FString& FieldName,
+    TSharedPtr<FJsonObject>& OutFields)
+{
+    OutFields.Reset();
+    const TSharedPtr<FJsonObject>* NestedFields = nullptr;
+    return Fields.IsValid()
+        && TryReadLevelObjectFields(
+            Fields->TryGetField(FieldName),
+            NestedFields)
+        && NestedFields != nullptr
+        && (OutFields = *NestedFields).IsValid();
+}
+
+bool LevelFieldIsNull(
+    const TSharedPtr<FJsonObject>& Fields,
+    const FString& FieldName)
+{
+    const TSharedPtr<FJsonValue> Value = Fields.IsValid()
+        ? Fields->TryGetField(FieldName)
+        : nullptr;
+    return Value.IsValid() && Value->IsNull();
 }
 
 bool ReadLevelNameField(
@@ -602,6 +828,91 @@ bool ReadRelatedLevelTargets(
     return true;
 }
 
+FString PCGComponentIdentityKey(
+    const FString& ActorId,
+    const FString& Source,
+    const FString& Id)
+{
+    return FString::Printf(
+        TEXT("%d:%s|%d:%s|%d:%s"),
+        ActorId.Len(),
+        *ActorId,
+        Source.Len(),
+        *Source,
+        Id.Len(),
+        *Id);
+}
+
+bool ReadRelatedPCGComponentTargets(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& ExpectedAsset,
+    TMap<FString, FString>& OutAliasesByIdentity)
+{
+    OutAliasesByIdentity.Reset();
+    const TArray<TSharedPtr<FJsonValue>>* Related = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetArrayField(TEXT("relatedTargets"), Related)
+        || Related == nullptr
+        || Related->IsEmpty())
+    {
+        return false;
+    }
+    for (const TSharedPtr<FJsonValue>& Value : *Related)
+    {
+        const TSharedPtr<FJsonObject>* Binding = nullptr;
+        const TSharedPtr<FJsonObject>* Target = nullptr;
+        FString Alias;
+        FString Kind;
+        FString Domain;
+        FString Asset;
+        FString ActorId;
+        FString Source;
+        FString Id;
+        FString Type;
+        if (!Value.IsValid()
+            || !Value->TryGetObject(Binding)
+            || Binding == nullptr
+            || !(*Binding).IsValid()
+            || !(*Binding)->TryGetStringField(TEXT("alias"), Alias)
+            || Alias.IsEmpty()
+            || !(*Binding)->TryGetObjectField(TEXT("target"), Target)
+            || Target == nullptr
+            || !(*Target).IsValid()
+            || !(*Target)->TryGetStringField(TEXT("kind"), Kind)
+            || Kind != TEXT("target")
+            || !(*Target)->TryGetStringField(TEXT("domain"), Domain)
+            || Domain != TEXT("pcg_component")
+            || !(*Target)->TryGetStringField(TEXT("asset"), Asset)
+            || Asset != ExpectedAsset
+            || !(*Target)->TryGetStringField(TEXT("actorId"), ActorId)
+            || ActorId.IsEmpty()
+            || !(*Target)->TryGetStringField(TEXT("source"), Source)
+            || (Source != TEXT("native")
+                && Source != TEXT("scs")
+                && Source != TEXT("instance"))
+            || !(*Target)->TryGetStringField(TEXT("id"), Id)
+            || Id.IsEmpty()
+            || !(*Target)->TryGetStringField(TEXT("type"), Type)
+            || Type != UPCGComponent::StaticClass()->GetPathName())
+        {
+            OutAliasesByIdentity.Reset();
+            return false;
+        }
+        const FString Key = PCGComponentIdentityKey(
+            ActorId,
+            Source,
+            Id);
+        if (OutAliasesByIdentity.Contains(Key)
+            || OutAliasesByIdentity.FindKey(Alias) != nullptr)
+        {
+            OutAliasesByIdentity.Reset();
+            return false;
+        }
+        OutAliasesByIdentity.Add(Key, Alias);
+    }
+    return true;
+}
+
 bool HasSingleLevelHandoff(
     const TSharedPtr<FJsonObject>& Result,
     const FString& ExpectedPurpose,
@@ -636,6 +947,131 @@ bool HasSingleLevelHandoff(
         && RefKind == TEXT("local")
         && (*Target)->TryGetStringField(TEXT("name"), Alias)
         && Alias == ExpectedAlias;
+}
+
+bool ReadUniqueHandoffAlias(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& ExpectedPurpose,
+    FString& OutAlias)
+{
+    OutAlias.Reset();
+    const TArray<TSharedPtr<FJsonValue>>* Handoffs = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetArrayField(TEXT("handoffs"), Handoffs)
+        || Handoffs == nullptr)
+    {
+        return false;
+    }
+    int32 Matches = 0;
+    for (const TSharedPtr<FJsonValue>& Value : *Handoffs)
+    {
+        const TSharedPtr<FJsonObject>* Handoff = nullptr;
+        const TSharedPtr<FJsonObject>* Target = nullptr;
+        FString Kind;
+        FString Purpose;
+        FString RefKind;
+        FString Alias;
+        if (!Value.IsValid()
+            || !Value->TryGetObject(Handoff)
+            || Handoff == nullptr
+            || !(*Handoff).IsValid()
+            || !(*Handoff)->TryGetStringField(TEXT("kind"), Kind)
+            || Kind != TEXT("target_handoff")
+            || !(*Handoff)->TryGetStringField(TEXT("purpose"), Purpose)
+            || !(*Handoff)->TryGetObjectField(TEXT("target"), Target)
+            || Target == nullptr
+            || !(*Target).IsValid()
+            || !(*Target)->TryGetStringField(TEXT("kind"), RefKind)
+            || RefKind != TEXT("local")
+            || !(*Target)->TryGetStringField(TEXT("name"), Alias)
+            || Alias.IsEmpty())
+        {
+            return false;
+        }
+        if (Purpose == ExpectedPurpose)
+        {
+            ++Matches;
+            OutAlias = Alias;
+        }
+    }
+    return Matches == 1;
+}
+
+int32 CountHandoffPurpose(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& ExpectedPurpose)
+{
+    const TArray<TSharedPtr<FJsonValue>>* Handoffs = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetArrayField(TEXT("handoffs"), Handoffs)
+        || Handoffs == nullptr)
+    {
+        return 0;
+    }
+    int32 Matches = 0;
+    for (const TSharedPtr<FJsonValue>& Value : *Handoffs)
+    {
+        const TSharedPtr<FJsonObject>* Handoff = nullptr;
+        FString Purpose;
+        if (Value.IsValid()
+            && Value->TryGetObject(Handoff)
+            && Handoff != nullptr
+            && (*Handoff).IsValid()
+            && (*Handoff)->TryGetStringField(TEXT("purpose"), Purpose)
+            && Purpose == ExpectedPurpose)
+        {
+            ++Matches;
+        }
+    }
+    return Matches;
+}
+
+bool HasRelatedTarget(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& ExpectedAlias,
+    const FString& ExpectedDomain,
+    const FString& ExpectedAsset,
+    const FString& ExpectedType)
+{
+    const TArray<TSharedPtr<FJsonValue>>* Related = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetArrayField(TEXT("relatedTargets"), Related)
+        || Related == nullptr)
+    {
+        return false;
+    }
+    int32 Matches = 0;
+    for (const TSharedPtr<FJsonValue>& Value : *Related)
+    {
+        const TSharedPtr<FJsonObject>* Binding = nullptr;
+        const TSharedPtr<FJsonObject>* Target = nullptr;
+        FString Alias;
+        FString Kind;
+        FString Domain;
+        FString Asset;
+        FString Type;
+        if (Value.IsValid()
+            && Value->TryGetObject(Binding)
+            && Binding != nullptr
+            && (*Binding).IsValid()
+            && (*Binding)->TryGetStringField(TEXT("alias"), Alias)
+            && Alias == ExpectedAlias
+            && (*Binding)->TryGetObjectField(TEXT("target"), Target)
+            && Target != nullptr
+            && (*Target).IsValid()
+            && (*Target)->TryGetStringField(TEXT("kind"), Kind)
+            && Kind == TEXT("target")
+            && (*Target)->TryGetStringField(TEXT("domain"), Domain)
+            && Domain == ExpectedDomain
+            && (*Target)->TryGetStringField(TEXT("asset"), Asset)
+            && Asset == ExpectedAsset
+            && (*Target)->TryGetStringField(TEXT("type"), Type)
+            && Type == ExpectedType)
+        {
+            ++Matches;
+        }
+    }
+    return Matches == 1;
 }
 
 bool ReadLevelHandoffAliases(
@@ -856,8 +1292,40 @@ public:
             return false;
         }
 
-        if (!CreateMap(TEXT("L_20_Unloaded"), Unloaded, OutError)
-            || !SaveMap(Unloaded, OutError)
+        if (!CreateMap(TEXT("L_20_Unloaded"), Unloaded, OutError))
+        {
+            return false;
+        }
+        FActorSpawnParameters UnloadedPCGParams;
+        UnloadedPCGParams.Name = FName(TEXT("PCG_UnloadedOwner"));
+        UnloadedPCGParams.OverrideLevel = Unloaded.World->PersistentLevel;
+        UnloadedPCGParams.ObjectFlags = RF_Transactional;
+        APCGVolume* UnloadedPCGOwner =
+            Unloaded.World->SpawnActor<APCGVolume>(
+                APCGVolume::StaticClass(),
+                FTransform::Identity,
+                UnloadedPCGParams);
+        UPCGComponent* UnloadedPCGComponent = UnloadedPCGOwner != nullptr
+            ? UnloadedPCGOwner->PCGComponent.Get()
+            : nullptr;
+        UnloadedPCGActorId = UnloadedPCGOwner != nullptr
+            ? UnloadedPCGOwner->GetActorGuid()
+            : FGuid();
+        UnloadedPCGId = UnloadedPCGComponent != nullptr
+            ? UnloadedPCGComponent->GetFName().ToString()
+            : FString();
+        if (!UnloadedPCGActorId.IsValid()
+            || UnloadedPCGId.IsEmpty()
+            || UnloadedPCGComponent->CreationMethod
+                != EComponentCreationMethod::Native
+            || UnloadedPCGComponent->GetConstOriginalComponent()
+                != UnloadedPCGComponent)
+        {
+            OutError = TEXT(
+                "The unloaded Level fixture could not create a durable native PCG Component locator.");
+            return false;
+        }
+        if (!SaveMap(Unloaded, OutError)
             || !UnloadMap(Unloaded, OutError))
         {
             return false;
@@ -1048,6 +1516,8 @@ public:
     FGuid ExternalContentId;
     FGuid PcgGeneratedId;
     FGuid DuplicateId;
+    FGuid UnloadedPCGActorId;
+    FString UnloadedPCGId;
 
 private:
     static UWorld::InitializationValues FixtureInitializationValues()
@@ -1267,6 +1737,73 @@ public:
 
         const FString Token =
             FGuid::NewGuid().ToString(EGuidFormats::Digits);
+        GraphPackageName = FString::Printf(
+            TEXT("/Game/LoomleTests/LevelComponent/%s/PCG_LevelComponent"),
+            *Token);
+        GraphPackage = CreatePackage(*GraphPackageName);
+        Graph = GraphPackage != nullptr
+            ? NewObject<UPCGGraph>(
+                GraphPackage,
+                FName(TEXT("PCG_LevelComponent")),
+                RF_Public | RF_Standalone | RF_Transactional)
+            : nullptr;
+        if (Graph == nullptr)
+        {
+            OutError = TEXT(
+                "UE failed to create the Component fixture PCG Graph asset.");
+            return false;
+        }
+        GraphRoot.Reset(Graph);
+        FAssetRegistryModule::AssetCreated(Graph);
+        bGraphRegistered = true;
+        GraphPath = Graph->GetPathName();
+        GraphFilename = FPackageName::LongPackageNameToFilename(
+            GraphPackageName,
+            FPackageName::GetAssetPackageExtension());
+        IFileManager::Get().MakeDirectory(
+            *FPaths::GetPath(GraphFilename),
+            true);
+        GraphPackage->SetDirtyFlag(true);
+        FSavePackageArgs GraphSaveArgs;
+        GraphSaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+        GraphSaveArgs.Error = GLog;
+        if (!UPackage::SavePackage(
+                GraphPackage,
+                Graph,
+                *GraphFilename,
+                GraphSaveArgs))
+        {
+            OutError = TEXT(
+                "UE failed to save the Component fixture PCG Graph asset.");
+            return false;
+        }
+        GraphPackage->SetDirtyFlag(false);
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+            TEXT("AssetRegistry"))
+            .Get()
+            .ScanModifiedAssetFiles({GraphFilename});
+
+        UnsavedGraphPackageName = FString::Printf(
+            TEXT("/Game/LoomleTests/LevelComponent/%s/PCG_Unsaved"),
+            *Token);
+        UnsavedGraphPackage = CreatePackage(*UnsavedGraphPackageName);
+        UnsavedGraph = UnsavedGraphPackage != nullptr
+            ? NewObject<UPCGGraph>(
+                UnsavedGraphPackage,
+                FName(TEXT("PCG_Unsaved")),
+                RF_Public | RF_Standalone | RF_Transactional)
+            : nullptr;
+        if (UnsavedGraph == nullptr)
+        {
+            OutError = TEXT(
+                "UE failed to create the unsaved Graph evidence fixture.");
+            return false;
+        }
+        UnsavedGraphRoot.Reset(UnsavedGraph);
+        FAssetRegistryModule::AssetCreated(UnsavedGraph);
+        bUnsavedGraphRegistered = true;
+        UnsavedGraphPath = UnsavedGraph->GetPathName();
+
         BlueprintPackageName = FString::Printf(
             TEXT("/Game/LoomleTests/LevelComponent/%s/BP_LevelComponent"),
             *Token);
@@ -1342,6 +1879,25 @@ public:
         NativeComponent = CastChecked<AStaticMeshActor>(Actor)
             ->GetStaticMeshComponent();
 
+        FActorSpawnParameters NativePCGParams;
+        NativePCGParams.Name = FName(TEXT("Actor_NativePCGComponent"));
+        NativePCGParams.OverrideLevel = World->PersistentLevel;
+        NativePCGParams.ObjectFlags = RF_Transactional;
+        NativePCGActor = World->SpawnActor<APCGVolume>(
+            APCGVolume::StaticClass(),
+            FTransform::Identity,
+            NativePCGParams);
+        NativePCGComponent = NativePCGActor != nullptr
+            ? NativePCGActor->PCGComponent.Get()
+            : nullptr;
+        if (NativePCGActor != nullptr)
+        {
+            NativePCGActor->SetActorLabel(
+                TEXT("Loomle Native PCG Component Owner"),
+                false);
+            NativePCGActorId = NativePCGActor->GetActorGuid();
+        }
+
         TArray<UActorComponent*> SpawnedComponents;
         Actor->GetComponents(SpawnedComponents, false);
         for (UActorComponent* Component : SpawnedComponents)
@@ -1380,6 +1936,14 @@ public:
         {
             Actor->AddInstanceComponent(PCGComponent);
             PCGComponent->OnComponentCreated();
+        }
+        if (NativePCGComponent != nullptr)
+        {
+            NativePCGComponent->SetGraphLocal(Graph);
+        }
+        if (PCGComponent != nullptr)
+        {
+            PCGComponent->SetGraphLocal(UnsavedGraph);
         }
 
         const TArray<TPair<FName, FName>> GeneratedPCGSpecs = {
@@ -1427,6 +1991,15 @@ public:
             || PCGComponent == nullptr
             || PCGComponent->IsRegistered()
             || PCGComponent->GetConstOriginalComponent() != PCGComponent
+            || NativePCGActor == nullptr
+            || !NativePCGActorId.IsValid()
+            || NativePCGComponent == nullptr
+            || NativePCGComponent->CreationMethod
+                != EComponentCreationMethod::Native
+            || NativePCGComponent->GetConstOriginalComponent()
+                != NativePCGComponent
+            || NativePCGComponent->GetGraph() != Graph
+            || PCGComponent->GetGraph() != UnsavedGraph
             || GeneratedPCGComponents.Num() != GeneratedPCGSpecs.Num()
             || UCSComponent == nullptr
             || UCSComponent->CreationMethod
@@ -1441,6 +2014,7 @@ public:
         NativeId = NativeComponent->GetFName().ToString();
         InstanceId = InstanceComponent->GetFName().ToString();
         PCGId = PCGComponent->GetFName().ToString();
+        NativePCGId = NativePCGComponent->GetFName().ToString();
         SCSDeclaringClass = GeneratedClass->GetPathName();
         SCSId = SCSDeclaringClass
             + TEXT("#")
@@ -1448,6 +2022,9 @@ public:
         if (NativeId.IsEmpty()
             || InstanceId.IsEmpty()
             || PCGId.IsEmpty()
+            || NativePCGId.IsEmpty()
+            || GraphPath.IsEmpty()
+            || UnsavedGraphPath.IsEmpty()
             || SCSDeclaringClass.IsEmpty()
             || SCSId.IsEmpty()
             || SCSProperty == nullptr
@@ -1461,6 +2038,8 @@ public:
 
         World->GetOutermost()->SetDirtyFlag(false);
         BlueprintPackage->SetDirtyFlag(false);
+        GraphPackage->SetDirtyFlag(false);
+        UnsavedGraphPackage->SetDirtyFlag(false);
         return true;
     }
 
@@ -1484,11 +2063,35 @@ public:
             : nullptr;
         PrepareLevelPackageForCollection(Package);
 
+        UPCGGraph* RootedGraph = GraphRoot.Get();
+        if (bGraphRegistered && RootedGraph != nullptr)
+        {
+            FAssetRegistryModule::AssetDeleted(RootedGraph);
+            bGraphRegistered = false;
+        }
+        UPackage* ExistingGraphPackage = !GraphPackageName.IsEmpty()
+            ? FindPackage(nullptr, *GraphPackageName)
+            : nullptr;
+        PrepareLevelPackageForCollection(ExistingGraphPackage);
+        UPCGGraph* RootedUnsavedGraph = UnsavedGraphRoot.Get();
+        if (bUnsavedGraphRegistered && RootedUnsavedGraph != nullptr)
+        {
+            FAssetRegistryModule::AssetDeleted(RootedUnsavedGraph);
+            bUnsavedGraphRegistered = false;
+        }
+        UPackage* ExistingUnsavedGraphPackage =
+            !UnsavedGraphPackageName.IsEmpty()
+            ? FindPackage(nullptr, *UnsavedGraphPackageName)
+            : nullptr;
+        PrepareLevelPackageForCollection(ExistingUnsavedGraphPackage);
+
         Actor = nullptr;
         NativeComponent = nullptr;
         SCSComponent = nullptr;
         InstanceComponent = nullptr;
         PCGComponent = nullptr;
+        NativePCGActor = nullptr;
+        NativePCGComponent = nullptr;
         GeneratedPCGComponents.Reset();
         UCSComponent = nullptr;
         SCSNode = nullptr;
@@ -1497,6 +2100,12 @@ public:
         Blueprint = nullptr;
         BlueprintPackage = nullptr;
         BlueprintRoot.Reset();
+        Graph = nullptr;
+        GraphPackage = nullptr;
+        GraphRoot.Reset();
+        UnsavedGraph = nullptr;
+        UnsavedGraphPackage = nullptr;
+        UnsavedGraphRoot.Reset();
         CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
         if (!BlueprintPackageName.IsEmpty()
             && FindPackage(nullptr, *BlueprintPackageName) != nullptr)
@@ -1504,6 +2113,34 @@ public:
             OutError = TEXT(
                 "Component fixture Blueprint package remained loaded during cleanup: ")
                 + BlueprintPackageName;
+        }
+        if (!GraphPackageName.IsEmpty()
+            && FindPackage(nullptr, *GraphPackageName) != nullptr
+            && OutError.IsEmpty())
+        {
+            OutError = TEXT(
+                "Component fixture PCG Graph package remained loaded during cleanup: ")
+                + GraphPackageName;
+        }
+        if (!UnsavedGraphPackageName.IsEmpty()
+            && FindPackage(nullptr, *UnsavedGraphPackageName) != nullptr
+            && OutError.IsEmpty())
+        {
+            OutError = TEXT(
+                "Component fixture unsaved PCG Graph package remained loaded during cleanup: ")
+                + UnsavedGraphPackageName;
+        }
+        if (!GraphFilename.IsEmpty())
+        {
+            IFileManager::Get().Delete(
+                *GraphFilename,
+                false,
+                true,
+                true);
+            FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+                TEXT("AssetRegistry"))
+                .Get()
+                .ScanModifiedAssetFiles({GraphFilename});
         }
         return OutError.IsEmpty();
     }
@@ -1513,14 +2150,20 @@ public:
     UActorComponent* SCSComponent = nullptr;
     USceneComponent* InstanceComponent = nullptr;
     UPCGComponent* PCGComponent = nullptr;
+    APCGVolume* NativePCGActor = nullptr;
+    UPCGComponent* NativePCGComponent = nullptr;
     TArray<USceneComponent*> GeneratedPCGComponents;
     UActorComponent* UCSComponent = nullptr;
     FGuid ActorId;
+    FGuid NativePCGActorId;
     FString NativeId;
     FString SCSId;
     FString SCSDeclaringClass;
     FString InstanceId;
     FString PCGId;
+    FString NativePCGId;
+    FString GraphPath;
+    FString UnsavedGraphPath;
 
     UPackage* GetBlueprintPackage() const
     {
@@ -1558,7 +2201,18 @@ private:
     USCS_Node* SCSNode = nullptr;
     USCS_Node* SCSCollisionProbeNode = nullptr;
     TStrongObjectPtr<UBlueprint> BlueprintRoot;
+    FString GraphPackageName;
+    FString GraphFilename;
+    UPackage* GraphPackage = nullptr;
+    UPCGGraph* Graph = nullptr;
+    TStrongObjectPtr<UPCGGraph> GraphRoot;
+    FString UnsavedGraphPackageName;
+    UPackage* UnsavedGraphPackage = nullptr;
+    UPCGGraph* UnsavedGraph = nullptr;
+    TStrongObjectPtr<UPCGGraph> UnsavedGraphRoot;
     bool bBlueprintRegistered = false;
+    bool bGraphRegistered = false;
+    bool bUnsavedGraphRegistered = false;
     bool bCleaned = false;
 };
 
@@ -2539,6 +3193,211 @@ private:
     TArray<TWeakObjectPtr<UActorComponent>> InstanceComponentsBefore;
     TArray<TWeakObjectPtr<UActorComponent>>
         BlueprintCreatedComponentsBefore;
+};
+
+struct FFixturePCGComponentState
+{
+    TWeakObjectPtr<UPCGComponent> Component;
+    TWeakObjectPtr<UPCGGraphInstance> GraphInstance;
+    TWeakObjectPtr<UPCGGraphInterface> GraphInterface;
+    TWeakObjectPtr<UPCGGraph> Graph;
+    bool bRegistered = false;
+    bool bGenerating = false;
+    bool bCleaningUp = false;
+    FPCGTaskId GenerationTask = InvalidPCGTaskId;
+    int32 ManagedResourceCount = 0;
+};
+
+struct FFixturePCGGraphLinkState
+{
+    TWeakObjectPtr<UPCGGraphInstance> Instance;
+    TWeakObjectPtr<UPCGGraphInterface> Parent;
+};
+
+int32 CountPCGManagedResources(UPCGComponent* Component)
+{
+    int32 Count = 0;
+    if (Component != nullptr)
+    {
+        Component->ForEachManagedResource(
+            [&Count](UPCGManagedResource*)
+            {
+                ++Count;
+            });
+    }
+    return Count;
+}
+
+class FPCGComponentReadInvariant
+{
+public:
+    explicit FPCGComponentReadInvariant(
+        const TArray<UPCGComponent*>& Components)
+    {
+        for (UPCGComponent* Component : Components)
+        {
+            if (Component == nullptr)
+            {
+                continue;
+            }
+            FFixturePCGComponentState& State =
+                States.AddDefaulted_GetRef();
+            State.Component = Component;
+            State.GraphInstance = Component->GetGraphInstance();
+            State.GraphInterface = Component->GetGraphInstance() != nullptr
+                ? Component->GetGraphInstance()->Graph.Get()
+                : nullptr;
+            State.Graph = Component->GetGraph();
+            State.bRegistered = Component->IsRegistered();
+            State.bGenerating = Component->IsGenerating();
+            State.bCleaningUp = Component->IsCleaningUp();
+            State.GenerationTask = Component->GetGenerationTaskId();
+            State.ManagedResourceCount =
+                CountPCGManagedResources(Component);
+            RelevantObjects.Add(Component);
+            if (UPCGGraphInstance* GraphInstance =
+                    Component->GetGraphInstance())
+            {
+                RelevantObjects.Add(GraphInstance);
+            }
+            TSet<UPCGGraphInstance*> SeenGraphInstances;
+            UPCGGraphInterface* CurrentInterface =
+                State.GraphInterface.Get();
+            while (UPCGGraphInstance* CurrentInstance =
+                       Cast<UPCGGraphInstance>(CurrentInterface))
+            {
+                if (SeenGraphInstances.Contains(CurrentInstance))
+                {
+                    break;
+                }
+                SeenGraphInstances.Add(CurrentInstance);
+                FFixturePCGGraphLinkState& Link =
+                    GraphLinks.AddDefaulted_GetRef();
+                Link.Instance = CurrentInstance;
+                Link.Parent = CurrentInstance->Graph.Get();
+                RelevantObjects.Add(CurrentInstance);
+                CurrentInterface = Link.Parent.Get();
+            }
+            if (UPCGGraph* Graph = Component->GetGraph())
+            {
+                RelevantObjects.Add(Graph);
+            }
+            UPackage* Package = Component->GetOutermost();
+            if (Package != nullptr && !PackageDirtyBefore.Contains(Package))
+            {
+                PackageDirtyBefore.Add(Package, Package->IsDirty());
+            }
+            UPackage* GraphPackage = Component->GetGraph() != nullptr
+                ? Component->GetGraph()->GetOutermost()
+                : nullptr;
+            if (GraphPackage != nullptr
+                && !PackageDirtyBefore.Contains(GraphPackage))
+            {
+                PackageDirtyBefore.Add(
+                    GraphPackage,
+                    GraphPackage->IsDirty());
+            }
+        }
+        ObjectModifiedHandle =
+            FCoreUObjectDelegates::OnObjectModified.AddLambda(
+                [this](UObject* Object)
+                {
+                    if (RelevantObjects.Contains(Object))
+                    {
+                        ++RelevantObjectModifiedCount;
+                    }
+                });
+    }
+
+    ~FPCGComponentReadInvariant()
+    {
+        FCoreUObjectDelegates::OnObjectModified.Remove(
+            ObjectModifiedHandle);
+    }
+
+    bool Verify(FAutomationTestBase& Test) const
+    {
+        bool bOk = true;
+        bOk &= Test.TestEqual(
+            TEXT("PCG Component Query emits no relevant UObject modification"),
+            RelevantObjectModifiedCount,
+            0);
+        for (const FFixturePCGComponentState& State : States)
+        {
+            UPCGComponent* Component = State.Component.Get();
+            bOk &= Test.TestNotNull(
+                TEXT("PCG Component Query preserves the source Component"),
+                Component);
+            if (Component == nullptr)
+            {
+                continue;
+            }
+            bOk &= Test.TestEqual(
+                TEXT("PCG Component Query preserves the owned GraphInstance"),
+                Component->GetGraphInstance(),
+                State.GraphInstance.Get());
+            bOk &= Test.TestEqual(
+                TEXT("PCG Component Query preserves the direct Graph interface"),
+                Component->GetGraphInstance() != nullptr
+                    ? Component->GetGraphInstance()->Graph.Get()
+                    : nullptr,
+                State.GraphInterface.Get());
+            bOk &= Test.TestEqual(
+                TEXT("PCG Component Query preserves the top Graph"),
+                Component->GetGraph(),
+                State.Graph.Get());
+            bOk &= Test.TestEqual(
+                TEXT("PCG Component Query preserves registration"),
+                Component->IsRegistered(),
+                State.bRegistered);
+            bOk &= Test.TestEqual(
+                TEXT("PCG Component Query does not start generation"),
+                Component->IsGenerating(),
+                State.bGenerating);
+            bOk &= Test.TestEqual(
+                TEXT("PCG Component Query does not start cleanup"),
+                Component->IsCleaningUp(),
+                State.bCleaningUp);
+            bOk &= Test.TestEqual(
+                TEXT("PCG Component Query preserves the generation task id"),
+                Component->GetGenerationTaskId(),
+                State.GenerationTask);
+            bOk &= Test.TestEqual(
+                TEXT("PCG Component Query preserves managed resources"),
+                CountPCGManagedResources(Component),
+                State.ManagedResourceCount);
+        }
+        for (const FFixturePCGGraphLinkState& Link : GraphLinks)
+        {
+            UPCGGraphInstance* Instance = Link.Instance.Get();
+            bOk &= Test.TestNotNull(
+                TEXT("PCG Component Query preserves every loaded GraphInstance link"),
+                Instance);
+            if (Instance != nullptr)
+            {
+                bOk &= Test.TestEqual(
+                    TEXT("PCG Component Query preserves every loaded GraphInterface parent"),
+                    Instance->Graph.Get(),
+                    Link.Parent.Get());
+            }
+        }
+        for (const TPair<UPackage*, bool>& Entry : PackageDirtyBefore)
+        {
+            bOk &= Test.TestEqual(
+                TEXT("PCG Component Query preserves every persistence package dirty flag"),
+                Entry.Key->IsDirty(),
+                Entry.Value);
+        }
+        return bOk;
+    }
+
+private:
+    TArray<FFixturePCGComponentState> States;
+    TArray<FFixturePCGGraphLinkState> GraphLinks;
+    TSet<UObject*> RelevantObjects;
+    TMap<UPackage*, bool> PackageDirtyBefore;
+    FDelegateHandle ObjectModifiedHandle;
+    int32 RelevantObjectModifiedCount = 0;
 };
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -3564,6 +4423,7 @@ bool FSalLevelComponentIdentityQueryTest::RunTest(
     struct FExpectedComponent
     {
         UActorComponent* Component = nullptr;
+        FGuid ActorId;
         FString Source;
         FString Id;
         FString CreationMethod;
@@ -3573,6 +4433,7 @@ bool FSalLevelComponentIdentityQueryTest::RunTest(
     const TArray<FExpectedComponent> Expected = {
         {
             ComponentFixture.NativeComponent,
+            ComponentFixture.ActorId,
             TEXT("native"),
             ComponentFixture.NativeId,
             TEXT("Native"),
@@ -3581,6 +4442,7 @@ bool FSalLevelComponentIdentityQueryTest::RunTest(
         },
         {
             ComponentFixture.SCSComponent,
+            ComponentFixture.ActorId,
             TEXT("scs"),
             ComponentFixture.SCSId,
             TEXT("SimpleConstructionScript"),
@@ -3589,6 +4451,7 @@ bool FSalLevelComponentIdentityQueryTest::RunTest(
         },
         {
             ComponentFixture.InstanceComponent,
+            ComponentFixture.ActorId,
             TEXT("instance"),
             ComponentFixture.InstanceId,
             TEXT("Instance"),
@@ -3597,9 +4460,19 @@ bool FSalLevelComponentIdentityQueryTest::RunTest(
         },
         {
             ComponentFixture.PCGComponent,
+            ComponentFixture.ActorId,
             TEXT("instance"),
             ComponentFixture.PCGId,
             TEXT("Instance"),
+            FString(),
+            true
+        },
+        {
+            ComponentFixture.NativePCGComponent,
+            ComponentFixture.NativePCGActorId,
+            TEXT("native"),
+            ComponentFixture.NativePCGId,
+            TEXT("Native"),
             FString(),
             true
         }
@@ -3625,7 +4498,7 @@ bool FSalLevelComponentIdentityQueryTest::RunTest(
         TEXT("Component collection emits every explicitly expected persistent slot"),
         Components.Num() >= Expected.Num());
 
-    TSharedPtr<FJsonObject> PCGFields;
+    TMap<FString, FString> ExpectedPCGAliases;
     for (const FExpectedComponent& Entry : Expected)
     {
         const TSharedPtr<FJsonObject> Fields =
@@ -3639,9 +4512,10 @@ bool FSalLevelComponentIdentityQueryTest::RunTest(
         bool bStableRefAvailable = false;
         TArray<FString> ActorRefPath;
         TArray<FString> ComponentRefPath;
-        const TArray<FString> ExpectedActorRefPath = {ActorId};
+        const FString EntryActorId = LevelGuidText(Entry.ActorId);
+        const TArray<FString> ExpectedActorRefPath = {EntryActorId};
         const TArray<FString> ExpectedComponentRefPath = {
-            ActorId,
+            EntryActorId,
             Entry.Source,
             Entry.Id
         };
@@ -3696,12 +4570,29 @@ bool FSalLevelComponentIdentityQueryTest::RunTest(
                         && DeclaringClass == Entry.DeclaringClass));
         if (Entry.bPCG)
         {
-            PCGFields = Fields;
+            FString Alias;
+            const FString Key = PCGComponentIdentityKey(
+                EntryActorId,
+                Entry.Source,
+                Entry.Id);
+            TestTrue(
+                TEXT("Authored original PCG Component retains one specialized Target LocalRef"),
+                ReadLevelLocalField(
+                    Fields,
+                    TEXT("pcgComponent"),
+                    Alias));
+            if (!Alias.IsEmpty())
+            {
+                ExpectedPCGAliases.Add(Key, Alias);
+            }
         }
-        TestTrue(
-            TEXT("1C-A Component exposes no specialized Target LocalRef"),
-            Fields.IsValid()
-                && !Fields->HasField(TEXT("pcgComponent")));
+        else
+        {
+            TestTrue(
+                TEXT("Ordinary Component exposes no PCG-specific Target LocalRef"),
+                Fields.IsValid()
+                    && !Fields->HasField(TEXT("pcgComponent")));
+        }
     }
 
     const FString UCSName =
@@ -3741,11 +4632,28 @@ bool FSalLevelComponentIdentityQueryTest::RunTest(
             bGeneratedReturned);
     }
 
+    TMap<FString, FString> RelatedPCGAliases;
+    TSet<FString> PCGHandoffAliases;
     TestTrue(
-        TEXT("Authored PCG Component remains generic without 1C-B related context"),
-        PCGFields.IsValid()
-            && !PCGFields->HasField(TEXT("pcgComponent"))
-            && HasNoLevelRelatedContext(ComponentsResult));
+        TEXT("Level Component collection structurally deduplicates exact PCG Component Targets and handoffs"),
+        ReadRelatedPCGComponentTargets(
+            ComponentsResult,
+            LevelFixture.Loaded.ObjectPath,
+            RelatedPCGAliases)
+            && RelatedPCGAliases.Num() == ExpectedPCGAliases.Num()
+            && ReadLevelHandoffAliases(
+                ComponentsResult,
+                TEXT("inspect_pcg_component"),
+                PCGHandoffAliases)
+            && PCGHandoffAliases.Num() == ExpectedPCGAliases.Num());
+    for (const TPair<FString, FString>& ExpectedAlias : ExpectedPCGAliases)
+    {
+        TestTrue(
+            TEXT("Every PCG Component LocalRef names its canonical related Target and handoff"),
+            RelatedPCGAliases.FindRef(ExpectedAlias.Key)
+                    == ExpectedAlias.Value
+                && PCGHandoffAliases.Contains(ExpectedAlias.Value));
+    }
 
     const TSharedPtr<FJsonObject> SummaryResult =
         FSalModule::BuildQueryResult(
@@ -3840,6 +4748,36 @@ bool FSalLevelComponentIdentityQueryTest::RunTest(
             break;
         }
         PagedComponentOrder.Add(Key);
+        FString PageType;
+        PageComponents[0]->TryGetStringField(TEXT("type"), PageType);
+        if (PageType == UPCGComponent::StaticClass()->GetPathName())
+        {
+            FString PageAlias;
+            TMap<FString, FString> PageRelated;
+            TestTrue(
+                TEXT("A PCG Component page enriches only its emitted item with one exact handoff"),
+                ReadLevelLocalField(
+                    PageComponents[0],
+                    TEXT("pcgComponent"),
+                    PageAlias)
+                    && ReadRelatedPCGComponentTargets(
+                        PageResult,
+                        LevelFixture.Loaded.ObjectPath,
+                        PageRelated)
+                    && PageRelated.Num() == 1
+                    && PageRelated.FindKey(PageAlias) != nullptr
+                    && HasSingleLevelHandoff(
+                        PageResult,
+                        TEXT("inspect_pcg_component"),
+                        PageAlias));
+        }
+        else
+        {
+            TestTrue(
+                TEXT("A non-PCG Component page carries no unrelated PCG Target context"),
+                !PageComponents[0]->HasField(TEXT("pcgComponent"))
+                    && HasNoLevelRelatedContext(PageResult));
+        }
         FString Next;
         if (!ReadLevelNextCursor(PageResult, Next))
         {
@@ -3900,7 +4838,7 @@ bool FSalLevelComponentIdentityQueryTest::RunTest(
                 LevelQueryArguments(
                     Target,
                     LevelExactComponentOperation(
-                        ActorId,
+                        LevelGuidText(Entry.ActorId),
                         Entry.Source,
                         Entry.Id)));
         const TArray<TSharedPtr<FJsonObject>> ExactComponents =
@@ -3920,11 +4858,39 @@ bool FSalLevelComponentIdentityQueryTest::RunTest(
                     Entry.Id).IsValid());
         const TSharedPtr<FJsonObject> ExactFields =
             FindLevelFieldsById(ExactComponents, Entry.Id);
-        TestTrue(
-            TEXT("Exact 1C-A Component has no 1C-B related Target context"),
-            ExactFields.IsValid()
-                && !ExactFields->HasField(TEXT("pcgComponent"))
-                && HasNoLevelRelatedContext(ExactResult));
+        if (Entry.bPCG)
+        {
+            FString ExactAlias;
+            TMap<FString, FString> ExactRelated;
+            const FString ExactKey = PCGComponentIdentityKey(
+                LevelGuidText(Entry.ActorId),
+                Entry.Source,
+                Entry.Id);
+            TestTrue(
+                TEXT("Exact authored PCG Component retains one canonical inspect handoff"),
+                ReadLevelLocalField(
+                    ExactFields,
+                    TEXT("pcgComponent"),
+                    ExactAlias)
+                    && ReadRelatedPCGComponentTargets(
+                        ExactResult,
+                        LevelFixture.Loaded.ObjectPath,
+                        ExactRelated)
+                    && ExactRelated.Num() == 1
+                    && ExactRelated.FindRef(ExactKey) == ExactAlias
+                    && HasSingleLevelHandoff(
+                        ExactResult,
+                        TEXT("inspect_pcg_component"),
+                        ExactAlias));
+        }
+        else
+        {
+            TestTrue(
+                TEXT("Exact ordinary Component has no PCG-specific Target context"),
+                ExactFields.IsValid()
+                    && !ExactFields->HasField(TEXT("pcgComponent"))
+                    && HasNoLevelRelatedContext(ExactResult));
+        }
     }
 
     for (const USceneComponent* Generated :
@@ -3973,6 +4939,637 @@ bool FSalLevelComponentIdentityQueryTest::RunTest(
     TestTrue(
         TEXT("All Component reads preserve Component lifecycle and packages"),
         ComponentInvariant.Verify(*this));
+
+    Error.Reset();
+    if (!LevelFixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    Error.Reset();
+    if (!ComponentFixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalPCGComponentAuthoredQueryTest,
+    "Loomle.Sal.PCGComponent.Query.AuthoredTargetSummaryAndBoundaries",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalPCGComponentAuthoredQueryTest::RunTest(
+    const FString& Parameters)
+{
+    // Keep this declaration order: the Level World must release Component and
+    // Graph references before the authored fixture removes its asset records.
+    FScopedLevelComponentQueryFixture ComponentFixture;
+    FScopedLevelQueryFixture LevelFixture;
+    FString Error;
+    if (!TestTrue(
+            TEXT("PCG Component Level fixture builds"),
+            LevelFixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("PCG Component source Level becomes the active Editor World"),
+            LevelFixture.Activate(LevelFixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Native and instance PCG Component authored fixture builds"),
+            ComponentFixture.Build(LevelFixture, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+
+    const auto AddMatrixComponent =
+        [&ComponentFixture](const FName Name)
+        {
+            UPCGComponent* Component = NewObject<UPCGComponent>(
+                ComponentFixture.Actor,
+                UPCGComponent::StaticClass(),
+                Name,
+                RF_Transactional);
+            if (Component != nullptr)
+            {
+                ComponentFixture.Actor->AddInstanceComponent(Component);
+                Component->OnComponentCreated();
+            }
+            return Component;
+        };
+    UPCGComponent* UnboundPCGComponent = AddMatrixComponent(
+        FName(TEXT("LoomleUnboundPCGComponent")));
+    UPCGComponent* ParentlessPCGComponent = AddMatrixComponent(
+        FName(TEXT("LoomleParentlessPCGComponent")));
+    UPCGGraphInstance* ParentlessGraphInstance =
+        NewObject<UPCGGraphInstance>(
+            ComponentFixture.Actor,
+            UPCGGraphInstance::StaticClass(),
+            FName(TEXT("LoomleParentlessGraphInstance")),
+            RF_Transactional);
+    if (ParentlessPCGComponent != nullptr
+        && ParentlessGraphInstance != nullptr)
+    {
+        ParentlessPCGComponent->SetGraphLocal(
+            ParentlessGraphInstance);
+    }
+
+    UPCGComponent* BoundedPCGComponent = AddMatrixComponent(
+        FName(TEXT("LoomleBoundedPCGComponent")));
+    constexpr int32 BoundedGraphInstanceCount = 32;
+    TArray<UPCGGraphInstance*> BoundedGraphInstances;
+    BoundedGraphInstances.Reserve(BoundedGraphInstanceCount);
+    for (int32 Index = 0;
+         Index < BoundedGraphInstanceCount;
+         ++Index)
+    {
+        const FName InstanceName(*FString::Printf(
+            TEXT("LoomleBoundedGraphInstance_%02d"),
+            Index));
+        BoundedGraphInstances.Add(NewObject<UPCGGraphInstance>(
+            ComponentFixture.Actor,
+            UPCGGraphInstance::StaticClass(),
+            InstanceName,
+            RF_Transactional));
+    }
+    UPCGGraph* SavedGraph =
+        ComponentFixture.NativePCGComponent != nullptr
+        ? ComponentFixture.NativePCGComponent->GetGraph()
+        : nullptr;
+    bool bBoundedChainBuilt = SavedGraph != nullptr
+        && BoundedGraphInstances.Num() == BoundedGraphInstanceCount
+        && !BoundedGraphInstances.Contains(nullptr);
+    if (bBoundedChainBuilt)
+    {
+        for (int32 Index = BoundedGraphInstances.Num() - 1;
+             Index >= 0;
+             --Index)
+        {
+            UPCGGraphInterface* Parent = SavedGraph;
+            if (Index + 1 < BoundedGraphInstances.Num())
+            {
+                Parent = BoundedGraphInstances[Index + 1];
+            }
+            BoundedGraphInstances[Index]->SetGraph(Parent);
+        }
+        if (BoundedPCGComponent != nullptr)
+        {
+            BoundedPCGComponent->SetGraphLocal(
+                BoundedGraphInstances[0]);
+        }
+    }
+
+    const auto IsOriginalInstance = [](const UPCGComponent* Component)
+    {
+        return Component != nullptr
+            && Component->CreationMethod
+                == EComponentCreationMethod::Instance
+            && Component->GetConstOriginalComponent() == Component;
+    };
+    if (!TestTrue(
+            TEXT("The frozen Graph binding matrix fixture builds from public UE APIs"),
+            IsOriginalInstance(UnboundPCGComponent)
+                && UnboundPCGComponent->GetGraphInstance() != nullptr
+                && UnboundPCGComponent->GetGraphInstance()->Graph.Get()
+                    == nullptr
+                && IsOriginalInstance(ParentlessPCGComponent)
+                && ParentlessGraphInstance != nullptr
+                && ParentlessGraphInstance->Graph.Get() == nullptr
+                && ParentlessPCGComponent->GetGraphInstance() != nullptr
+                && ParentlessPCGComponent->GetGraphInstance()->Graph.Get()
+                    == ParentlessGraphInstance
+                && IsOriginalInstance(BoundedPCGComponent)
+                && bBoundedChainBuilt
+                && BoundedPCGComponent->GetGraphInstance() != nullptr
+                && BoundedPCGComponent->GetGraphInstance()->Graph.Get()
+                    == BoundedGraphInstances[0]
+                && BoundedPCGComponent->GetGraph() == SavedGraph))
+    {
+        return false;
+    }
+    LevelFixture.Loaded.World->GetOutermost()->SetDirtyFlag(false);
+
+    FLevelReadInvariant LevelInvariant(LevelFixture.Loaded.World);
+    FLevelComponentReadInvariant InstanceOwnerInvariant(
+        ComponentFixture.Actor,
+        ComponentFixture.GetBlueprintPackage());
+    FLevelComponentReadInvariant NativeOwnerInvariant(
+        ComponentFixture.NativePCGActor,
+        nullptr);
+    const TArray<UPCGComponent*> PCGComponents = {
+        ComponentFixture.NativePCGComponent,
+        ComponentFixture.PCGComponent,
+        UnboundPCGComponent,
+        ParentlessPCGComponent,
+        BoundedPCGComponent};
+    FPCGComponentReadInvariant PCGInvariant(PCGComponents);
+
+    struct FExpectedPCGComponent
+    {
+        UPCGComponent* Component = nullptr;
+        FGuid ActorId;
+        FString Source;
+        FString Id;
+        FString CreationMethod;
+        FString GraphBindingKind;
+        FString GraphInterfacePath;
+        FString GraphInterfaceType;
+        FString GraphPath;
+        FString GraphType;
+        bool bGraphBindingComplete = true;
+        bool bSavedGraph = false;
+        bool bExpectReferenceWarning = false;
+    };
+    const TArray<FExpectedPCGComponent> Expected = {
+        {
+            ComponentFixture.NativePCGComponent,
+            ComponentFixture.NativePCGActorId,
+            TEXT("native"),
+            ComponentFixture.NativePCGId,
+            TEXT("Native"),
+            TEXT("graph"),
+            ComponentFixture.GraphPath,
+            UPCGGraph::StaticClass()->GetPathName(),
+            ComponentFixture.GraphPath,
+            UPCGGraph::StaticClass()->GetPathName(),
+            true,
+            true
+        },
+        {
+            ComponentFixture.PCGComponent,
+            ComponentFixture.ActorId,
+            TEXT("instance"),
+            ComponentFixture.PCGId,
+            TEXT("Instance"),
+            TEXT("graph"),
+            ComponentFixture.UnsavedGraphPath,
+            UPCGGraph::StaticClass()->GetPathName(),
+            ComponentFixture.UnsavedGraphPath,
+            UPCGGraph::StaticClass()->GetPathName(),
+            true,
+            false
+        },
+        {
+            UnboundPCGComponent,
+            ComponentFixture.ActorId,
+            TEXT("instance"),
+            UnboundPCGComponent->GetFName().ToString(),
+            TEXT("Instance"),
+            TEXT("none"),
+            FString(),
+            FString(),
+            FString(),
+            FString(),
+            true,
+            false,
+            false
+        },
+        {
+            ParentlessPCGComponent,
+            ComponentFixture.ActorId,
+            TEXT("instance"),
+            ParentlessPCGComponent->GetFName().ToString(),
+            TEXT("Instance"),
+            TEXT("graph_instance"),
+            ParentlessGraphInstance->GetPathName(),
+            UPCGGraphInstance::StaticClass()->GetPathName(),
+            FString(),
+            FString(),
+            true,
+            false,
+            false
+        },
+        {
+            BoundedPCGComponent,
+            ComponentFixture.ActorId,
+            TEXT("instance"),
+            BoundedPCGComponent->GetFName().ToString(),
+            TEXT("Instance"),
+            TEXT("graph_instance"),
+            BoundedGraphInstances[0]->GetPathName(),
+            UPCGGraphInstance::StaticClass()->GetPathName(),
+            FString(),
+            FString(),
+            false,
+            false,
+            true
+        }
+    };
+
+    for (const FExpectedPCGComponent& Entry : Expected)
+    {
+        const TSharedRef<FJsonObject> Target = PCGComponentTarget(
+            LevelFixture.Loaded.ObjectPath,
+            Entry.ActorId,
+            Entry.Source,
+            Entry.Id);
+        const TSharedPtr<FJsonObject> TargetResult =
+            FSalModule::BuildQueryResult(
+                PCGComponentQueryArguments(
+                    Target,
+                    LevelOperation(TEXT("target"))));
+        const TSharedPtr<FJsonObject> TargetFields =
+            CollectLocalMemberFields(
+                TargetResult,
+                TEXT("pcg_component_scope"));
+        FString Source;
+        FString CreationMethod;
+        FString Asset;
+        FString ActorId;
+        FString Id;
+        FString Name;
+        FString Type;
+        bool bLoaded = false;
+        TestTrue(
+            TEXT("Canonical PCG Component target resolves its closed authored fields"),
+            !LevelHasError(TargetResult)
+                && LevelHasTargetContext(
+                    TargetResult,
+                    TEXT("exact_target"))
+                && HasCanonicalPCGComponentTarget(
+                    TargetResult,
+                    LevelFixture.Loaded.ObjectPath,
+                    Entry.ActorId,
+                    Entry.Source,
+                    Entry.Id)
+                && TargetFields.IsValid()
+                && TargetFields->Values.Num() == 8
+                && TargetFields->TryGetStringField(TEXT("asset"), Asset)
+                && Asset == LevelFixture.Loaded.ObjectPath
+                && TargetFields->TryGetStringField(
+                    TEXT("actorId"),
+                    ActorId)
+                && ActorId == LevelGuidText(Entry.ActorId)
+                && ReadLevelNameField(
+                    TargetFields,
+                    TEXT("source"),
+                    Source)
+                && Source == Entry.Source
+                && TargetFields->TryGetStringField(TEXT("id"), Id)
+                && Id == Entry.Id
+                && TargetFields->TryGetStringField(TEXT("name"), Name)
+                && Name == Entry.Component->GetFName().ToString()
+                && TargetFields->TryGetStringField(TEXT("type"), Type)
+                && Type == UPCGComponent::StaticClass()->GetPathName()
+                && ReadLevelNameField(
+                    TargetFields,
+                    TEXT("CreationMethod"),
+                    CreationMethod)
+                && CreationMethod == Entry.CreationMethod
+                && TargetFields->TryGetBoolField(
+                    TEXT("loaded"),
+                    bLoaded)
+                && bLoaded
+                && !TargetFields->HasField(TEXT("registered"))
+                && !TargetFields->HasField(TEXT("graph"))
+                && !TargetFields->HasField(TEXT("graphInterface")));
+
+        FString OwnerAlias;
+        TestTrue(
+            TEXT("PCG Component target retains exactly one owning-Level navigation"),
+            ReadUniqueHandoffAlias(
+                TargetResult,
+                TEXT("inspect_level"),
+                OwnerAlias)
+                && HasRelatedTarget(
+                    TargetResult,
+                    OwnerAlias,
+                    TEXT("level"),
+                    LevelFixture.Loaded.ObjectPath,
+                    UWorld::StaticClass()->GetPathName())
+                && CountHandoffPurpose(TargetResult, TEXT("save")) == 0);
+
+        const TSharedPtr<FJsonObject> SchemaResult =
+            FSalModule::BuildQueryResult(
+                PCGComponentQueryArguments(
+                    Target,
+                    LevelOperation(TEXT("target")),
+                    true));
+        TestTrue(
+            TEXT("PCG Component exact schema remains explicitly read-only"),
+            !LevelHasError(SchemaResult)
+                && LevelHasCommentContaining(
+                    SchemaResult,
+                    TEXT("read-only"))
+                && CollectLocalMemberFields(
+                    SchemaResult,
+                    TEXT("pcg_component_scope")).IsValid()
+                && CountHandoffPurpose(SchemaResult, TEXT("save")) == 0);
+
+        const TSharedPtr<FJsonObject> SummaryResult =
+            FSalModule::BuildQueryResult(
+                PCGComponentQueryArguments(
+                    Target,
+                    LevelOperation(TEXT("summary"))));
+        const TSharedPtr<FJsonObject> SummaryFields =
+            CollectLocalMemberFields(
+                SummaryResult,
+                TEXT("pcg_component_scope"));
+        TSharedPtr<FJsonObject> GraphInterfaceFields;
+        TSharedPtr<FJsonObject> GraphFields;
+        FString GraphInterfaceKind;
+        FString GraphInterfacePath;
+        FString GraphInterfaceType;
+        FString GraphPath;
+        FString GraphType;
+        FString GraphBindingKind;
+        bool bGraphBindingComplete = false;
+        const bool bGraphInterfaceMatches =
+            Entry.GraphInterfacePath.IsEmpty()
+            ? LevelFieldIsNull(
+                SummaryFields,
+                TEXT("graphInterface"))
+            : ReadNestedObjectField(
+                    SummaryFields,
+                    TEXT("graphInterface"),
+                    GraphInterfaceFields)
+                && GraphInterfaceFields->Values.Num() == 3
+                && GraphInterfaceFields->TryGetStringField(
+                    TEXT("kind"),
+                    GraphInterfaceKind)
+                && GraphInterfaceKind == Entry.GraphBindingKind
+                && GraphInterfaceFields->TryGetStringField(
+                    TEXT("path"),
+                    GraphInterfacePath)
+                && GraphInterfacePath == Entry.GraphInterfacePath
+                && GraphInterfaceFields->TryGetStringField(
+                    TEXT("type"),
+                    GraphInterfaceType)
+                && GraphInterfaceType == Entry.GraphInterfaceType;
+        const bool bTopGraphMatches = Entry.GraphPath.IsEmpty()
+            ? LevelFieldIsNull(SummaryFields, TEXT("graph"))
+            : ReadNestedObjectField(
+                    SummaryFields,
+                    TEXT("graph"),
+                    GraphFields)
+                && GraphFields->Values.Num() == 2
+                && GraphFields->TryGetStringField(
+                    TEXT("path"),
+                    GraphPath)
+                && GraphPath == Entry.GraphPath
+                && GraphFields->TryGetStringField(
+                    TEXT("type"),
+                    GraphType)
+                && GraphType == Entry.GraphType;
+        TestTrue(
+            TEXT("PCG Component summary adds only the frozen bounded Graph binding evidence"),
+            !LevelHasError(SummaryResult)
+                && HasCanonicalPCGComponentTarget(
+                    SummaryResult,
+                    LevelFixture.Loaded.ObjectPath,
+                    Entry.ActorId,
+                    Entry.Source,
+                    Entry.Id)
+                && SummaryFields.IsValid()
+                && SummaryFields->Values.Num() == 12
+                && bGraphInterfaceMatches
+                && bTopGraphMatches
+                && SummaryFields->TryGetStringField(
+                    TEXT("graphBindingKind"),
+                    GraphBindingKind)
+                && GraphBindingKind == Entry.GraphBindingKind
+                && SummaryFields->TryGetBoolField(
+                    TEXT("graphBindingComplete"),
+                    bGraphBindingComplete)
+                && bGraphBindingComplete
+                    == Entry.bGraphBindingComplete
+                && LevelHasDiagnostic(
+                    SummaryResult,
+                    TEXT("validation.reference_scan_incomplete"))
+                    == Entry.bExpectReferenceWarning
+                && !SummaryFields->HasField(TEXT("parameters"))
+                && !SummaryFields->HasField(TEXT("registered")));
+
+        OwnerAlias.Reset();
+        TestTrue(
+            TEXT("PCG Component summary always retains its owning Level and never save authority"),
+            ReadUniqueHandoffAlias(
+                SummaryResult,
+                TEXT("inspect_level"),
+                OwnerAlias)
+                && HasRelatedTarget(
+                    SummaryResult,
+                    OwnerAlias,
+                    TEXT("level"),
+                    LevelFixture.Loaded.ObjectPath,
+                    UWorld::StaticClass()->GetPathName())
+                && CountHandoffPurpose(SummaryResult, TEXT("save")) == 0);
+        FString GraphAlias;
+        if (Entry.bSavedGraph)
+        {
+            TestTrue(
+                TEXT("A saved top Graph produces one exact inspect_graph handoff"),
+                ReadUniqueHandoffAlias(
+                    SummaryResult,
+                    TEXT("inspect_graph"),
+                    GraphAlias)
+                    && HasRelatedTarget(
+                        SummaryResult,
+                        GraphAlias,
+                        TEXT("pcg"),
+                        Entry.GraphPath,
+                        UPCGGraph::StaticClass()->GetPathName()));
+        }
+        else
+        {
+            TestEqual(
+                TEXT("A non-persistent, absent, or incomplete top Graph gains no Graph handoff"),
+                CountHandoffPurpose(
+                    SummaryResult,
+                    TEXT("inspect_graph")),
+                0);
+        }
+    }
+
+    const TSharedRef<FJsonObject> ParameterTarget = PCGComponentTarget(
+        LevelFixture.Loaded.ObjectPath,
+        ComponentFixture.NativePCGActorId,
+        TEXT("native"),
+        ComponentFixture.NativePCGId);
+    const TSharedPtr<FJsonObject> ParametersResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                ParameterTarget,
+                LevelOperation(TEXT("parameters"))));
+    TestTrue(
+        TEXT("PCG Component parameters remain explicitly unavailable in slice A"),
+        LevelHasDiagnostic(
+            ParametersResult,
+            TEXT("capability.operation_unavailable"))
+            && LevelHasTargetContext(
+                ParametersResult,
+                TEXT("exact_target"))
+            && HasCanonicalPCGComponentTarget(
+                ParametersResult,
+                LevelFixture.Loaded.ObjectPath,
+                ComponentFixture.NativePCGActorId,
+                TEXT("native"),
+                ComponentFixture.NativePCGId));
+
+    const TSharedRef<FJsonObject> WrongTypeTarget = PCGComponentTarget(
+        LevelFixture.Loaded.ObjectPath,
+        ComponentFixture.NativePCGActorId,
+        TEXT("native"),
+        ComponentFixture.NativePCGId,
+        USceneComponent::StaticClass()->GetPathName());
+    const TSharedPtr<FJsonObject> WrongTypeResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                WrongTypeTarget,
+                LevelOperation(TEXT("target"))));
+    TestTrue(
+        TEXT("A PCG Component Target with the wrong exact native Class fails closed"),
+        LevelHasDiagnostic(
+            WrongTypeResult,
+            TEXT("validation.invalid_target"))
+            && LevelHasTargetContext(
+                WrongTypeResult,
+                TEXT("unresolved_target")));
+
+    const TSharedRef<FJsonObject> NonPCGTarget = PCGComponentTarget(
+        LevelFixture.Loaded.ObjectPath,
+        ComponentFixture.ActorId,
+        TEXT("instance"),
+        ComponentFixture.InstanceId,
+        USceneComponent::StaticClass()->GetPathName());
+    const TSharedPtr<FJsonObject> NonPCGResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                NonPCGTarget,
+                LevelOperation(TEXT("target"))));
+    TestTrue(
+        TEXT("A durable non-PCG Component slot cannot enter the specialized Domain"),
+        LevelHasError(NonPCGResult)
+            && LevelHasTargetContext(
+                NonPCGResult,
+                TEXT("unresolved_target"))
+            && !LevelHasDiagnostic(
+                NonPCGResult,
+                TEXT("capability.component_owner_not_loaded")));
+
+    UWorld* EditorWorldBefore = GEditor != nullptr
+        ? GEditor->GetEditorWorldContext().World()
+        : nullptr;
+    const int32 SelectedActorsBefore = GEditor != nullptr
+        ? GEditor->GetSelectedActorCount()
+        : -1;
+    const int32 SelectedComponentsBefore = GEditor != nullptr
+        ? GEditor->GetSelectedComponentCount()
+        : -1;
+    const int32 UndoBefore = GEditor != nullptr && GEditor->Trans != nullptr
+        ? GEditor->Trans->GetUndoCount()
+        : -1;
+    TestTrue(
+        TEXT("Unloaded PCG Component fixture begins with no loaded source map"),
+        LevelFixture.IsUnloadedMapStillUnloaded());
+    const TSharedRef<FJsonObject> UnloadedTarget = PCGComponentTarget(
+        LevelFixture.Unloaded.ObjectPath,
+        LevelFixture.UnloadedPCGActorId,
+        TEXT("native"),
+        LevelFixture.UnloadedPCGId);
+    const TSharedPtr<FJsonObject> UnloadedResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                UnloadedTarget,
+                LevelOperation(TEXT("target"))));
+    TestTrue(
+        TEXT("An unloaded source Level fails before Component lookup without loading or pinning its map"),
+        LevelHasDiagnostic(
+            UnloadedResult,
+            TEXT("capability.level_not_loaded"))
+            && LevelHasTargetContext(
+                UnloadedResult,
+                TEXT("unresolved_target"))
+            && LevelFixture.IsUnloadedMapStillUnloaded()
+            && (GEditor == nullptr
+                || (GEditor->GetEditorWorldContext().World()
+                        == EditorWorldBefore
+                    && GEditor->GetSelectedActorCount()
+                        == SelectedActorsBefore
+                    && GEditor->GetSelectedComponentCount()
+                        == SelectedComponentsBefore
+                    && (GEditor->Trans == nullptr
+                        || GEditor->Trans->GetUndoCount()
+                            == UndoBefore))));
+
+    const TSharedPtr<FJsonObject> PatchResult =
+        FSalModule::BuildPatchResult(
+            PCGComponentPatchArguments(
+                PCGComponentTarget(
+                    LevelFixture.Loaded.ObjectPath,
+                    ComponentFixture.NativePCGActorId,
+                    TEXT("native"),
+                    ComponentFixture.NativePCGId)));
+    TestTrue(
+        TEXT("PCG Component Patch is rejected before native target resolution"),
+        LevelHasDiagnostic(
+            PatchResult,
+            TEXT("language.invalid_object_shape"))
+            && !LevelHasDiagnostic(
+                PatchResult,
+                TEXT("capability.component_owner_not_loaded"))
+            && !LevelHasDiagnostic(
+                PatchResult,
+                TEXT("resolution.object_not_found")));
+
+    TestTrue(
+        TEXT("All specialized PCG Component reads preserve Level and Editor state"),
+        LevelInvariant.Verify(*this));
+    TestTrue(
+        TEXT("All specialized reads preserve the instance owner lifecycle"),
+        InstanceOwnerInvariant.Verify(*this));
+    TestTrue(
+        TEXT("All specialized reads preserve the native owner lifecycle"),
+        NativeOwnerInvariant.Verify(*this));
+    TestTrue(
+        TEXT("All specialized reads preserve PCG authored and runtime state"),
+        PCGInvariant.Verify(*this));
 
     Error.Reset();
     if (!LevelFixture.Cleanup(Error))

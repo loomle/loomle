@@ -12,6 +12,14 @@ cross-owner architecture and complements
 [`PCG_DOMAIN_DESIGN.md`](PCG_DOMAIN_DESIGN.md), which owns asset-backed
 `UPCGGraph` authorship. If the documents disagree, the family design governs.
 
+The first persistent Component implementation is now split into two confirmed
+internal slices. Slice 1C-B-A is implemented internally and activates only
+canonical resolution, `target`,
+`summary`, exact schema, bounded zero-load Graph-binding readback, and related
+Level/Graph handoffs. Slice 1C-B-B later owns Parameter enumeration and exact
+Parameter readback. Neither slice enables Patch, execution, live resources, or
+a public interface card by itself.
+
 The runtime model has one Target-backed SAL Domain, one non-Target execution
 owner, and one private World-binding service:
 
@@ -178,10 +186,11 @@ neither generated layer.
 
 The first safe baseline covers:
 
-- canonical `pcg_component` resolution and Query;
-- direct and top Graph-interface readback;
-- Graph Parameter descriptor, effective value, local override bit, and local
-  value readback;
+- canonical `pcg_component` resolution, `target`, and `summary` Query;
+- bounded direct and top Graph-interface readback without loading or native
+  refresh;
+- later Graph Parameter descriptor, effective value, local override bit, and
+  local value readback only after the separate Slice 1C-B-B gates pass;
 - explicit Python control/observation of arbitrary live non-template
   `UPCGComponent` objects, with optional `sal.object()` authored-source
   projection where provable;
@@ -347,7 +356,8 @@ Resolution must still fail closed when:
 - the resolved Component was produced only by a User Construction Script;
 - the resolved object is a template, preview, partition-local, runtime-only, or
   otherwise not the persistent slot represented by the Target;
-- the Class does not match or derive from `UPCGComponent`;
+- the resolved Class does not derive from `UPCGComponent`, or its exact native
+  Class path differs from Target `type`;
 - the persistence owner cannot be determined.
 
 Every statement boundary re-resolves through Level, Actor Guid, source kind,
@@ -355,6 +365,20 @@ and source-specific locator. Generated Class rename/redirect handling, SCS node
 reconstruction, inherited SCS declarations, and duplicate mapping are release
 gates. The adapter never retains a raw Component, `USCS_Node`, or GraphInstance
 pointer as persistent identity.
+
+Resolution reuses the Level adapter's zero-load source-map canonicalization,
+complete ActorGuid index, and bounded Component identity snapshot. It does not
+implement a second Actor/Component scan and does not call `LoadObject`,
+`TryLoad`, map switching, World Partition pinning/loading, construction, or
+registration. If the entire source Level is unloaded, content resolution stops
+at `capability.level_not_loaded`. Only when the source World and its root World
+Partition descriptor index are already loaded, but the proved owner Actor is
+not pinned or loaded, does resolution use
+`capability.component_owner_not_loaded`. Missing and duplicate identities use
+`resolution.object_not_found` and `resolution.identity_conflict`; an
+incomplete identity audit uses `validation.reference_scan_incomplete`; and an
+exact native-Class assertion mismatch is an invalid Target. Slice 1C-B-A adds
+no new diagnostic code to the shared catalog.
 
 ### Parameter identity
 
@@ -499,11 +523,24 @@ Every related SAL Target is retained by Object Text through a scoped reference
 or by an explicit handoff; path strings and execution-record fields do not
 count as Target retention.
 
-A `pcg_component` Query may return:
+A complete `pcg_component` surface may eventually return:
 
 - its owning `level` or exact persistence-owner Target when supported;
 - the top asset-backed `pcg` Target;
 - an Asset Target for a direct external Graph interface.
+
+Slice 1C-B-A freezes the first two navigations more narrowly:
+
+- the exact owning source-map Target uses handoff purpose `inspect_level`;
+- one independently saved, top-level `UPCGGraph` uses handoff purpose
+  `inspect_graph`; and
+- no Query-only result emits `save`, while a direct external
+  `UPCGGraphInstance` remains path/type evidence and does not yet create an
+  Asset Target.
+
+The Level-to-specialized direction remains the fixed
+`inspect_pcg_component` handoff documented by the Level Domain. These purpose
+strings are result-only navigation labels; none performs the named operation.
 
 A Python result has no main SAL Target. Each successful `sal.object()` view is
 therefore an independent validated exact Query result, not a related Target or
@@ -523,23 +560,25 @@ another surface.
 
 ## Component Query
 
-### Query-only baseline
+### Slice 1C-B-A: implemented internal target and summary baseline
 
 The first publishable `pcg_component` surface is Query-only. It exposes
 persistent authored Component facts, not a live generated-resource view.
 
-Expected Query operations are:
+The only active primary Query operations in Slice 1C-B-A are:
 
 ```text
 target
 summary
-parameters [search]
-one parameter by descriptor Guid
-related authored Targets
-exact schema
 ```
 
-`summary` returns a cohesive authored view such as:
+`target with schema` is the only exact-schema form in this slice. `target`
+accepts no other detail or clause, and `summary` accepts no Query clauses.
+`parameters`, exact Parameter StableRefs, context, Palette, references, and
+every Patch operation fail as unavailable rather than returning a partial or
+guessed view.
+
+`target` returns one exact `component` object with this closed field set:
 
 ```sal
 c = component {
@@ -547,27 +586,83 @@ c = component {
   actorId: "11111111-1111-1111-1111-111111111111",
   source: native,
   id: "PCGComponent",
+  name: "PCGComponent",
   type: "/Script/PCG.PCGComponent",
-  GraphInterface: {
-    path: "/Game/PCG/Forest.Forest",
-    type: "/Script/PCG.PCGGraph"
-  },
-  Graph: {
-    path: "/Game/PCG/Forest.Forest",
-    type: "/Script/PCG.PCGGraph"
-  },
-  persistenceOwner: {
-    kind: level_or_external_actor,
-    package: "<exact-package-or-null>",
-    saveTargetAvailable: true
-  }
+  CreationMethod: Native,
+  loaded: true
 }
 ```
 
-Exact result field names are schema release gates. The important distinction is
-semantic: `GraphInterface` is the direct interface assigned to the
-Component-owned instance; `Graph` is the top graph returned by `GetGraph()`.
-They can differ when an external `UPCGGraphInstance` participates in the chain.
+`declaringClass` is additionally present only for `source: scs`. Its value is
+the exact declaring Blueprint Generated Class path already encoded into the
+qualified SCS slot identity. No other field is conditional in the base target
+object. In particular, `registered`, activation, task, generation, inspection,
+managed-resource, object-path-incarnation, package-dirty, and save facts are
+not persistent Component Target fields.
+
+`summary` returns the same base fields plus exactly four Graph-binding fields:
+
+```sal
+c = component {
+  asset: "/Game/Maps/Forest.Forest",
+  actorId: "11111111-1111-1111-1111-111111111111",
+  source: native,
+  id: "PCGComponent",
+  name: "PCGComponent",
+  type: "/Script/PCG.PCGComponent",
+  CreationMethod: Native,
+  loaded: true,
+  graphInterface: {
+    kind: "graph",
+    path: "/Game/PCG/Forest.Forest",
+    type: "/Script/PCG.PCGGraph"
+  },
+  graph: {
+    path: "/Game/PCG/Forest.Forest",
+    type: "/Script/PCG.PCGGraph"
+  },
+  graphBindingKind: "graph",
+  graphBindingComplete: true
+}
+```
+
+`graphInterface` is the direct public `UPCGGraphInstance::Graph` value assigned
+inside the Component-owned GraphInstance. When present it contains exactly
+`kind`, `path`, and `type`; `kind` is the string `"graph"` or
+`"graph_instance"`.
+`graph` is the terminal top `UPCGGraph` reached by a proved chain and contains
+exactly `path` and `type`. `graphBindingKind` is `none`, `graph`, or
+`graph_instance`, encoded as a string because `graph` is a SAL reserved word,
+and describes the direct interface. `graphBindingComplete`
+states whether the entire direct-to-top chain was inspected without invalid,
+incomplete, repeated, unsupported, or over-budget evidence.
+
+Both `graphInterface` and `graph` are present and `null` when no direct Graph
+is assigned. That is a complete unbound state with
+`graphBindingKind: "none"` and
+`graphBindingComplete: true`. A valid direct GraphInstance whose own chain
+ends unbound reports its `graphInterface`, `graph: null`, and
+`graphBindingComplete: true`. A corrupt, cyclic, incomplete, unsupported, or
+over-budget chain preserves the valid direct evidence when available, reports
+`graph: null`, sets `graphBindingComplete: false`, emits a bounded
+`validation.reference_scan_incomplete` warning, and emits no `pcg` Target.
+
+Graph traversal is iterative, cycle-checked, and hard-bounded over already
+loaded `UPCGGraphInterface` objects. It starts from
+`UPCGComponent::GetGraphInstance()`, verifies that this instance is owned by the
+exact resolved Component, then reads each public `UPCGGraphInstance::Graph`
+link until `UPCGGraph` or `null`. It must not call a recursively implemented
+top-Graph helper on untrusted input, `LoadObject`, `TryLoad`, GraphInstance
+refresh/callback setup, Parameter migration, `Modify`, registration,
+construction, generation, cleanup, or inspection APIs.
+
+A complete terminal Graph produces a related `pcg` Target only when the
+already-loaded object is independently saved, top-level, asset-backed, and
+zero-load canonicalization proves its exact path and native Class. Otherwise
+its `graph` entry remains path/type evidence without a related Target. The
+owning `level` Target is always the canonical source map already proved by
+Component resolution. `target` emits `inspect_level`; `summary` emits
+`inspect_level` plus `inspect_graph` when the exact `pcg` Target is available.
 
 The owned GraphInstance remains nested Component state. It is not an Asset
 Target, independently saveable object, or writable shared-settings path.
@@ -577,7 +672,12 @@ Component incarnation belong to Python observation or the typed PCG
 discovery/execution surface. They are intentionally absent from the persistent
 Component Query baseline.
 
-### Instance Parameter readback
+### Slice 1C-B-B: deferred Instance Parameter readback
+
+Nothing in the preceding target/summary slice reads a Property Bag, returns a
+Parameter count or value, lowers a Parameter StableRef, or infers an override
+source. The following shape remains the intended semantic direction, but its
+exact type/value encoding and result schema are not frozen until Slice 1C-B-B.
 
 Each Parameter result is keyed by the top Graph descriptor Guid and reports:
 
@@ -608,6 +708,23 @@ as a top-Graph default.
 
 Parameter declaration schema, name, type, order, and Guid belong to the Graph.
 `pcg_component` cannot create, remove, rename, or retype a Graph Parameter.
+
+Implementation must align every Property Bag descriptor by Guid through a
+bounded, cycle-checked interface chain before reading a value. For the
+Component-owned local bit it must call
+`UPCGGraphInstance::IsPropertyOverridden` with that owned bag descriptor's
+`CachedProperty`. UE 5.7 and UE 5.8
+`IsGraphParameterOverridden(FName)` merely prove that a descriptor of that
+name exists in the instance bag and therefore must not be used as the local
+override test. No read path may call refresh, migration, mutable-bag accessors,
+callback setup, or notification APIs.
+
+Before Slice 1C-B-B can activate, it must freeze lossless common-engine value
+encoding, native type spelling, large integer and non-finite number behavior,
+container/object/reference bounds, duplicate or invalid descriptor-Guid
+handling, parent-instance source inference, and incomplete-chain diagnostics.
+Until then, tests assert that `parameters` and exact Parameter Query are
+unavailable in Slice 1C-B-A.
 
 ### Planned Component mutation gate
 
@@ -1406,6 +1523,15 @@ before Bridge dispatch; enabling the later Component edit guard is a
 coordinated protocol capability bump. Neither `pcg_execution` nor any World
 selector/ticket enters either SAL request Target set.
 
+Slice 1C-B-A consumes the already allocated protocol-v6 Target and ordinary
+`target`/`summary` Query shapes unchanged. Activating its Bridge adapter,
+result fields, static internal card, and diagnostics does not add a Target
+field, Query operation kind, StableRef form, or protocol-version bump.
+Slice 1C-B-B likewise uses the existing `parameters` collection and StableRef
+grammar, but its operation advertisement and exact result capability must be
+versioned together across Client, Bridge, and the static card when that later
+slice is enabled.
+
 Those Target sets are type/admissibility sets only. After admission, the
 request's single `Target.domain` selects exactly one adapter. A set never
 combines Targets, activates multiple Domains, or creates joint Query/Patch
@@ -1461,7 +1587,8 @@ The Bridge needs:
 `pcg_component`, Python projection, and typed PCG runtime remain independent
 adapters:
 
-- Component resolves persistent authored slots and GraphInstance override
+- Component Slice 1C-B-A resolves persistent authored slots and read-only
+  Graph-binding facts; Slice 1C-B-B later adds proved GraphInstance override
   facts;
 - Python projectors map explicitly returned UObjects only to already published
   persistent SAL views;
@@ -1493,21 +1620,32 @@ before typed-runtime work begins. Typed execution is the final family stage.
 - add no async kernel, World registry, typed schema, execution frontend,
   projection envelope, effect schema, save support, or public interface card.
 
-### Slice 1: persistent Query-only Component
+### Slice 1C-B-A: persistent target, summary, and navigation
 
 - canonical Component Target with `asset, actorId, source, id, type`;
 - native/instance `FName` slot resolution and documented incarnation semantics;
 - SCS owner-Generated-Class plus `VariableGuid` resolution;
 - UCS Components remain live-only and have no persistent source Target;
-- persistent Graph/Level/Component handoffs;
-- Graph binding and certified persistent Parameter readback where identity is
-  proven;
+- closed base target fields and closed four-field Graph-binding summary
+  extension;
+- iterative, bounded, cycle-checked, zero-load direct/top Graph readback;
+- fixed `inspect_pcg_component`, `inspect_level`, and conditional
+  `inspect_graph` handoff purposes;
+- no Property Bag or Parameter readback;
 - no Component Patch and no execution.
 
-### Slice 2: Component Parameter readback and mutation research
+### Slice 1C-B-B: Component Parameter readback
 
 - descriptor-Guid declaration and effective-source Query;
 - inherited external GraphInstance coverage;
+- exact local override proof through the owned descriptor and
+  `IsPropertyOverridden`, never name-existence inference;
+- lossless common-engine type/value encoding and bounded exact Parameter
+  StableRef Query;
+- no mutation, Graph refresh, callback, task, resource, or save behavior.
+
+### Slice 2: Component mutation research
+
 - mutation guard prototype and failure injection;
 - internal/external persistence-owner handoff;
 - remain Query-only publicly until every Patch gate passes.
@@ -1641,14 +1779,26 @@ capability releases.
 
 ### Component Query and future mutation
 
-- direct Graph interface versus top Graph;
-- inherited Graph default;
-- inherited external GraphInstance value;
-- local override bit/value and effective source;
-- descriptor Guid survives rename;
-- removed Parameter invalidates the reference;
+- `target` returns exactly the frozen base fields, with `declaringClass` only
+  for SCS identity;
+- `summary` adds exactly `graphInterface`, `graph`, `graphBindingKind`, and
+  `graphBindingComplete`;
+- unassigned, directly bound Graph, external GraphInstance, unbound parent
+  instance, invalid, cyclic, unsupported, and over-budget Graph chains;
+- Graph traversal performs no load, refresh, callback setup, registration,
+  construction, transaction, dirtying, generation, cleanup, or inspection;
+- exact owning-Level `inspect_level`, asset-backed top-Graph `inspect_graph`,
+  and Level-to-Component `inspect_pcg_component` handoff purposes, with no
+  Query-only `save` handoff;
+- `parameters` and exact Parameter Query are unavailable in Slice 1C-B-A;
 - live resources are absent from persistent Component Query;
 - baseline exact schema advertises no Patch;
+- in Slice 1C-B-B, inherited Graph default and external GraphInstance value;
+- in Slice 1C-B-B, local override bit/value and effective source, with the bit
+  proven from the aligned owned descriptor rather than
+  `IsGraphParameterOverridden(FName)`;
+- in Slice 1C-B-B, descriptor Guid survives rename and a removed Parameter
+  invalidates the reference;
 - future mutation failure starts no task and restores value, override bit,
   dirty state, and Undo when that extension is enabled;
 - Graph assignment stays unavailable until refresh/cleanup isolation passes;
