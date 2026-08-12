@@ -20,6 +20,7 @@ import { writeZipFromDirectory } from "../tools/zip.mjs";
 const DEFAULT_REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const REGISTRY_SCHEMA = "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json";
 const REPOSITORY_URL = "https://github.com/loomle/loomle";
+const GITHUB_PROFILE_URL = "https://github.com/loomle";
 const WEBSITE_URL = "https://loomle.ai";
 const PRIVACY_URL = "https://loomle.ai/privacy/";
 
@@ -185,7 +186,7 @@ function mcpbManifest(version, channel) {
     version,
     description: "Structured, verifiable Unreal Engine editing for AI agents.",
     long_description: "Connect an AI agent to the live Unreal Editor through Loomle's compact SAL interface. The matching Loomle Bridge plugin must be installed separately.",
-    author: { name: "Loomle Lab", url: WEBSITE_URL },
+    author: { name: "Loomle Lab", url: GITHUB_PROFILE_URL },
     repository: { type: "git", url: `${REPOSITORY_URL}.git` },
     homepage: WEBSITE_URL,
     documentation: `${WEBSITE_URL}/install.html`,

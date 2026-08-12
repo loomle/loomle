@@ -44,9 +44,17 @@ test("derives Registry, Claude, and Codex packages from one Client bundle", asyn
     ));
     assert.equal(registryManifest.manifest_version, "0.3");
     assert.equal(registryManifest.icon, "icon.png");
+    assert.deepEqual(registryManifest.author, {
+      name: "Loomle Lab",
+      url: "https://github.com/loomle",
+    });
     assert.deepEqual(registryManifest.privacy_policies, ["https://loomle.ai/privacy/"]);
     assert.equal(registryManifest.server.mcp_config.env.LOOMLE_DISTRIBUTION_CHANNEL, "mcp_registry");
     assert.equal(claudeManifest.server.mcp_config.env.LOOMLE_DISTRIBUTION_CHANNEL, "claude");
+    assert.deepEqual(claudeManifest.author, {
+      name: "Loomle Lab",
+      url: "https://github.com/loomle",
+    });
     assert.equal(registryManifest.version, "0.7.10");
     assert.equal(claudeManifest.version, "0.7.10");
     for (const archive of [
