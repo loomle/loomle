@@ -297,23 +297,24 @@ bool LowerStableReference(
             Target);
         return false;
     }
-    if (Target.Domain == ESalDomain::Pcg)
+    if (Target.Domain == ESalDomain::Pcg
+        || Target.Domain == ESalDomain::Level)
     {
         FString Code;
         FString Message;
-        if (FSalPCGInterface::LowerStableReference(
-                Target,
-                IdentityPath,
-                Ref,
-                Code,
-                Message))
+        const bool bResolved = Target.Domain == ESalDomain::Pcg
+            ? FSalPCGInterface::LowerStableReference(
+                Target, IdentityPath, Ref, Code, Message)
+            : FSalLevelInterface::LowerStableReference(
+                Target, IdentityPath, Ref, Code, Message);
+        if (bResolved)
         {
             return true;
         }
         OutError = StableReferenceError(
             Code.IsEmpty() ? TEXT("resolution.object_not_found") : Code,
             Message.IsEmpty()
-                ? TEXT("Stable reference could not be resolved in the active PCG Target.")
+                ? TEXT("Stable reference could not be resolved in the active structured-identity Target.")
                 : Message,
             Target);
         return false;
@@ -372,15 +373,6 @@ bool LowerStableReference(
         break;
     case ESalDomain::Class:
         bResolved = FSalClassInterface::LowerStableReference(
-            Target,
-            IdentityPath,
-            LegacyKind,
-            LegacyId,
-            Code,
-            Message);
-        break;
-    case ESalDomain::Level:
-        bResolved = FSalLevelInterface::LowerStableReference(
             Target,
             IdentityPath,
             LegacyKind,

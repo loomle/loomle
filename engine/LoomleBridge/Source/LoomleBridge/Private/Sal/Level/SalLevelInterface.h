@@ -16,17 +16,11 @@ public:
         const FSalQuery& Query,
         const FSalResolvedTarget& Target);
 
-    /**
-     * Resolve one Level-scoped ActorGuid StableRef to the private exact Actor
-     * operation consumed by Query. The identity audit covers loaded
-     * source-Level Actors and the root World Partition Actor descriptor
-     * container without loading or pinning an Actor.
-     */
+    /** Resolve a Level-scoped Actor or source-qualified Component StableRef. */
     static bool LowerStableReference(
         const FSalResolvedTarget& Target,
         const TArray<FString>& IdentityPath,
-        FString& OutKind,
-        FString& OutId,
+        const TSharedPtr<FJsonObject>& Ref,
         FString& OutCode,
         FString& OutMessage);
 };

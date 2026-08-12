@@ -15,11 +15,14 @@ The unpublished scene/PCG family branch currently contains:
   descriptor projection; and
 - Slice 1B read-only Level Instance source ownership, including exact related
   source-Level Targets for loaded placement Actors and supported unloaded root
-  Actor descriptors.
+  Actor descriptors; and
+- Slice 1C-A read-only `components` collection, summary counts, exact
+  Component Query, and structured ActorGuid/source/slot StableRef lowering
+  for bounded, proved native, SCS, and instance identities.
 
-These are internal adapters, not public interface cards. Slice 1C Component
-identity, schema, Palette, mutation, save, Editor Context publication, and the
-static `level` catalog entry remain planned. Slice 1B also retains the real
+These are internal adapters, not public interface cards. Slice 1C-B referenced
+ownership and Editor Context, schema, Palette, mutation, save, and the static
+`level` catalog entry remain planned. Slices 1A through 1C-A also retain the real
 unloaded-World-Partition and temporary Level Instance edit/composition fixture
 gates described below.
 
@@ -352,11 +355,49 @@ not identify one exact constructed instance across control flow and reruns.
 Resolution requires:
 
 - one exact loaded owner Actor;
-- one exact Component resolved through the declared native/SCS/instance
-  source locator in the Actor's supported serialized Component set;
-- a non-template, non-transient instance;
-- no ambiguity across native, SCS, instance, or reconstructed Components;
-- a lifecycle category that the adapter can report exactly.
+- one direct Actor-owned Component from `GetComponents(..., false)`; child-Actor,
+  nested-object, template, archetype, transient, incomplete-load, PIE, preview,
+  generated, and wrong-package objects are excluded;
+- one exact Component resolved through a proved native/SCS/instance source
+  locator rather than through `CreationMethod` alone;
+- no ambiguity across native, SCS, instance, or reconstructed Components; and
+- a lifecycle category that the adapter can report exactly without loading an
+  Actor, registering a Component, or rerunning construction.
+
+The three supported source proofs are closed:
+
+- `native` requires `CreationMethod::Native` and one unique same-name,
+  compatible-Class default-subobject slot on the Actor Class CDO. The live
+  Component must carry the inherited default-subobject flag and agree with
+  that already-loaded CDO slot. The Query path does not call an archetype
+  helper that may preload a Blueprint Class. A `NewObject` Component that
+  merely retains the enum's default `Native` value is not a native slot.
+- `instance` requires `CreationMethod::Instance`, direct Actor ownership, and
+  the exact live pointer appearing exactly once in the Actor's serialized
+  `InstanceComponents` array. Its non-empty Actor-scoped `FName` is the slot
+  id.
+- `scs` requires `CreationMethod::SimpleConstructionScript` and exactly one
+  valid `USCS_Node` in the generated-Class inheritance chain whose generated
+  object property points to that exact live Component. The node, property,
+  `BlueprintCreatedComponents` membership, and live Component form a unique
+  one-to-one mapping. The node's declaring `UBlueprintGeneratedClass` path and
+  non-zero `VariableGuid` form the qualified id. The node variable name and the
+  current UObject `FName` are evidence only.
+
+`CreationMethod::UserConstructionScript` is always excluded. If a candidate
+has no unique source proof, has a duplicate source id, or crosses a durability
+boundary, the adapter omits it from the persistent Component identity set and
+returns bounded structural evidence. It never guesses a source from names,
+`IsCreatedByConstructionScript()`, editor presentation, or current registration
+state.
+
+The SCS proof uses an iterative, visited, bounded walk over each already-loaded
+`USimpleConstructionScript::GetRootNodes()` tree. It does not call
+`GetAllNodes()`, `FindSCSNodeByGuid()`, `GetActualComponentTemplate()`,
+`GetArchetype()`, or any editor-tree approximation: those paths may fill
+caches, preload Classes, recurse without the Level adapter's bounds, or resolve
+by presentation name. A null, cyclic, duplicate, incomplete, reinstancing, or
+otherwise ambiguous SCS graph makes Component identity fail closed.
 
 Native and instance ids denote durable serialized slots, not one UObject
 incarnation. A rename changes their StableRef, and delete/recreate with the
@@ -461,24 +502,63 @@ identity namespace. When source canonicalization fails, `sourceLevel` is
 omitted and the placement Actor remains readable with a bounded
 `resolution.level_instance_source_unavailable` warning.
 
-A loaded Component may be returned under its Actor:
+A loaded Component is returned as an independent collection or exact-object
+binding while retaining its owner explicitly:
 
 ```sal
-enemy.Components.Mesh = component {
+mesh = component {
+  actor: @aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa,
   id: "StaticMeshComponent0",
   name: "StaticMeshComponent0",
   source: native,
   type: "/Script/Engine.StaticMeshComponent",
   CreationMethod: Native,
   registered: true,
-  instanceEditable: true
+  stableRefAvailable: true,
+  ref: @aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/native/StaticMeshComponent0
 }
 ```
 
 The exact StableRef is
 `@aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/native/StaticMeshComponent0`. The local
-member key `Mesh` and `name` are presentation/evidence; neither replaces the
-source-qualified `id`.
+binding name and `name` are presentation/evidence; neither replaces the
+source-qualified `id`. An SCS Component additionally reports its declaring
+generated Class path; its `id` and `ref` retain the qualified Class-path/Guid
+key even if the SCS variable and Component UObject are renamed.
+
+Once the specialized query-only `pcg_component` adapter is active in the same
+coordinated slice, an exact serialized original `UPCGComponent` may
+additionally retain one specialized Target:
+
+```sal
+forest = component {
+  actor: @aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa,
+  id: "PCGComponent",
+  name: "PCGComponent",
+  source: native,
+  type: "/Script/PCG.PCGComponent",
+  CreationMethod: Native,
+  pcgComponent: forest_component,
+  stableRefAvailable: true,
+  ref: @aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/native/PCGComponent
+}
+related forest_component = target {
+  domain: pcg_component,
+  asset: "/Game/Maps/Arena.Arena",
+  actorId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  source: "native",
+  id: "PCGComponent",
+  type: "/Script/PCG.PCGComponent"
+}
+handoff inspect_pcg_component to forest_component
+```
+
+`pcgComponent` is the explicit Component-to-Target `LocalRef`. The handoff is
+named `inspect_pcg_component` because the first specialized adapter is
+Query-only. Multiple emitted references to the same canonical Component
+Target share one related Target and one handoff. A local partition Component,
+a generated/debug/cleanup projection, or a Component whose
+`GetConstOriginalComponent()` is not itself produces no persistent Target.
 
 Results preserve exact native Class paths, names, property names, enum values,
 and value shapes. The adapter does not translate them into a parallel scene
@@ -501,7 +581,13 @@ palette @id to <same-exact-destination>
 
 `target` verifies the exact source map and reports Level-level authored facts.
 `summary` returns bounded counts for loaded Actors, unloaded descriptors,
-external Actors, supported Components, and structural diagnostics.
+external Actors, supported Components, and structural diagnostics. Its
+Component projection is closed as `componentCount`, `nativeComponentCount`,
+`scsComponentCount`, `instanceComponentCount`, `pcgComponentCount`, and
+`componentIdentityComplete`. `componentCount` is exactly the sum of the three
+source counts. `pcgComponentCount` is the subset of those proved slots whose
+live object is an authored original `UPCGComponent`; it is not an additional
+identity category.
 
 `actors` includes loaded persisted Actors and unloaded World Partition
 descriptors. Search may inspect ActorGuid, native name, Actor label, object
@@ -1194,7 +1280,7 @@ related forestComponent = target {
   id: "PCGComponent",
   type: "/Script/PCG.PCGComponent"
 }
-handoff configure_pcg_component to forestComponent
+handoff inspect_pcg_component to forestComponent
 ```
 
 The Level Domain owns the Component's containment, Actor transform, lifecycle,
@@ -1361,11 +1447,42 @@ true temporary Level Instance edit/composed-Level fixture. Those fixtures must
 prove that source readback performs no Actor load, child-container
 registration, map switch, or temporary-package Target substitution.
 
-### Slice 1C: Component identity and Editor Context — planned
+### Slice 1C-A: Component identity Query — implemented internally
 
 - implement the native/SCS/instance Component locator and exact read-only
   Component Query;
-- add Asset, Blueprint, Class, and candidate `pcg_component` related Targets;
+- lower Actor and Component StableRefs without fusing their identity segments;
+- return deterministic paginated `components` results over only proved loaded
+  persistent slots;
+- keep UCS, transient, nested, generated, local-partition, and ambiguous
+  Components outside the identity set;
+- preserve World, Level, Actor, Component registration, construction,
+  selection, transaction, package dirty, and load state across every Query.
+
+This slice does not load Components for unloaded World Partition descriptors
+and does not publish a static Level or `pcg_component` interface card. An
+authored original `UPCGComponent` remains a truthful generic `component`
+object, but no specialized handoff is emitted while that next Target is still
+guaranteed to return `capability.interface_unavailable`.
+
+The UE 5.7 and UE 5.8 official arm64 persistent hosts compile this slice and
+pass both the targeted `Loomle.Sal.Level.Query.ComponentIdentity` Automation
+test and the full five-test `Loomle.Sal.Level.Query` regression. The internal
+fixture proves native/SCS/instance identity, UCS and PCG generated/debug/
+cleanup exclusion, structured StableRef round-trip, deterministic Component
+pagination and cursor invalidation, summary count invariants, and read-only
+Editor/Component lifecycle behavior. Public release still requires a real
+World Partition unloaded-owner fixture, native/SCS reconstruction and
+save/reload persistence fixtures, same-slot/different-Actor coverage, and the
+remaining negative matrix under `Test Requirements`.
+
+### Slice 1C-B: referenced ownership and Editor Context — planned
+
+- add proven Asset, Blueprint, and Class related Targets for read-only
+  navigation without granting cross-Domain authority;
+- activate the query-only `pcg_component` adapter and only then add candidate
+  Targets retained by an explicit `pcgComponent` LocalRef plus
+  `inspect_pcg_component` handoff;
 - upgrade Level Editor Context from Asset evidence to the shared Level
   resolver and identity index;
 - project one selected source Actor as `@ActorGuid` only after the full root

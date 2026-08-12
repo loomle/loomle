@@ -8,16 +8,26 @@
 #include "AssetRegistry/AssetData.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
+#include "Components/ActorComponent.h"
+#include "Components/SceneComponent.h"
+#include "ComponentInstanceDataCache.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Editor.h"
 #include "Editor/Transactor.h"
+#include "Engine/Blueprint.h"
+#include "Engine/BlueprintGeneratedClass.h"
 #include "Engine/Level.h"
+#include "Engine/SCS_Node.h"
 #include "Engine/Selection.h"
+#include "Engine/SimpleConstructionScript.h"
+#include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "HAL/FileManager.h"
 #include "Helpers/PCGHelpers.h"
+#include "Kismet2/BlueprintEditorUtils.h"
+#include "Kismet2/KismetEditorUtilities.h"
 #include "LevelInstance/LevelInstanceActor.h"
 #include "LevelInstance/LevelInstanceSubsystem.h"
 #include "Misc/AutomationTest.h"
@@ -25,9 +35,11 @@
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
+#include "PCGComponent.h"
 #include "UObject/GarbageCollection.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
+#include "UObject/StrongObjectPtr.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UObjectHash.h"
 #include "UObject/UObjectIterator.h"
@@ -101,10 +113,35 @@ TSharedRef<FJsonObject> LevelStableRef(const FString& ActorId)
     return Ref;
 }
 
+TSharedRef<FJsonObject> LevelComponentStableRef(
+    const FString& ActorId,
+    const FString& Source,
+    const FString& Id)
+{
+    TSharedRef<FJsonObject> Ref = MakeShared<FJsonObject>();
+    Ref->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    Ref->SetArrayField(
+        TEXT("identityPath"),
+        LevelStringValues({ActorId, Source, Id}));
+    return Ref;
+}
+
 TSharedRef<FJsonObject> LevelExactOperation(const FString& ActorId)
 {
     TSharedRef<FJsonObject> Operation = LevelOperation(TEXT("object"));
     Operation->SetObjectField(TEXT("target"), LevelStableRef(ActorId));
+    return Operation;
+}
+
+TSharedRef<FJsonObject> LevelExactComponentOperation(
+    const FString& ActorId,
+    const FString& Source,
+    const FString& Id)
+{
+    TSharedRef<FJsonObject> Operation = LevelOperation(TEXT("object"));
+    Operation->SetObjectField(
+        TEXT("target"),
+        LevelComponentStableRef(ActorId, Source, Id));
     return Operation;
 }
 
@@ -412,6 +449,68 @@ bool ReadLevelLocalField(
         && Kind == TEXT("local")
         && (*Ref)->TryGetStringField(TEXT("name"), OutAlias)
         && !OutAlias.IsEmpty();
+}
+
+bool ReadLevelNameField(
+    const TSharedPtr<FJsonObject>& Fields,
+    const FString& FieldName,
+    FString& OutName)
+{
+    OutName.Reset();
+    const TSharedPtr<FJsonObject>* Value = nullptr;
+    FString Kind;
+    return Fields.IsValid()
+        && Fields->TryGetObjectField(FieldName, Value)
+        && Value != nullptr
+        && (*Value).IsValid()
+        && (*Value)->TryGetStringField(TEXT("kind"), Kind)
+        && Kind == TEXT("name")
+        && (*Value)->TryGetStringField(TEXT("name"), OutName)
+        && !OutName.IsEmpty();
+}
+
+bool ReadLevelStableRefField(
+    const TSharedPtr<FJsonObject>& Fields,
+    const FString& FieldName,
+    const FString& ExpectedSemanticTag,
+    TArray<FString>& OutIdentityPath)
+{
+    OutIdentityPath.Reset();
+    const TSharedPtr<FJsonObject>* Ref = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* Segments = nullptr;
+    FString Kind;
+    FString SemanticTag;
+    if (!Fields.IsValid()
+        || !Fields->TryGetObjectField(FieldName, Ref)
+        || Ref == nullptr
+        || !(*Ref).IsValid()
+        || !(*Ref)->TryGetStringField(TEXT("kind"), Kind)
+        || Kind != TEXT("stable_ref")
+        || !(*Ref)->TryGetStringField(
+            TEXT("semanticTag"),
+            SemanticTag)
+        || SemanticTag != ExpectedSemanticTag
+        || !(*Ref)->TryGetArrayField(
+            TEXT("identityPath"),
+            Segments)
+        || Segments == nullptr
+        || Segments->IsEmpty())
+    {
+        return false;
+    }
+    for (const TSharedPtr<FJsonValue>& SegmentValue : *Segments)
+    {
+        FString Segment;
+        if (!SegmentValue.IsValid()
+            || !SegmentValue->TryGetString(Segment)
+            || Segment.IsEmpty())
+        {
+            OutIdentityPath.Reset();
+            return false;
+        }
+        OutIdentityPath.Add(Segment);
+    }
+    return true;
 }
 
 bool ReadSingleRelatedLevelTarget(
@@ -1136,6 +1235,331 @@ private:
     bool bCleaned = false;
     UWorld* OriginalEditorWorld = nullptr;
     bool bEditorContextChanged = false;
+};
+
+class FScopedLevelComponentQueryFixture
+{
+public:
+    FScopedLevelComponentQueryFixture() = default;
+    FScopedLevelComponentQueryFixture(
+        const FScopedLevelComponentQueryFixture&) = delete;
+    FScopedLevelComponentQueryFixture& operator=(
+        const FScopedLevelComponentQueryFixture&) = delete;
+
+    ~FScopedLevelComponentQueryFixture()
+    {
+        FString Ignored;
+        Cleanup(Ignored);
+    }
+
+    bool Build(
+        FScopedLevelQueryFixture& LevelFixture,
+        FString& OutError)
+    {
+        OutError.Reset();
+        UWorld* World = LevelFixture.Loaded.World;
+        if (World == nullptr || World->PersistentLevel == nullptr)
+        {
+            OutError = TEXT(
+                "Component fixture requires the loaded Level fixture World.");
+            return false;
+        }
+
+        const FString Token =
+            FGuid::NewGuid().ToString(EGuidFormats::Digits);
+        BlueprintPackageName = FString::Printf(
+            TEXT("/Game/LoomleTests/LevelComponent/%s/BP_LevelComponent"),
+            *Token);
+        BlueprintPackage = CreatePackage(*BlueprintPackageName);
+        Blueprint = BlueprintPackage != nullptr
+            ? FKismetEditorUtilities::CreateBlueprint(
+                AStaticMeshActor::StaticClass(),
+                BlueprintPackage,
+                FName(TEXT("BP_LevelComponent")),
+                BPTYPE_Normal,
+                UBlueprint::StaticClass(),
+                UBlueprintGeneratedClass::StaticClass(),
+                NAME_None)
+            : nullptr;
+        if (Blueprint == nullptr
+            || Blueprint->SimpleConstructionScript == nullptr)
+        {
+            OutError = TEXT(
+                "UE failed to create the Component fixture Blueprint and SCS.");
+            return false;
+        }
+        BlueprintRoot.Reset(Blueprint);
+        FAssetRegistryModule::AssetCreated(Blueprint);
+        bBlueprintRegistered = true;
+
+        SCSNode = Blueprint->SimpleConstructionScript->CreateNode(
+            USceneComponent::StaticClass(),
+            FName(TEXT("LoomleSCSComponent")));
+        SCSCollisionProbeNode =
+            Blueprint->SimpleConstructionScript->CreateNode(
+                USceneComponent::StaticClass(),
+                FName(TEXT("LoomleSCSCollisionProbe")));
+        if (SCSNode == nullptr
+            || !SCSNode->VariableGuid.IsValid()
+            || SCSCollisionProbeNode == nullptr
+            || !SCSCollisionProbeNode->VariableGuid.IsValid()
+            || SCSCollisionProbeNode->VariableGuid == SCSNode->VariableGuid)
+        {
+            OutError = TEXT(
+                "UE failed to create the Component fixture SCS declaration.");
+            return false;
+        }
+        Blueprint->SimpleConstructionScript->AddNode(SCSNode);
+        Blueprint->SimpleConstructionScript->AddNode(
+            SCSCollisionProbeNode);
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        FKismetEditorUtilities::CompileBlueprint(Blueprint);
+        GeneratedClass = Cast<UBlueprintGeneratedClass>(
+            Blueprint->GeneratedClass);
+        if (Blueprint->Status == BS_Error || GeneratedClass == nullptr)
+        {
+            OutError = TEXT(
+                "The Component fixture Blueprint failed to compile.");
+            return false;
+        }
+
+        FActorSpawnParameters Params;
+        Params.Name = FName(TEXT("Actor_LevelComponents"));
+        Params.OverrideLevel = World->PersistentLevel;
+        Params.ObjectFlags = RF_Transactional;
+        Actor = World->SpawnActor<AActor>(
+            GeneratedClass,
+            FTransform::Identity,
+            Params);
+        if (Actor == nullptr)
+        {
+            OutError = TEXT(
+                "UE failed to spawn the Component fixture Blueprint Actor.");
+            return false;
+        }
+        Actor->SetActorLabel(TEXT("Loomle Component Owner"), false);
+        ActorId = Actor->GetActorGuid();
+        NativeComponent = CastChecked<AStaticMeshActor>(Actor)
+            ->GetStaticMeshComponent();
+
+        TArray<UActorComponent*> SpawnedComponents;
+        Actor->GetComponents(SpawnedComponents, false);
+        for (UActorComponent* Component : SpawnedComponents)
+        {
+            if (Component != nullptr
+                && Component->CreationMethod
+                    == EComponentCreationMethod::SimpleConstructionScript
+                && Component->GetFName() == SCSNode->GetVariableName())
+            {
+                SCSComponent = Component;
+            }
+        }
+        const FObjectPropertyBase* SCSProperty =
+            FindFProperty<FObjectPropertyBase>(
+                GeneratedClass,
+                SCSNode->GetVariableName());
+
+        InstanceComponent = NewObject<USceneComponent>(
+            Actor,
+            USceneComponent::StaticClass(),
+            FName(TEXT("LoomleInstanceComponent")),
+            RF_Transactional);
+        if (InstanceComponent != nullptr)
+        {
+            Actor->AddInstanceComponent(InstanceComponent);
+            InstanceComponent->OnComponentCreated();
+            InstanceComponent->RegisterComponent();
+        }
+
+        PCGComponent = NewObject<UPCGComponent>(
+            Actor,
+            UPCGComponent::StaticClass(),
+            FName(TEXT("LoomlePCGComponent")),
+            RF_Transactional);
+        if (PCGComponent != nullptr)
+        {
+            Actor->AddInstanceComponent(PCGComponent);
+            PCGComponent->OnComponentCreated();
+        }
+
+        const TArray<TPair<FName, FName>> GeneratedPCGSpecs = {
+            {
+                FName(TEXT("LoomlePCGGeneratedComponent")),
+                PCGHelpers::DefaultPCGTag
+            },
+            {
+                FName(TEXT("LoomlePCGDebugComponent")),
+                PCGHelpers::DefaultPCGDebugTag
+            },
+            {
+                FName(TEXT("LoomlePCGCleanupComponent")),
+                PCGHelpers::MarkedForCleanupPCGTag
+            }
+        };
+        for (const TPair<FName, FName>& Spec : GeneratedPCGSpecs)
+        {
+            USceneComponent* Generated = NewObject<USceneComponent>(
+                Actor,
+                USceneComponent::StaticClass(),
+                Spec.Key,
+                RF_Transactional);
+            if (Generated != nullptr)
+            {
+                Actor->AddInstanceComponent(Generated);
+                Generated->ComponentTags.Add(Spec.Value);
+                GeneratedPCGComponents.Add(Generated);
+            }
+        }
+
+        UCSComponent = Actor->AddComponentByClass(
+            USceneComponent::StaticClass(),
+            true,
+            FTransform::Identity,
+            false);
+
+        if (!ActorId.IsValid()
+            || NativeComponent == nullptr
+            || NativeComponent->CreationMethod
+                != EComponentCreationMethod::Native
+            || SCSComponent == nullptr
+            || InstanceComponent == nullptr
+            || !InstanceComponent->IsRegistered()
+            || PCGComponent == nullptr
+            || PCGComponent->IsRegistered()
+            || PCGComponent->GetConstOriginalComponent() != PCGComponent
+            || GeneratedPCGComponents.Num() != GeneratedPCGSpecs.Num()
+            || UCSComponent == nullptr
+            || UCSComponent->CreationMethod
+                != EComponentCreationMethod::UserConstructionScript)
+        {
+            OutError = TEXT(
+                "The Component fixture did not produce exact Native, SCS, "
+                "Instance, PCG, and UCS source evidence.");
+            return false;
+        }
+
+        NativeId = NativeComponent->GetFName().ToString();
+        InstanceId = InstanceComponent->GetFName().ToString();
+        PCGId = PCGComponent->GetFName().ToString();
+        SCSDeclaringClass = GeneratedClass->GetPathName();
+        SCSId = SCSDeclaringClass
+            + TEXT("#")
+            + LevelGuidText(SCSNode->VariableGuid);
+        if (NativeId.IsEmpty()
+            || InstanceId.IsEmpty()
+            || PCGId.IsEmpty()
+            || SCSDeclaringClass.IsEmpty()
+            || SCSId.IsEmpty()
+            || SCSProperty == nullptr
+            || SCSProperty->GetObjectPropertyValue_InContainer(Actor)
+                != SCSComponent)
+        {
+            OutError = TEXT(
+                "The Component fixture could not prove its stable source locators.");
+            return false;
+        }
+
+        World->GetOutermost()->SetDirtyFlag(false);
+        BlueprintPackage->SetDirtyFlag(false);
+        return true;
+    }
+
+    bool Cleanup(FString& OutError)
+    {
+        OutError.Reset();
+        if (bCleaned)
+        {
+            return true;
+        }
+        bCleaned = true;
+
+        UBlueprint* RootedBlueprint = BlueprintRoot.Get();
+        if (bBlueprintRegistered && RootedBlueprint != nullptr)
+        {
+            FAssetRegistryModule::AssetDeleted(RootedBlueprint);
+            bBlueprintRegistered = false;
+        }
+        UPackage* Package = !BlueprintPackageName.IsEmpty()
+            ? FindPackage(nullptr, *BlueprintPackageName)
+            : nullptr;
+        PrepareLevelPackageForCollection(Package);
+
+        Actor = nullptr;
+        NativeComponent = nullptr;
+        SCSComponent = nullptr;
+        InstanceComponent = nullptr;
+        PCGComponent = nullptr;
+        GeneratedPCGComponents.Reset();
+        UCSComponent = nullptr;
+        SCSNode = nullptr;
+        SCSCollisionProbeNode = nullptr;
+        GeneratedClass = nullptr;
+        Blueprint = nullptr;
+        BlueprintPackage = nullptr;
+        BlueprintRoot.Reset();
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+        if (!BlueprintPackageName.IsEmpty()
+            && FindPackage(nullptr, *BlueprintPackageName) != nullptr)
+        {
+            OutError = TEXT(
+                "Component fixture Blueprint package remained loaded during cleanup: ")
+                + BlueprintPackageName;
+        }
+        return OutError.IsEmpty();
+    }
+
+    AActor* Actor = nullptr;
+    UActorComponent* NativeComponent = nullptr;
+    UActorComponent* SCSComponent = nullptr;
+    USceneComponent* InstanceComponent = nullptr;
+    UPCGComponent* PCGComponent = nullptr;
+    TArray<USceneComponent*> GeneratedPCGComponents;
+    UActorComponent* UCSComponent = nullptr;
+    FGuid ActorId;
+    FString NativeId;
+    FString SCSId;
+    FString SCSDeclaringClass;
+    FString InstanceId;
+    FString PCGId;
+
+    UPackage* GetBlueprintPackage() const
+    {
+        return BlueprintPackage;
+    }
+
+    bool BeginSCSGuidCollision(FGuid& OutOriginalGuid)
+    {
+        OutOriginalGuid.Invalidate();
+        if (SCSNode == nullptr
+            || SCSCollisionProbeNode == nullptr
+            || !SCSNode->VariableGuid.IsValid()
+            || !SCSCollisionProbeNode->VariableGuid.IsValid())
+        {
+            return false;
+        }
+        OutOriginalGuid = SCSCollisionProbeNode->VariableGuid;
+        SCSCollisionProbeNode->VariableGuid = SCSNode->VariableGuid;
+        return true;
+    }
+
+    void EndSCSGuidCollision(const FGuid& OriginalGuid)
+    {
+        if (SCSCollisionProbeNode != nullptr && OriginalGuid.IsValid())
+        {
+            SCSCollisionProbeNode->VariableGuid = OriginalGuid;
+        }
+    }
+
+private:
+    FString BlueprintPackageName;
+    UPackage* BlueprintPackage = nullptr;
+    UBlueprint* Blueprint = nullptr;
+    UBlueprintGeneratedClass* GeneratedClass = nullptr;
+    USCS_Node* SCSNode = nullptr;
+    USCS_Node* SCSCollisionProbeNode = nullptr;
+    TStrongObjectPtr<UBlueprint> BlueprintRoot;
+    bool bBlueprintRegistered = false;
+    bool bCleaned = false;
 };
 
 struct FLevelInstanceLoadState
@@ -1942,6 +2366,179 @@ private:
     TArray<FFixtureActorState> ActorStates;
     FDelegateHandle TransactionHandle;
     int32 TransactionEventCount = 0;
+};
+
+struct FFixtureComponentState
+{
+    TWeakObjectPtr<UActorComponent> Component;
+    FName Name;
+    TWeakObjectPtr<UObject> Outer;
+    TWeakObjectPtr<AActor> Owner;
+    EComponentCreationMethod CreationMethod =
+        EComponentCreationMethod::Native;
+    bool bRegistered = false;
+    bool bHasBeenCreated = false;
+};
+
+class FLevelComponentReadInvariant
+{
+public:
+    FLevelComponentReadInvariant(
+        AActor* InActor,
+        UPackage* InBlueprintPackage)
+        : Actor(InActor)
+        , BlueprintPackage(InBlueprintPackage)
+        , ActorPackageDirtyBefore(
+            InActor != nullptr
+                && InActor->GetOutermost()->IsDirty())
+        , BlueprintPackageDirtyBefore(
+            InBlueprintPackage != nullptr
+                && InBlueprintPackage->IsDirty())
+    {
+        if (Actor == nullptr)
+        {
+            return;
+        }
+        TArray<UActorComponent*> Components;
+        Actor->GetComponents(Components, false);
+        for (UActorComponent* Component : Components)
+        {
+            if (Component == nullptr)
+            {
+                continue;
+            }
+            FFixtureComponentState& State =
+                ComponentStates.AddDefaulted_GetRef();
+            State.Component = Component;
+            State.Name = Component->GetFName();
+            State.Outer = Component->GetOuter();
+            State.Owner = Component->GetOwner();
+            State.CreationMethod = Component->CreationMethod;
+            State.bRegistered = Component->IsRegistered();
+            State.bHasBeenCreated = Component->HasBeenCreated();
+        }
+        for (UActorComponent* Component : Actor->GetInstanceComponents())
+        {
+            InstanceComponentsBefore.Add(Component);
+        }
+        for (UActorComponent* Component : Actor->BlueprintCreatedComponents)
+        {
+            BlueprintCreatedComponentsBefore.Add(Component);
+        }
+    }
+
+    bool Verify(FAutomationTestBase& Test) const
+    {
+        bool bOk = true;
+        bOk &= Test.TestNotNull(
+            TEXT("Component Query preserves its owner Actor"),
+            Actor);
+        if (Actor == nullptr)
+        {
+            return false;
+        }
+
+        TArray<UActorComponent*> ComponentsAfter;
+        Actor->GetComponents(ComponentsAfter, false);
+        bOk &= Test.TestEqual(
+            TEXT("Component Query preserves the exact owned Component count"),
+            ComponentsAfter.Num(),
+            ComponentStates.Num());
+        for (const FFixtureComponentState& State : ComponentStates)
+        {
+            UActorComponent* Component = State.Component.Get();
+            bOk &= Test.TestNotNull(
+                TEXT("Component Query preserves each Component incarnation"),
+                Component);
+            if (Component == nullptr)
+            {
+                continue;
+            }
+            bOk &= Test.TestTrue(
+                TEXT("Component Query preserves owned Component membership"),
+                ComponentsAfter.Contains(Component));
+            bOk &= Test.TestEqual(
+                TEXT("Component Query preserves Component FName"),
+                Component->GetFName(),
+                State.Name);
+            bOk &= Test.TestEqual(
+                TEXT("Component Query preserves Component Outer"),
+                Component->GetOuter(),
+                State.Outer.Get());
+            bOk &= Test.TestEqual(
+                TEXT("Component Query preserves Component owner"),
+                Component->GetOwner(),
+                State.Owner.Get());
+            bOk &= Test.TestTrue(
+                TEXT("Component Query preserves CreationMethod"),
+                Component->CreationMethod == State.CreationMethod);
+            bOk &= Test.TestEqual(
+                TEXT("Component Query preserves registration state"),
+                Component->IsRegistered(),
+                State.bRegistered);
+            bOk &= Test.TestEqual(
+                TEXT("Component Query preserves creation lifecycle state"),
+                Component->HasBeenCreated(),
+                State.bHasBeenCreated);
+        }
+
+        const TArray<UActorComponent*>& InstanceComponentsAfter =
+            Actor->GetInstanceComponents();
+        bOk &= Test.TestEqual(
+            TEXT("Component Query preserves InstanceComponents count"),
+            InstanceComponentsAfter.Num(),
+            InstanceComponentsBefore.Num());
+        for (int32 Index = 0;
+             Index < FMath::Min(
+                 InstanceComponentsAfter.Num(),
+                 InstanceComponentsBefore.Num());
+             ++Index)
+        {
+            bOk &= Test.TestEqual(
+                TEXT("Component Query preserves InstanceComponents order"),
+                InstanceComponentsAfter[Index],
+                InstanceComponentsBefore[Index].Get());
+        }
+
+        bOk &= Test.TestEqual(
+            TEXT("Component Query preserves BlueprintCreatedComponents count"),
+            Actor->BlueprintCreatedComponents.Num(),
+            BlueprintCreatedComponentsBefore.Num());
+        for (int32 Index = 0;
+             Index < FMath::Min(
+                 Actor->BlueprintCreatedComponents.Num(),
+                 BlueprintCreatedComponentsBefore.Num());
+             ++Index)
+        {
+            bOk &= Test.TestEqual(
+                TEXT("Component Query preserves Blueprint-created Component order"),
+                Actor->BlueprintCreatedComponents[Index].Get(),
+                BlueprintCreatedComponentsBefore[Index].Get());
+        }
+
+        bOk &= Test.TestEqual(
+            TEXT("Component Query preserves the map package dirty state"),
+            Actor->GetOutermost()->IsDirty(),
+            ActorPackageDirtyBefore);
+        if (BlueprintPackage != nullptr)
+        {
+            bOk &= Test.TestEqual(
+                TEXT("Component Query preserves the declaring Blueprint package dirty state"),
+                BlueprintPackage->IsDirty(),
+                BlueprintPackageDirtyBefore);
+        }
+        return bOk;
+    }
+
+private:
+    AActor* Actor = nullptr;
+    UPackage* BlueprintPackage = nullptr;
+    bool ActorPackageDirtyBefore = false;
+    bool BlueprintPackageDirtyBefore = false;
+    TArray<FFixtureComponentState> ComponentStates;
+    TArray<TWeakObjectPtr<UActorComponent>> InstanceComponentsBefore;
+    TArray<TWeakObjectPtr<UActorComponent>>
+        BlueprintCreatedComponentsBefore;
 };
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -2914,6 +3511,476 @@ bool FSalLevelInstanceSourceOwnershipTest::RunTest(
         Fixture.VerifyNoLoadState(*this));
 
     if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelComponentIdentityQueryTest,
+    "Loomle.Sal.Level.Query.ComponentIdentity",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelComponentIdentityQueryTest::RunTest(
+    const FString& Parameters)
+{
+    // Declaration order is intentional: the Level fixture must destroy its
+    // Actor World before the Component fixture releases the Blueprint Class.
+    FScopedLevelComponentQueryFixture ComponentFixture;
+    FScopedLevelQueryFixture LevelFixture;
+    FString Error;
+    if (!TestTrue(
+            TEXT("Level fixture for Component Query builds"),
+            LevelFixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Component Query Level becomes the active Editor World"),
+            LevelFixture.Activate(LevelFixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Native, SCS, Instance, PCG, and UCS fixture builds"),
+            ComponentFixture.Build(LevelFixture, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+
+    FLevelReadInvariant LevelInvariant(LevelFixture.Loaded.World);
+    FLevelComponentReadInvariant ComponentInvariant(
+        ComponentFixture.Actor,
+        ComponentFixture.GetBlueprintPackage());
+    const TSharedRef<FJsonObject> Target = LevelTarget(
+        LevelFixture.Loaded.ObjectPath,
+        UWorld::StaticClass()->GetPathName());
+    const FString ActorId = LevelGuidText(ComponentFixture.ActorId);
+
+    struct FExpectedComponent
+    {
+        UActorComponent* Component = nullptr;
+        FString Source;
+        FString Id;
+        FString CreationMethod;
+        FString DeclaringClass;
+        bool bPCG = false;
+    };
+    const TArray<FExpectedComponent> Expected = {
+        {
+            ComponentFixture.NativeComponent,
+            TEXT("native"),
+            ComponentFixture.NativeId,
+            TEXT("Native"),
+            FString(),
+            false
+        },
+        {
+            ComponentFixture.SCSComponent,
+            TEXT("scs"),
+            ComponentFixture.SCSId,
+            TEXT("SimpleConstructionScript"),
+            ComponentFixture.SCSDeclaringClass,
+            false
+        },
+        {
+            ComponentFixture.InstanceComponent,
+            TEXT("instance"),
+            ComponentFixture.InstanceId,
+            TEXT("Instance"),
+            FString(),
+            false
+        },
+        {
+            ComponentFixture.PCGComponent,
+            TEXT("instance"),
+            ComponentFixture.PCGId,
+            TEXT("Instance"),
+            FString(),
+            true
+        }
+    };
+
+    const TSharedPtr<FJsonObject> ComponentsResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelOperation(TEXT("components"))));
+    const TArray<TSharedPtr<FJsonObject>> Components =
+        LevelTaggedObjectFields(ComponentsResult, TEXT("component"));
+    TestTrue(
+        TEXT("Component collection remains on the canonical exact Level Target"),
+        !LevelHasError(ComponentsResult)
+            && LevelHasTargetContext(
+                ComponentsResult,
+                TEXT("exact_target"))
+            && HasCanonicalLevelTarget(
+                ComponentsResult,
+                LevelFixture.Loaded.ObjectPath));
+    TestTrue(
+        TEXT("Component collection emits every explicitly expected persistent slot"),
+        Components.Num() >= Expected.Num());
+
+    TSharedPtr<FJsonObject> PCGFields;
+    for (const FExpectedComponent& Entry : Expected)
+    {
+        const TSharedPtr<FJsonObject> Fields =
+            FindLevelFieldsById(Components, Entry.Id);
+        FString Name;
+        FString Type;
+        FString Source;
+        FString CreationMethod;
+        FString DeclaringClass;
+        bool bRegistered = false;
+        bool bStableRefAvailable = false;
+        TArray<FString> ActorRefPath;
+        TArray<FString> ComponentRefPath;
+        const TArray<FString> ExpectedActorRefPath = {ActorId};
+        const TArray<FString> ExpectedComponentRefPath = {
+            ActorId,
+            Entry.Source,
+            Entry.Id
+        };
+        const bool bHasDeclaringClass = Fields.IsValid()
+            && Fields->TryGetStringField(
+                TEXT("declaringClass"),
+                DeclaringClass);
+        TestTrue(
+            *FString::Printf(
+                TEXT("%s Component exposes the frozen 1C-A identity fields"),
+                *Entry.Source),
+            Fields.IsValid()
+                && Fields->TryGetStringField(TEXT("id"), Name)
+                && Name == Entry.Id
+                && Fields->TryGetStringField(TEXT("name"), Name)
+                && Name == Entry.Component->GetFName().ToString()
+                && Fields->TryGetStringField(TEXT("type"), Type)
+                && Type == Entry.Component->GetClass()->GetPathName()
+                && ReadLevelNameField(
+                    Fields,
+                    TEXT("source"),
+                    Source)
+                && Source == Entry.Source
+                && ReadLevelNameField(
+                    Fields,
+                    TEXT("CreationMethod"),
+                    CreationMethod)
+                && CreationMethod == Entry.CreationMethod
+                && Fields->TryGetBoolField(
+                    TEXT("registered"),
+                    bRegistered)
+                && bRegistered == Entry.Component->IsRegistered()
+                && Fields->TryGetBoolField(
+                    TEXT("stableRefAvailable"),
+                    bStableRefAvailable)
+                && bStableRefAvailable
+                && ReadLevelStableRefField(
+                    Fields,
+                    TEXT("actor"),
+                    TEXT("actor"),
+                    ActorRefPath)
+                && ActorRefPath == ExpectedActorRefPath
+                && ReadLevelStableRefField(
+                    Fields,
+                    TEXT("ref"),
+                    TEXT("component"),
+                    ComponentRefPath)
+                && ComponentRefPath == ExpectedComponentRefPath
+                && (Entry.DeclaringClass.IsEmpty()
+                    ? !bHasDeclaringClass
+                    : bHasDeclaringClass
+                        && DeclaringClass == Entry.DeclaringClass));
+        if (Entry.bPCG)
+        {
+            PCGFields = Fields;
+        }
+        TestTrue(
+            TEXT("1C-A Component exposes no specialized Target LocalRef"),
+            Fields.IsValid()
+                && !Fields->HasField(TEXT("pcgComponent")));
+    }
+
+    const FString UCSName =
+        ComponentFixture.UCSComponent->GetFName().ToString();
+    bool bUCSReturned = false;
+    for (const TSharedPtr<FJsonObject>& Fields : Components)
+    {
+        FString Name;
+        if (Fields.IsValid()
+            && Fields->TryGetStringField(TEXT("name"), Name)
+            && Name == UCSName)
+        {
+            bUCSReturned = true;
+        }
+    }
+    TestFalse(
+        TEXT("UserConstructionScript Component receives no persistent Level identity"),
+        bUCSReturned);
+
+    for (const USceneComponent* Generated :
+         ComponentFixture.GeneratedPCGComponents)
+    {
+        bool bGeneratedReturned = false;
+        for (const TSharedPtr<FJsonObject>& Fields : Components)
+        {
+            FString Name;
+            if (Fields.IsValid()
+                && Fields->TryGetStringField(TEXT("name"), Name)
+                && Generated != nullptr
+                && Name == Generated->GetFName().ToString())
+            {
+                bGeneratedReturned = true;
+            }
+        }
+        TestFalse(
+            TEXT("PCG generated, debug, and cleanup Components receive no persistent Level identity"),
+            bGeneratedReturned);
+    }
+
+    TestTrue(
+        TEXT("Authored PCG Component remains generic without 1C-B related context"),
+        PCGFields.IsValid()
+            && !PCGFields->HasField(TEXT("pcgComponent"))
+            && HasNoLevelRelatedContext(ComponentsResult));
+
+    const TSharedPtr<FJsonObject> SummaryResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelOperation(TEXT("summary"))));
+    const TSharedPtr<FJsonObject> SummaryFields =
+        FirstLevelAssetFields(SummaryResult);
+    double ComponentCount = 0.0;
+    double NativeCount = 0.0;
+    double SCSCount = 0.0;
+    double InstanceCount = 0.0;
+    double PCGCount = 0.0;
+    bool bComponentIdentityComplete = false;
+    TestTrue(
+        TEXT("Level summary reports the closed Component identity counts"),
+        !LevelHasError(SummaryResult)
+            && SummaryFields.IsValid()
+            && SummaryFields->TryGetNumberField(
+                TEXT("componentCount"),
+                ComponentCount)
+            && SummaryFields->TryGetNumberField(
+                TEXT("nativeComponentCount"),
+                NativeCount)
+            && SummaryFields->TryGetNumberField(
+                TEXT("scsComponentCount"),
+                SCSCount)
+            && SummaryFields->TryGetNumberField(
+                TEXT("instanceComponentCount"),
+                InstanceCount)
+            && SummaryFields->TryGetNumberField(
+                TEXT("pcgComponentCount"),
+                PCGCount)
+            && SummaryFields->TryGetBoolField(
+                TEXT("componentIdentityComplete"),
+                bComponentIdentityComplete)
+            && bComponentIdentityComplete
+            && ComponentCount == NativeCount + SCSCount + InstanceCount
+            && NativeCount >= 1.0
+            && SCSCount >= 1.0
+            && InstanceCount >= 2.0
+            && PCGCount >= 1.0);
+
+    auto ComponentRefKey = [](const TSharedPtr<FJsonObject>& Fields)
+    {
+        TArray<FString> Identity;
+        return ReadLevelStableRefField(
+                   Fields,
+                   TEXT("ref"),
+                   TEXT("component"),
+                   Identity)
+            ? FString::Join(Identity, TEXT("\x1f"))
+            : FString();
+    };
+    TArray<FString> FullComponentOrder;
+    for (const TSharedPtr<FJsonObject>& Fields : Components)
+    {
+        FullComponentOrder.Add(ComponentRefKey(Fields));
+    }
+    TestFalse(
+        TEXT("Every Component collection item contributes one complete cursor identity"),
+        FullComponentOrder.Contains(FString()));
+
+    TArray<FString> PagedComponentOrder;
+    FString ComponentCursor;
+    FString FirstComponentCursor;
+    for (int32 PageIndex = 0; PageIndex < 512; ++PageIndex)
+    {
+        const TSharedPtr<FJsonObject> PageResult =
+            FSalModule::BuildQueryResult(
+                LevelQueryArguments(
+                    Target,
+                    LevelOperation(TEXT("components")),
+                    1,
+                    ComponentCursor));
+        if (LevelHasError(PageResult))
+        {
+            AddError(TEXT("A deterministic Level Component continuation page failed."));
+            break;
+        }
+        const TArray<TSharedPtr<FJsonObject>> PageComponents =
+            LevelTaggedObjectFields(PageResult, TEXT("component"));
+        if (PageComponents.Num() != 1)
+        {
+            AddError(TEXT("A non-final Level Component page did not contain exactly one Component."));
+            break;
+        }
+        const FString Key = ComponentRefKey(PageComponents[0]);
+        if (Key.IsEmpty())
+        {
+            AddError(TEXT("A Level Component page omitted its structured StableRef."));
+            break;
+        }
+        PagedComponentOrder.Add(Key);
+        FString Next;
+        if (!ReadLevelNextCursor(PageResult, Next))
+        {
+            break;
+        }
+        if (FirstComponentCursor.IsEmpty())
+        {
+            FirstComponentCursor = Next;
+        }
+        ComponentCursor = Next;
+    }
+    TestEqual(
+        TEXT("Component cursor pagination reproduces deterministic collection order"),
+        PagedComponentOrder,
+        FullComponentOrder);
+
+    if (!FirstComponentCursor.IsEmpty())
+    {
+        const TSharedPtr<FJsonObject> ReusedForOtherSearch =
+            FSalModule::BuildQueryResult(
+                LevelQueryArguments(
+                    Target,
+                    LevelOperation(
+                        TEXT("components"),
+                        TEXT("LoomleSCSComponent")),
+                    1,
+                    FirstComponentCursor));
+        TestTrue(
+            TEXT("Component cursor is bound to its search"),
+            LevelHasDiagnostic(
+                ReusedForOtherSearch,
+                TEXT("validation.invalid_cursor")));
+
+        const bool bMapDirtyBeforeRegistrationChange =
+            LevelFixture.Loaded.World->GetOutermost()->IsDirty();
+        ComponentFixture.InstanceComponent->UnregisterComponent();
+        const TSharedPtr<FJsonObject> ReusedAfterSnapshotChange =
+            FSalModule::BuildQueryResult(
+                LevelQueryArguments(
+                    Target,
+                    LevelOperation(TEXT("components")),
+                    1,
+                    FirstComponentCursor));
+        ComponentFixture.InstanceComponent->RegisterComponent();
+        LevelFixture.Loaded.World->GetOutermost()->SetDirtyFlag(
+            bMapDirtyBeforeRegistrationChange);
+        TestTrue(
+            TEXT("Component cursor is invalid after an emitted registration field changes"),
+            LevelHasDiagnostic(
+                ReusedAfterSnapshotChange,
+                TEXT("validation.invalid_cursor")));
+    }
+
+    for (const FExpectedComponent& Entry : Expected)
+    {
+        const TSharedPtr<FJsonObject> ExactResult =
+            FSalModule::BuildQueryResult(
+                LevelQueryArguments(
+                    Target,
+                    LevelExactComponentOperation(
+                        ActorId,
+                        Entry.Source,
+                        Entry.Id)));
+        const TArray<TSharedPtr<FJsonObject>> ExactComponents =
+            LevelTaggedObjectFields(ExactResult, TEXT("component"));
+        TestTrue(
+            *FString::Printf(
+                TEXT("Structured exact Component ref resolves %s/%s"),
+                *Entry.Source,
+                *Entry.Id),
+            !LevelHasError(ExactResult)
+                && LevelHasTargetContext(
+                    ExactResult,
+                    TEXT("exact_target"))
+                && ExactComponents.Num() == 1
+                && FindLevelFieldsById(
+                    ExactComponents,
+                    Entry.Id).IsValid());
+        const TSharedPtr<FJsonObject> ExactFields =
+            FindLevelFieldsById(ExactComponents, Entry.Id);
+        TestTrue(
+            TEXT("Exact 1C-A Component has no 1C-B related Target context"),
+            ExactFields.IsValid()
+                && !ExactFields->HasField(TEXT("pcgComponent"))
+                && HasNoLevelRelatedContext(ExactResult));
+    }
+
+    for (const USceneComponent* Generated :
+         ComponentFixture.GeneratedPCGComponents)
+    {
+        if (Generated == nullptr)
+        {
+            continue;
+        }
+        const TSharedPtr<FJsonObject> GeneratedExact =
+            FSalModule::BuildQueryResult(
+                LevelQueryArguments(
+                    Target,
+                    LevelExactComponentOperation(
+                        ActorId,
+                        TEXT("instance"),
+                        Generated->GetFName().ToString())));
+        TestTrue(
+            TEXT("PCG projection tags fail closed in exact Component resolution"),
+            LevelHasDiagnostic(
+                GeneratedExact,
+                TEXT("resolution.object_not_found")));
+    }
+
+    FGuid OriginalProbeGuid;
+    if (TestTrue(
+            TEXT("SCS collision probe can create bounded duplicate declaration evidence"),
+            ComponentFixture.BeginSCSGuidCollision(OriginalProbeGuid)))
+    {
+        const TSharedPtr<FJsonObject> AmbiguousSCS =
+            FSalModule::BuildQueryResult(
+                LevelQueryArguments(
+                    Target,
+                    LevelOperation(TEXT("components"))));
+        ComponentFixture.EndSCSGuidCollision(OriginalProbeGuid);
+        TestTrue(
+            TEXT("Duplicate declaring-Class SCS VariableGuid fails Component identity closed"),
+            LevelHasDiagnostic(
+                AmbiguousSCS,
+                TEXT("validation.reference_scan_incomplete")));
+    }
+
+    TestTrue(
+        TEXT("All Component reads preserve Level and Editor state"),
+        LevelInvariant.Verify(*this));
+    TestTrue(
+        TEXT("All Component reads preserve Component lifecycle and packages"),
+        ComponentInvariant.Verify(*this));
+
+    Error.Reset();
+    if (!LevelFixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    Error.Reset();
+    if (!ComponentFixture.Cleanup(Error))
     {
         AddError(Error);
     }

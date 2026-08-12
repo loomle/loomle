@@ -3,6 +3,7 @@
     { "code": "capability.asset_registry_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Asset Registry unavailable" },
     { "code": "capability.clause_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Clause unavailable" },
     { "code": "capability.compile_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Compile unavailable" },
+    { "code": "capability.component_owner_not_loaded", "layer": "capability", "defaultSeverity": "error", "title": "Component owner not loaded" },
     { "code": "capability.condition_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Condition unavailable" },
     { "code": "capability.detail_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Detail unavailable" },
     { "code": "capability.interface_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Interface unavailable" },
