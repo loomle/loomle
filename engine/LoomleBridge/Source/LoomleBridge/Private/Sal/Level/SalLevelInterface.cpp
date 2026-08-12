@@ -4,7 +4,11 @@
 
 #include "../SalDiagnostics.h"
 #include "../SalObjectBuilder.h"
+#include "../SalResultTargets.h"
 #include "../SalRuntime.h"
+#include "AssetRegistry/AssetData.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "AssetRegistry/IAssetRegistry.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Editor.h"
@@ -12,7 +16,10 @@
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "Helpers/PCGHelpers.h"
+#include "LevelInstance/LevelInstanceActor.h"
+#include "LevelInstance/LevelInstanceInterface.h"
 #include "Misc/PackageName.h"
+#include "Modules/ModuleManager.h"
 #include "UObject/Package.h"
 #include "Misc/SecureHash.h"
 #include "UObject/UObjectGlobals.h"
@@ -30,6 +37,7 @@ constexpr int32 MaxCollectionLimit = 200;
 constexpr int32 MaxQueryDiagnostics = 64;
 constexpr int32 MaxIdentityConflictMatches = 32;
 constexpr int32 MaxLevelExaminedCandidates = 100000;
+constexpr int32 MaxLevelInstanceCursorSources = 4096;
 constexpr int64 MaxLevelSnapshotStringBytes = 64ll * 1024ll * 1024ll;
 constexpr EObjectFlags IncompleteLoadFlags =
     RF_NeedLoad
@@ -207,6 +215,81 @@ bool IsExcludedDescriptor(const FWorldPartitionActorDesc* ActorDesc)
         || Tags.Contains(PCGHelpers::MarkedForCleanupPCGTag);
 }
 
+bool IsAuthoredLevelInstanceClass(const UClass* ActorClass)
+{
+    return ActorClass != nullptr
+        && ActorClass->IsChildOf(ALevelInstance::StaticClass());
+}
+
+bool TryReadLoadedLevelInstanceSource(
+    const AActor* Actor,
+    FString& OutLocator,
+    bool& bOutLocatorIsObjectPath)
+{
+    OutLocator.Reset();
+    bOutLocatorIsObjectPath = false;
+    if (Actor == nullptr
+        || !IsAuthoredLevelInstanceClass(Actor->GetClass()))
+    {
+        return false;
+    }
+    const ILevelInstanceInterface* LevelInstance =
+        Cast<ILevelInstanceInterface>(Actor);
+    if (LevelInstance == nullptr)
+    {
+        return false;
+    }
+    const FSoftObjectPath SourcePath =
+        LevelInstance->GetWorldAsset().ToSoftObjectPath();
+    if (!SourcePath.IsValid()
+        || !SourcePath.GetSubPathString().IsEmpty())
+    {
+        return false;
+    }
+    OutLocator = SourcePath.ToString();
+    bOutLocatorIsObjectPath = true;
+    return !OutLocator.IsEmpty();
+}
+
+bool TryReadDescriptorLevelInstanceSource(
+    const FWorldPartitionActorDesc* ActorDesc,
+    FString& OutLocator,
+    bool& bOutLocatorIsObjectPath)
+{
+    OutLocator.Reset();
+    bOutLocatorIsObjectPath = false;
+    if (ActorDesc == nullptr
+        || !IsAuthoredLevelInstanceClass(
+            ActorDesc->GetActorNativeClass()))
+    {
+        return false;
+    }
+    const FName SourcePackage = ActorDesc->GetChildContainerPackage();
+    if (SourcePackage.IsNone())
+    {
+        return false;
+    }
+    OutLocator = SourcePackage.ToString();
+    return FPackageName::IsValidLongPackageName(OutLocator)
+        && !FPackageName::IsTempPackage(OutLocator);
+}
+
+TSharedPtr<FJsonObject> LevelTargetValue(const FString& AssetPath)
+{
+    if (AssetPath.IsEmpty())
+    {
+        return nullptr;
+    }
+    TSharedPtr<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("target"));
+    Target->SetStringField(TEXT("domain"), TEXT("level"));
+    Target->SetStringField(TEXT("asset"), AssetPath);
+    Target->SetStringField(
+        TEXT("type"),
+        UWorld::StaticClass()->GetPathName());
+    return Target;
+}
+
 struct FLevelActorEntry
 {
     FGuid Guid;
@@ -222,6 +305,11 @@ struct FLevelActorEntry
     bool bExternal = false;
     bool bHasTransform = false;
     bool bHasBounds = false;
+    bool bLevelInstance = false;
+    bool bLevelInstanceSourceIsObjectPath = false;
+    FString LevelInstanceSourceLocator;
+    FString LevelInstanceSourceAsset;
+    FString LevelInstanceSourceFingerprint;
     int32 IdentityMultiplicity = 0;
 
     FString EvidenceKey() const
@@ -241,6 +329,13 @@ struct FLevelActorEntry
         return Type.IsEmpty() ? TEXT("<unknown actor>") : Type;
     }
 
+};
+
+struct FPendingLevelInstanceHandoff
+{
+    TSharedPtr<FJsonObject> ActorFields;
+    TSharedPtr<FJsonObject> Target;
+    FString PreferredAlias;
 };
 
 struct FLevelSnapshot
@@ -298,6 +393,14 @@ FLevelActorEntry LoadedActorEntry(const AActor* Actor)
     Entry.bLoaded = true;
     Entry.bExternal = Actor->IsPackageExternal();
     Entry.bHasTransform = true;
+    Entry.bLevelInstance = IsAuthoredLevelInstanceClass(Actor->GetClass());
+    if (Entry.bLevelInstance)
+    {
+        TryReadLoadedLevelInstanceSource(
+            Actor,
+            Entry.LevelInstanceSourceLocator,
+            Entry.bLevelInstanceSourceIsObjectPath);
+    }
     return Entry;
 }
 
@@ -324,6 +427,15 @@ FLevelActorEntry DescriptorEntry(
     Entry.bHasDescriptor = true;
     Entry.bExternal = ActorDesc->GetActorPackage() != SourcePackage;
     Entry.bHasBounds = Entry.Bounds.IsValid != 0;
+    Entry.bLevelInstance = IsAuthoredLevelInstanceClass(
+        ActorDesc->GetActorNativeClass());
+    if (Entry.bLevelInstance)
+    {
+        TryReadDescriptorLevelInstanceSource(
+            ActorDesc,
+            Entry.LevelInstanceSourceLocator,
+            Entry.bLevelInstanceSourceIsObjectPath);
+    }
     return Entry;
 }
 
@@ -352,7 +464,9 @@ public:
         const bool bIncludeLabel = true)
     {
         int64 Bytes = StringStorageBytes(Entry.Type)
-            + StringStorageBytes(Entry.PackagePath);
+            + StringStorageBytes(Entry.PackagePath)
+            + StringStorageBytes(Entry.LevelInstanceSourceLocator)
+            + StringStorageBytes(Entry.LevelInstanceSourceAsset);
         if (bIncludeName)
         {
             Bytes += StringStorageBytes(Entry.Name);
@@ -390,6 +504,197 @@ private:
     int32 ExaminedCandidates = 0;
     int64 SnapshotStringBytes = 0;
 };
+
+enum class ELevelInstanceSourceResolution : uint8
+{
+    NotLevelInstance,
+    Resolved,
+    Missing,
+    Invalid,
+    Ambiguous,
+    SelfReference
+};
+
+ELevelInstanceSourceResolution ResolveLevelInstanceSource(
+    const FLevelActorEntry& Entry,
+    const FString& MainAssetPath,
+    const IAssetRegistry& Registry,
+    FString& OutAssetPath)
+{
+    OutAssetPath.Reset();
+    if (!Entry.bLevelInstance)
+    {
+        return ELevelInstanceSourceResolution::NotLevelInstance;
+    }
+    if (Entry.LevelInstanceSourceLocator.IsEmpty())
+    {
+        return ELevelInstanceSourceResolution::Missing;
+    }
+
+    const FTopLevelAssetPath WorldClassPath =
+        UWorld::StaticClass()->GetClassPathName();
+    FAssetData SourceData;
+    if (Entry.bLevelInstanceSourceIsObjectPath)
+    {
+        const FSoftObjectPath SourcePath(Entry.LevelInstanceSourceLocator);
+        if (!SourcePath.IsValid()
+            || !SourcePath.GetSubPathString().IsEmpty())
+        {
+            return ELevelInstanceSourceResolution::Invalid;
+        }
+        const FString SourcePackage = SourcePath.GetLongPackageName();
+        if (!FPackageName::IsValidLongPackageName(SourcePackage)
+            || FPackageName::IsTempPackage(SourcePackage))
+        {
+            return ELevelInstanceSourceResolution::Invalid;
+        }
+        SourceData = Registry.GetAssetByObjectPath(SourcePath, true);
+    }
+    else
+    {
+        if (!FPackageName::IsValidLongPackageName(
+                Entry.LevelInstanceSourceLocator)
+            || FPackageName::IsTempPackage(
+                Entry.LevelInstanceSourceLocator))
+        {
+            return ELevelInstanceSourceResolution::Invalid;
+        }
+        TArray<FAssetData> PackageAssets;
+        Registry.GetAssetsByPackageName(
+            FName(*Entry.LevelInstanceSourceLocator),
+            PackageAssets,
+            true);
+        for (const FAssetData& Candidate : PackageAssets)
+        {
+            if (!Candidate.IsValid()
+                || !Candidate.IsTopLevelAsset()
+                || Candidate.AssetClassPath != WorldClassPath)
+            {
+                continue;
+            }
+            if (SourceData.IsValid())
+            {
+                return ELevelInstanceSourceResolution::Ambiguous;
+            }
+            SourceData = Candidate;
+        }
+    }
+    if (!SourceData.IsValid())
+    {
+        return ELevelInstanceSourceResolution::Missing;
+    }
+    if (!SourceData.IsTopLevelAsset()
+        || SourceData.AssetClassPath != WorldClassPath
+        || !FPackageName::IsValidLongPackageName(
+            SourceData.PackageName.ToString())
+        || FPackageName::IsTempPackage(
+            SourceData.PackageName.ToString()))
+    {
+        return ELevelInstanceSourceResolution::Invalid;
+    }
+
+    OutAssetPath = SourceData.GetSoftObjectPath().ToString();
+    if (OutAssetPath.IsEmpty())
+    {
+        return ELevelInstanceSourceResolution::Invalid;
+    }
+    if (OutAssetPath == MainAssetPath)
+    {
+        OutAssetPath.Reset();
+        return ELevelInstanceSourceResolution::SelfReference;
+    }
+    return ELevelInstanceSourceResolution::Resolved;
+}
+
+FString LevelInstanceResolutionText(
+    const ELevelInstanceSourceResolution Resolution)
+{
+    switch (Resolution)
+    {
+    case ELevelInstanceSourceResolution::NotLevelInstance:
+        return TEXT("not_level_instance");
+    case ELevelInstanceSourceResolution::Resolved:
+        return TEXT("resolved");
+    case ELevelInstanceSourceResolution::Missing:
+        return TEXT("missing");
+    case ELevelInstanceSourceResolution::Invalid:
+        return TEXT("invalid");
+    case ELevelInstanceSourceResolution::Ambiguous:
+        return TEXT("ambiguous");
+    case ELevelInstanceSourceResolution::SelfReference:
+        return TEXT("self_reference");
+    default:
+        return TEXT("invalid");
+    }
+}
+
+FString MakeLevelInstanceSourceFingerprint(
+    const ELevelInstanceSourceResolution Resolution,
+    const FString& AssetPath)
+{
+    const FString Evidence = LevelInstanceResolutionText(Resolution)
+        + TEXT("\n")
+        + AssetPath;
+    FSHA1 Hash;
+    Hash.UpdateWithString(*Evidence, Evidence.Len());
+    Hash.Final();
+    uint8 Digest[FSHA1::DigestSize];
+    Hash.GetHash(Digest);
+    return BytesToHex(Digest, UE_ARRAY_COUNT(Digest)).ToLower();
+}
+
+bool PrepareLevelInstanceCursorEvidence(
+    FLevelSnapshot& Snapshot,
+    const FSalResolvedTarget& Target,
+    FString& OutReason)
+{
+    OutReason.Reset();
+    const IAssetRegistry& Registry =
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+            TEXT("AssetRegistry"))
+            .Get();
+    TMap<FString, FString> FingerprintsByLocator;
+    for (FLevelActorEntry& Entry : Snapshot.Actors)
+    {
+        if (!Entry.bLevelInstance)
+        {
+            continue;
+        }
+        const FString LocatorKey =
+            (Entry.bLevelInstanceSourceIsObjectPath
+                ? TEXT("object|")
+                : TEXT("package|"))
+            + Entry.LevelInstanceSourceLocator;
+        if (const FString* Existing =
+                FingerprintsByLocator.Find(LocatorKey))
+        {
+            Entry.LevelInstanceSourceFingerprint = *Existing;
+            continue;
+        }
+        if (FingerprintsByLocator.Num()
+            >= MaxLevelInstanceCursorSources)
+        {
+            OutReason = FString::Printf(
+                TEXT("Level Actor pagination cannot bind more than %d distinct Level Instance source locators in one exact snapshot."),
+                MaxLevelInstanceCursorSources);
+            return false;
+        }
+        FString SourceAsset;
+        const ELevelInstanceSourceResolution Resolution =
+            ResolveLevelInstanceSource(
+                Entry,
+                Target.AssetPath,
+                Registry,
+                SourceAsset);
+        const FString Fingerprint =
+            MakeLevelInstanceSourceFingerprint(
+                Resolution,
+                SourceAsset);
+        FingerprintsByLocator.Add(LocatorKey, Fingerprint);
+        Entry.LevelInstanceSourceFingerprint = Fingerprint;
+    }
+    return true;
+}
 
 void AuditIdentities(
     FLevelSnapshot& Snapshot,
@@ -471,6 +776,51 @@ void AuditIdentities(
             .Ref(GuidText(Pair.Key))
             .Matches(Matches);
         Snapshot.AddDiagnostic(Diagnostic.Build());
+    }
+}
+
+void ResolveLevelInstanceSourceForEntry(
+    FLevelSnapshot& Snapshot,
+    FLevelActorEntry& Entry,
+    const FSalResolvedTarget& Target,
+    FLevelScanBudget& ScanBudget,
+    const FString& Operation,
+    const IAssetRegistry& Registry)
+{
+    if (!Entry.bLevelInstance)
+    {
+        return;
+    }
+    FString SourceAsset;
+    const ELevelInstanceSourceResolution Resolution =
+        ResolveLevelInstanceSource(
+            Entry,
+            Target.AssetPath,
+            Registry,
+            SourceAsset);
+    if (Resolution == ELevelInstanceSourceResolution::Resolved)
+    {
+        if (!ScanBudget.TryConsumeString(SourceAsset))
+        {
+            Snapshot.AddDiagnostic(Warning(
+                TEXT("resolution.level_instance_source_unavailable"),
+                TEXT("A Level Instance source Target exceeded the bounded snapshot-string budget and was omitted."),
+                Operation,
+                Entry.EvidenceKey()));
+            return;
+        }
+        Entry.LevelInstanceSourceAsset = MoveTemp(SourceAsset);
+        return;
+    }
+    if (Resolution != ELevelInstanceSourceResolution::NotLevelInstance)
+    {
+        Snapshot.AddDiagnostic(Warning(
+            TEXT("resolution.level_instance_source_unavailable"),
+            FString::Printf(
+                TEXT("The Level Instance placement remains readable, but its saved source Level could not be canonicalized without loading it (%s)."),
+                *LevelInstanceResolutionText(Resolution)),
+            Operation,
+            Entry.EvidenceKey()));
     }
 }
 
@@ -855,7 +1205,8 @@ TSharedPtr<FJsonValue> LevelValue(
 TSharedPtr<FJsonValue> ActorValue(
     const FLevelActorEntry& Entry,
     const FString& LevelAlias,
-    const bool bIdentityComplete)
+    const bool bIdentityComplete,
+    TSharedPtr<FJsonObject>* OutFields = nullptr)
 {
     TSharedPtr<FJsonObject> Fields = MakeShared<FJsonObject>();
     Fields->SetStringField(TEXT("id"), GuidText(Entry.Guid));
@@ -877,6 +1228,10 @@ TSharedPtr<FJsonValue> ActorValue(
         Fields->SetStringField(TEXT("package"), Entry.PackagePath);
     }
     Fields->SetField(TEXT("level"), Value::Local(LevelAlias));
+    if (Entry.bLevelInstance)
+    {
+        Fields->SetBoolField(TEXT("levelInstance"), true);
+    }
     Fields->SetBoolField(TEXT("loaded"), Entry.bLoaded);
     Fields->SetBoolField(TEXT("external"), Entry.bExternal);
     if (!Entry.bLoaded && Entry.bHasDescriptor)
@@ -917,7 +1272,40 @@ TSharedPtr<FJsonValue> ActorValue(
                     : !bIdentityUnique
                         ? TEXT("conflict")
                         : TEXT("stable")));
+    if (OutFields != nullptr)
+    {
+        *OutFields = Fields;
+    }
     return Value::Call(TEXT("actor"), Fields);
+}
+
+void AddLevelInstanceHandoffs(
+    const TSharedPtr<FJsonObject>& Result,
+    const TArray<FPendingLevelInstanceHandoff>& Pending)
+{
+    if (!Result.IsValid())
+    {
+        return;
+    }
+    for (const FPendingLevelInstanceHandoff& Item : Pending)
+    {
+        if (!Item.ActorFields.IsValid()
+            || !Item.Target.IsValid())
+        {
+            continue;
+        }
+        const FString Alias = ResultTargets::AddHandoff(
+            Result,
+            Item.Target,
+            Item.PreferredAlias,
+            TEXT("inspect_source_level"));
+        if (!Alias.IsEmpty())
+        {
+            Item.ActorFields->SetField(
+                TEXT("sourceLevel"),
+                Value::Local(Alias));
+        }
+    }
 }
 
 bool EntryMatchesText(
@@ -1009,6 +1397,12 @@ FString CursorFingerprint(
         Fingerprint.Add(Entry.Label);
         Fingerprint.Add(Entry.ObjectPath);
         Fingerprint.Add(Entry.PackagePath);
+        Fingerprint.Add(
+            Entry.bLevelInstance
+                ? TEXT("level_instance")
+                : TEXT("ordinary_actor"));
+        Fingerprint.Add(Entry.LevelInstanceSourceLocator);
+        Fingerprint.Add(Entry.LevelInstanceSourceFingerprint);
         Fingerprint.Add(Entry.bLoaded ? TEXT("loaded") : TEXT("unloaded"));
         Fingerprint.Add(
             Entry.bHasDescriptor ? TEXT("descriptor") : TEXT("no_descriptor"));
@@ -1173,6 +1567,17 @@ TSharedPtr<FJsonObject> QueryActors(
     {
         return ContentUnavailable(TEXT("actors"), Target, Reason);
     }
+    if (!PrepareLevelInstanceCursorEvidence(
+            Snapshot,
+            Target,
+            Reason))
+    {
+        return QueryError(
+            TEXT("validation.reference_scan_incomplete"),
+            Reason,
+            TEXT("actors"),
+            Target.AssetPath);
+    }
     FSalPage Page;
     FString Fingerprint;
     if (!DecodePage(Query, Target, Snapshot, Page, Fingerprint))
@@ -1186,8 +1591,8 @@ TSharedPtr<FJsonObject> QueryActors(
 
     FString SearchText;
     Query.Operation->TryGetStringField(TEXT("text"), SearchText);
-    TArray<const FLevelActorEntry*> Matches;
-    for (const FLevelActorEntry& Entry : Snapshot.Actors)
+    TArray<FLevelActorEntry*> Matches;
+    for (FLevelActorEntry& Entry : Snapshot.Actors)
     {
         if (EntryMatchesText(Entry, SearchText))
         {
@@ -1212,21 +1617,49 @@ TSharedPtr<FJsonObject> QueryActors(
     Builder.AddLocalBinding(
         LevelAlias,
         LevelValue(Target, &Snapshot, false));
+    TArray<FPendingLevelInstanceHandoff> PendingHandoffs;
+    FLevelScanBudget SourceBudget;
+    const IAssetRegistry& Registry =
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+            TEXT("AssetRegistry"))
+            .Get();
     for (int32 Index = Page.Offset; Index < End; ++Index)
     {
-        const FLevelActorEntry& Entry = *Matches[Index];
+        FLevelActorEntry& Entry = *Matches[Index];
+        ResolveLevelInstanceSourceForEntry(
+            Snapshot,
+            Entry,
+            Target,
+            SourceBudget,
+            TEXT("actors"),
+            Registry);
         const FString Preferred = !Entry.Label.IsEmpty()
             ? Entry.Label
             : !Entry.Name.IsEmpty()
                 ? Entry.Name
                 : TEXT("actor");
         const FString Alias = Builder.UniqueAlias(Preferred);
+        TSharedPtr<FJsonObject> ActorFields;
         Builder.AddLocalBinding(
             Alias,
             ActorValue(
                 Entry,
                 LevelAlias,
-                Snapshot.bIdentityComplete));
+                Snapshot.bIdentityComplete,
+                &ActorFields));
+        if (ActorFields.IsValid()
+            && !Entry.LevelInstanceSourceAsset.IsEmpty())
+        {
+            FPendingLevelInstanceHandoff& Pending =
+                PendingHandoffs.AddDefaulted_GetRef();
+            Pending.ActorFields = MoveTemp(ActorFields);
+            Pending.Target = LevelTargetValue(
+                Entry.LevelInstanceSourceAsset);
+            Pending.PreferredAlias =
+                FPackageName::ObjectPathToObjectName(
+                    Entry.LevelInstanceSourceAsset)
+                + TEXT("_source");
+        }
     }
     if (Matches.IsEmpty())
     {
@@ -1234,6 +1667,7 @@ TSharedPtr<FJsonObject> QueryActors(
     }
     TSharedPtr<FJsonObject> Result = Builder.BuildResult(
         Snapshot.FinalDiagnostics(TEXT("actors")));
+    AddLevelInstanceHandoffs(Result, PendingHandoffs);
     SetPage(
         Result,
         Fingerprint,
@@ -1291,9 +1725,9 @@ TSharedPtr<FJsonObject> QueryExactActor(
             Id);
     }
 
-    const FLevelActorEntry* Match = nullptr;
+    FLevelActorEntry* Match = nullptr;
     int32 MatchCount = 0;
-    for (const FLevelActorEntry& Entry : Snapshot.Actors)
+    for (FLevelActorEntry& Entry : Snapshot.Actors)
     {
         if (Entry.Guid == Guid)
         {
@@ -1314,6 +1748,19 @@ TSharedPtr<FJsonObject> QueryExactActor(
             Id);
     }
 
+    FLevelScanBudget SourceBudget;
+    const IAssetRegistry& Registry =
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+            TEXT("AssetRegistry"))
+            .Get();
+    ResolveLevelInstanceSourceForEntry(
+        Snapshot,
+        *Match,
+        Target,
+        SourceBudget,
+        TEXT("actor"),
+        Registry);
+
     FSalObjectBuilder Builder;
     const FString LevelAlias = Builder.UniqueAlias(
         Query.Alias.IsEmpty() ? TargetName(Target) : Query.Alias);
@@ -1326,10 +1773,30 @@ TSharedPtr<FJsonObject> QueryExactActor(
             ? Match->Name
             : TEXT("actor");
     const FString ActorAlias = Builder.UniqueAlias(Preferred);
+    TSharedPtr<FJsonObject> ActorFields;
     Builder.AddLocalBinding(
         ActorAlias,
-        ActorValue(*Match, LevelAlias, true));
-    return Builder.BuildResult(Snapshot.FinalDiagnostics(TEXT("actor")));
+        ActorValue(
+            *Match,
+            LevelAlias,
+            true,
+            &ActorFields));
+    TSharedPtr<FJsonObject> Result = Builder.BuildResult(
+        Snapshot.FinalDiagnostics(TEXT("actor")));
+    if (ActorFields.IsValid()
+        && !Match->LevelInstanceSourceAsset.IsEmpty())
+    {
+        FPendingLevelInstanceHandoff Pending;
+        Pending.ActorFields = MoveTemp(ActorFields);
+        Pending.Target = LevelTargetValue(
+            Match->LevelInstanceSourceAsset);
+        Pending.PreferredAlias =
+            FPackageName::ObjectPathToObjectName(
+                Match->LevelInstanceSourceAsset)
+            + TEXT("_source");
+        AddLevelInstanceHandoffs(Result, {Pending});
+    }
+    return Result;
 }
 }
 
@@ -1402,7 +1869,7 @@ bool FSalLevelInterface::LowerStableReference(
 
     FLevelSnapshot Snapshot;
     FString Reason;
-    if (!BuildSnapshot(Target, TEXT("actor"), Snapshot, Reason))
+    if (!BuildSnapshot(Target, TEXT("stable_ref"), Snapshot, Reason))
     {
         OutCode = TEXT("capability.level_not_loaded");
         OutMessage = Reason.IsEmpty()

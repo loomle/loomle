@@ -108,6 +108,7 @@
     { "code": "resolution.function_not_found", "layer": "resolution", "defaultSeverity": "error", "title": "Function not found" },
     { "code": "resolution.graph_not_found", "layer": "resolution", "defaultSeverity": "error", "title": "Graph not found" },
     { "code": "resolution.identity_conflict", "layer": "resolution", "defaultSeverity": "error", "title": "Identity conflict" },
+    { "code": "resolution.level_instance_source_unavailable", "layer": "resolution", "defaultSeverity": "warning", "title": "Level Instance source unavailable" },
     { "code": "resolution.insufficient_scope", "layer": "resolution", "defaultSeverity": "error", "title": "Insufficient reference scope" },
     { "code": "resolution.invalid_anchor", "layer": "resolution", "defaultSeverity": "error", "title": "Invalid anchor" },
     { "code": "resolution.invalid_traversal_target", "layer": "resolution", "defaultSeverity": "error", "title": "Invalid traversal target" },

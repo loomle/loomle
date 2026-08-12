@@ -18,6 +18,8 @@
 #include "GameFramework/Actor.h"
 #include "HAL/FileManager.h"
 #include "Helpers/PCGHelpers.h"
+#include "LevelInstance/LevelInstanceActor.h"
+#include "LevelInstance/LevelInstanceSubsystem.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/CoreDelegates.h"
 #include "Misc/PackageName.h"
@@ -28,6 +30,7 @@
 #include "UObject/SavePackage.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UObjectHash.h"
+#include "UObject/UObjectIterator.h"
 #include "UObject/UnrealType.h"
 
 namespace
@@ -391,6 +394,204 @@ bool ReadLevelNextCursor(
         && (*Page).IsValid()
         && (*Page)->TryGetStringField(TEXT("next"), OutCursor)
         && !OutCursor.IsEmpty();
+}
+
+bool ReadLevelLocalField(
+    const TSharedPtr<FJsonObject>& Fields,
+    const FString& FieldName,
+    FString& OutAlias)
+{
+    OutAlias.Reset();
+    const TSharedPtr<FJsonObject>* Ref = nullptr;
+    FString Kind;
+    return Fields.IsValid()
+        && Fields->TryGetObjectField(FieldName, Ref)
+        && Ref != nullptr
+        && (*Ref).IsValid()
+        && (*Ref)->TryGetStringField(TEXT("kind"), Kind)
+        && Kind == TEXT("local")
+        && (*Ref)->TryGetStringField(TEXT("name"), OutAlias)
+        && !OutAlias.IsEmpty();
+}
+
+bool ReadSingleRelatedLevelTarget(
+    const TSharedPtr<FJsonObject>& Result,
+    FString& OutAlias,
+    FString& OutAsset)
+{
+    OutAlias.Reset();
+    OutAsset.Reset();
+    const TArray<TSharedPtr<FJsonValue>>* Related = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetArrayField(TEXT("relatedTargets"), Related)
+        || Related == nullptr
+        || Related->Num() != 1)
+    {
+        return false;
+    }
+    const TSharedPtr<FJsonObject>* Binding = nullptr;
+    const TSharedPtr<FJsonObject>* Target = nullptr;
+    FString Kind;
+    FString Domain;
+    FString Type;
+    return (*Related)[0].IsValid()
+        && (*Related)[0]->TryGetObject(Binding)
+        && Binding != nullptr
+        && (*Binding).IsValid()
+        && (*Binding)->TryGetStringField(TEXT("alias"), OutAlias)
+        && !OutAlias.IsEmpty()
+        && (*Binding)->TryGetObjectField(TEXT("target"), Target)
+        && Target != nullptr
+        && (*Target).IsValid()
+        && (*Target)->TryGetStringField(TEXT("kind"), Kind)
+        && Kind == TEXT("target")
+        && (*Target)->TryGetStringField(TEXT("domain"), Domain)
+        && Domain == TEXT("level")
+        && (*Target)->TryGetStringField(TEXT("asset"), OutAsset)
+        && !OutAsset.IsEmpty()
+        && (*Target)->TryGetStringField(TEXT("type"), Type)
+        && Type == UWorld::StaticClass()->GetPathName();
+}
+
+bool ReadRelatedLevelTargets(
+    const TSharedPtr<FJsonObject>& Result,
+    TMap<FString, FString>& OutAliasesByAsset)
+{
+    OutAliasesByAsset.Reset();
+    const TArray<TSharedPtr<FJsonValue>>* Related = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetArrayField(TEXT("relatedTargets"), Related)
+        || Related == nullptr
+        || Related->IsEmpty())
+    {
+        return false;
+    }
+    for (const TSharedPtr<FJsonValue>& Value : *Related)
+    {
+        const TSharedPtr<FJsonObject>* Binding = nullptr;
+        const TSharedPtr<FJsonObject>* Target = nullptr;
+        FString Alias;
+        FString Asset;
+        FString Kind;
+        FString Domain;
+        FString Type;
+        if (!Value.IsValid()
+            || !Value->TryGetObject(Binding)
+            || Binding == nullptr
+            || !(*Binding).IsValid()
+            || !(*Binding)->TryGetStringField(TEXT("alias"), Alias)
+            || Alias.IsEmpty()
+            || !(*Binding)->TryGetObjectField(TEXT("target"), Target)
+            || Target == nullptr
+            || !(*Target).IsValid()
+            || !(*Target)->TryGetStringField(TEXT("kind"), Kind)
+            || Kind != TEXT("target")
+            || !(*Target)->TryGetStringField(TEXT("domain"), Domain)
+            || Domain != TEXT("level")
+            || !(*Target)->TryGetStringField(TEXT("asset"), Asset)
+            || Asset.IsEmpty()
+            || !(*Target)->TryGetStringField(TEXT("type"), Type)
+            || Type != UWorld::StaticClass()->GetPathName()
+            || OutAliasesByAsset.Contains(Asset)
+            || OutAliasesByAsset.FindKey(Alias) != nullptr)
+        {
+            OutAliasesByAsset.Reset();
+            return false;
+        }
+        OutAliasesByAsset.Add(Asset, Alias);
+    }
+    return true;
+}
+
+bool HasSingleLevelHandoff(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& ExpectedPurpose,
+    const FString& ExpectedAlias)
+{
+    const TArray<TSharedPtr<FJsonValue>>* Handoffs = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetArrayField(TEXT("handoffs"), Handoffs)
+        || Handoffs == nullptr
+        || Handoffs->Num() != 1)
+    {
+        return false;
+    }
+    const TSharedPtr<FJsonObject>* Handoff = nullptr;
+    const TSharedPtr<FJsonObject>* Target = nullptr;
+    FString Kind;
+    FString Purpose;
+    FString RefKind;
+    FString Alias;
+    return (*Handoffs)[0].IsValid()
+        && (*Handoffs)[0]->TryGetObject(Handoff)
+        && Handoff != nullptr
+        && (*Handoff).IsValid()
+        && (*Handoff)->TryGetStringField(TEXT("kind"), Kind)
+        && Kind == TEXT("target_handoff")
+        && (*Handoff)->TryGetStringField(TEXT("purpose"), Purpose)
+        && Purpose == ExpectedPurpose
+        && (*Handoff)->TryGetObjectField(TEXT("target"), Target)
+        && Target != nullptr
+        && (*Target).IsValid()
+        && (*Target)->TryGetStringField(TEXT("kind"), RefKind)
+        && RefKind == TEXT("local")
+        && (*Target)->TryGetStringField(TEXT("name"), Alias)
+        && Alias == ExpectedAlias;
+}
+
+bool ReadLevelHandoffAliases(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& ExpectedPurpose,
+    TSet<FString>& OutAliases)
+{
+    OutAliases.Reset();
+    const TArray<TSharedPtr<FJsonValue>>* Handoffs = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetArrayField(TEXT("handoffs"), Handoffs)
+        || Handoffs == nullptr
+        || Handoffs->IsEmpty())
+    {
+        return false;
+    }
+    for (const TSharedPtr<FJsonValue>& Value : *Handoffs)
+    {
+        const TSharedPtr<FJsonObject>* Handoff = nullptr;
+        const TSharedPtr<FJsonObject>* Target = nullptr;
+        FString Kind;
+        FString Purpose;
+        FString RefKind;
+        FString Alias;
+        if (!Value.IsValid()
+            || !Value->TryGetObject(Handoff)
+            || Handoff == nullptr
+            || !(*Handoff).IsValid()
+            || !(*Handoff)->TryGetStringField(TEXT("kind"), Kind)
+            || Kind != TEXT("target_handoff")
+            || !(*Handoff)->TryGetStringField(TEXT("purpose"), Purpose)
+            || Purpose != ExpectedPurpose
+            || !(*Handoff)->TryGetObjectField(TEXT("target"), Target)
+            || Target == nullptr
+            || !(*Target).IsValid()
+            || !(*Target)->TryGetStringField(TEXT("kind"), RefKind)
+            || RefKind != TEXT("local")
+            || !(*Target)->TryGetStringField(TEXT("name"), Alias)
+            || Alias.IsEmpty()
+            || OutAliases.Contains(Alias))
+        {
+            OutAliases.Reset();
+            return false;
+        }
+        OutAliases.Add(Alias);
+    }
+    return true;
+}
+
+bool HasNoLevelRelatedContext(
+    const TSharedPtr<FJsonObject>& Result)
+{
+    return Result.IsValid()
+        && !Result->HasField(TEXT("relatedTargets"))
+        && !Result->HasField(TEXT("handoffs"));
 }
 
 void PrepareLevelPackageForCollection(UPackage* Package)
@@ -935,6 +1136,663 @@ private:
     bool bCleaned = false;
     UWorld* OriginalEditorWorld = nullptr;
     bool bEditorContextChanged = false;
+};
+
+struct FLevelInstanceLoadState
+{
+    TWeakObjectPtr<ALevelInstance> Actor;
+    FString SourcePath;
+    FGuid ActorInstanceGuid;
+    bool bLoaded = false;
+    bool bLoading = false;
+};
+
+class FScopedLevelInstanceQueryFixture
+{
+public:
+    FScopedLevelInstanceQueryFixture() = default;
+    FScopedLevelInstanceQueryFixture(
+        const FScopedLevelInstanceQueryFixture&) = delete;
+    FScopedLevelInstanceQueryFixture& operator=(
+        const FScopedLevelInstanceQueryFixture&) = delete;
+
+    ~FScopedLevelInstanceQueryFixture()
+    {
+        FString Ignored;
+        Cleanup(Ignored);
+    }
+
+    bool Build(FString& OutError)
+    {
+        Token = FGuid::NewGuid().ToString(EGuidFormats::Digits);
+        RootPackagePath = FString::Printf(
+            TEXT("/Game/LoomleTests/LevelInstance/%s"),
+            *Token);
+
+        if (!CreateMap(TEXT("L_10_SourceA"), SourceA, OutError)
+            || !SaveMap(SourceA, OutError)
+            || !UnloadMap(SourceA, OutError)
+            || !CreateMap(TEXT("L_20_SourceB"), SourceB, OutError)
+            || !SaveMap(SourceB, OutError)
+            || !UnloadMap(SourceB, OutError)
+            || !CreateMap(
+                TEXT("L_30_Containing"),
+                Containing,
+                OutError))
+        {
+            return false;
+        }
+
+        Ordinary = SpawnActor(
+            Containing.World,
+            TEXT("Actor_Ordinary"),
+            TEXT("Loomle Ordinary Actor"),
+            OutError);
+        SharedOne = SpawnLevelInstance(
+            Containing.World,
+            TEXT("LI_SharedA"),
+            TEXT("Loomle Resolved Instance Shared Source A"),
+            OutError);
+        SharedTwo = SpawnLevelInstance(
+            Containing.World,
+            TEXT("LI_SharedB"),
+            TEXT("Loomle Resolved Instance Shared Source B"),
+            OutError);
+        OtherSource = SpawnLevelInstance(
+            Containing.World,
+            TEXT("LI_OtherSource"),
+            TEXT("Loomle Resolved Instance Other Source"),
+            OutError);
+        MissingSource = SpawnLevelInstance(
+            Containing.World,
+            TEXT("LI_MissingSource"),
+            TEXT("Loomle Missing Source Instance"),
+            OutError);
+        if (Ordinary == nullptr
+            || SharedOne == nullptr
+            || SharedTwo == nullptr
+            || OtherSource == nullptr
+            || MissingSource == nullptr
+            || !SetSource(SharedOne, SourceA.ObjectPath, OutError)
+            || !SetSource(SharedTwo, SourceA.ObjectPath, OutError)
+            || !SetSource(OtherSource, SourceB.ObjectPath, OutError))
+        {
+            return false;
+        }
+
+        OrdinaryId = Ordinary->GetActorGuid();
+        SharedOneId = SharedOne->GetActorGuid();
+        SharedTwoId = SharedTwo->GetActorGuid();
+        OtherSourceId = OtherSource->GetActorGuid();
+        MissingSourceId = MissingSource->GetActorGuid();
+        if (!OrdinaryId.IsValid()
+            || !SharedOneId.IsValid()
+            || !SharedTwoId.IsValid()
+            || !OtherSourceId.IsValid()
+            || !MissingSourceId.IsValid())
+        {
+            OutError = TEXT(
+                "UE did not assign persistent ActorGuids to the Level Instance fixture Actors.");
+            return false;
+        }
+
+        if (!SaveMap(Containing, OutError)
+            || !ValidateOnDiskEvidence(SourceA, true, OutError)
+            || !ValidateOnDiskEvidence(SourceB, true, OutError)
+            || !ValidateOnDiskEvidence(Containing, false, OutError)
+            || !SourcesRemainUnloaded())
+        {
+            if (OutError.IsEmpty())
+            {
+                OutError = TEXT(
+                    "Creating the containing Level loaded a Level Instance source map.");
+            }
+            return false;
+        }
+        return true;
+    }
+
+    bool Activate(FString& OutError)
+    {
+        if (GEditor == nullptr || Containing.World == nullptr)
+        {
+            OutError = TEXT(
+                "Cannot activate a null containing Level Instance fixture World.");
+            return false;
+        }
+        FWorldContext& Context = GEditor->GetEditorWorldContext();
+        if (!bEditorContextChanged)
+        {
+            OriginalEditorWorld = Context.World();
+            bEditorContextChanged = true;
+        }
+        Context.SetCurrentWorld(Containing.World);
+        if (Context.World() != Containing.World)
+        {
+            OutError = TEXT(
+                "UE failed to bind the containing Level Instance fixture to the Editor World context.");
+            return false;
+        }
+        return true;
+    }
+
+    bool CaptureNoLoadState(FString& OutError)
+    {
+        OutError.Reset();
+        if (Containing.World == nullptr
+            || !SourcesRemainUnloaded()
+            || HasLoadedSourceInstancePackage())
+        {
+            OutError = TEXT(
+                "The Level Instance no-load fixture already contained loaded source or temporary instance packages.");
+            return false;
+        }
+        LevelInstanceSubsystem =
+            Containing.World->GetSubsystem<ULevelInstanceSubsystem>();
+        if (LevelInstanceSubsystem == nullptr)
+        {
+            OutError = TEXT(
+                "The containing World has no Level Instance subsystem.");
+            return false;
+        }
+        LevelsBefore = Containing.World->GetLevels();
+        LoadStates.Reset();
+        for (ALevelInstance* Actor : {
+                 SharedOne,
+                 SharedTwo,
+                 OtherSource,
+                 MissingSource})
+        {
+            if (Actor == nullptr)
+            {
+                OutError = TEXT(
+                    "The Level Instance read invariant received a null placement Actor.");
+                return false;
+            }
+            FLevelInstanceLoadState& State =
+                LoadStates.AddDefaulted_GetRef();
+            State.Actor = Actor;
+            State.SourcePath =
+                Actor->GetWorldAsset().ToSoftObjectPath().ToString();
+            State.ActorInstanceGuid = Actor->GetActorInstanceGuid();
+            State.bLoaded = LevelInstanceSubsystem->IsLoaded(Actor);
+            State.bLoading = LevelInstanceSubsystem->IsLoading(Actor);
+            if (State.bLoaded
+                || State.bLoading
+                || State.ActorInstanceGuid != Actor->GetActorGuid())
+            {
+                OutError = TEXT(
+                    "A Level Instance fixture placement was already loaded, loading, or projected before Query.");
+                return false;
+            }
+        }
+        bNoLoadStateCaptured = true;
+        return true;
+    }
+
+    bool VerifyNoLoadState(FAutomationTestBase& Test) const
+    {
+        bool bOk = Test.TestTrue(
+            TEXT("Level Instance Query keeps both source maps unloaded"),
+            SourcesRemainUnloaded());
+        bOk &= Test.TestFalse(
+            TEXT("Level Instance Query creates no temporary source instance package"),
+            HasLoadedSourceInstancePackage());
+        bOk &= Test.TestTrue(
+            TEXT("Level Instance no-load state was captured"),
+            bNoLoadStateCaptured);
+        if (!bNoLoadStateCaptured || Containing.World == nullptr)
+        {
+            return false;
+        }
+        bOk &= Test.TestEqual(
+            TEXT("Level Instance Query preserves the World's Level list"),
+            Containing.World->GetLevels(),
+            LevelsBefore);
+        bOk &= Test.TestEqual(
+            TEXT("Level Instance Query preserves the native subsystem"),
+            Containing.World->GetSubsystem<ULevelInstanceSubsystem>(),
+            LevelInstanceSubsystem);
+        for (const FLevelInstanceLoadState& State : LoadStates)
+        {
+            ALevelInstance* Actor = State.Actor.Get();
+            bOk &= Test.TestNotNull(
+                TEXT("Level Instance Query preserves each placement Actor"),
+                Actor);
+            if (Actor == nullptr || LevelInstanceSubsystem == nullptr)
+            {
+                continue;
+            }
+            bOk &= Test.TestEqual(
+                TEXT("Level Instance Query preserves the saved source path"),
+                Actor->GetWorldAsset().ToSoftObjectPath().ToString(),
+                State.SourcePath);
+            bOk &= Test.TestEqual(
+                TEXT("Level Instance Query does not project ActorInstanceGuid"),
+                Actor->GetActorInstanceGuid(),
+                State.ActorInstanceGuid);
+            bOk &= Test.TestEqual(
+                TEXT("Level Instance Query does not load a placement"),
+                LevelInstanceSubsystem->IsLoaded(Actor),
+                State.bLoaded);
+            bOk &= Test.TestEqual(
+                TEXT("Level Instance Query does not queue a placement load"),
+                LevelInstanceSubsystem->IsLoading(Actor),
+                State.bLoading);
+            bOk &= Test.TestNull(
+                TEXT("Level Instance source SoftObjectPtr remains unresolved"),
+                Actor->GetWorldAsset().Get());
+        }
+        return bOk;
+    }
+
+    bool SetSharedOneSource(
+        const bool bUseSourceB,
+        FString& OutError)
+    {
+        return SetSource(
+            SharedOne,
+            bUseSourceB ? SourceB.ObjectPath : SourceA.ObjectPath,
+            OutError);
+    }
+
+    bool SourcesRemainUnloaded() const
+    {
+        return IsMapUnloaded(SourceA) && IsMapUnloaded(SourceB);
+    }
+
+    bool Cleanup(FString& OutError)
+    {
+        OutError.Reset();
+        if (bCleaned)
+        {
+            return true;
+        }
+        bCleaned = true;
+
+        if (bEditorContextChanged && GEditor != nullptr)
+        {
+            GEditor->GetEditorWorldContext().SetCurrentWorld(
+                OriginalEditorWorld);
+            bEditorContextChanged = false;
+        }
+
+        IAssetRegistry& Registry =
+            FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+                TEXT("AssetRegistry"))
+                .Get();
+        for (FLevelMapRecord* Record : {
+                 &SourceA,
+                 &SourceB,
+                 &Containing})
+        {
+            UWorld* World = Record->World;
+            if (World == nullptr && !Record->ObjectPath.IsEmpty())
+            {
+                World = FindObject<UWorld>(
+                    nullptr,
+                    *Record->ObjectPath);
+            }
+            if (World != nullptr)
+            {
+                if (Record->bRegisteredInMemory)
+                {
+                    FAssetRegistryModule::AssetDeleted(World);
+                    Record->bRegisteredInMemory = false;
+                }
+                UPackage* Package = World->GetOutermost();
+                World->DestroyWorld(false);
+                PrepareLevelPackageForCollection(Package);
+                Record->World = nullptr;
+            }
+            else if (!Record->PackageName.IsEmpty())
+            {
+                if (UPackage* Package = FindPackage(
+                        nullptr,
+                        *Record->PackageName))
+                {
+                    PrepareLevelPackageForCollection(Package);
+                }
+            }
+        }
+
+        Ordinary = nullptr;
+        SharedOne = nullptr;
+        SharedTwo = nullptr;
+        OtherSource = nullptr;
+        MissingSource = nullptr;
+        LevelInstanceSubsystem = nullptr;
+        LoadStates.Reset();
+        LevelsBefore.Reset();
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+
+        TArray<FString> Filenames;
+        for (const FLevelMapRecord* Record : {
+                 &SourceA,
+                 &SourceB,
+                 &Containing})
+        {
+            if (!Record->Filename.IsEmpty())
+            {
+                IFileManager::Get().Delete(
+                    *Record->Filename,
+                    false,
+                    true,
+                    true);
+                Filenames.Add(Record->Filename);
+            }
+            if (!Record->PackageName.IsEmpty()
+                && FindPackage(nullptr, *Record->PackageName) != nullptr
+                && OutError.IsEmpty())
+            {
+                OutError = TEXT(
+                    "Level Instance fixture package remained loaded during cleanup: ")
+                    + Record->PackageName;
+            }
+        }
+        if (!Filenames.IsEmpty())
+        {
+            Registry.ScanModifiedAssetFiles(Filenames);
+        }
+        return OutError.IsEmpty();
+    }
+
+    FLevelMapRecord SourceA;
+    FLevelMapRecord SourceB;
+    FLevelMapRecord Containing;
+    AActor* Ordinary = nullptr;
+    ALevelInstance* SharedOne = nullptr;
+    ALevelInstance* SharedTwo = nullptr;
+    ALevelInstance* OtherSource = nullptr;
+    ALevelInstance* MissingSource = nullptr;
+    FGuid OrdinaryId;
+    FGuid SharedOneId;
+    FGuid SharedTwoId;
+    FGuid OtherSourceId;
+    FGuid MissingSourceId;
+
+private:
+    static UWorld::InitializationValues FixtureInitializationValues()
+    {
+        return UWorld::InitializationValues()
+            .RequiresHitProxies(false)
+            .ShouldSimulatePhysics(false)
+            .EnableTraceCollision(false)
+            .CreateNavigation(false)
+            .CreateAISystem(false)
+            .AllowAudioPlayback(false)
+            .CreatePhysicsScene(false);
+    }
+
+    bool CreateMap(
+        const FString& AssetName,
+        FLevelMapRecord& OutRecord,
+        FString& OutError)
+    {
+        OutRecord.PackageName = RootPackagePath + TEXT("/") + AssetName;
+        OutRecord.ObjectPath = OutRecord.PackageName
+            + TEXT(".")
+            + AssetName;
+        OutRecord.Filename = FPackageName::LongPackageNameToFilename(
+            OutRecord.PackageName,
+            FPackageName::GetMapPackageExtension());
+        IFileManager::Get().MakeDirectory(
+            *FPaths::GetPath(OutRecord.Filename),
+            true);
+
+        UPackage* Package = CreatePackage(*OutRecord.PackageName);
+        const UWorld::InitializationValues InitValues =
+            FixtureInitializationValues();
+        OutRecord.World = UWorld::CreateWorld(
+            EWorldType::Editor,
+            false,
+            FName(*AssetName),
+            Package,
+            false,
+            ERHIFeatureLevel::Num,
+            &InitValues);
+        if (OutRecord.World == nullptr
+            || OutRecord.World->PersistentLevel == nullptr
+            || OutRecord.World->GetPathName() != OutRecord.ObjectPath)
+        {
+            OutError = TEXT(
+                "UE failed to create an exact Level Instance fixture World at ")
+                + OutRecord.ObjectPath;
+            return false;
+        }
+        OutRecord.World->SetFlags(
+            RF_Public | RF_Standalone | RF_Transactional);
+        FAssetRegistryModule::AssetCreated(OutRecord.World);
+        OutRecord.bRegisteredInMemory = true;
+        OutRecord.World->GetOutermost()->SetDirtyFlag(false);
+        return true;
+    }
+
+    static AActor* SpawnActor(
+        UWorld* World,
+        const FString& Name,
+        const FString& Label,
+        FString& OutError)
+    {
+        FActorSpawnParameters Params;
+        Params.Name = FName(*Name);
+        Params.OverrideLevel = World != nullptr
+            ? World->PersistentLevel
+            : nullptr;
+        Params.ObjectFlags = RF_Transactional;
+        AActor* Actor = World != nullptr
+            ? World->SpawnActor<AActor>(
+                AActor::StaticClass(),
+                FTransform::Identity,
+                Params)
+            : nullptr;
+        if (Actor == nullptr)
+        {
+            OutError = TEXT(
+                "UE failed to spawn Level Instance fixture Actor ")
+                + Name;
+            return nullptr;
+        }
+        Actor->SetActorLabel(Label, false);
+        return Actor;
+    }
+
+    static ALevelInstance* SpawnLevelInstance(
+        UWorld* World,
+        const FString& Name,
+        const FString& Label,
+        FString& OutError)
+    {
+        FActorSpawnParameters Params;
+        Params.Name = FName(*Name);
+        Params.OverrideLevel = World != nullptr
+            ? World->PersistentLevel
+            : nullptr;
+        Params.ObjectFlags = RF_Transactional;
+        ALevelInstance* Actor = World != nullptr
+            ? World->SpawnActor<ALevelInstance>(
+                ALevelInstance::StaticClass(),
+                FTransform::Identity,
+                Params)
+            : nullptr;
+        if (Actor == nullptr)
+        {
+            OutError = TEXT(
+                "UE failed to spawn Level Instance placement ")
+                + Name;
+            return nullptr;
+        }
+        Actor->SetActorLabel(Label, false);
+        return Actor;
+    }
+
+    static bool SetSource(
+        ALevelInstance* Actor,
+        const FString& SourceObjectPath,
+        FString& OutError)
+    {
+        const TSoftObjectPtr<UWorld> Source{
+            FSoftObjectPath(SourceObjectPath)};
+        if (Actor == nullptr
+            || SourceObjectPath.IsEmpty()
+            || !Actor->SetWorldAsset(Source)
+            || Actor->GetWorldAsset().ToSoftObjectPath().ToString()
+                != SourceObjectPath
+            || Actor->GetWorldAsset().Get() != nullptr)
+        {
+            OutError = TEXT(
+                "UE failed to retain an unloaded saved source on a Level Instance placement: ")
+                + SourceObjectPath;
+            return false;
+        }
+        return true;
+    }
+
+    static bool SaveMap(
+        FLevelMapRecord& Record,
+        FString& OutError)
+    {
+        if (Record.World == nullptr)
+        {
+            OutError = TEXT(
+                "Cannot save a null Level Instance fixture World.");
+            return false;
+        }
+        UPackage* Package = Record.World->GetOutermost();
+        Package->SetDirtyFlag(true);
+        Package->FullyLoad();
+        FSavePackageArgs SaveArgs;
+        SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+        SaveArgs.Error = GLog;
+        if (!UPackage::SavePackage(
+                Package,
+                Record.World,
+                *Record.Filename,
+                SaveArgs))
+        {
+            OutError = TEXT(
+                "UE failed to save Level Instance fixture ")
+                + Record.ObjectPath;
+            return false;
+        }
+        Package->SetDirtyFlag(false);
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+            TEXT("AssetRegistry"))
+            .Get()
+            .ScanModifiedAssetFiles({Record.Filename});
+        return true;
+    }
+
+    static bool UnloadMap(
+        FLevelMapRecord& Record,
+        FString& OutError)
+    {
+        if (Record.World == nullptr)
+        {
+            OutError = TEXT(
+                "Cannot unload a null Level Instance fixture World.");
+            return false;
+        }
+        UPackage* Package = Record.World->GetOutermost();
+        if (Record.bRegisteredInMemory)
+        {
+            FAssetRegistryModule::AssetDeleted(Record.World);
+            Record.bRegisteredInMemory = false;
+        }
+        Record.World->DestroyWorld(false);
+        PrepareLevelPackageForCollection(Package);
+        Record.World = nullptr;
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+            TEXT("AssetRegistry"))
+            .Get()
+            .ScanModifiedAssetFiles({Record.Filename});
+        if (!IsMapUnloaded(Record))
+        {
+            OutError = TEXT(
+                "Saved Level Instance source fixture remained loaded: ")
+                + Record.ObjectPath;
+            return false;
+        }
+        return true;
+    }
+
+    static bool IsMapUnloaded(const FLevelMapRecord& Record)
+    {
+        return !Record.PackageName.IsEmpty()
+            && !Record.ObjectPath.IsEmpty()
+            && FindPackage(nullptr, *Record.PackageName) == nullptr
+            && FindObject<UWorld>(nullptr, *Record.ObjectPath) == nullptr;
+    }
+
+    static bool ValidateOnDiskEvidence(
+        const FLevelMapRecord& Record,
+        const bool bExpectUnloaded,
+        FString& OutError)
+    {
+        IAssetRegistry& Registry =
+            FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+                TEXT("AssetRegistry"))
+                .Get();
+        const FAssetData Data = Registry.GetAssetByObjectPath(
+            FSoftObjectPath(Record.ObjectPath),
+            true);
+        if (!Data.IsValid()
+            || Data.AssetClassPath
+                != UWorld::StaticClass()->GetClassPathName())
+        {
+            OutError = TEXT(
+                "Asset Registry lacks on-disk UWorld evidence for Level Instance fixture ")
+                + Record.ObjectPath;
+            return false;
+        }
+        if (bExpectUnloaded
+            && (Data.FastGetAsset(false) != nullptr
+                || !IsMapUnloaded(Record)))
+        {
+            OutError = TEXT(
+                "On-disk Level Instance source fixture unexpectedly remained loaded: ")
+                + Record.ObjectPath;
+            return false;
+        }
+        return true;
+    }
+
+    bool HasLoadedSourceInstancePackage() const
+    {
+        TArray<FString> Prefixes;
+        for (const FLevelMapRecord* Record : {&SourceA, &SourceB})
+        {
+            Prefixes.Add(
+                TEXT("/Temp")
+                + FPackageName::GetLongPackagePath(Record->PackageName)
+                + TEXT("/")
+                + FPackageName::GetShortName(Record->PackageName)
+                + TEXT("_LevelInstance_"));
+        }
+        for (TObjectIterator<UPackage> It; It; ++It)
+        {
+            const FString PackageName = It->GetName();
+            for (const FString& Prefix : Prefixes)
+            {
+                if (PackageName.StartsWith(Prefix))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    FString Token;
+    FString RootPackagePath;
+    bool bCleaned = false;
+    UWorld* OriginalEditorWorld = nullptr;
+    bool bEditorContextChanged = false;
+    bool bNoLoadStateCaptured = false;
+    ULevelInstanceSubsystem* LevelInstanceSubsystem = nullptr;
+    TArray<ULevel*> LevelsBefore;
+    TArray<FLevelInstanceLoadState> LoadStates;
 };
 
 struct FFixtureActorState
@@ -1671,6 +2529,389 @@ bool FSalLevelActorGuidCorruptionTest::RunTest(const FString& Parameters)
     TestTrue(
         TEXT("Corruption reads preserve the corrupt source evidence exactly"),
         Invariant.Verify(*this));
+
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelInstanceSourceOwnershipTest,
+    "Loomle.Sal.Level.Query.LevelInstanceSourceOwnershipNoLoadAndDedup",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelInstanceSourceOwnershipTest::RunTest(
+    const FString& Parameters)
+{
+    FScopedLevelInstanceQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(
+            TEXT("Level Instance source-ownership fixture builds"),
+            Fixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Containing Level Instance fixture becomes the active Editor World"),
+            Fixture.Activate(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Level Instance fixture captures an unloaded-source baseline"),
+            Fixture.CaptureNoLoadState(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    FLevelReadInvariant Invariant(Fixture.Containing.World);
+
+    const TSharedRef<FJsonObject> Target = LevelTarget(
+        Fixture.Containing.ObjectPath,
+        UWorld::StaticClass()->GetPathName());
+    const FString SharedOneId = LevelGuidText(Fixture.SharedOneId);
+    const FString SharedTwoId = LevelGuidText(Fixture.SharedTwoId);
+    const FString OtherSourceId = LevelGuidText(Fixture.OtherSourceId);
+    const FString OrdinaryId = LevelGuidText(Fixture.OrdinaryId);
+    const FString MissingSourceId = LevelGuidText(
+        Fixture.MissingSourceId);
+
+    const TSharedPtr<FJsonObject> TargetOnlyResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelOperation(TEXT("target"))));
+    const TSharedPtr<FJsonObject> SummaryResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelOperation(TEXT("summary"))));
+    TestTrue(
+        TEXT("Level target and summary reads never enumerate placement source Targets"),
+        !LevelHasError(TargetOnlyResult)
+            && !LevelHasError(SummaryResult)
+            && HasNoLevelRelatedContext(TargetOnlyResult)
+            && HasNoLevelRelatedContext(SummaryResult));
+
+    const TSharedPtr<FJsonObject> SharedResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelOperation(
+                    TEXT("actors"),
+                    TEXT("Shared Source"))));
+    const TArray<TSharedPtr<FJsonObject>> SharedActors =
+        LevelTaggedObjectFields(SharedResult, TEXT("actor"));
+    const TSharedPtr<FJsonObject> SharedOneFields =
+        FindLevelFieldsById(SharedActors, SharedOneId);
+    const TSharedPtr<FJsonObject> SharedTwoFields =
+        FindLevelFieldsById(SharedActors, SharedTwoId);
+    FString SharedRelatedAlias;
+    FString SharedRelatedAsset;
+    FString SharedOneSourceAlias;
+    FString SharedTwoSourceAlias;
+    bool bSharedOneLevelInstance = false;
+    bool bSharedTwoLevelInstance = false;
+    TestTrue(
+        TEXT("Two placements of one source remain two containing-Level Actors"),
+        !LevelHasError(SharedResult)
+            && LevelHasTargetContext(
+                SharedResult,
+                TEXT("exact_target"))
+            && HasCanonicalLevelTarget(
+                SharedResult,
+                Fixture.Containing.ObjectPath)
+            && SharedActors.Num() == 2
+            && SharedOneFields.IsValid()
+            && SharedTwoFields.IsValid()
+            && SharedOneFields->TryGetBoolField(
+                TEXT("levelInstance"),
+                bSharedOneLevelInstance)
+            && bSharedOneLevelInstance
+            && SharedTwoFields->TryGetBoolField(
+                TEXT("levelInstance"),
+                bSharedTwoLevelInstance)
+            && bSharedTwoLevelInstance);
+    TestTrue(
+        TEXT("Same-source placements share one canonical related Level and handoff"),
+        ReadSingleRelatedLevelTarget(
+            SharedResult,
+            SharedRelatedAlias,
+            SharedRelatedAsset)
+            && SharedRelatedAsset == Fixture.SourceA.ObjectPath
+            && HasSingleLevelHandoff(
+                SharedResult,
+                TEXT("inspect_source_level"),
+                SharedRelatedAlias)
+            && ReadLevelLocalField(
+                SharedOneFields,
+                TEXT("sourceLevel"),
+                SharedOneSourceAlias)
+            && ReadLevelLocalField(
+                SharedTwoFields,
+                TEXT("sourceLevel"),
+                SharedTwoSourceAlias)
+            && SharedOneSourceAlias == SharedRelatedAlias
+            && SharedTwoSourceAlias == SharedRelatedAlias);
+    TestTrue(
+        TEXT("Level Instance source availability is represented only by sourceLevel presence"),
+        SharedOneFields.IsValid()
+            && SharedTwoFields.IsValid()
+            && !SharedOneFields->HasField(
+                TEXT("sourceLevelAvailable"))
+            && !SharedTwoFields->HasField(
+                TEXT("sourceLevelAvailable")));
+
+    const TSharedPtr<FJsonObject> AllResolvedResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelOperation(
+                    TEXT("actors"),
+                    TEXT("Loomle Resolved Instance"))));
+    const TArray<TSharedPtr<FJsonObject>> AllResolvedActors =
+        LevelTaggedObjectFields(AllResolvedResult, TEXT("actor"));
+    const TSharedPtr<FJsonObject> AllSharedOneFields =
+        FindLevelFieldsById(AllResolvedActors, SharedOneId);
+    const TSharedPtr<FJsonObject> AllSharedTwoFields =
+        FindLevelFieldsById(AllResolvedActors, SharedTwoId);
+    const TSharedPtr<FJsonObject> AllOtherSourceFields =
+        FindLevelFieldsById(AllResolvedActors, OtherSourceId);
+    TMap<FString, FString> FullAliasesByAsset;
+    TSet<FString> FullHandoffAliases;
+    const bool bFullTargetsValid = ReadRelatedLevelTargets(
+        AllResolvedResult,
+        FullAliasesByAsset);
+    const bool bFullHandoffsValid = ReadLevelHandoffAliases(
+        AllResolvedResult,
+        TEXT("inspect_source_level"),
+        FullHandoffAliases);
+    const FString SourceAAlias = FullAliasesByAsset.FindRef(
+        Fixture.SourceA.ObjectPath);
+    const FString SourceBAlias = FullAliasesByAsset.FindRef(
+        Fixture.SourceB.ObjectPath);
+    FString AllSharedOneSourceAlias;
+    FString AllSharedTwoSourceAlias;
+    FString AllOtherSourceAlias;
+    TestTrue(
+        TEXT("Full Actor collection deduplicates each distinct source and maps every placement to it"),
+        !LevelHasError(AllResolvedResult)
+            && AllResolvedActors.Num() == 3
+            && AllSharedOneFields.IsValid()
+            && AllSharedTwoFields.IsValid()
+            && AllOtherSourceFields.IsValid()
+            && bFullTargetsValid
+            && FullAliasesByAsset.Num() == 2
+            && !SourceAAlias.IsEmpty()
+            && !SourceBAlias.IsEmpty()
+            && SourceAAlias != SourceBAlias
+            && bFullHandoffsValid
+            && FullHandoffAliases.Num() == 2
+            && FullHandoffAliases.Contains(SourceAAlias)
+            && FullHandoffAliases.Contains(SourceBAlias)
+            && ReadLevelLocalField(
+                AllSharedOneFields,
+                TEXT("sourceLevel"),
+                AllSharedOneSourceAlias)
+            && ReadLevelLocalField(
+                AllSharedTwoFields,
+                TEXT("sourceLevel"),
+                AllSharedTwoSourceAlias)
+            && ReadLevelLocalField(
+                AllOtherSourceFields,
+                TEXT("sourceLevel"),
+                AllOtherSourceAlias)
+            && AllSharedOneSourceAlias == SourceAAlias
+            && AllSharedTwoSourceAlias == SourceAAlias
+            && AllOtherSourceAlias == SourceBAlias);
+
+    const TSharedPtr<FJsonObject> ExactInstance =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelExactOperation(SharedOneId)));
+    const TSharedPtr<FJsonObject> ExactInstanceFields =
+        FindLevelFieldsById(
+            LevelTaggedObjectFields(ExactInstance, TEXT("actor")),
+            SharedOneId);
+    FString ExactRelatedAlias;
+    FString ExactRelatedAsset;
+    FString ExactSourceAlias;
+    TestTrue(
+        TEXT("Exact Level Instance Query keeps the containing Level as its main exact Target"),
+        !LevelHasError(ExactInstance)
+            && LevelHasTargetContext(
+                ExactInstance,
+                TEXT("exact_target"))
+            && HasCanonicalLevelTarget(
+                ExactInstance,
+                Fixture.Containing.ObjectPath)
+            && ExactInstanceFields.IsValid()
+            && ReadSingleRelatedLevelTarget(
+                ExactInstance,
+                ExactRelatedAlias,
+                ExactRelatedAsset)
+            && ExactRelatedAsset == Fixture.SourceA.ObjectPath
+            && HasSingleLevelHandoff(
+                ExactInstance,
+                TEXT("inspect_source_level"),
+                ExactRelatedAlias)
+            && ReadLevelLocalField(
+                ExactInstanceFields,
+                TEXT("sourceLevel"),
+                ExactSourceAlias)
+            && ExactSourceAlias == ExactRelatedAlias);
+
+    const TSharedPtr<FJsonObject> ExactOrdinary =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelExactOperation(OrdinaryId)));
+    const TSharedPtr<FJsonObject> OrdinaryFields =
+        FindLevelFieldsById(
+            LevelTaggedObjectFields(ExactOrdinary, TEXT("actor")),
+            OrdinaryId);
+    TestTrue(
+        TEXT("An ordinary Actor exposes no Level Instance source context"),
+        !LevelHasError(ExactOrdinary)
+            && LevelHasTargetContext(
+                ExactOrdinary,
+                TEXT("exact_target"))
+            && HasCanonicalLevelTarget(
+                ExactOrdinary,
+                Fixture.Containing.ObjectPath)
+            && OrdinaryFields.IsValid()
+            && !OrdinaryFields->HasField(TEXT("levelInstance"))
+            && !OrdinaryFields->HasField(TEXT("sourceLevel"))
+            && !OrdinaryFields->HasField(
+                TEXT("sourceLevelAvailable"))
+            && HasNoLevelRelatedContext(ExactOrdinary));
+
+    const TSharedPtr<FJsonObject> ExactMissingSource =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelExactOperation(MissingSourceId)));
+    const TSharedPtr<FJsonObject> MissingSourceFields =
+        FindLevelFieldsById(
+            LevelTaggedObjectFields(
+                ExactMissingSource,
+                TEXT("actor")),
+            MissingSourceId);
+    bool bMissingLevelInstance = false;
+    TestTrue(
+        TEXT("A placement with no saved source remains readable without inventing a Target"),
+        !LevelHasError(ExactMissingSource)
+            && LevelHasTargetContext(
+                ExactMissingSource,
+                TEXT("exact_target"))
+            && HasCanonicalLevelTarget(
+                ExactMissingSource,
+                Fixture.Containing.ObjectPath)
+            && LevelHasDiagnostic(
+                ExactMissingSource,
+                TEXT("resolution.level_instance_source_unavailable"))
+            && MissingSourceFields.IsValid()
+            && MissingSourceFields->TryGetBoolField(
+                TEXT("levelInstance"),
+                bMissingLevelInstance)
+            && bMissingLevelInstance
+            && !MissingSourceFields->HasField(TEXT("sourceLevel"))
+            && !MissingSourceFields->HasField(
+                TEXT("sourceLevelAvailable"))
+            && HasNoLevelRelatedContext(ExactMissingSource));
+
+    const TSharedPtr<FJsonObject> FirstResolvedPage =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelOperation(
+                    TEXT("actors"),
+                    TEXT("Loomle Resolved Instance")),
+                1));
+    const TArray<TSharedPtr<FJsonObject>> PageActors =
+        LevelTaggedObjectFields(FirstResolvedPage, TEXT("actor"));
+    FString Cursor;
+    FString PageActorId;
+    FString PageSourceAlias;
+    FString PageRelatedAlias;
+    FString PageRelatedAsset;
+    bool bPageShapeValid = !LevelHasError(FirstResolvedPage)
+        && PageActors.Num() == 1
+        && PageActors[0].IsValid()
+        && PageActors[0]->TryGetStringField(
+            TEXT("id"),
+            PageActorId)
+        && ReadLevelNextCursor(FirstResolvedPage, Cursor)
+        && ReadLevelLocalField(
+            PageActors[0],
+            TEXT("sourceLevel"),
+            PageSourceAlias)
+        && ReadSingleRelatedLevelTarget(
+            FirstResolvedPage,
+            PageRelatedAlias,
+            PageRelatedAsset)
+        && HasSingleLevelHandoff(
+            FirstResolvedPage,
+            TEXT("inspect_source_level"),
+            PageRelatedAlias)
+        && PageSourceAlias == PageRelatedAlias;
+    FString ExpectedPageSource;
+    if (PageActorId == SharedOneId || PageActorId == SharedTwoId)
+    {
+        ExpectedPageSource = Fixture.SourceA.ObjectPath;
+    }
+    else if (PageActorId == OtherSourceId)
+    {
+        ExpectedPageSource = Fixture.SourceB.ObjectPath;
+    }
+    TestTrue(
+        TEXT("Actor pagination retains related source context only for the emitted page"),
+        bPageShapeValid
+            && !ExpectedPageSource.IsEmpty()
+            && PageRelatedAsset == ExpectedPageSource);
+
+    FString SourceChangeError;
+    if (TestTrue(
+            TEXT("Fixture can change one soft source without loading either map"),
+            Fixture.SetSharedOneSource(true, SourceChangeError)
+                && Fixture.SourcesRemainUnloaded()))
+    {
+        const TSharedPtr<FJsonObject> StaleContinuation =
+            FSalModule::BuildQueryResult(
+                LevelQueryArguments(
+                    Target,
+                    LevelOperation(
+                        TEXT("actors"),
+                        TEXT("Loomle Resolved Instance")),
+                    1,
+                    Cursor));
+        TestTrue(
+            TEXT("A source Target change invalidates an existing Actor cursor"),
+            LevelHasDiagnostic(
+                StaleContinuation,
+                TEXT("validation.invalid_cursor")));
+    }
+    else if (!SourceChangeError.IsEmpty())
+    {
+        AddError(SourceChangeError);
+    }
+    SourceChangeError.Reset();
+    if (!Fixture.SetSharedOneSource(false, SourceChangeError))
+    {
+        AddError(SourceChangeError);
+    }
+
+    TestTrue(
+        TEXT("All Level Instance ownership reads preserve Editor and authored state"),
+        Invariant.Verify(*this));
+    TestTrue(
+        TEXT("All Level Instance ownership reads preserve no-load state"),
+        Fixture.VerifyNoLoadState(*this));
 
     if (!Fixture.Cleanup(Error))
     {

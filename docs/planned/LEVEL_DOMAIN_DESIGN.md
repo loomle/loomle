@@ -3,7 +3,25 @@
 ## Status
 
 Level is not part of the current Loomle interface catalog. This document is
-the planned design for a persistent authored Domain named `level`.
+the design and internal implementation contract for a persistent authored
+Domain named `level`.
+
+The unpublished scene/PCG family branch currently contains:
+
+- protocol v6 Target, Result, handoff, and Domain-specific StableRef
+  groundwork for `level`;
+- Slice 1A read-only `target`, `summary`, `actors`, and exact Actor Query with
+  source-map canonicalization, ActorGuid identity, and root World Partition
+  descriptor projection; and
+- Slice 1B read-only Level Instance source ownership, including exact related
+  source-Level Targets for loaded placement Actors and supported unloaded root
+  Actor descriptors.
+
+These are internal adapters, not public interface cards. Slice 1C Component
+identity, schema, Palette, mutation, save, Editor Context publication, and the
+static `level` catalog entry remain planned. Slice 1B also retains the real
+unloaded-World-Partition and temporary Level Instance edit/composition fixture
+gates described below.
 
 The core boundary is confirmed:
 
@@ -32,11 +50,12 @@ The core boundary is confirmed:
   related Targets and result-only handoffs only guide later independent
   requests.
 
-This file is a planned contract, not a published interface card. Exact
-editable property sets, Actor and Component Palette coverage, preview-World
-support, diagnostics, and package-save result fields remain implementation
-and release gates. Its presence does not add a parser branch, Bridge adapter,
-static schema module, or packaged capability.
+This file is not a published interface card. Exact editable property sets,
+Actor and Component Palette coverage, preview-World support, remaining
+diagnostics, and package-save result fields remain implementation and release
+gates. The internal parser, resolver, and read-only Bridge adapter do not by
+themselves add a static schema module, public catalog entry, or packaged
+capability.
 
 ## Decision
 
@@ -407,6 +426,41 @@ Only fields proven by the native Actor descriptor are returned when the Actor
 is unloaded. Missing live-only fields are omitted rather than filled with
 defaults.
 
+A Level Instance placement remains an `actor` object in the containing Level.
+When its saved source map canonicalizes exactly, the Actor adds an explicit
+link to the related source-Level Target:
+
+```sal
+result exact_target
+target arena = target {
+  domain: level,
+  asset: "/Game/Maps/Arena.Arena",
+  type: "/Script/Engine.World"
+}
+related encounter_source = target {
+  domain: level,
+  asset: "/Game/Maps/Encounter.Encounter",
+  type: "/Script/Engine.World"
+}
+handoff inspect_source_level to encounter_source
+objects
+encounter = actor {
+  id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  type: "/Script/Engine.LevelInstance",
+  level: arena,
+  levelInstance: true,
+  sourceLevel: encounter_source,
+  loaded: true
+}
+```
+
+`level` still names the containing Level, while `sourceLevel` is a `LocalRef`
+to the independently canonical related Target. The semantic tag remains
+`actor`; Loomle does not introduce a parallel `level_instance` object kind or
+identity namespace. When source canonicalization fails, `sourceLevel` is
+omitted and the placement Actor remains readable with a bounded
+`resolution.level_instance_source_unavailable` warning.
+
 A loaded Component may be returned under its Actor:
 
 ```sal
@@ -704,10 +758,72 @@ and may be addressed there by its ActorGuid. Its instance transform and
 supported placement properties belong to the containing Level.
 
 The displayed contents of that instance do not belong to the containing
-Level. The adapter asks `ULevelInstanceSubsystem` for the exact saved source
-World and returns an independent related `level` Target. When the Level
-Instance is in edit mode, Editor Context likewise returns the source Level
-that owns the selected Actor, never the temporary instance package.
+Level. For a loaded `ALevelInstance` family placement, the authored source
+truth is `ILevelInstanceInterface::GetWorldAsset()`, including UE's effective
+Property Override Asset source when one is active. The read path consumes only
+the returned `FSoftObjectPath`; it does not call `Get()`, `LoadSynchronous()`,
+`GetLoadedLevel()`, or a Level Instance load/edit API. `ULevelInstanceSubsystem`
+is reserved for the later Editor Context case that must walk from an Actor in
+an edit/composed Level back to its owning placement. A loaded temporary Level
+or its package is never treated as the authored source.
+
+For an unloaded root World Partition placement descriptor, the cross-version
+public read path is:
+
+1. verify that the descriptor's native Actor Class is an `ALevelInstance`
+   family Class;
+2. read the serialized source package through
+   `FWorldPartitionActorDesc::GetChildContainerPackage()` without calling
+   `IsLoaded()`, acquiring a reference, or registering a child container;
+3. do not require `IsChildContainerInstance()` to be true, because a valid
+   Level-Streaming Level Instance has a source package while that predicate is
+   false; and
+4. use disk-only Asset Registry evidence to select exactly one top-level
+   `/Script/Engine.World` in that package and format its canonical object path.
+
+Loaded and unloaded locators then share the same zero-load canonicalization.
+The source must be one saved, non-temporary, top-level `UWorld`; an object
+subpath, missing or non-World asset, ambiguous package result, PIE/temporary
+path, or self-reference to the containing Target is unavailable. Only after
+that proof does the result add:
+
+- `levelInstance: true` on the placement Actor;
+- `sourceLevel: <LocalRef>`;
+- one canonical related `level` Target with the closed
+  `domain, asset, type` shape; and
+- one `inspect_source_level` handoff to that same alias.
+
+An unavailable source keeps `levelInstance: true`, omits `sourceLevel`, and
+emits a bounded warning.
+It does not turn the containing query into `unresolved_target`. This is also
+not a Python `sal.object()` `projected` record: the main result remains
+`targetContext: exact_target` for the containing Level and the source is an
+independent exact related Target.
+
+Within one result, related source Targets are structurally deduplicated. Two
+placements of the same source share one Target alias, one
+`inspect_source_level` handoff, and the same `sourceLevel` reference. Different
+sources receive independent aliases and handoffs. A paginated `actors` Query
+retains sources only for placement Actors emitted on that page; an exact Actor
+Query retains only that Actor's source. `target` and `summary` do not enumerate
+or retain Level Instance sources. The collection cursor binds both each raw
+source locator and its current disk-only Asset Registry resolution state, so a
+deleted, restored, renamed, or retyped source invalidates an older cursor even
+when the placement's soft path did not change. Cursor preparation is bounded
+to 4,096 distinct source locators and fails closed rather than issuing a
+continuation whose source projection cannot be proven stable.
+
+The common UE 5.7/5.8 public descriptor surface does not expose a reliable
+source package for every unloaded Packed Level Actor representation. In
+particular, when an unloaded Packed descriptor returns no source through
+`GetChildContainerPackage()`, Loomle preserves the placement Actor evidence but
+omits `sourceLevel` and returns the same warning. It does not cast to a
+version-private descriptor, infer from names, or load the Actor. A loaded Packed
+Level Actor can still use its `ILevelInstanceInterface` source normally.
+
+When a Level Instance is in edit mode, the later Editor Context slice likewise
+returns the source Level that owns the selected Actor, never the temporary
+instance package.
 
 The rules are:
 
@@ -717,8 +833,8 @@ The rules are:
 - no write-through from containing Level to instance contents;
 - no temporary Level Instance package as a Target;
 - no heuristic source resolution from labels or package-name conventions;
-- a missing, unsaved, or ambiguous source remains ordinary evidence with no
-  invented related Target.
+- a missing, unsaved, unsupported, or ambiguous source remains ordinary
+  evidence with no invented related Target.
 
 The same authored ActorGuid may appear in several live instances. Python must
 reacquire the intended instance on each call; no live-instance token becomes a
@@ -1003,6 +1119,8 @@ Likely shared diagnostics include:
 
 - `resolution.target_not_found`;
 - `resolution.identity_conflict`;
+- `resolution.level_instance_source_unavailable` as a warning that preserves
+  the readable placement Actor;
 - `validation.atomic_apply_failed`;
 - `validation.atomic_rollback_failed`;
 - `validation.save_failed`;
@@ -1109,8 +1227,12 @@ typed PCG frontend, not from Level or Python projection.
 
 ### Level Instance source
 
-A Level Instance returns the independently canonical source `level` Target.
-The containing Level retains authority only over the placement Actor.
+A Level Instance returns the independently canonical source `level` Target,
+retained both by the Actor's `sourceLevel` LocalRef and the fixed
+`inspect_source_level` handoff. The Actor's `level` LocalRef and the result's
+main Target remain the containing Level, which retains authority only over the
+placement Actor. Failure to prove the source omits `sourceLevel` and produces
+neither a related Target nor a handoff.
 
 ## UE 5.7 And UE 5.8 Compatibility
 
@@ -1124,7 +1246,10 @@ The following required semantics exist in both supported versions:
 - persistent editor ActorGuid;
 - Actor-owned Component native names;
 - instance Component lifecycle and `CreationMethod`;
-- Level Instance source-World resolution;
+- loaded Level Instance source-World resolution through
+  `ILevelInstanceInterface::GetWorldAsset()`;
+- supported unloaded Level Instance source-package evidence through
+  `FWorldPartitionActorDesc::GetChildContainerPackage()`;
 - World Partition Actor descriptors keyed by ActorGuid;
 - external Actor packages;
 - editor transactions, property notifications, Undo, and World-aware save.
@@ -1132,7 +1257,8 @@ The following required semantics exist in both supported versions:
 Known compatibility areas that must remain private include:
 
 - Actor descriptor iteration, handles, and container APIs;
-- Level Instance subsystem source and edit-Level APIs;
+- Level Instance subsystem ownership and edit-Level APIs;
+- unloaded Packed Level Actor descriptor source availability;
 - World Partition external-package enumeration and refresh;
 - ActorFactory and Component editor helper signatures;
 - property-change and Actor movement notification signatures;
@@ -1157,38 +1283,41 @@ compatibility acceptance.
 
 ## Protocol And Catalog Impact
 
-Publishing Level requires coordinated Core, Client, and Bridge work:
+The internal family protocol has already added `level`, its closed Target
+shape, `actors`, Result Target/handoff support, and Domain-specific StableRef
+lowering under the unpublished v6 allocation. Slice 1B reuses the existing
+Object Text `LocalRef`, canonical related-Target table, and result-only handoff
+shape; `levelInstance` and `sourceLevel` are ordinary Actor result fields and
+require no new statement grammar or protocol version.
 
-- add `level` to the closed Domain catalog and Target variant set;
-- add flat `domain, asset, type` Level Target normalization and formatting;
-- add the `actors` collection operation and Level semantics for the existing
-  `components`, exact-object, and `context` operations;
+Publishing Level still requires coordinated Core, Client, and Bridge work:
+
+- publish `level` in the closed static Domain/interface catalog;
+- add Level semantics for the existing `components` and `context` operations;
 - generalize the existing `palette ... to <request-ref>` branch beyond
   StateTree so Level destinations reuse current text grammar and normalized
   request refs;
-- add `level` to Result Targets and handoffs;
 - teach Editor Context to return Level plus one selected Actor StableRef;
 - retain unresolved behavior for unsaved maps;
-- move StableRef segment validation into the Domain identity lowerer so Level
-  can validate ActorGuid/source/source-id paths without weakening existing
-  Guid-only Domains;
-- add generated JSON Schema and TypeScript types;
 - add `sal_schema({module: "level"})` as an offline static module;
-- bump the exact Client-Bridge protocol version;
-- update packaged static catalog and protocol fixtures together.
+- update packaged static catalog and publication fixtures together; and
+- allocate a later protocol version only if the eventual Component, mutation,
+  or effect contract actually changes normalized protocol shape.
 
 No public resolver or Domain-composition layer is added. `Target.domain`
 selects exactly one adapter, and one Patch still belongs to one Domain planner.
 
 ## Implementation Slices
 
-Each slice remains unpublished until its own gates pass.
+Each slice remains unpublished until its own gates pass. “Implemented
+internally” below means callable on the feature branch, not present in the
+public interface catalog or packaged capability.
 
 The family Phase 0 Target/admission and Domain-specific StableRef work is a
 prerequisite and is not expanded here with effects, save, projection, or
 mutation behavior.
 
-### Slice 1A: Target and Actor identity Query
+### Slice 1A: Target and Actor identity Query — implemented internally
 
 - consume the internal family Target/protocol branch without publishing a
   static interface card or changing the already allocated, unpublished v6
@@ -1207,16 +1336,32 @@ mutation behavior.
 - prove that every Query preserves current World/Level, selection, transaction,
   construction, package dirty, and World Partition loaded state.
 
-### Slice 1B: Level Instance source ownership
+### Slice 1B: Level Instance source ownership — implemented internally
 
 - keep the placement Actor in the containing Level identity environment;
-- resolve the exact saved source World without loading it;
-- return a related `level` Target retained by an `inspect_source_level`
-  handoff;
+- mark recognized placements with `levelInstance: true`;
+- resolve a loaded placement's effective
+  `ILevelInstanceInterface::GetWorldAsset()` and a supported unloaded root
+  descriptor's `GetChildContainerPackage()` through zero-load Asset Registry
+  canonicalization;
+- return `sourceLevel: <LocalRef>` plus one related `level` Target retained by
+  an `inspect_source_level` handoff;
+- structurally deduplicate same-source Targets and handoffs while preserving
+  the explicit Actor-to-source LocalRef;
+- scope collection enrichment to the emitted page;
 - reject temporary instance packages, `ActorInstanceGuid`, child-container
-  composition, and ambiguous or unsaved sources.
+  composition, self-reference, and ambiguous, unsupported, or unsaved sources;
+  and
+- degrade an unsupported unloaded Packed Level Actor to readable placement
+  evidence without `sourceLevel`, plus a bounded warning.
 
-### Slice 1C: Component identity and Editor Context
+The implementation does not close the public release gates for a real
+unloaded root World Partition Level Instance descriptor on both engines or a
+true temporary Level Instance edit/composed-Level fixture. Those fixtures must
+prove that source readback performs no Actor load, child-container
+registration, map switch, or temporary-package Target substitution.
+
+### Slice 1C: Component identity and Editor Context — planned
 
 - implement the native/SCS/instance Component locator and exact read-only
   Component Query;
@@ -1314,9 +1459,24 @@ mutation behavior.
 ### Level Instance and World Partition
 
 - containing placement Actor remains in the containing Level;
-- contained Actor resolves to its saved source Level;
-- two instances of one source do not create a persistent instance-qualified
-  Actor ref;
+- a loaded placement resolves its effective interface source without loading
+  or switching the source map;
+- a real unloaded root World Partition descriptor resolves its serialized
+  source package without loading/pinning the Actor or registering its child
+  container on both UE 5.7 and UE 5.8;
+- contained Actor in a true edit/composed-Level fixture resolves to its saved
+  source Level rather than the temporary package;
+- two placements of one source share one related Target and handoff, retain
+  explicit `sourceLevel` links, and do not create a persistent
+  instance-qualified Actor ref;
+- placements of different sources retain distinct canonical Targets and
+  Actor-to-source links;
+- paginated `actors` results retain sources only for placements emitted on the
+  current page;
+- unresolved source evidence keeps the placement readable with no
+  `sourceLevel` and no related Target;
+- an unloaded Packed Level Actor without a cross-version public source path
+  degrades without a private cast or Actor load;
 - temporary instance package is never a Target;
 - loaded Actor takes precedence over stale descriptor state;
 - unload/reload preserves the Actor StableRef;
@@ -1409,7 +1569,13 @@ Level is ready for a public interface card only when:
 - source-aware Component slot identity and lifecycle limits survive
   save/unload/reload or fail closed;
 - Editor Context never substitutes a transient or composed World;
-- Level Instance contents always hand off to the exact saved source Level;
+- Level Instance placements retain the exact saved source Level through
+  matching `sourceLevel` and `inspect_source_level` references, with structural
+  deduplication and containing-Level `exact_target` context;
+- real unloaded root World Partition and temporary edit/composed-Level
+  fixtures prove the same Level Instance ownership on UE 5.7 and UE 5.8
+  without loading, pinning, child-container registration, or temporary-package
+  Target substitution;
 - unloaded ActorDesc Query never loads or mutates an Actor;
 - exact schema advertises only operations that unchanged Patch accepts;
 - every published Palette entry replays without implicit editor state;
@@ -1447,9 +1613,10 @@ decisions remain:
 4. What exact package-status and Source Control fields become the canonical
    multi-package save result?
 
-Internal Phase 0 and read-only slices may land independently. Their presence
-does not publish a Domain; `level`, `pcg`, and Query-only `pcg_component` still
-enter the public catalog only through the coordinated family release.
+Internal Phase 0 and read-only Level slices 1A and 1B have landed on the family
+feature branch. Their presence does not publish a Domain; `level`, `pcg`, and
+Query-only `pcg_component` still enter the public catalog only through the
+coordinated family release.
 
 None of these questions permits changing the persistent `level` Target,
 ActorGuid identity, Level Instance ownership, ActorDesc read-only boundary, or
