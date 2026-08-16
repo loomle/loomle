@@ -6,7 +6,10 @@
 #include "../SalModel.h"
 
 class FJsonObject;
+class AActor;
 class UActorComponent;
+class ULevel;
+class UWorld;
 
 namespace Loomle::Sal
 {
@@ -43,6 +46,30 @@ public:
         FString& OutType,
         FString& OutCreationMethod,
         FString& OutDeclaringClass,
+        FString& OutCode,
+        FString& OutMessage);
+
+    /**
+     * Canonicalize one Level Editor source Level through the ordinary Level
+     * Target resolver. This path reads Asset Registry and already-loaded
+     * authored state only; it never loads or switches a map.
+     */
+    static bool ResolveEditorContextTarget(
+        UWorld* EditorWorld,
+        const ULevel* SourceLevel,
+        FSalResolvedTarget& OutTarget,
+        FString& OutCode,
+        FString& OutMessage,
+        FString& OutSuggestion);
+
+    /**
+     * Project one selected source Actor only after the same complete root
+     * Actor/ActorDesc identity audit used by Level Query succeeds.
+     */
+    static bool ResolveEditorContextActor(
+        const FSalResolvedTarget& Target,
+        const AActor* Actor,
+        FString& OutActorId,
         FString& OutCode,
         FString& OutMessage);
 };

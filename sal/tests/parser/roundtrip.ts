@@ -60,18 +60,10 @@ summary`,
 query arena
 actors "light"
 page limit 25`,
-  `arena = target {domain: level, asset: "/Game/Maps/Arena.Arena", type: "/Script/Engine.World"}
-
-patch arena dry run
-save`,
   `forest = target {domain: pcg, asset: "/Game/PCG/PCG_Forest.PCG_Forest", type: "/Script/PCG.PCGGraph"}
 
 query forest
 nodes`,
-  `forest = target {domain: pcg, asset: "/Game/PCG/PCG_Forest.PCG_Forest", type: "/Script/PCG.PCGGraph"}
-
-patch forest dry run
-save`,
   `forestComponent = target {domain: pcg_component, asset: "/Game/Maps/Arena.Arena", actorId: "${actorId}", source: "native", id: "PCGComponent", type: "/Script/PCG.PCGComponent"}
 
 query forestComponent

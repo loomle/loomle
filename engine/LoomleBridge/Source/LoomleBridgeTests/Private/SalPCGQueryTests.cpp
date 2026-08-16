@@ -2,22 +2,32 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "LoomleTestObjectIteration.h"
 #include "Sal/PCG/SalPCGInterface.h"
 #include "Sal/SalModule.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "Editor.h"
+#include "Editor/Transactor.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Curves/CurveFloat.h"
+#include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/CoreDelegates.h"
+#include "Misc/PackageName.h"
+#include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "PCGGraph.h"
 #include "PCGInputOutputSettings.h"
 #include "PCGNode.h"
 #include "PCGPin.h"
 #include "PCGSettings.h"
+#include "UObject/GarbageCollection.h"
 #include "UObject/Package.h"
+#include "UObject/SavePackage.h"
 #include "UObject/UObjectGlobals.h"
+#include "UObject/UObjectHash.h"
 
 namespace
 {
@@ -711,6 +721,453 @@ bool HasPcgTypeIdentifier(
     return true;
 }
 
+void PreparePcgQueryPackageForCollection(UPackage* Package)
+{
+    if (Package == nullptr)
+    {
+        return;
+    }
+    Package->SetDirtyFlag(false);
+    Package->ClearFlags(RF_Public | RF_Standalone);
+    ForEachObjectWithPackage(
+        Package,
+        [](UObject* Object)
+        {
+            Object->ClearFlags(RF_Public | RF_Standalone);
+            return true;
+        },
+        Loomle::Tests::IncludeNestedObjects);
+}
+
+class FScopedPersistentPcgQueryFixture
+{
+public:
+    ~FScopedPersistentPcgQueryFixture()
+    {
+        FString Ignored;
+        Cleanup(Ignored);
+    }
+
+    FScopedPersistentPcgQueryFixture(
+        const FScopedPersistentPcgQueryFixture&) = delete;
+    FScopedPersistentPcgQueryFixture& operator=(
+        const FScopedPersistentPcgQueryFixture&) = delete;
+
+    FScopedPersistentPcgQueryFixture() = default;
+
+    bool CreateAndSave(FString& OutError)
+    {
+        OutError.Reset();
+        const FString Token =
+            FGuid::NewGuid().ToString(EGuidFormats::Digits);
+        const FString RootPackagePath = FString::Printf(
+            TEXT("/Game/LoomleTests/PCGQueryPersistence/%s"),
+            *Token);
+        PackageName = RootPackagePath + TEXT("/PCG_QueryPersistence");
+        ObjectPath = PackageName + TEXT(".PCG_QueryPersistence");
+        Filename = FPackageName::LongPackageNameToFilename(
+            PackageName,
+            FPackageName::GetAssetPackageExtension());
+        IFileManager::Get().MakeDirectory(
+            *FPaths::GetPath(Filename),
+            true);
+
+        Package = CreatePackage(*PackageName);
+        Graph = Package != nullptr
+            ? NewObject<UPCGGraph>(
+                Package,
+                FName(TEXT("PCG_QueryPersistence")),
+                RF_Public | RF_Standalone | RF_Transactional)
+            : nullptr;
+        if (Graph == nullptr)
+        {
+            OutError = TEXT(
+                "UE failed to create the persistent PCG Query fixture.");
+            return false;
+        }
+
+        InputNode = Graph->GetInputNode();
+        OutputNode = Graph->GetOutputNode();
+        if (!ConfigurePinsAndEdge())
+        {
+            OutError = TEXT(
+                "UE failed to configure persistent PCG Node and Pin identity.");
+            return false;
+        }
+        InputNode->SetNodePosition(-384, 96);
+        OutputNode->SetNodePosition(448, 96);
+        UPCGTrivialSettings* AuthoredSettings = nullptr;
+        AuthoredNode = Graph->AddNodeOfType<UPCGTrivialSettings>(
+            AuthoredSettings);
+        if (AuthoredNode == nullptr || AuthoredSettings == nullptr)
+        {
+            OutError = TEXT(
+                "UE failed to create a Graph-owned authored PCG Node.");
+            return false;
+        }
+        AuthoredNode->SetNodePosition(32, -192);
+        AuthoredNodeId = AuthoredNode->GetFName().ToString();
+
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+            TEXT("AssetRegistry"));
+        FAssetRegistryModule::AssetCreated(Graph);
+
+        Package->SetDirtyFlag(true);
+        Package->FullyLoad();
+        FSavePackageArgs SaveArgs;
+        SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+        SaveArgs.Error = GLog;
+        if (!UPackage::SavePackage(
+                Package,
+                Graph,
+                *Filename,
+                SaveArgs))
+        {
+            OutError = TEXT(
+                "UE failed to save the persistent PCG Query fixture.");
+            return false;
+        }
+        Package->SetDirtyFlag(false);
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+            TEXT("AssetRegistry"))
+            .Get()
+            .ScanModifiedAssetFiles({Filename});
+        if (!IFileManager::Get().FileExists(*Filename))
+        {
+            OutError = TEXT(
+                "The persistent PCG Query fixture has no on-disk package.");
+            return false;
+        }
+        return true;
+    }
+
+    bool Unload(FString& OutError)
+    {
+        OutError.Reset();
+        if (Graph == nullptr || Package == nullptr)
+        {
+            OutError = TEXT(
+                "Cannot unload an incomplete persistent PCG Query fixture.");
+            return false;
+        }
+
+        FAssetRegistryModule::AssetDeleted(Graph);
+        PreparePcgQueryPackageForCollection(Package);
+        Graph = nullptr;
+        InputNode = nullptr;
+        OutputNode = nullptr;
+        AuthoredNode = nullptr;
+        Package = nullptr;
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+            TEXT("AssetRegistry"))
+            .Get()
+            .ScanModifiedAssetFiles({Filename});
+        if (FindPackage(nullptr, *PackageName) != nullptr
+            || FindObject<UObject>(nullptr, *ObjectPath) != nullptr)
+        {
+            OutError = TEXT(
+                "The saved PCG Query fixture remained loaded after GC.");
+            return false;
+        }
+        return true;
+    }
+
+    bool Reload(FString& OutError)
+    {
+        OutError.Reset();
+        Graph = LoadObject<UPCGGraph>(nullptr, *ObjectPath);
+        Package = Graph != nullptr ? Graph->GetOutermost() : nullptr;
+        InputNode = Graph != nullptr ? Graph->GetInputNode() : nullptr;
+        OutputNode = Graph != nullptr ? Graph->GetOutputNode() : nullptr;
+        AuthoredNode = nullptr;
+        if (Graph != nullptr)
+        {
+            for (UPCGNode* Node : Graph->GetNodes())
+            {
+                if (Node != nullptr
+                    && Node->GetFName().ToString() == AuthoredNodeId)
+                {
+                    AuthoredNode = Node;
+                    break;
+                }
+            }
+        }
+        if (Graph == nullptr
+            || Package == nullptr
+            || InputNode == nullptr
+            || OutputNode == nullptr
+            || AuthoredNode == nullptr)
+        {
+            OutError = TEXT(
+                "UE failed to reload the saved PCG Query fixture.");
+            return false;
+        }
+        return true;
+    }
+
+    bool Cleanup(FString& OutError)
+    {
+        OutError.Reset();
+        if (bCleaned)
+        {
+            return true;
+        }
+        bCleaned = true;
+
+        UPCGGraph* LoadedGraph = !ObjectPath.IsEmpty()
+            ? FindObject<UPCGGraph>(nullptr, *ObjectPath)
+            : nullptr;
+        if (LoadedGraph != nullptr)
+        {
+            FAssetRegistryModule::AssetDeleted(LoadedGraph);
+        }
+        UPackage* LoadedPackage = !PackageName.IsEmpty()
+            ? FindPackage(nullptr, *PackageName)
+            : nullptr;
+        PreparePcgQueryPackageForCollection(LoadedPackage);
+        Graph = nullptr;
+        InputNode = nullptr;
+        OutputNode = nullptr;
+        AuthoredNode = nullptr;
+        Package = nullptr;
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+        if (!PackageName.IsEmpty()
+            && FindPackage(nullptr, *PackageName) != nullptr)
+        {
+            OutError = TEXT(
+                "The persistent PCG Query package remained loaded during cleanup.");
+        }
+        if (!Filename.IsEmpty()
+            && IFileManager::Get().FileExists(*Filename)
+            && !IFileManager::Get().Delete(*Filename, false, true, true))
+        {
+            if (!OutError.IsEmpty())
+            {
+                OutError += TEXT(" ");
+            }
+            OutError += TEXT(
+                "The persistent PCG Query package could not be deleted.");
+        }
+        if (!Filename.IsEmpty())
+        {
+            FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+                TEXT("AssetRegistry"))
+                .Get()
+                .ScanModifiedAssetFiles({Filename});
+            IFileManager::Get().DeleteDirectory(
+                *FPaths::GetPath(Filename),
+                false,
+                true);
+        }
+        return OutError.IsEmpty();
+    }
+
+    UPackage* Package = nullptr;
+    UPCGGraph* Graph = nullptr;
+    UPCGNode* InputNode = nullptr;
+    UPCGNode* OutputNode = nullptr;
+    UPCGNode* AuthoredNode = nullptr;
+    FString PackageName;
+    FString ObjectPath;
+    FString Filename;
+    FString AuthoredNodeId;
+    FName ExoticLabel = FName(TEXT("Route / Height.Value"));
+
+private:
+    bool ConfigurePinsAndEdge()
+    {
+        UPCGGraphInputOutputSettings* InputSettings =
+            InputNode != nullptr
+                ? Cast<UPCGGraphInputOutputSettings>(
+                    InputNode->GetSettingsInterface())
+                : nullptr;
+        UPCGGraphInputOutputSettings* OutputSettings =
+            OutputNode != nullptr
+                ? Cast<UPCGGraphInputOutputSettings>(
+                    OutputNode->GetSettingsInterface())
+                : nullptr;
+        if (InputSettings == nullptr || OutputSettings == nullptr)
+        {
+            return false;
+        }
+
+        const FPCGDataTypeIdentifier Types =
+            FPCGDataTypeIdentifier{EPCGDataType::Point}
+            | FPCGDataTypeIdentifier{EPCGDataType::Param};
+        const FPCGPinProperties Pin(
+            ExoticLabel,
+            Types,
+            true,
+            true);
+        ExoticLabel = InputSettings->AddPin(Pin).Label;
+        const FName OutputLabel = OutputSettings->AddPin(
+            FPCGPinProperties(
+                ExoticLabel,
+                Types,
+                true,
+                true)).Label;
+        InputNode->SetSettingsInterface(InputSettings, true);
+        OutputNode->SetSettingsInterface(OutputSettings, true);
+        if (ExoticLabel.IsNone() || OutputLabel != ExoticLabel)
+        {
+            return false;
+        }
+        Graph->AddEdge(
+            InputNode,
+            ExoticLabel,
+            OutputNode,
+            ExoticLabel);
+        return InputNode->GetInputPin(ExoticLabel) != nullptr
+            && InputNode->GetOutputPin(ExoticLabel) != nullptr
+            && OutputNode->GetInputPin(ExoticLabel) != nullptr;
+    }
+
+    bool bCleaned = false;
+};
+
+class FPcgQueryReadInvariant
+{
+public:
+    FPcgQueryReadInvariant(UPCGGraph* InGraph, UPackage* InPackage)
+        : Graph(InGraph)
+        , Package(InPackage)
+        , PackageDirtyBefore(InPackage != nullptr && InPackage->IsDirty())
+        , UndoCountBefore(
+            GEditor != nullptr && GEditor->Trans != nullptr
+                ? GEditor->Trans->GetUndoCount()
+                : -1)
+        , QueueLengthBefore(
+            GEditor != nullptr && GEditor->Trans != nullptr
+                ? GEditor->Trans->GetQueueLength()
+                : -1)
+    {
+        ObjectModifiedHandle =
+            FCoreUObjectDelegates::OnObjectModified.AddRaw(
+                this,
+                &FPcgQueryReadInvariant::OnObjectModified);
+        ObjectTransactedHandle =
+            FCoreUObjectDelegates::OnObjectTransacted.AddRaw(
+                this,
+                &FPcgQueryReadInvariant::OnObjectTransacted);
+        AssetLoadedHandle =
+            FCoreUObjectDelegates::OnAssetLoaded.AddRaw(
+                this,
+                &FPcgQueryReadInvariant::OnAssetLoaded);
+#if WITH_EDITOR
+        if (Graph != nullptr)
+        {
+            GraphChangedHandle = Graph->OnGraphChangedDelegate.AddLambda(
+                [this](UPCGGraphInterface*, EPCGChangeType)
+                {
+                    ++GraphChangedCount;
+                });
+        }
+#endif
+    }
+
+    ~FPcgQueryReadInvariant()
+    {
+#if WITH_EDITOR
+        if (Graph != nullptr)
+        {
+            Graph->OnGraphChangedDelegate.Remove(GraphChangedHandle);
+        }
+#endif
+        FCoreUObjectDelegates::OnAssetLoaded.Remove(AssetLoadedHandle);
+        FCoreUObjectDelegates::OnObjectTransacted.Remove(
+            ObjectTransactedHandle);
+        FCoreUObjectDelegates::OnObjectModified.Remove(
+            ObjectModifiedHandle);
+    }
+
+    bool Verify(FAutomationTestBase& Test) const
+    {
+        bool bOk = true;
+        bOk &= Test.TestEqual(
+            TEXT("Post-reload PCG Queries modify no Graph-owned UObject"),
+            RelevantObjectModifiedCount,
+            0);
+        bOk &= Test.TestEqual(
+            TEXT("Post-reload PCG Queries emit no UObject transaction"),
+            ObjectTransactedCount,
+            0);
+        bOk &= Test.TestEqual(
+            TEXT("Post-reload PCG Queries trigger no additional asset load"),
+            LoadedAssetCount,
+            0);
+#if WITH_EDITOR
+        bOk &= Test.TestEqual(
+            TEXT("Post-reload PCG Queries broadcast no Graph change"),
+            GraphChangedCount,
+            0);
+#endif
+        if (Package != nullptr)
+        {
+            bOk &= Test.TestEqual(
+                TEXT("Post-reload PCG Queries preserve package dirty state"),
+                Package->IsDirty(),
+                PackageDirtyBefore);
+        }
+        if (GEditor != nullptr && GEditor->Trans != nullptr)
+        {
+            bOk &= Test.TestEqual(
+                TEXT("Post-reload PCG Queries create no Undo entry"),
+                GEditor->Trans->GetUndoCount(),
+                UndoCountBefore);
+            bOk &= Test.TestEqual(
+                TEXT("Post-reload PCG Queries preserve the transaction queue"),
+                GEditor->Trans->GetQueueLength(),
+                QueueLengthBefore);
+        }
+        return bOk;
+    }
+
+private:
+    bool IsRelevantObject(const UObject* Object) const
+    {
+        return Object != nullptr
+            && Package != nullptr
+            && Object->GetOutermost() == Package;
+    }
+
+    void OnObjectModified(UObject* Object)
+    {
+        if (IsRelevantObject(Object))
+        {
+            ++RelevantObjectModifiedCount;
+        }
+    }
+
+    void OnObjectTransacted(
+        UObject*,
+        const FTransactionObjectEvent&)
+    {
+        ++ObjectTransactedCount;
+    }
+
+    void OnAssetLoaded(UObject*)
+    {
+        ++LoadedAssetCount;
+    }
+
+    UPCGGraph* Graph = nullptr;
+    UPackage* Package = nullptr;
+    bool PackageDirtyBefore = false;
+    int32 UndoCountBefore = -1;
+    int32 QueueLengthBefore = -1;
+    int32 RelevantObjectModifiedCount = 0;
+    int32 ObjectTransactedCount = 0;
+    int32 LoadedAssetCount = 0;
+    FDelegateHandle ObjectModifiedHandle;
+    FDelegateHandle ObjectTransactedHandle;
+    FDelegateHandle AssetLoadedHandle;
+#if WITH_EDITOR
+    int32 GraphChangedCount = 0;
+    FDelegateHandle GraphChangedHandle;
+#endif
+};
+
 class FScopedPcgQueryFixture
 {
 public:
@@ -812,23 +1269,116 @@ public:
         {
             FAssetRegistryModule::AssetDeleted(ExternalSettings);
         }
-        if (Graph != nullptr)
+        PreparePcgQueryPackageForCollection(GraphPackage);
+        PreparePcgQueryPackageForCollection(OtherPackage);
+        PreparePcgQueryPackageForCollection(ExternalSettingsPackage);
+
+        Graph = nullptr;
+        InputNode = nullptr;
+        OutputNode = nullptr;
+        ExternalSettings = nullptr;
+        ExternalNode = nullptr;
+        OtherAsset = nullptr;
+        GraphPackage = nullptr;
+        ExternalSettingsPackage = nullptr;
+        OtherPackage = nullptr;
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+
+        TArray<FString> ModifiedFiles;
+        for (const FString& Filename : {
+                 GraphFilename,
+                 ExternalSettingsFilename,
+                 OtherFilename})
         {
-            Graph->ClearFlags(RF_Public | RF_Standalone);
+            if (Filename.IsEmpty())
+            {
+                continue;
+            }
+            if (IFileManager::Get().FileExists(*Filename))
+            {
+                IFileManager::Get().Delete(*Filename, false, true, true);
+            }
+            ModifiedFiles.Add(Filename);
         }
-        if (OtherAsset != nullptr)
+        if (!ModifiedFiles.IsEmpty())
         {
-            OtherAsset->ClearFlags(RF_Public | RF_Standalone);
+            FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+                TEXT("AssetRegistry"))
+                .Get()
+                .ScanModifiedAssetFiles(ModifiedFiles);
         }
-        if (ExternalSettings != nullptr)
-        {
-            ExternalSettings->ClearFlags(RF_Public | RF_Standalone);
-        }
-        ClearDirtyFlags();
     }
 
     FScopedPcgQueryFixture(const FScopedPcgQueryFixture&) = delete;
     FScopedPcgQueryFixture& operator=(const FScopedPcgQueryFixture&) = delete;
+
+    bool SavePublicAssets(FString& OutError)
+    {
+        OutError.Reset();
+        if (Graph == nullptr
+            || GraphPackage == nullptr
+            || ExternalSettings == nullptr
+            || ExternalSettingsPackage == nullptr
+            || OtherAsset == nullptr
+            || OtherPackage == nullptr)
+        {
+            OutError = TEXT(
+                "Cannot save an incomplete PCG public-Target fixture.");
+            return false;
+        }
+
+        GraphFilename = PackageFilename(GraphPackage);
+        ExternalSettingsFilename = PackageFilename(
+            ExternalSettingsPackage);
+        OtherFilename = PackageFilename(OtherPackage);
+        if (!SaveAsset(
+                ExternalSettingsPackage,
+                ExternalSettings,
+                ExternalSettingsFilename,
+                OutError)
+            || !SaveAsset(
+                OtherPackage,
+                OtherAsset,
+                OtherFilename,
+                OutError)
+            || !SaveAsset(
+                GraphPackage,
+                Graph,
+                GraphFilename,
+                OutError))
+        {
+            return false;
+        }
+
+        const TArray<FString> Filenames = {
+            ExternalSettingsFilename,
+            OtherFilename,
+            GraphFilename};
+        FAssetRegistryModule& AssetRegistryModule =
+            FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+                TEXT("AssetRegistry"));
+        AssetRegistryModule.Get().ScanModifiedAssetFiles(Filenames);
+
+        const FAssetData GraphData =
+            AssetRegistryModule.Get().GetAssetByObjectPath(
+                FSoftObjectPath(Graph->GetPathName()),
+                true);
+        const FAssetData OtherData =
+            AssetRegistryModule.Get().GetAssetByObjectPath(
+                FSoftObjectPath(OtherAsset->GetPathName()),
+                true);
+        if (!GraphData.IsValid()
+            || !GraphData.IsTopLevelAsset()
+            || !OtherData.IsValid()
+            || !OtherData.IsTopLevelAsset())
+        {
+            OutError = TEXT(
+                "Asset Registry did not expose disk-only evidence for the saved PCG public-Target fixtures.");
+            return false;
+        }
+        ClearDirtyFlags();
+        return true;
+    }
 
     FSalResolvedTarget ResolvedTarget() const
     {
@@ -884,6 +1434,55 @@ public:
     FPCGDataTypeIdentifier ExoticTypes;
 
 private:
+    static FString PackageFilename(const UPackage* Package)
+    {
+        return Package != nullptr
+            ? FPackageName::LongPackageNameToFilename(
+                Package->GetName(),
+                FPackageName::GetAssetPackageExtension())
+            : FString();
+    }
+
+    static bool SaveAsset(
+        UPackage* Package,
+        UObject* Asset,
+        const FString& Filename,
+        FString& OutError)
+    {
+        if (Package == nullptr || Asset == nullptr || Filename.IsEmpty())
+        {
+            OutError = TEXT("Cannot save an incomplete PCG fixture asset.");
+            return false;
+        }
+        IFileManager::Get().MakeDirectory(
+            *FPaths::GetPath(Filename),
+            true);
+        Package->SetDirtyFlag(true);
+        Package->FullyLoad();
+        FSavePackageArgs SaveArgs;
+        SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+        SaveArgs.Error = GLog;
+        if (!UPackage::SavePackage(
+                Package,
+                Asset,
+                *Filename,
+                SaveArgs))
+        {
+            Package->SetDirtyFlag(false);
+            OutError = TEXT("UE failed to save PCG fixture asset ")
+                + Asset->GetPathName();
+            return false;
+        }
+        Package->SetDirtyFlag(false);
+        if (!IFileManager::Get().FileExists(*Filename))
+        {
+            OutError = TEXT("Saved PCG fixture has no on-disk package: ")
+                + Asset->GetPathName();
+            return false;
+        }
+        return true;
+    }
+
     void ConfigurePinsAndEdge()
     {
         UPCGGraphInputOutputSettings* InputSettings =
@@ -931,6 +1530,9 @@ private:
     bool bGraphRegistered = false;
     bool bOtherRegistered = false;
     bool bExternalSettingsRegistered = false;
+    FString GraphFilename;
+    FString ExternalSettingsFilename;
+    FString OtherFilename;
 };
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -952,6 +1554,72 @@ bool FSalPcgTargetResolutionTest::RunTest(
 
     const FString GraphPath = Fixture.Graph->GetPathName();
     const FString GraphType = Fixture.Graph->GetClass()->GetPathName();
+    FAssetRegistryModule& AssetRegistryModule =
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+            TEXT("AssetRegistry"));
+    const FAssetData UnsavedGraphData =
+        AssetRegistryModule.Get().GetAssetByObjectPath(
+            FSoftObjectPath(GraphPath),
+            true);
+    TestFalse(
+        TEXT("AssetCreated-only PCG Graph has no disk-only Asset Registry evidence"),
+        UnsavedGraphData.IsValid()
+            && UnsavedGraphData.IsTopLevelAsset());
+
+    int32 AssetLoadCount = 0;
+    UPCGGraph* const OriginalGraph = Fixture.Graph;
+    const FDelegateHandle AssetLoadedHandle =
+        FCoreUObjectDelegates::OnAssetLoaded.AddLambda(
+            [&AssetLoadCount](UObject*)
+            {
+                ++AssetLoadCount;
+            });
+    const TSharedPtr<FJsonObject> UnsavedResult =
+        FSalModule::BuildQueryResult(
+            QueryArguments(
+                PcgTarget(GraphPath),
+                Operation(TEXT("target"))));
+    FCoreUObjectDelegates::OnAssetLoaded.Remove(AssetLoadedHandle);
+    TestTrue(
+        TEXT("AssetCreated-only PCG Graph is rejected without saved identity"),
+        HasDiagnostic(
+            UnsavedResult,
+            TEXT("resolution.target_not_found")));
+    TestTrue(
+        TEXT("Unsaved PCG Target rejection remains unresolved"),
+        HasTargetContext(UnsavedResult, TEXT("unresolved_target")));
+    TestEqual(
+        TEXT("Unsaved PCG Target resolution triggers no asset load"),
+        AssetLoadCount,
+        0);
+    TestTrue(
+        TEXT("Unsaved PCG Target resolution preserves the exact loaded fixture"),
+        Fixture.Graph == OriginalGraph);
+    TestFalse(
+        TEXT("Unsaved PCG Target resolution leaves its package clean"),
+        Fixture.IsGraphPackageDirty());
+
+    FString SaveError;
+    const bool bSaved = Fixture.SavePublicAssets(SaveError);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Public PCG Target fixtures are saved and disk-indexed: %s"),
+            *SaveError),
+        bSaved);
+    if (!bSaved)
+    {
+        return false;
+    }
+    const FAssetData SavedGraphData =
+        AssetRegistryModule.Get().GetAssetByObjectPath(
+            FSoftObjectPath(GraphPath),
+            true);
+    TestTrue(
+        TEXT("Public PCG Target has exact disk-only UPCGGraph evidence"),
+        SavedGraphData.IsValid()
+            && SavedGraphData.IsTopLevelAsset()
+            && SavedGraphData.AssetClassPath.ToString() == GraphType);
+
     const TSharedPtr<FJsonObject> TargetResult =
         FSalModule::BuildQueryResult(
             QueryArguments(
@@ -980,10 +1648,21 @@ bool FSalPcgTargetResolutionTest::RunTest(
         TEXT("Type mismatch fails before an exact Target is established"),
         HasTargetContext(WrongType, TEXT("unresolved_target")));
 
+    const FString OtherPath = Fixture.OtherAsset->GetPathName();
+    const FAssetData SavedNonPcgData =
+        AssetRegistryModule.Get().GetAssetByObjectPath(
+            FSoftObjectPath(OtherPath),
+            true);
+    TestTrue(
+        TEXT("Non-PCG rejection fixture has exact disk-only asset evidence"),
+        SavedNonPcgData.IsValid()
+            && SavedNonPcgData.IsTopLevelAsset()
+            && SavedNonPcgData.AssetClassPath
+                == UCurveFloat::StaticClass()->GetClassPathName());
     const TSharedPtr<FJsonObject> NonPcg =
         FSalModule::BuildQueryResult(
             QueryArguments(
-                PcgTarget(Fixture.OtherAsset->GetPathName()),
+                PcgTarget(OtherPath),
                 Operation(TEXT("target"))));
     TestTrue(
         TEXT("PCG Target rejects a non-PCG asset"),
@@ -998,13 +1677,13 @@ bool FSalPcgTargetResolutionTest::RunTest(
         FSalModule::BuildPatchResult(
             PatchArguments(PcgTarget(GraphPath, GraphType)));
     TestTrue(
-        TEXT("PCG Patch remains unavailable in the read-only slice"),
+        TEXT("PCG Patch is rejected by the Query-only protocol boundary"),
         HasDiagnostic(
             PatchResult,
-            TEXT("capability.operation_unavailable")));
+            TEXT("language.invalid_object_shape")));
     TestTrue(
-        TEXT("PCG Patch rejection occurs after Target resolution"),
-        HasTargetContext(PatchResult, TEXT("exact_target")));
+        TEXT("PCG Patch is rejected before Target resolution"),
+        HasTargetContext(PatchResult, TEXT("unresolved_target")));
     TestFalse(
         TEXT("Target resolution and rejected Patch do not dirty the Graph package"),
         Fixture.IsGraphPackageDirty());
@@ -1127,6 +1806,18 @@ bool FSalPcgReadOnlyQueryTest::RunTest(
     if (Fixture.Graph == nullptr
         || Fixture.InputNode == nullptr
         || Fixture.OutputNode == nullptr)
+    {
+        return false;
+    }
+
+    FString SaveError;
+    const bool bSaved = Fixture.SavePublicAssets(SaveError);
+    TestTrue(
+        *FString::Printf(
+            TEXT("PCG public Query fixture is saved and disk-indexed: %s"),
+            *SaveError),
+        bSaved);
+    if (!bSaved)
     {
         return false;
     }
@@ -1537,6 +2228,261 @@ bool FSalPcgReadOnlyQueryTest::RunTest(
     TestFalse(
         TEXT("All PCG read-only Queries leave the external Settings package clean"),
         Fixture.IsExternalSettingsPackageDirty());
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalPcgSavedIdentityRoundTripTest,
+    "Loomle.Sal.PCG.Query.SavedIdentityRoundTripAndReadInvariants",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalPcgSavedIdentityRoundTripTest::RunTest(
+    const FString& Parameters)
+{
+    if (GEditor == nullptr
+        || GEditor->IsTransactionActive()
+        || GEditor->IsPlaySessionInProgress())
+    {
+        AddError(TEXT(
+            "PCG Query persistence coverage requires an idle Editor outside PIE and transactions."));
+        return false;
+    }
+
+    FScopedPersistentPcgQueryFixture Fixture;
+    FString Error;
+    const bool bCreated = Fixture.CreateAndSave(Error);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Persistent PCG Query fixture is saved: %s"),
+            *Error),
+        bCreated);
+    if (!bCreated
+        || Fixture.Graph == nullptr
+        || Fixture.InputNode == nullptr
+        || Fixture.OutputNode == nullptr
+        || Fixture.AuthoredNode == nullptr)
+    {
+        return false;
+    }
+
+    const FString GraphPath = Fixture.Graph->GetPathName();
+    const FString GraphType = Fixture.Graph->GetClass()->GetPathName();
+    const FString InputNodeId =
+        Fixture.InputNode->GetFName().ToString();
+    const FString OutputNodeId =
+        Fixture.OutputNode->GetFName().ToString();
+    const FString AuthoredNodeId =
+        Fixture.AuthoredNode->GetFName().ToString();
+    const FString Label = Fixture.ExoticLabel.ToString();
+    TestTrue(
+        TEXT("Saved PCG fixture is a top-level Graph asset"),
+        Fixture.Graph->IsAsset()
+            && Fixture.Graph->GetTypedOuter<UPCGGraph>() == nullptr
+            && GraphPath == Fixture.ObjectPath);
+    TestTrue(
+        TEXT("Saved PCG fixture has structured slash-bearing Pin identities"),
+        Label.Contains(TEXT(" "))
+            && Label.Contains(TEXT("."))
+            && Label.Contains(TEXT("/"))
+            && Fixture.InputNode->GetInputPin(Fixture.ExoticLabel) != nullptr
+            && Fixture.InputNode->GetOutputPin(Fixture.ExoticLabel) != nullptr
+            && Fixture.OutputNode->GetInputPin(Fixture.ExoticLabel) != nullptr);
+    TestFalse(
+        TEXT("Saved PCG fixture package begins clean"),
+        Fixture.Package->IsDirty());
+
+    Error.Reset();
+    const bool bUnloaded = Fixture.Unload(Error);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Saved PCG Query fixture unloads completely: %s"),
+            *Error),
+        bUnloaded);
+    if (!bUnloaded)
+    {
+        return false;
+    }
+
+    Error.Reset();
+    const bool bReloaded = Fixture.Reload(Error);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Saved PCG Query fixture reloads from disk: %s"),
+            *Error),
+        bReloaded);
+    if (!bReloaded)
+    {
+        return false;
+    }
+
+    TestEqual(
+        TEXT("Package reload preserves the canonical PCG Target path"),
+        Fixture.Graph->GetPathName(),
+        GraphPath);
+    TestEqual(
+        TEXT("Package reload preserves the default Input Node FName"),
+        Fixture.InputNode->GetFName().ToString(),
+        InputNodeId);
+    TestEqual(
+        TEXT("Package reload preserves the default Output Node FName"),
+        Fixture.OutputNode->GetFName().ToString(),
+        OutputNodeId);
+    TestEqual(
+        TEXT("Package reload preserves the authored Node FName"),
+        Fixture.AuthoredNode->GetFName().ToString(),
+        AuthoredNodeId);
+    TestTrue(
+        TEXT("Package reload preserves same-label input and output Pin identity"),
+        Fixture.InputNode->GetInputPin(Fixture.ExoticLabel) != nullptr
+            && Fixture.InputNode->GetOutputPin(Fixture.ExoticLabel) != nullptr
+            && Fixture.OutputNode->GetInputPin(Fixture.ExoticLabel) != nullptr);
+    TestFalse(
+        TEXT("Reloaded PCG package is clean before Query readback"),
+        Fixture.Package->IsDirty());
+
+    {
+        FPcgQueryReadInvariant ReadInvariant(
+            Fixture.Graph,
+            Fixture.Package);
+        const TSharedRef<FJsonObject> SavedTarget =
+            PcgTarget(GraphPath, GraphType);
+
+        const TSharedPtr<FJsonObject> TargetResult =
+            FSalModule::BuildQueryResult(
+                QueryArguments(
+                    SavedTarget,
+                    Operation(TEXT("target"))));
+        TestTrue(
+            TEXT("Canonical PCG Target round-trips after package reload"),
+            !HasError(TargetResult)
+                && HasCanonicalPcgTarget(
+                    TargetResult,
+                    GraphPath,
+                    GraphType));
+        const TSharedPtr<FJsonObject> TargetFields =
+            CollectTargetMemberFields(TargetResult, TEXT("pcg_graph"));
+        TestTrue(
+            TEXT("Reloaded Target preserves default Node StableRefs"),
+            HasStableIdentityField(
+                TargetFields,
+                TEXT("DefaultInputNode"),
+                InputNodeId)
+                && HasStableIdentityField(
+                    TargetFields,
+                    TEXT("DefaultOutputNode"),
+                    OutputNodeId));
+
+        const TSharedPtr<FJsonObject> NodesResult =
+            FSalModule::BuildQueryResult(
+                QueryArguments(
+                    SavedTarget,
+                    Operation(TEXT("nodes")),
+                    {TEXT("layout")}));
+        const TArray<TSharedPtr<FJsonObject>> Nodes =
+            TaggedObjectFields(NodesResult, TEXT("node"));
+        TestTrue(
+            TEXT("Reloaded Nodes Query preserves every canonical Node FName"),
+            !HasError(NodesResult)
+                && FindFieldsById(Nodes, InputNodeId).IsValid()
+                && FindFieldsById(Nodes, OutputNodeId).IsValid()
+                && FindFieldsById(Nodes, AuthoredNodeId).IsValid());
+
+        const TSharedPtr<FJsonObject> ExactAuthoredNode =
+            FSalModule::BuildQueryResult(
+                QueryArguments(
+                    SavedTarget,
+                    ExactOperation({AuthoredNodeId}),
+                    {TEXT("layout")}));
+        const TSharedPtr<FJsonObject> ExactAuthoredNodeFields =
+            FindFieldsById(
+                TaggedObjectFields(
+                    ExactAuthoredNode,
+                    TEXT("node")),
+                AuthoredNodeId);
+        int32 AuthoredX = 0;
+        int32 AuthoredY = 0;
+        TestTrue(
+            TEXT("Saved authored Node StableRef and FName round-trip after reload"),
+            !HasError(ExactAuthoredNode)
+                && ExactAuthoredNodeFields.IsValid()
+                && ReadPoint(
+                    ExactAuthoredNodeFields,
+                    TEXT("at"),
+                    AuthoredX,
+                    AuthoredY)
+                && AuthoredX == 32
+                && AuthoredY == -192);
+
+        const TSharedPtr<FJsonObject> ExactInputNode =
+            FSalModule::BuildQueryResult(
+                QueryArguments(
+                    SavedTarget,
+                    ExactOperation({InputNodeId}),
+                    {TEXT("layout")}));
+        const TSharedPtr<FJsonObject> ExactNodeFields =
+            FindFieldsById(
+                TaggedObjectFields(ExactInputNode, TEXT("node")),
+                InputNodeId);
+        int32 X = 0;
+        int32 Y = 0;
+        TestTrue(
+            TEXT("Saved Node StableRef and authored layout round-trip after reload"),
+            !HasError(ExactInputNode)
+                && ExactNodeFields.IsValid()
+                && ReadPoint(ExactNodeFields, TEXT("at"), X, Y)
+                && X == -384
+                && Y == 96);
+        TestTrue(
+            TEXT("Reloaded exact Node preserves both structured Pin directions"),
+            FindPinFields(
+                ExactInputNode,
+                Label,
+                TEXT("in")).IsValid()
+                && FindPinFields(
+                    ExactInputNode,
+                    Label,
+                    TEXT("out")).IsValid());
+        TestTrue(
+            TEXT("Reloaded exact Node preserves the authored Edge endpoints"),
+            EdgeCount(ExactInputNode) == 1
+                && HasEdgeBetweenNodeDirections(
+                    ExactInputNode,
+                    InputNodeId,
+                    OutputNodeId));
+
+        for (const FString& Direction :
+             {FString(TEXT("in")), FString(TEXT("out"))})
+        {
+            const TSharedPtr<FJsonObject> ExactPin =
+                FSalModule::BuildQueryResult(
+                    QueryArguments(
+                        SavedTarget,
+                        ExactOperation(
+                            {InputNodeId, Direction, Label})));
+            TestTrue(
+                *FString::Printf(
+                    TEXT("Saved %s Pin StableRef preserves Node, direction, and slash-bearing Label after reload"),
+                    *Direction),
+                !HasError(ExactPin)
+                    && FindPinFields(
+                        ExactPin,
+                        Label,
+                        Direction).IsValid()
+                    && EdgeCount(ExactPin)
+                        == (Direction == TEXT("out") ? 1 : 0));
+        }
+
+        ReadInvariant.Verify(*this);
+    }
+
+    Error.Reset();
+    const bool bCleaned = Fixture.Cleanup(Error);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Persistent PCG Query fixture is removed: %s"),
+            *Error),
+        bCleaned);
     return true;
 }
 }

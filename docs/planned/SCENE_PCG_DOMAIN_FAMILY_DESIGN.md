@@ -15,14 +15,39 @@ Domain family. The existing `python` frontend owns explicit Editor/PIE/SIE
 control, and its planned `sal.object()` helper lets a script submit selected
 UObjects for read-only Bridge projection into already published SAL views.
 
-None of the new surfaces described here is part of the current public Loomle
-interface catalog. The existing catalog still has six SAL Domains. Internal
-read-only implementations now exist for the persistent `level`, `pcg`, and
-query-only `pcg_component` slices described below; this branch does not make
-them public interface cards. The
+None of the new surfaces described here is part of the latest externally
+released Loomle interface catalog; that product catalog still has six SAL
+Domains. The unpublished feature branch now contains a coordinated nine-Domain
+Query-only release candidate for `level`, `pcg`, and `pcg_component`, including
+all three new static cards and the nine-Domain offline `sal_schema` catalog.
+Those are branch-internal RC artifacts, not an external publication. The
 `pcg`-specific authored Graph contract remains in
 [`PCG_DOMAIN_DESIGN.md`](PCG_DOMAIN_DESIGN.md); this document governs the
 ownership and handoff boundaries around it.
+
+The RC also contains Level Context/handoff code and hostile fixtures, including
+PCG Component `map` fail-closed, exact 8 Ki/64 Ki budget, and stale
+zero-declaration override cases. The current branch-local Query-only snapshot
+passes the official UE 5.7 and UE 5.8 arm64 builds; Level Query 8/8,
+coordinated PCG Query 7/7, and family Phase 0 2/2 on both engines; and packaged
+end-to-end acceptance on both engines. Its nine-Domain offline `sal_schema`
+catalog and all three new static cards are complete.
+
+That evidence accepts the branch-internal Query-only RC; it does not publish
+it. The final release-archive audit, Windows acceptance, and production
+promotion have not run, and the externally released catalog remains the
+six-Domain product described above.
+
+The next coordinated public milestone is now frozen as publication of that
+**Query-only nine-Domain release candidate** after its remaining distribution
+gates pass.
+`level`, `pcg`, and `pcg_component` then enter the public
+catalog together, are admitted only by `QueryTarget`, and are rejected as
+`PatchTarget` before Bridge dispatch. That milestone includes their static
+cards, Editor Context/read-only navigation where specified, and packaged
+Client/Bridge parity. Authored mutation, save, Python `sal.object()`
+projection, and typed PCG execution are later capability releases and are not
+publication gates for these three read-only cards.
 
 The architecture decision is firmer than the wire design:
 
@@ -39,10 +64,11 @@ The architecture decision is firmer than the wire design:
 - asynchronous PCG execution does not become an authored SAL Patch and uses a
   typed PCG frontend on a shared asynchronous execution kernel.
 
-All Target examples, exact field sets, effect encodings, and execution request
-shapes in this document are **proposed implementation release gates**, not
-landed protocol. In particular, no public MCP tool name such as `sal_run` is
-chosen here.
+The Query Target shapes and initial Query/Patch admission policy below are the
+frozen contract for the coordinated read-only milestone. Mutation effect
+encodings, save results, Python projection, and execution request shapes remain
+**proposed later implementation release gates**, not landed protocol. In
+particular, no public MCP tool name such as `sal_run` is chosen here.
 
 ## Decision
 
@@ -114,9 +140,9 @@ authority merge.
 
 | Owner | Lifetime and anchor | Owns | Explicitly does not own | Authored Patch | Save authority |
 | --- | --- | --- | --- | --- | --- |
-| `level` | persistent `UWorld` asset and its Level-owned packages | Actor lifecycle; Actor Guid identity; labels, tags, folders, attachment, transforms, and serialized visibility flags; generic Component containment and common fields; Level/World Partition package ownership | PCG Graph topology; PCG-specific Component configuration; selection, camera, transient viewport visibility, PIE objects; PCG generation and inspection | yes | yes, for an exact Level-owned package plan |
-| `pcg` | persistent top-level `UPCGGraph` asset | Nodes, Settings interface, Pins, Edges, Graph Parameters, authored layout and Graph package | Actors, `UPCGComponent`, instance overrides, generation, Data View, live World state | yes | yes, Graph package only |
-| `pcg_component` | persistent original `UPCGComponent` reached through exact Level Actor identity | Graph binding; serialized PCG-specific Component configuration; Graph instance Parameter overrides; exact Component schema | Component creation/removal/rename/attachment; common Actor/Component fields; Graph contents; execution, generated output, save | no in the first release; later only after edit guard and protocol capability bump | no; hand off to `level` |
+| `level` | persistent `UWorld` asset and its Level-owned packages | Actor lifecycle; Actor Guid identity; labels, tags, folders, attachment, transforms, and serialized visibility flags; generic Component containment and common fields; Level/World Partition package ownership | PCG Graph topology; PCG-specific Component configuration; selection, camera, transient viewport visibility, PIE objects; PCG generation and inspection | no in the Query-only release; later only after a coordinated protocol/capability bump | no in the Query-only release; later for an exact Level-owned package plan |
+| `pcg` | persistent top-level `UPCGGraph` asset | Nodes, Settings interface, Pins, Edges, Graph Parameters, authored layout and Graph package | Actors, `UPCGComponent`, instance overrides, generation, Data View, live World state | no in the Query-only release; later only after a coordinated protocol/capability bump | no in the Query-only release; later for the Graph package only |
+| `pcg_component` | persistent original `UPCGComponent` reached through exact Level Actor identity | Graph binding; serialized PCG-specific Component configuration; Graph instance Parameter overrides; exact Component schema | Component creation/removal/rename/attachment; common Actor/Component fields; Graph contents; execution, generated output, save | no in the Query-only release; later only after an edit guard and coordinated protocol/capability bump | no; hand off to `level` after a future mutation |
 | `pcg_execution` | ephemeral execution id bound to one admitted private World epoch and source | typed PCG World discovery, admission, generate, continuation/poll, cancellation, component-scoped cleanup, messages, inspection, bounded Data View, and before/after resource attribution on the shared async lifecycle | authored Graph/Level/Component mutation; generic World control; save; durable StableRefs; ownership of every resource observed after a run; implicit authority over source Targets | not a SAL Patch | never |
 
 The explicit Python control/observation plane has no authored Patch or save
@@ -388,7 +414,7 @@ This family adds these constraints:
 surface. Exact instance schema decides which native fields are readable,
 writable, resettable, or invokable on the supported engine version.
 
-Its implemented internal Query surface remains intentionally narrower than
+Its implemented RC Query surface remains intentionally narrower than
 that eventual surface. Slice 1C-B-A exposes canonical resolution, `target`,
 `summary`, exact schema, bounded zero-load direct/top Graph-binding facts, and
 fixed `inspect_level` / conditional `inspect_graph` navigation. Slice 1C-B-B
@@ -681,12 +707,16 @@ reuse the same Target syntax. The initial family policy is:
 
 | Target | Query | Authored Patch |
 | --- | --- | --- |
-| `level` | yes | yes, only for published certified operations |
-| `pcg` | yes | yes, only for the certified Graph subset |
-| `pcg_component` | yes | no initially; later requires an edit-guard capability bump |
+| `level` | yes | no in the coordinated Query-only release |
+| `pcg` | yes | no in the coordinated Query-only release |
+| `pcg_component` | yes | no in the coordinated Query-only release |
 
-The normalized protocol may represent that distinction as separate
-`QueryTarget`/`PatchTarget` unions or equivalent pre-dispatch validation. It
+The normalized protocol represents that distinction as separate
+`QueryTarget`/`PatchTarget` unions or equivalent pre-dispatch validation. All
+three new Target variants are absent from the initial `PatchTarget` set, so a
+Patch fails before Bridge Domain dispatch. Enabling any later `level`, `pcg`,
+or `pcg_component` authored Patch requires a coordinated protocol/capability
+bump even if the SAL statement spelling itself is unchanged. This distinction
 does not create a multi-Target request.
 
 The word “union” here means a type union of legal Target shapes, not a
@@ -825,12 +855,13 @@ fallback, not the implementation of structured PCG execution.
 
 The family should land internally in this dependency order:
 
-1. **Phase 0 — minimal shared Target groundwork**: add the three closed Target
-   variants; separate Query admission, canonical Result/related-Target
-   admission, and Patch admission; move StableRef identity validation into
-   Domain adapters; and add parser/formatter/schema plus Client/Bridge
-   fail-closed fixtures. Bridge resolution and dispatch may land as explicit
-   unavailable stubs. Phase 0 does not add effect classification, save-plan
+1. **Phase 0 — minimal shared Target groundwork**: historically added the
+   three closed Target variants, separated Query, canonical Result/related-
+   Target, and Patch admission, moved StableRef identity validation into
+   Domain adapters, and added parser/formatter/schema plus Client/Bridge
+   fail-closed fixtures. Bridge resolution and dispatch could land as explicit
+   unavailable stubs. At its original landing Phase 0 did not add effect
+   classification, save-plan
    support, `sal.object()` projection, mutation, persistence, an interface
    card, or a public catalog promise.
 2. **`level` persistent identity and read-only Query**: Actor Guid,
@@ -844,23 +875,35 @@ The family should land internally in this dependency order:
 5. **`pcg_component` Parameter Query**: descriptor-Guid alignment, lossless
    value encoding, and effective override-source proof; remains separate from
    Component mutation research.
-6. **`level` and `pcg` authored mutation and exact save**: each follows its
-   independent transaction, persistence, failure-injection, and 5.7/5.8 gates;
-   neither is a prerequisite for the Query-only Component adapter.
-7. **Python `sal.object()` projection**: explicit marker registration,
+6. **coordinated Query-only catalog RC — implemented and accepted in the branch**:
+   branch source now contains Level Editor Context, read-only related
+   Target/handoff coverage, all three cards, the nine-Domain offline schema
+   catalog, hostile fixtures, and all three Targets excluded from `PatchTarget`.
+   Official UE 5.7 and UE 5.8 arm64 builds pass; Level Query passes 8/8,
+   coordinated PCG Query passes 7/7, and family Phase 0 passes 2/2 on both
+   engines; and packaged end-to-end acceptance passes on both engines. External
+   publication still requires the final release-archive audit, Windows
+   acceptance, and production promotion.
+7. **`level` and `pcg` authored mutation and exact save**: each follows its
+   independent protocol/capability bump, transaction, persistence,
+   failure-injection, and 5.7/5.8 gates. `pcg_component` mutation remains a
+   separate later edit-guard capability.
+8. **Python `sal.object()` projection**: explicit marker registration,
    read-only Domain projectors, standard SAL exact Query results, bounded
    terminal retention, and later Skill guidance. Editor/PIE/SIE control remains
    explicit Python outside SAL.
-8. **shared async-kernel extraction and typed PCG execution frontend**:
+9. **shared async-kernel extraction and typed PCG execution frontend**:
    preserve ordinary Python behavior, then add private World epoch/ticket
    discovery, exact source input, PCG leases, derived-effect ownership,
    cancellation, cleanup, and inspection.
 
 Read-only `level` and `pcg` implementation can proceed in parallel, but
 `pcg_component` must not invent temporary identity while waiting for either
-Target contract. Their authored mutation/save slices remain independent of
-the Query-only Component adapter. Execution is last because it composes the
-already verified boundaries without merging them.
+Target contract. The coordinated Query-only publication precedes every new
+family mutation, projection, and execution capability. Their authored
+mutation/save slices remain independent of the Query-only Component adapter.
+Execution is last because it composes the already verified boundaries without
+merging them.
 
 The family uses UE's built-in PCG plugin as an always-on production
 dependency. `LoomleBridge` and `LoomleBridgeTests` compile against the public
@@ -868,11 +911,11 @@ dependency. `LoomleBridge` and `LoomleBridgeTests` compile against the public
 depends on `PCGEditor`; editor-only and experimental PCG tooling remains source
 reference material rather than a Loomle runtime dependency.
 
-Internal slices are not separate public catalog promises. `level`, `pcg`, and
-Query-only `pcg_component` enter one coordinated nine-Domain SAL catalog
-release after their shared Target/schema/Client/Bridge gates pass. The Python
-`sal.object()` annex is a separately versioned Python capability release, and
-the typed PCG frontend is another separately versioned capability release.
+Internal slices are not separate public catalog promises. Query-only `level`,
+`pcg`, and `pcg_component` enter one coordinated nine-Domain SAL catalog
+release after their shared Target/schema/Client/Bridge and packaged Query gates
+pass. Mutation/save, the Python `sal.object()` annex, and the typed PCG
+frontend are separately versioned capability releases.
 
 No Domain is published merely because a later Domain needs it. Each slice
 must pass its own static card, native automation, Client/Bridge parity, and
@@ -900,9 +943,9 @@ unpublished family feature branch. The current v6 wire contract includes:
   - `pcg_component`: `domain, asset, actorId, source, id, type`;
 - normalized JSON Schema and generated TypeScript Target-variant updates;
 - distinct Query/Patch Target-admissibility sets or equivalent validation so
-  the initial Query-only `pcg_component` is legal for Query but rejected as a
-  Patch Target before Bridge dispatch; publishing the later Component edit
-  guard requires a coordinated protocol capability bump;
+  `level`, `pcg`, and `pcg_component` are legal for Query but rejected as Patch
+  Targets before Bridge dispatch; publishing any later authored Patch support
+  requires a coordinated protocol/capability bump;
 - parser, formatter, lowering, Bridge validation, and diagnostic parity;
 - the normalized `actors` collection operation required by the first Level
   read-only slice;
@@ -910,12 +953,25 @@ unpublished family feature branch. The current v6 wire contract includes:
   handoff Target-variant updates; and
 - protocol fixtures proving old/new Bridge mismatch fails closed.
 
-The coordinated public catalog release additionally requires:
+The branch RC has already landed:
 
 - three static `sal_schema` cards with offline availability;
-- removal of hard-coded “six Domain” catalog counts and messages;
-- effect metadata capable of distinguishing authored, derived, and
-  persistence outcomes.
+- the branch-local nine-Domain catalog contract;
+- Level Editor Context and the frozen read-only related Target/handoff paths;
+  and
+- Query-only exclusion of all three new Domains from `PatchTarget`.
+
+The current branch snapshot passes official UE 5.7 and UE 5.8 arm64 builds;
+Level Query 8/8, coordinated PCG Query 7/7, and family Phase 0 2/2 on both
+engines; and packaged end-to-end acceptance on both engines. The nine-Domain
+offline `sal_schema` catalog and all three new static cards are complete and
+aligned with the Query-only Client/Bridge contract. External publication still
+requires the final release-archive audit, Windows acceptance, and production
+promotion.
+
+Mutation effects and persistence result metadata are explicitly not required
+by this Query-only publication. They land with the later capability that first
+admits the corresponding Target through `PatchTarget`.
 
 The Python projection extension requires an injected `sal.object()` marker,
 an optional Bridge-owned `sal` result envelope, registered read-only Domain
@@ -948,48 +1004,42 @@ tests. A dedicated fixture should contain:
 - deterministic native output small enough for bounded inspection;
 - no dependency on UE's experimental PCGToolset.
 
-The joined acceptance sequence is:
+The coordinated Query-only publication sequence is:
 
 1. Discover and canonicalize independent `level` and `pcg` Targets.
 2. Query Actor and Component identity from `level`; read the exact
    `pcg_component` Target retained by Result Text `handoff`, then issue a new,
    independent Query against that Target.
 3. Query the Component Graph binding; read its Result Text `handoff`, then
-   issue a new, independent Query against the exact `pcg` Target.
-4. Dry-run and apply a Graph authored edit. Verify complete direct and cascade
-   authored effects and separate derived invalidation effects.
-5. When the Component edit guard is published, dry-run and apply a Component
-   override edit. Verify that Graph defaults, unrelated Level fields, and task
-   state did not change; otherwise verify the same operation is unavailable.
-6. Save the Graph through `pcg`; save the enumerated Level-owned dirty closure
-   through `level`; verify no package outside either closure was written.
-   External Actor Component mutation remains unavailable until this
-   persistence path is proven.
-7. Unload and reload. Prove Level Target, Actor Guid, Component Target, Graph
-   Node identity, Parameter identity, binding, and override persistence.
-8. Use an explicitly authorized short Python call to observe the Editor
-   Component, or to start SIE/PIE when required; confirm the requested state in
-   a later short call. Return the selected Component through `sal.object()` and
-   prove that the Bridge produces the same persistent `pcg_component` source
-   view without treating the live duplicate as that Target.
-9. Use typed PCG discovery to obtain an exact World selector and opaque
-   `pcgWorldTicket`, then start execution with that selector, ticket, and the
-   persistent source Target; follow the exact shared continuation to a terminal
-   outer status and read bounded typed messages/data.
-10. Verify execution did not change source Graph/Component configuration.
-    Record any generated projection and persistence-owner dirty changes as
-    non-transactional runtime effects; do not claim they were impossible.
-11. Start another execution, cancel it, then request explicit Component-scoped
-    cleanup. Prove the authored source Actor and Component and resources managed
-    by other source Components remain.
-12. Change map or PIE role and prove the old ticket fails stale, unfinished
-    execution becomes a retained `lost` record, and an already-terminal record
-    remains read-only evidence only until its bounded retention expires. No
-    execution id resolves or controls an object in the replacement World.
-13. Repeat the targeted native path on supported UE 5.7 and UE 5.8 builds,
-    then run packaged Client/Bridge acceptance against the exact candidate.
+   issue a new, independent Query against the exact `pcg` Target; read the
+   Component Parameter collection and an exact Parameter without changing its
+   override state.
+4. Query the Graph Target, summary, Nodes, exact Node/Pin schema, persisted
+   layout, and incident Edges without loading or mutating another object.
+5. Resolve the active saved source map and one selected source Actor through
+   Level Editor Context; prove that PIE/SIE or transient selections never
+   replace the persistent Level Target.
+6. Unload and reload externally prepared fixtures. Prove Level Target, Actor
+   Guid, Component Target, Graph Node identity, Parameter identity, binding,
+   and override readback remain stable without invoking a SAL save operation.
+7. Prove all three Targets are rejected by Patch admission before Bridge
+   dispatch, then repeat the targeted Query path on UE 5.7 and UE 5.8 and run
+   packaged Client/Bridge and offline-card acceptance against the same
+   candidate.
 
-Negative joined tests must also prove:
+Later capability releases extend this fixture independently. Authored
+mutation/save acceptance adds Graph and Level dry-run/live/Undo/rollback,
+effect, exact package-save, and save/reload steps only after their corresponding
+Patch admission bump. The separately versioned Python projection release adds
+`sal.object()` readback. The separately versioned typed PCG release adds World
+ticket discovery, execution, poll, cancellation, cleanup, and inspection. A
+failure in one later annex does not invalidate or silently narrow the
+branch-accepted Query-only RC contract.
+
+Across the staged releases, the applicable negative joined tests must also
+prove the following invariants. The Query-only release gates only the Target,
+identity, read-only-state, and Patch-admission items; Python projection and
+typed-execution items enter their own later annex suites:
 
 - a PIE Component cannot canonicalize as the original `pcg_component` Target;
 - a Component object path is rejected as persistent identity;
@@ -1068,19 +1118,29 @@ convenient:
     generate/cleanup inside its authored transaction; unsupported native paths
     are unavailable.
 
-## Open Public Mutation, Projection, And Execution Release Gates
+## Accepted Query Identity And Open Later Capability Release Gates
 
-The minimal Phase 0 Target groundwork and the read-only adapter slices are
-ready for internal development. The following questions do not block that
-work. They gate only the public capability that depends on them: persistent
-Target publication where identity proof is required, authored mutation and
-save, Python projection, or typed PCG execution.
+The minimal Target groundwork, read-only adapters, cards, Editor Context, and
+hostile fixture sources now form the branch's coordinated nine-Domain RC.
+The Query identity and branch-local acceptance gate has passed through the
+official UE 5.7/5.8 arm64 builds, Level Query 8/8, coordinated PCG Query 7/7,
+family Phase 0 2/2, and packaged end-to-end acceptance on both engines. The
+accepted identity gate covers:
 
 - Actor Guid persistence and collision behavior across ordinary Levels,
   World Partition, Level Instances, duplication, and UE 5.7/5.8;
 - source-aware Component locator behavior across construction rerun, Blueprint
   reinstance, rename, duplication, slot recreation, and save/reload;
 - exact resolution of original versus generated or runtime PCG Components;
+
+The nine-Domain offline `sal_schema` catalog and all three new static cards are
+also complete in the branch. The RC remains unpublished until the final
+release-archive audit, Windows acceptance, and production promotion are
+complete.
+
+The remaining items gate only the later capability that depends on them; they
+do not block the Query-only nine-Domain release:
+
 - Level preflight isolation for Actor lifecycle and construction callbacks;
 - exact enumeration of the map/external-Actor owned dirty closure and
   partial-save diagnostics;
@@ -1107,8 +1167,7 @@ save, Python projection, or typed PCG execution.
   enabling UE's experimental PCGToolset.
 
 Each surface remains a design proposal until its own applicable gates pass.
-In particular, typed-execution or Python-projection gates do not block internal
-Target/read-only implementation, and they do not retroactively become gates
-for the coordinated nine-Domain catalog once the three Target-backed Domains
-have passed their own identity, Query, protocol-parity, and packaged tests.
+In particular, mutation/save, typed-execution, or Python-projection gates do
+not block the branch-accepted coordinated nine-Domain Query-only catalog or add
+requirements to its remaining release-archive, Windows, and promotion gates.
 Nothing from Phase 0 alone appears in the public interface catalog.

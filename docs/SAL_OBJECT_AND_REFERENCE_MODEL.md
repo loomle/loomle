@@ -4,8 +4,8 @@
 
 Promoted on 2026-07-25. This document records the confirmed and implemented
 design for SAL object expressions, semantic tags, Domain Targets, and stable
-references. The SAL v3 model, now carried by Client-Bridge protocol v5, the SAL
-Core, Client, Bridge source, current Domain cards, and site implement this
+references. The SAL v3 object model is retained by Client-Bridge protocol v6;
+the SAL Core, Client, Bridge source, current Domain cards, and site implement this
 model. The complete repository suite, 135-test
 UE Automation category, stripped release audit, exact-archive packaged
 end-to-end workflow, and rendered-site gates have passed.
@@ -13,7 +13,7 @@ end-to-end workflow, and rendered-site gates have passed.
 The current public contract is the v3 model in `sal/docs/` and `interfaces/`.
 Constructor-shaped values, Domain-name Target constructors, and fused
 `kind@id` references are legacy input accepted only by the explicit
-TypeScript compatibility reader. Protocol v5 Bridge requests reject their
+TypeScript compatibility reader. Protocol v6 Bridge requests reject their
 normalized legacy shapes.
 
 ## Decision
@@ -267,7 +267,7 @@ pin @N/P
 ```
 
 Its text form is a non-reserved SAL identifier. JSON literals, the retired
-generic label `object`, `target`, `domain`, the six Domain names, and the
+generic label `object`, `target`, `domain`, the nine current Domain names, and the
 irreducibly ambiguous exact-operation prefixes `tree`, `context`, and
 `palette` are reserved and are not semantic tags. Unknown non-reserved tags
 remain structurally valid so a formatter can preserve forward-compatible

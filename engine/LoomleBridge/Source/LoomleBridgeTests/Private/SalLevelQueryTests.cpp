@@ -3,7 +3,11 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "LoomleTestObjectIteration.h"
+#include "EditorContext/EditorContextService.h"
+#include "Sal/Level/SalLevelInterface.h"
+#include "Sal/SalJson.h"
 #include "Sal/SalModule.h"
+#include "Sal/SalTargetResolver.h"
 
 #include "AssetRegistry/AssetData.h"
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -14,7 +18,10 @@
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Editor.h"
+#include "EditorWorldUtils.h"
 #include "Editor/Transactor.h"
+#include "Elements/Framework/EngineElementsLibrary.h"
+#include "Elements/Framework/TypedElementSelectionSet.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
 #include "Engine/Level.h"
@@ -25,6 +32,7 @@
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "HAL/FileManager.h"
+#include "HAL/PlatformTime.h"
 #include "Helpers/PCGHelpers.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -41,6 +49,7 @@
 #include "PCGVolume.h"
 #include "StructUtils/PropertyBag.h"
 #include "UObject/GarbageCollection.h"
+#include "UObject/ObjectSaveContext.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 #include "UObject/StrongObjectPtr.h"
@@ -48,6 +57,12 @@
 #include "UObject/UObjectHash.h"
 #include "UObject/UObjectIterator.h"
 #include "UObject/UnrealType.h"
+#include "WorldPartition/ActorDescContainerInstance.h"
+#include "WorldPartition/IWorldPartitionEditorModule.h"
+#include "WorldPartition/WorldPartition.h"
+#include "WorldPartition/WorldPartitionActorDesc.h"
+#include "WorldPartition/WorldPartitionActorDescInstance.h"
+#include "WorldPartition/WorldPartitionHandle.h"
 
 namespace
 {
@@ -812,6 +827,53 @@ bool ReadLevelStableRefField(
     return true;
 }
 
+TSharedPtr<FJsonObject> FindLevelComponentFieldsByIdentity(
+    const TArray<TSharedPtr<FJsonObject>>& Objects,
+    const FString& ActorId,
+    const FString& Source,
+    const FString& Id)
+{
+    const TArray<FString> Expected = {ActorId, Source, Id};
+    for (const TSharedPtr<FJsonObject>& Fields : Objects)
+    {
+        TArray<FString> Identity;
+        if (ReadLevelStableRefField(
+                Fields,
+                TEXT("ref"),
+                TEXT("component"),
+                Identity)
+            && Identity == Expected)
+        {
+            return Fields;
+        }
+    }
+    return nullptr;
+}
+
+int32 CountLevelComponentFieldsByIdentity(
+    const TArray<TSharedPtr<FJsonObject>>& Objects,
+    const FString& ActorId,
+    const FString& Source,
+    const FString& Id)
+{
+    const TArray<FString> Expected = {ActorId, Source, Id};
+    int32 Count = 0;
+    for (const TSharedPtr<FJsonObject>& Fields : Objects)
+    {
+        TArray<FString> Identity;
+        if (ReadLevelStableRefField(
+                Fields,
+                TEXT("ref"),
+                TEXT("component"),
+                Identity)
+            && Identity == Expected)
+        {
+            ++Count;
+        }
+    }
+    return Count;
+}
+
 bool ReadSingleRelatedLevelTarget(
     const TSharedPtr<FJsonObject>& Result,
     FString& OutAlias,
@@ -822,33 +884,51 @@ bool ReadSingleRelatedLevelTarget(
     const TArray<TSharedPtr<FJsonValue>>* Related = nullptr;
     if (!Result.IsValid()
         || !Result->TryGetArrayField(TEXT("relatedTargets"), Related)
-        || Related == nullptr
-        || Related->Num() != 1)
+        || Related == nullptr)
     {
         return false;
     }
-    const TSharedPtr<FJsonObject>* Binding = nullptr;
-    const TSharedPtr<FJsonObject>* Target = nullptr;
-    FString Kind;
-    FString Domain;
-    FString Type;
-    return (*Related)[0].IsValid()
-        && (*Related)[0]->TryGetObject(Binding)
-        && Binding != nullptr
-        && (*Binding).IsValid()
-        && (*Binding)->TryGetStringField(TEXT("alias"), OutAlias)
-        && !OutAlias.IsEmpty()
-        && (*Binding)->TryGetObjectField(TEXT("target"), Target)
-        && Target != nullptr
-        && (*Target).IsValid()
-        && (*Target)->TryGetStringField(TEXT("kind"), Kind)
-        && Kind == TEXT("target")
-        && (*Target)->TryGetStringField(TEXT("domain"), Domain)
-        && Domain == TEXT("level")
-        && (*Target)->TryGetStringField(TEXT("asset"), OutAsset)
-        && !OutAsset.IsEmpty()
-        && (*Target)->TryGetStringField(TEXT("type"), Type)
-        && Type == UWorld::StaticClass()->GetPathName();
+    int32 Matches = 0;
+    for (const TSharedPtr<FJsonValue>& Value : *Related)
+    {
+        const TSharedPtr<FJsonObject>* Binding = nullptr;
+        const TSharedPtr<FJsonObject>* Target = nullptr;
+        FString Kind;
+        FString Domain;
+        FString Alias;
+        FString Asset;
+        FString Type;
+        if (!Value.IsValid()
+            || !Value->TryGetObject(Binding)
+            || Binding == nullptr
+            || !(*Binding).IsValid()
+            || !(*Binding)->TryGetObjectField(TEXT("target"), Target)
+            || Target == nullptr
+            || !(*Target).IsValid()
+            || !(*Target)->TryGetStringField(TEXT("domain"), Domain))
+        {
+            return false;
+        }
+        if (Domain != TEXT("level"))
+        {
+            continue;
+        }
+        if (!(*Binding)->TryGetStringField(TEXT("alias"), Alias)
+            || Alias.IsEmpty()
+            || !(*Target)->TryGetStringField(TEXT("kind"), Kind)
+            || Kind != TEXT("target")
+            || !(*Target)->TryGetStringField(TEXT("asset"), Asset)
+            || Asset.IsEmpty()
+            || !(*Target)->TryGetStringField(TEXT("type"), Type)
+            || Type != UWorld::StaticClass()->GetPathName())
+        {
+            return false;
+        }
+        ++Matches;
+        OutAlias = MoveTemp(Alias);
+        OutAsset = MoveTemp(Asset);
+    }
+    return Matches == 1;
 }
 
 bool ReadRelatedLevelTargets(
@@ -884,9 +964,16 @@ bool ReadRelatedLevelTargets(
             || !(*Target).IsValid()
             || !(*Target)->TryGetStringField(TEXT("kind"), Kind)
             || Kind != TEXT("target")
-            || !(*Target)->TryGetStringField(TEXT("domain"), Domain)
-            || Domain != TEXT("level")
-            || !(*Target)->TryGetStringField(TEXT("asset"), Asset)
+            || !(*Target)->TryGetStringField(TEXT("domain"), Domain))
+        {
+            OutAliasesByAsset.Reset();
+            return false;
+        }
+        if (Domain != TEXT("level"))
+        {
+            continue;
+        }
+        if (!(*Target)->TryGetStringField(TEXT("asset"), Asset)
             || Asset.IsEmpty()
             || !(*Target)->TryGetStringField(TEXT("type"), Type)
             || Type != UWorld::StaticClass()->GetPathName()
@@ -953,9 +1040,16 @@ bool ReadRelatedPCGComponentTargets(
             || !(*Target).IsValid()
             || !(*Target)->TryGetStringField(TEXT("kind"), Kind)
             || Kind != TEXT("target")
-            || !(*Target)->TryGetStringField(TEXT("domain"), Domain)
-            || Domain != TEXT("pcg_component")
-            || !(*Target)->TryGetStringField(TEXT("asset"), Asset)
+            || !(*Target)->TryGetStringField(TEXT("domain"), Domain))
+        {
+            OutAliasesByIdentity.Reset();
+            return false;
+        }
+        if (Domain != TEXT("pcg_component"))
+        {
+            continue;
+        }
+        if (!(*Target)->TryGetStringField(TEXT("asset"), Asset)
             || Asset != ExpectedAsset
             || !(*Target)->TryGetStringField(TEXT("actorId"), ActorId)
             || ActorId.IsEmpty()
@@ -994,32 +1088,46 @@ bool HasSingleLevelHandoff(
     const TArray<TSharedPtr<FJsonValue>>* Handoffs = nullptr;
     if (!Result.IsValid()
         || !Result->TryGetArrayField(TEXT("handoffs"), Handoffs)
-        || Handoffs == nullptr
-        || Handoffs->Num() != 1)
+        || Handoffs == nullptr)
     {
         return false;
     }
-    const TSharedPtr<FJsonObject>* Handoff = nullptr;
-    const TSharedPtr<FJsonObject>* Target = nullptr;
-    FString Kind;
-    FString Purpose;
-    FString RefKind;
-    FString Alias;
-    return (*Handoffs)[0].IsValid()
-        && (*Handoffs)[0]->TryGetObject(Handoff)
-        && Handoff != nullptr
-        && (*Handoff).IsValid()
-        && (*Handoff)->TryGetStringField(TEXT("kind"), Kind)
-        && Kind == TEXT("target_handoff")
-        && (*Handoff)->TryGetStringField(TEXT("purpose"), Purpose)
-        && Purpose == ExpectedPurpose
-        && (*Handoff)->TryGetObjectField(TEXT("target"), Target)
-        && Target != nullptr
-        && (*Target).IsValid()
-        && (*Target)->TryGetStringField(TEXT("kind"), RefKind)
-        && RefKind == TEXT("local")
-        && (*Target)->TryGetStringField(TEXT("name"), Alias)
-        && Alias == ExpectedAlias;
+    int32 Matches = 0;
+    for (const TSharedPtr<FJsonValue>& Value : *Handoffs)
+    {
+        const TSharedPtr<FJsonObject>* Handoff = nullptr;
+        const TSharedPtr<FJsonObject>* Target = nullptr;
+        FString Kind;
+        FString Purpose;
+        FString RefKind;
+        FString Alias;
+        if (!Value.IsValid()
+            || !Value->TryGetObject(Handoff)
+            || Handoff == nullptr
+            || !(*Handoff).IsValid()
+            || !(*Handoff)->TryGetStringField(TEXT("kind"), Kind)
+            || Kind != TEXT("target_handoff")
+            || !(*Handoff)->TryGetStringField(TEXT("purpose"), Purpose))
+        {
+            return false;
+        }
+        if (Purpose != ExpectedPurpose)
+        {
+            continue;
+        }
+        if (!(*Handoff)->TryGetObjectField(TEXT("target"), Target)
+            || Target == nullptr
+            || !(*Target).IsValid()
+            || !(*Target)->TryGetStringField(TEXT("kind"), RefKind)
+            || RefKind != TEXT("local")
+            || !(*Target)->TryGetStringField(TEXT("name"), Alias)
+            || Alias != ExpectedAlias)
+        {
+            return false;
+        }
+        ++Matches;
+    }
+    return Matches == 1;
 }
 
 bool ReadUniqueHandoffAlias(
@@ -1099,6 +1207,181 @@ int32 CountHandoffPurpose(
     return Matches;
 }
 
+int32 CountRelatedTargetDomain(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& ExpectedDomain)
+{
+    const TArray<TSharedPtr<FJsonValue>>* Related = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetArrayField(TEXT("relatedTargets"), Related)
+        || Related == nullptr)
+    {
+        return 0;
+    }
+    int32 Matches = 0;
+    for (const TSharedPtr<FJsonValue>& Value : *Related)
+    {
+        const TSharedPtr<FJsonObject>* Binding = nullptr;
+        const TSharedPtr<FJsonObject>* Target = nullptr;
+        FString Domain;
+        if (Value.IsValid()
+            && Value->TryGetObject(Binding)
+            && Binding != nullptr
+            && (*Binding).IsValid()
+            && (*Binding)->TryGetObjectField(TEXT("target"), Target)
+            && Target != nullptr
+            && (*Target).IsValid()
+            && (*Target)->TryGetStringField(TEXT("domain"), Domain)
+            && Domain == ExpectedDomain)
+        {
+            ++Matches;
+        }
+    }
+    return Matches;
+}
+
+TSharedPtr<FJsonObject> ReadUniqueHandoffTarget(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& ExpectedPurpose)
+{
+    FString Alias;
+    if (!ReadUniqueHandoffAlias(
+            Result,
+            ExpectedPurpose,
+            Alias))
+    {
+        return nullptr;
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* Related = nullptr;
+    if (!Result->TryGetArrayField(TEXT("relatedTargets"), Related)
+        || Related == nullptr)
+    {
+        return nullptr;
+    }
+    TSharedPtr<FJsonObject> Match;
+    int32 Matches = 0;
+    for (const TSharedPtr<FJsonValue>& Value : *Related)
+    {
+        const TSharedPtr<FJsonObject>* Binding = nullptr;
+        const TSharedPtr<FJsonObject>* Target = nullptr;
+        FString CandidateAlias;
+        if (Value.IsValid()
+            && Value->TryGetObject(Binding)
+            && Binding != nullptr
+            && (*Binding).IsValid()
+            && (*Binding)->TryGetStringField(
+                TEXT("alias"),
+                CandidateAlias)
+            && CandidateAlias == Alias
+            && (*Binding)->TryGetObjectField(
+                TEXT("target"),
+                Target)
+            && Target != nullptr
+            && (*Target).IsValid())
+        {
+            Match = *Target;
+            ++Matches;
+        }
+    }
+    return Matches == 1 ? Match : nullptr;
+}
+
+bool IsCanonicalRelatedPathTarget(
+    const TSharedPtr<FJsonObject>& Target,
+    const FString& ExpectedDomain,
+    const FString& PathField,
+    const FString& ExpectedPath,
+    const FString& ExpectedType = FString())
+{
+    FString Kind;
+    FString Domain;
+    FString Path;
+    FString Type;
+    return Target.IsValid()
+        && Target->TryGetStringField(TEXT("kind"), Kind)
+        && Kind == TEXT("target")
+        && Target->TryGetStringField(TEXT("domain"), Domain)
+        && Domain == ExpectedDomain
+        && Target->TryGetStringField(PathField, Path)
+        && Path == ExpectedPath
+        && (ExpectedType.IsEmpty()
+            || (Target->TryGetStringField(TEXT("type"), Type)
+                && Type == ExpectedType));
+}
+
+bool IsCanonicalBlueprintTarget(
+    const TSharedPtr<FJsonObject>& Target,
+    const FString& ExpectedAsset,
+    const FGuid& ExpectedId)
+{
+    FString Id;
+    return ExpectedId.IsValid()
+        && IsCanonicalRelatedPathTarget(
+            Target,
+            TEXT("blueprint"),
+            TEXT("asset"),
+            ExpectedAsset)
+        && Target->TryGetStringField(TEXT("id"), Id)
+        && Id == LevelGuidText(ExpectedId);
+}
+
+bool HasSingleLocalStableRef(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& ExpectedSemanticTag,
+    const FString& ExpectedId)
+{
+    const TSharedPtr<FJsonObject>* Object = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* Statements = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetObjectField(TEXT("object"), Object)
+        || Object == nullptr
+        || !(*Object).IsValid()
+        || !(*Object)->TryGetArrayField(
+            TEXT("statements"),
+            Statements)
+        || Statements == nullptr)
+    {
+        return false;
+    }
+
+    int32 Matches = 0;
+    for (const TSharedPtr<FJsonValue>& StatementValue : *Statements)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        const TSharedPtr<FJsonObject>* Value = nullptr;
+        const TArray<TSharedPtr<FJsonValue>>* IdentityPath = nullptr;
+        FString Kind;
+        FString SemanticTag;
+        FString Id;
+        if (StatementValue.IsValid()
+            && StatementValue->TryGetObject(Statement)
+            && Statement != nullptr
+            && (*Statement).IsValid()
+            && (*Statement)->TryGetObjectField(TEXT("value"), Value)
+            && Value != nullptr
+            && (*Value).IsValid()
+            && (*Value)->TryGetStringField(TEXT("kind"), Kind)
+            && Kind == TEXT("stable_ref")
+            && (*Value)->TryGetStringField(
+                TEXT("semanticTag"),
+                SemanticTag)
+            && SemanticTag == ExpectedSemanticTag
+            && (*Value)->TryGetArrayField(
+                TEXT("identityPath"),
+                IdentityPath)
+            && IdentityPath != nullptr
+            && IdentityPath->Num() == 1
+            && (*IdentityPath)[0].IsValid()
+            && (*IdentityPath)[0]->TryGetString(Id)
+            && Id == ExpectedId)
+        {
+            ++Matches;
+        }
+    }
+    return Matches == 1;
+}
+
 bool HasRelatedTarget(
     const TSharedPtr<FJsonObject>& Result,
     const FString& ExpectedAlias,
@@ -1175,9 +1458,16 @@ bool ReadLevelHandoffAliases(
             || !(*Handoff).IsValid()
             || !(*Handoff)->TryGetStringField(TEXT("kind"), Kind)
             || Kind != TEXT("target_handoff")
-            || !(*Handoff)->TryGetStringField(TEXT("purpose"), Purpose)
-            || Purpose != ExpectedPurpose
-            || !(*Handoff)->TryGetObjectField(TEXT("target"), Target)
+            || !(*Handoff)->TryGetStringField(TEXT("purpose"), Purpose))
+        {
+            OutAliases.Reset();
+            return false;
+        }
+        if (Purpose != ExpectedPurpose)
+        {
+            continue;
+        }
+        if (!(*Handoff)->TryGetObjectField(TEXT("target"), Target)
             || Target == nullptr
             || !(*Target).IsValid()
             || !(*Target)->TryGetStringField(TEXT("kind"), RefKind)
@@ -1191,15 +1481,67 @@ bool ReadLevelHandoffAliases(
         }
         OutAliases.Add(Alias);
     }
-    return true;
+    return !OutAliases.IsEmpty();
 }
 
 bool HasNoLevelRelatedContext(
     const TSharedPtr<FJsonObject>& Result)
 {
-    return Result.IsValid()
-        && !Result->HasField(TEXT("relatedTargets"))
-        && !Result->HasField(TEXT("handoffs"));
+    if (!Result.IsValid())
+    {
+        return false;
+    }
+    const TArray<TSharedPtr<FJsonValue>>* Related = nullptr;
+    if (Result->TryGetArrayField(TEXT("relatedTargets"), Related)
+        && Related != nullptr)
+    {
+        for (const TSharedPtr<FJsonValue>& Value : *Related)
+        {
+            const TSharedPtr<FJsonObject>* Binding = nullptr;
+            const TSharedPtr<FJsonObject>* Target = nullptr;
+            FString Domain;
+            if (!Value.IsValid()
+                || !Value->TryGetObject(Binding)
+                || Binding == nullptr
+                || !(*Binding).IsValid()
+                || !(*Binding)->TryGetObjectField(TEXT("target"), Target)
+                || Target == nullptr
+                || !(*Target).IsValid()
+                || !(*Target)->TryGetStringField(TEXT("domain"), Domain))
+            {
+                return false;
+            }
+            if (Domain == TEXT("level")
+                || Domain == TEXT("pcg_component"))
+            {
+                return false;
+            }
+        }
+    }
+    const TArray<TSharedPtr<FJsonValue>>* Handoffs = nullptr;
+    if (Result->TryGetArrayField(TEXT("handoffs"), Handoffs)
+        && Handoffs != nullptr)
+    {
+        for (const TSharedPtr<FJsonValue>& Value : *Handoffs)
+        {
+            const TSharedPtr<FJsonObject>* Handoff = nullptr;
+            FString Purpose;
+            if (!Value.IsValid()
+                || !Value->TryGetObject(Handoff)
+                || Handoff == nullptr
+                || !(*Handoff).IsValid()
+                || !(*Handoff)->TryGetStringField(TEXT("purpose"), Purpose))
+            {
+                return false;
+            }
+            if (Purpose == TEXT("inspect_source_level")
+                || Purpose == TEXT("inspect_pcg_component"))
+            {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 void PrepareLevelPackageForCollection(UPackage* Package)
@@ -1462,6 +1804,7 @@ public:
         {
             return true;
         }
+
         bCleaned = true;
 
         if (bEditorContextChanged && GEditor != nullptr)
@@ -1569,6 +1912,57 @@ public:
         return true;
     }
 
+    bool SaveLoadedMapForDurability(FString& OutError)
+    {
+        return SaveMap(Loaded, OutError);
+    }
+
+    bool UnloadLoadedMapForDurability(FString& OutError)
+    {
+        if (GEditor != nullptr
+            && GEditor->GetEditorWorldContext().World() == Loaded.World)
+        {
+            GEditor->GetEditorWorldContext().SetCurrentWorld(
+                OriginalEditorWorld);
+        }
+        return UnloadMap(Loaded, OutError);
+    }
+
+    bool ReloadLoadedMapForDurability(FString& OutError)
+    {
+        OutError.Reset();
+        if (Loaded.World != nullptr
+            || FindPackage(nullptr, *Loaded.PackageName) != nullptr)
+        {
+            OutError = TEXT(
+                "Cannot reload a Level durability fixture that is already loaded.");
+            return false;
+        }
+
+        UPackage* Package = LoadWorldPackageForEditor(
+            Loaded.PackageName,
+            EWorldType::Editor,
+            LOAD_None);
+        const FString ObjectName =
+            FPackageName::ObjectPathToObjectName(Loaded.ObjectPath);
+        UWorld* World = Package != nullptr
+            ? FindObject<UWorld>(Package, *ObjectName)
+            : nullptr;
+        if (World == nullptr
+            || World->PersistentLevel == nullptr
+            || World->GetPathName() != Loaded.ObjectPath)
+        {
+            OutError = TEXT(
+                "UE failed to reload the exact saved Level durability fixture: ")
+                + Loaded.ObjectPath;
+            return false;
+        }
+
+        World->SetFlags(RF_Transactional);
+        Loaded.World = World;
+        return ValidateOnDiskEvidence(Loaded, false, OutError);
+    }
+
     FLevelMapRecord Loaded;
     FLevelMapRecord Unloaded;
     FLevelMapRecord Corrupt;
@@ -1642,8 +2036,10 @@ private:
         }
         OutRecord.World->SetFlags(
             RF_Public | RF_Standalone | RF_Transactional);
-        FAssetRegistryModule::AssetCreated(OutRecord.World);
-        OutRecord.bRegisteredInMemory = true;
+        // SaveMap immediately establishes authoritative on-disk Registry
+        // evidence. Avoid a transient AssetCreated registration that would be
+        // reported as a deletion when the source map is deliberately unloaded.
+        OutRecord.bRegisteredInMemory = false;
         OutRecord.World->GetOutermost()->SetDirtyFlag(false);
         return true;
     }
@@ -1721,7 +2117,9 @@ private:
         UPackage* Package = Record.World->GetOutermost();
         if (Record.bRegisteredInMemory)
         {
-            FAssetRegistryModule::AssetDeleted(Record.World);
+            // The saved map remains a valid on-disk Asset. Do not announce a
+            // deletion immediately before rescanning that same file; the scan
+            // replaces the transient registration with disk evidence.
             Record.bRegisteredInMemory = false;
         }
         Record.World->DestroyWorld(false);
@@ -1855,6 +2253,7 @@ public:
             TEXT("AssetRegistry"))
             .Get()
             .ScanModifiedAssetFiles({GraphFilename});
+        bGraphRegistered = false;
 
         UnsavedGraphPackageName = FString::Printf(
             TEXT("/Game/LoomleTests/LevelComponent/%s/PCG_Unsaved"),
@@ -1880,6 +2279,12 @@ public:
         BlueprintPackageName = FString::Printf(
             TEXT("/Game/LoomleTests/LevelComponent/%s/BP_LevelComponent"),
             *Token);
+        BlueprintFilename = FPackageName::LongPackageNameToFilename(
+            BlueprintPackageName,
+            FPackageName::GetAssetPackageExtension());
+        IFileManager::Get().MakeDirectory(
+            *FPaths::GetPath(BlueprintFilename),
+            true);
         BlueprintPackage = CreatePackage(*BlueprintPackageName);
         Blueprint = BlueprintPackage != nullptr
             ? FKismetEditorUtilities::CreateBlueprint(
@@ -1898,6 +2303,7 @@ public:
                 "UE failed to create the Component fixture Blueprint and SCS.");
             return false;
         }
+        BlueprintPath = Blueprint->GetPathName();
         BlueprintRoot.Reset(Blueprint);
         FAssetRegistryModule::AssetCreated(Blueprint);
         bBlueprintRegistered = true;
@@ -1922,6 +2328,7 @@ public:
         Blueprint->SimpleConstructionScript->AddNode(SCSNode);
         Blueprint->SimpleConstructionScript->AddNode(
             SCSCollisionProbeNode);
+        SCSGuid = SCSNode->VariableGuid;
         FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
         FKismetEditorUtilities::CompileBlueprint(Blueprint);
         GeneratedClass = Cast<UBlueprintGeneratedClass>(
@@ -2126,22 +2533,32 @@ public:
         bCleaned = true;
 
         UBlueprint* RootedBlueprint = BlueprintRoot.Get();
-        if (bBlueprintRegistered && RootedBlueprint != nullptr)
+        const bool bBlueprintExistsOnDisk =
+            !BlueprintFilename.IsEmpty()
+            && IFileManager::Get().FileExists(*BlueprintFilename);
+        if (bBlueprintRegistered
+            && RootedBlueprint != nullptr
+            && !bBlueprintExistsOnDisk)
         {
             FAssetRegistryModule::AssetDeleted(RootedBlueprint);
-            bBlueprintRegistered = false;
         }
+        bBlueprintRegistered = false;
         UPackage* Package = !BlueprintPackageName.IsEmpty()
             ? FindPackage(nullptr, *BlueprintPackageName)
             : nullptr;
         PrepareLevelPackageForCollection(Package);
 
         UPCGGraph* RootedGraph = GraphRoot.Get();
-        if (bGraphRegistered && RootedGraph != nullptr)
+        const bool bGraphExistsOnDisk =
+            !GraphFilename.IsEmpty()
+            && IFileManager::Get().FileExists(*GraphFilename);
+        if (bGraphRegistered
+            && RootedGraph != nullptr
+            && !bGraphExistsOnDisk)
         {
             FAssetRegistryModule::AssetDeleted(RootedGraph);
-            bGraphRegistered = false;
         }
+        bGraphRegistered = false;
         UPackage* ExistingGraphPackage = !GraphPackageName.IsEmpty()
             ? FindPackage(nullptr, *GraphPackageName)
             : nullptr;
@@ -2165,6 +2582,11 @@ public:
         PCGComponent = nullptr;
         NativePCGActor = nullptr;
         NativePCGComponent = nullptr;
+        TwinActor = nullptr;
+        TwinNativeComponent = nullptr;
+        TwinSCSComponent = nullptr;
+        TwinInstanceComponent = nullptr;
+        TwinPCGComponent = nullptr;
         GeneratedPCGComponents.Reset();
         UCSComponent = nullptr;
         SCSNode = nullptr;
@@ -2215,6 +2637,18 @@ public:
                 .Get()
                 .ScanModifiedAssetFiles({GraphFilename});
         }
+        if (!BlueprintFilename.IsEmpty())
+        {
+            IFileManager::Get().Delete(
+                *BlueprintFilename,
+                false,
+                true,
+                true);
+            FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+                TEXT("AssetRegistry"))
+                .Get()
+                .ScanModifiedAssetFiles({BlueprintFilename});
+        }
         return OutError.IsEmpty();
     }
 
@@ -2225,10 +2659,16 @@ public:
     UPCGComponent* PCGComponent = nullptr;
     APCGVolume* NativePCGActor = nullptr;
     UPCGComponent* NativePCGComponent = nullptr;
+    AActor* TwinActor = nullptr;
+    UActorComponent* TwinNativeComponent = nullptr;
+    UActorComponent* TwinSCSComponent = nullptr;
+    USceneComponent* TwinInstanceComponent = nullptr;
+    UPCGComponent* TwinPCGComponent = nullptr;
     TArray<USceneComponent*> GeneratedPCGComponents;
     UActorComponent* UCSComponent = nullptr;
     FGuid ActorId;
     FGuid NativePCGActorId;
+    FGuid TwinActorId;
     FString NativeId;
     FString SCSId;
     FString SCSDeclaringClass;
@@ -2241,6 +2681,355 @@ public:
     UPackage* GetBlueprintPackage() const
     {
         return BlueprintPackage;
+    }
+
+    UBlueprint* GetBlueprint() const
+    {
+        return Blueprint;
+    }
+
+    UBlueprintGeneratedClass* GetGeneratedClass() const
+    {
+        return GeneratedClass;
+    }
+
+    bool IsBlueprintUnloadedForDurability() const
+    {
+        return FindPackage(nullptr, *BlueprintPackageName) == nullptr
+            && FindObject<UBlueprint>(nullptr, *BlueprintPath) == nullptr
+            && FindObject<UClass>(nullptr, *SCSDeclaringClass) == nullptr;
+    }
+
+    FName GetSCSVariableName() const
+    {
+        return SCSNode != nullptr
+            ? SCSNode->GetVariableName()
+            : NAME_None;
+    }
+
+    bool AddSameSlotTwin(UWorld* World, FString& OutError)
+    {
+        OutError.Reset();
+        if (World == nullptr
+            || World->PersistentLevel == nullptr
+            || GeneratedClass == nullptr
+            || Actor == nullptr
+            || Graph == nullptr)
+        {
+            OutError = TEXT(
+                "Same-slot Component fixture requires its loaded World, Blueprint Class, owner, and saved Graph.");
+            return false;
+        }
+
+        FActorSpawnParameters Params;
+        Params.Name = FName(TEXT("Actor_LevelComponentsTwin"));
+        Params.OverrideLevel = World->PersistentLevel;
+        Params.ObjectFlags = RF_Transactional;
+        TwinActor = World->SpawnActor<AActor>(
+            GeneratedClass,
+            FTransform(FVector(250.0, 0.0, 0.0)),
+            Params);
+        if (TwinActor == nullptr)
+        {
+            OutError = TEXT(
+                "UE failed to spawn the same-Class Component identity twin.");
+            return false;
+        }
+        TwinActor->SetActorLabel(
+            TEXT("Loomle Component Owner Twin"),
+            false);
+        TwinActorId = TwinActor->GetActorGuid();
+
+        TwinInstanceComponent = NewObject<USceneComponent>(
+            TwinActor,
+            USceneComponent::StaticClass(),
+            FName(*InstanceId),
+            RF_Transactional);
+        if (TwinInstanceComponent != nullptr)
+        {
+            TwinActor->AddInstanceComponent(TwinInstanceComponent);
+            TwinInstanceComponent->OnComponentCreated();
+            TwinInstanceComponent->RegisterComponent();
+        }
+        TwinPCGComponent = NewObject<UPCGComponent>(
+            TwinActor,
+            UPCGComponent::StaticClass(),
+            FName(*PCGId),
+            RF_Transactional);
+        if (TwinPCGComponent != nullptr)
+        {
+            TwinActor->AddInstanceComponent(TwinPCGComponent);
+            TwinPCGComponent->OnComponentCreated();
+            TwinPCGComponent->SetGraphLocal(Graph);
+        }
+        PCGComponent->SetGraphLocal(Graph);
+
+        if (!TwinActorId.IsValid()
+            || TwinInstanceComponent == nullptr
+            || TwinPCGComponent == nullptr
+            || !RefreshAfterExternalLifecycle(World, OutError))
+        {
+            if (OutError.IsEmpty())
+            {
+                OutError = TEXT(
+                    "The same-slot Component identity twin did not retain exact authored slots.");
+            }
+            return false;
+        }
+        return true;
+    }
+
+    bool RerunConstructionScriptsAndRefresh(
+        UWorld* World,
+        FString& OutError)
+    {
+        OutError.Reset();
+        if (Actor == nullptr || TwinActor == nullptr)
+        {
+            OutError = TEXT(
+                "Component reconstruction requires both loaded Blueprint Actors.");
+            return false;
+        }
+        Actor->RerunConstructionScripts();
+        TwinActor->RerunConstructionScripts();
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+        return RefreshAfterExternalLifecycle(World, OutError);
+    }
+
+    bool RenameSCSRecompileAndRefresh(
+        UWorld* World,
+        FString& OutError)
+    {
+        OutError.Reset();
+        if (Blueprint == nullptr
+            || SCSNode == nullptr
+            || !SCSGuid.IsValid())
+        {
+            OutError = TEXT(
+                "Blueprint recompile requires the exact SCS declaration.");
+            return false;
+        }
+
+        const FString StableSCSId = SCSId;
+        SCSNode->SetVariableName(
+            FName(TEXT("LoomleRenamedSCSComponent")));
+        if (SCSNode->VariableGuid != SCSGuid)
+        {
+            OutError = TEXT(
+                "Renaming the SCS variable unexpectedly changed its VariableGuid.");
+            return false;
+        }
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+        FKismetEditorUtilities::CompileBlueprint(Blueprint);
+        const bool bCompileFailed = Blueprint->Status == BS_Error;
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+        if (bCompileFailed
+            || !RefreshAfterExternalLifecycle(World, OutError))
+        {
+            if (OutError.IsEmpty())
+            {
+                OutError = TEXT(
+                    "The Component durability Blueprint failed to recompile.");
+            }
+            return false;
+        }
+        if (SCSId != StableSCSId)
+        {
+            OutError = TEXT(
+                "The qualified SCS StableRef changed across variable rename and Blueprint recompile.");
+            return false;
+        }
+        return true;
+    }
+
+    bool SaveBlueprintForDurability(FString& OutError)
+    {
+        OutError.Reset();
+        if (Blueprint == nullptr
+            || BlueprintPackage == nullptr
+            || BlueprintFilename.IsEmpty())
+        {
+            OutError = TEXT(
+                "Cannot save an incomplete Component durability Blueprint.");
+            return false;
+        }
+        BlueprintPackage->SetDirtyFlag(true);
+        BlueprintPackage->FullyLoad();
+        FSavePackageArgs SaveArgs;
+        SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+        SaveArgs.Error = GLog;
+        if (!UPackage::SavePackage(
+                BlueprintPackage,
+                Blueprint,
+                *BlueprintFilename,
+                SaveArgs))
+        {
+            OutError = TEXT(
+                "UE failed to save the Component durability Blueprint: ")
+                + BlueprintPath;
+            return false;
+        }
+        BlueprintPackage->SetDirtyFlag(false);
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+            TEXT("AssetRegistry"))
+            .Get()
+            .ScanModifiedAssetFiles({BlueprintFilename});
+        bBlueprintRegistered = false;
+        return true;
+    }
+
+    void ReleaseWorldObjectsForReload()
+    {
+        Actor = nullptr;
+        NativeComponent = nullptr;
+        SCSComponent = nullptr;
+        InstanceComponent = nullptr;
+        PCGComponent = nullptr;
+        NativePCGActor = nullptr;
+        NativePCGComponent = nullptr;
+        TwinActor = nullptr;
+        TwinNativeComponent = nullptr;
+        TwinSCSComponent = nullptr;
+        TwinInstanceComponent = nullptr;
+        TwinPCGComponent = nullptr;
+        GeneratedPCGComponents.Reset();
+        UCSComponent = nullptr;
+    }
+
+    bool UnloadBlueprintForDurability(FString& OutError)
+    {
+        OutError.Reset();
+        UPackage* Package = BlueprintPackage;
+        BlueprintRoot.Reset();
+        Blueprint = nullptr;
+        GeneratedClass = nullptr;
+        SCSNode = nullptr;
+        SCSCollisionProbeNode = nullptr;
+        BlueprintPackage = nullptr;
+        PrepareLevelPackageForCollection(Package);
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+        if (!IsBlueprintUnloadedForDurability())
+        {
+            OutError = TEXT(
+                "Saved Component durability Blueprint or generated Class remained loaded: ")
+                + BlueprintPath;
+            return false;
+        }
+        return true;
+    }
+
+    bool RefreshAfterExternalLifecycle(
+        UWorld* World,
+        FString& OutError)
+    {
+        OutError.Reset();
+        if (World == nullptr || World->PersistentLevel == nullptr)
+        {
+            OutError = TEXT(
+                "Cannot refresh Component identity without its exact loaded World.");
+            return false;
+        }
+        if (Blueprint == nullptr)
+        {
+            UPackage* Package = FindPackage(nullptr, *BlueprintPackageName);
+            const FString BlueprintName =
+                FPackageName::ObjectPathToObjectName(BlueprintPath);
+            Blueprint = Package != nullptr
+                ? FindObject<UBlueprint>(Package, *BlueprintName)
+                : nullptr;
+            if (Blueprint == nullptr)
+            {
+                OutError = TEXT(
+                    "The reloaded map did not reload its saved Component Blueprint dependency: ")
+                    + BlueprintPath;
+                return false;
+            }
+            BlueprintPackage = Package;
+            BlueprintRoot.Reset(Blueprint);
+        }
+        GeneratedClass = Cast<UBlueprintGeneratedClass>(
+            Blueprint->GeneratedClass);
+        if (GeneratedClass == nullptr
+            || Blueprint->SimpleConstructionScript == nullptr)
+        {
+            OutError = TEXT(
+                "The loaded Component Blueprint has no valid generated Class or SCS.");
+            return false;
+        }
+
+        SCSNode = FindSCSNodeByGuid(
+            Blueprint->SimpleConstructionScript,
+            SCSGuid);
+        if (SCSNode == nullptr)
+        {
+            OutError = TEXT(
+                "The loaded Component Blueprint lost its persistent SCS VariableGuid.");
+            return false;
+        }
+        const FString RefreshedDeclaringClass =
+            GeneratedClass->GetPathName();
+        const FString RefreshedSCSId = RefreshedDeclaringClass
+            + TEXT("#")
+            + LevelGuidText(SCSGuid);
+        if (!SCSId.IsEmpty() && RefreshedSCSId != SCSId)
+        {
+            OutError = TEXT(
+                "The loaded Component Blueprint changed its qualified SCS identity.");
+            return false;
+        }
+        SCSDeclaringClass = RefreshedDeclaringClass;
+        SCSId = RefreshedSCSId;
+
+        Actor = FindActorByGuid(World, ActorId, OutError);
+        if (Actor == nullptr
+            || !RefreshActorComponents(
+                Actor,
+                NativeComponent,
+                SCSComponent,
+                InstanceComponent,
+                PCGComponent,
+                OutError))
+        {
+            return false;
+        }
+        if (TwinActorId.IsValid())
+        {
+            TwinActor = FindActorByGuid(World, TwinActorId, OutError);
+            if (TwinActor == nullptr
+                || !RefreshActorComponents(
+                    TwinActor,
+                    TwinNativeComponent,
+                    TwinSCSComponent,
+                    TwinInstanceComponent,
+                    TwinPCGComponent,
+                    OutError))
+            {
+                return false;
+            }
+        }
+
+        NativePCGActor = Cast<APCGVolume>(
+            FindActorByGuid(World, NativePCGActorId, OutError));
+        NativePCGComponent = NativePCGActor != nullptr
+            ? NativePCGActor->PCGComponent.Get()
+            : nullptr;
+        if (NativePCGActor == nullptr
+            || NativePCGComponent == nullptr
+            || NativePCGComponent->GetFName().ToString()
+                != NativePCGId
+            || NativePCGComponent->CreationMethod
+                != EComponentCreationMethod::Native
+            || NativePCGComponent->GetConstOriginalComponent()
+                != NativePCGComponent)
+        {
+            if (OutError.IsEmpty())
+            {
+                OutError = TEXT(
+                    "The native original PCG Component did not survive lifecycle refresh.");
+            }
+            return false;
+        }
+        return true;
     }
 
     bool BeginSCSGuidCollision(FGuid& OutOriginalGuid)
@@ -2267,12 +3056,143 @@ public:
     }
 
 private:
+    static USCS_Node* FindSCSNodeByGuid(
+        USimpleConstructionScript* SCS,
+        const FGuid& Guid)
+    {
+        if (SCS == nullptr || !Guid.IsValid())
+        {
+            return nullptr;
+        }
+        TArray<USCS_Node*> Stack = SCS->GetRootNodes();
+        TSet<const USCS_Node*> Seen;
+        while (!Stack.IsEmpty() && Seen.Num() < 4096)
+        {
+            USCS_Node* Node = Stack.Pop(EAllowShrinking::No);
+            if (Node == nullptr || Seen.Contains(Node))
+            {
+                continue;
+            }
+            Seen.Add(Node);
+            if (Node->VariableGuid == Guid)
+            {
+                return Node;
+            }
+            for (USCS_Node* Child : Node->GetChildNodes())
+            {
+                Stack.Add(Child);
+            }
+        }
+        return nullptr;
+    }
+
+    static AActor* FindActorByGuid(
+        UWorld* World,
+        const FGuid& Guid,
+        FString& OutError)
+    {
+        AActor* Match = nullptr;
+        int32 Matches = 0;
+        if (World != nullptr && World->PersistentLevel != nullptr)
+        {
+            for (AActor* Candidate : World->PersistentLevel->Actors)
+            {
+                if (Candidate != nullptr
+                    && Candidate->GetActorGuid() == Guid)
+                {
+                    Match = Candidate;
+                    ++Matches;
+                }
+            }
+        }
+        if (Matches != 1)
+        {
+            OutError = FString::Printf(
+                TEXT("Expected one reloaded Actor for Component owner %s, found %d."),
+                *LevelGuidText(Guid),
+                Matches);
+            return nullptr;
+        }
+        return Match;
+    }
+
+    bool RefreshActorComponents(
+        AActor* Owner,
+        UActorComponent*& OutNative,
+        UActorComponent*& OutSCS,
+        USceneComponent*& OutInstance,
+        UPCGComponent*& OutPCG,
+        FString& OutError) const
+    {
+        OutNative = nullptr;
+        OutSCS = nullptr;
+        OutInstance = nullptr;
+        OutPCG = nullptr;
+        AStaticMeshActor* StaticMeshOwner =
+            Cast<AStaticMeshActor>(Owner);
+        OutNative = StaticMeshOwner != nullptr
+            ? StaticMeshOwner->GetStaticMeshComponent()
+            : nullptr;
+        const FObjectPropertyBase* SCSProperty =
+            Owner != nullptr && SCSNode != nullptr
+            ? FindFProperty<FObjectPropertyBase>(
+                Owner->GetClass(),
+                SCSNode->GetVariableName())
+            : nullptr;
+        OutSCS = SCSProperty != nullptr
+            ? Cast<UActorComponent>(
+                SCSProperty->GetObjectPropertyValue_InContainer(Owner))
+            : nullptr;
+        if (Owner != nullptr)
+        {
+            for (UActorComponent* Component : Owner->GetInstanceComponents())
+            {
+                if (Component == nullptr)
+                {
+                    continue;
+                }
+                if (Component->GetFName() == FName(*InstanceId))
+                {
+                    OutInstance = Cast<USceneComponent>(Component);
+                }
+                else if (Component->GetFName() == FName(*PCGId))
+                {
+                    OutPCG = Cast<UPCGComponent>(Component);
+                }
+            }
+        }
+        if (OutNative == nullptr
+            || OutNative->CreationMethod
+                != EComponentCreationMethod::Native
+            || OutNative->GetFName().ToString() != NativeId
+            || OutSCS == nullptr
+            || OutSCS->CreationMethod
+                != EComponentCreationMethod::SimpleConstructionScript
+            || OutInstance == nullptr
+            || OutInstance->CreationMethod
+                != EComponentCreationMethod::Instance
+            || OutPCG == nullptr
+            || OutPCG->CreationMethod
+                != EComponentCreationMethod::Instance
+            || OutPCG->GetConstOriginalComponent() != OutPCG
+            || OutPCG->GetGraph() != Graph)
+        {
+            OutError = TEXT(
+                "A Blueprint Actor did not refresh the exact native, SCS, instance, and original PCG slots.");
+            return false;
+        }
+        return true;
+    }
+
     FString BlueprintPackageName;
+    FString BlueprintPath;
+    FString BlueprintFilename;
     UPackage* BlueprintPackage = nullptr;
     UBlueprint* Blueprint = nullptr;
     UBlueprintGeneratedClass* GeneratedClass = nullptr;
     USCS_Node* SCSNode = nullptr;
     USCS_Node* SCSCollisionProbeNode = nullptr;
+    FGuid SCSGuid;
     TStrongObjectPtr<UBlueprint> BlueprintRoot;
     FString GraphPackageName;
     FString GraphFilename;
@@ -2320,7 +3240,22 @@ public:
             TEXT("/Game/LoomleTests/LevelInstance/%s"),
             *Token);
 
-        if (!CreateMap(TEXT("L_10_SourceA"), SourceA, OutError)
+        if (!CreateMap(TEXT("L_10_SourceA"), SourceA, OutError))
+        {
+            return false;
+        }
+        AActor* EditActorOne = SpawnActor(
+            SourceA.World,
+            EditActorOneName.ToString(),
+            TEXT("Loomle Edit Actor One"),
+            OutError);
+        AActor* EditActorTwo = SpawnActor(
+            SourceA.World,
+            EditActorTwoName.ToString(),
+            TEXT("Loomle Edit Actor Two"),
+            OutError);
+        if (EditActorOne == nullptr
+            || EditActorTwo == nullptr
             || !SaveMap(SourceA, OutError)
             || !UnloadMap(SourceA, OutError)
             || !CreateMap(TEXT("L_20_SourceB"), SourceB, OutError)
@@ -2415,10 +3350,13 @@ public:
         if (!bEditorContextChanged)
         {
             OriginalEditorWorld = Context.World();
+            OriginalGWorld = GWorld.GetReference();
             bEditorContextChanged = true;
         }
         Context.SetCurrentWorld(Containing.World);
-        if (Context.World() != Containing.World)
+        GWorld = Containing.World;
+        if (Context.World() != Containing.World
+            || GWorld.GetReference() != Containing.World)
         {
             OutError = TEXT(
                 "UE failed to bind the containing Level Instance fixture to the Editor World context.");
@@ -2552,6 +3490,49 @@ public:
         return IsMapUnloaded(SourceA) && IsMapUnloaded(SourceB);
     }
 
+    bool ExitActiveEdit(FString& OutError)
+    {
+        OutError.Reset();
+        ULevelInstanceSubsystem* Subsystem = Containing.World != nullptr
+            ? Containing.World->GetSubsystem<ULevelInstanceSubsystem>()
+            : nullptr;
+        ILevelInstanceInterface* Editing = Subsystem != nullptr
+            ? Subsystem->GetEditingLevelInstance()
+            : nullptr;
+        if (Editing == nullptr)
+        {
+            return true;
+        }
+
+        if (GEditor != nullptr)
+        {
+            GEditor->SelectNone(false, true, false);
+        }
+        FText Reason;
+        if (!Editing->CanExitEdit(true, &Reason)
+            || !Editing->ExitEdit(true))
+        {
+            OutError = TEXT(
+                "Level Instance fixture could not discard and exit its active edit: ")
+                + Reason.ToString();
+            return false;
+        }
+        if (GEditor != nullptr)
+        {
+            // CommitLevelInstanceInternal reselects the placement Actor.
+            GEditor->SelectNone(false, true, false);
+        }
+        return true;
+    }
+
+    void AbandonDestructiveCleanup()
+    {
+        // A failed native edit exit leaves the Editor holding the composed
+        // World. Preserve it until process shutdown instead of dereferencing
+        // stale editor state by trying to destroy it from the fixture.
+        bCleaned = true;
+    }
+
     bool Cleanup(FString& OutError)
     {
         OutError.Reset();
@@ -2559,13 +3540,26 @@ public:
         {
             return true;
         }
+
+        if (!ExitActiveEdit(OutError))
+        {
+            return false;
+        }
         bCleaned = true;
 
         if (bEditorContextChanged && GEditor != nullptr)
         {
             GEditor->GetEditorWorldContext().SetCurrentWorld(
                 OriginalEditorWorld);
+            GWorld = OriginalGWorld;
             bEditorContextChanged = false;
+        }
+
+        if (GEditor != nullptr)
+        {
+            // ExitEdit reselects the placement Actor. Never leave a selected
+            // element pointing into a fixture World that is about to go away.
+            GEditor->SelectNone(false, true, false);
         }
 
         IAssetRegistry& Registry =
@@ -2661,6 +3655,8 @@ public:
     FGuid SharedTwoId;
     FGuid OtherSourceId;
     FGuid MissingSourceId;
+    const FName EditActorOneName{TEXT("Actor_EditOne")};
+    const FName EditActorTwoName{TEXT("Actor_EditTwo")};
 
 private:
     static UWorld::InitializationValues FixtureInitializationValues()
@@ -2939,6 +3935,7 @@ private:
     FString RootPackagePath;
     bool bCleaned = false;
     UWorld* OriginalEditorWorld = nullptr;
+    UWorld* OriginalGWorld = nullptr;
     bool bEditorContextChanged = false;
     bool bNoLoadStateCaptured = false;
     ULevelInstanceSubsystem* LevelInstanceSubsystem = nullptr;
@@ -4992,6 +5989,472 @@ bool FSalLevelInstanceSourceOwnershipTest::RunTest(
     return true;
 }
 
+class FRunLevelInstanceEditModeEditorContextCommand final
+    : public IAutomationLatentCommand
+{
+public:
+    FRunLevelInstanceEditModeEditorContextCommand(
+        FAutomationTestBase* InTest,
+        TSharedRef<FScopedLevelInstanceQueryFixture> InFixture)
+        : Test(InTest)
+        , Fixture(MoveTemp(InFixture))
+        , StartSeconds(FPlatformTime::Seconds())
+    {
+    }
+
+    virtual bool Update() override
+    {
+        if (Stage == EStage::AwaitEditReady)
+        {
+            ULevelInstanceSubsystem* Subsystem = nullptr;
+            ULevel* EditLevel = nullptr;
+            if (TryGetReadyEdit(Subsystem, EditLevel))
+            {
+                // EnterEdit completes over multiple engine frames and can
+                // queue a WorldFolders rebuild. Observe a fully ready native
+                // edit first, then leave one complete frame before asserting.
+                Stage = EStage::RunAssertions;
+                return false;
+            }
+            if (FPlatformTime::Seconds() - StartSeconds
+                <= ReadinessTimeoutSeconds)
+            {
+                return false;
+            }
+
+            ReportReadinessTimeout();
+            if (Subsystem == nullptr
+                || Subsystem->GetEditingLevelInstance()
+                    != Fixture->SharedOne)
+            {
+                // EnterEdit has no return value. A null editing instance can
+                // still mean that UE queued its fallback load, so it is not
+                // proof that the fixture World is safe to destroy. Fail closed
+                // and preserve the fixture until process shutdown.
+                Fixture->AbandonDestructiveCleanup();
+                return true;
+            }
+            Stage = EStage::ExitEdit;
+            return false;
+        }
+
+        if (Stage == EStage::RunAssertions)
+        {
+            ULevelInstanceSubsystem* Subsystem = nullptr;
+            ULevel* EditLevel = nullptr;
+            if (!TryGetReadyEdit(Subsystem, EditLevel))
+            {
+                // If readiness changed during the barrier frame, keep waiting
+                // within the original bounded deadline instead of inspecting
+                // a partially composed edit World.
+                Stage = EStage::AwaitEditReady;
+                return false;
+            }
+            RunAssertions(Subsystem, EditLevel);
+            Stage = EStage::ExitEdit;
+            return false;
+        }
+
+        if (Stage == EStage::ExitEdit)
+        {
+            FString ExitError;
+            const bool bExited = Fixture->ExitActiveEdit(ExitError);
+            Test->TestTrue(
+                *FString::Printf(
+                    TEXT("Deferred Level Instance edit exits cleanly: %s"),
+                    ExitError.IsEmpty()
+                        ? TEXT("no native error")
+                        : *ExitError),
+                bExited);
+            if (!bExited)
+            {
+                Fixture->AbandonDestructiveCleanup();
+                return true;
+            }
+            Stage = EStage::PostExitBarrier;
+            return false;
+        }
+
+        if (Stage == EStage::PostExitBarrier)
+        {
+            // ExitEdit may queue another WorldFolders rebuild. Preserve the
+            // composed World for a complete intervening engine frame.
+            Stage = EStage::Cleanup;
+            return false;
+        }
+
+        FString CleanupError;
+        const bool bCleaned = Fixture->Cleanup(CleanupError);
+        Test->TestTrue(
+            *FString::Printf(
+                TEXT("Deferred Level Instance fixture cleanup succeeds: %s"),
+                CleanupError.IsEmpty()
+                    ? TEXT("no cleanup error")
+                    : *CleanupError),
+            bCleaned);
+        return true;
+    }
+
+private:
+    enum class EStage : uint8
+    {
+        AwaitEditReady,
+        RunAssertions,
+        ExitEdit,
+        PostExitBarrier,
+        Cleanup,
+    };
+
+    bool TryGetReadyEdit(
+        ULevelInstanceSubsystem*& OutSubsystem,
+        ULevel*& OutEditLevel) const
+    {
+        OutSubsystem = Fixture->Containing.World != nullptr
+            ? Fixture->Containing.World
+                ->GetSubsystem<ULevelInstanceSubsystem>()
+            : nullptr;
+        OutEditLevel = OutSubsystem != nullptr
+            && Fixture->SharedOne != nullptr
+            ? OutSubsystem->GetLevelInstanceLevel(Fixture->SharedOne)
+            : nullptr;
+        return Fixture->SharedOne != nullptr
+            && Fixture->Containing.World != nullptr
+            && OutSubsystem != nullptr
+            && Fixture->SharedOne->IsEditing()
+            && OutSubsystem->GetEditingLevelInstance()
+                == Fixture->SharedOne
+            && OutEditLevel != nullptr
+            && Fixture->Containing.World->GetCurrentLevel()
+                == OutEditLevel;
+    }
+
+    void ReportReadinessTimeout() const
+    {
+        ULevelInstanceSubsystem* Subsystem =
+            Fixture->Containing.World != nullptr
+            ? Fixture->Containing.World
+                ->GetSubsystem<ULevelInstanceSubsystem>()
+            : nullptr;
+        ULevel* EditLevel = Subsystem != nullptr
+            && Fixture->SharedOne != nullptr
+            ? Subsystem->GetLevelInstanceLevel(Fixture->SharedOne)
+            : nullptr;
+        Test->AddError(FString::Printf(
+            TEXT("Timed out after %.1f seconds waiting for native Level Instance edit readiness (editing=%s, exactInstance=%s, editLevel=%s, currentLevel=%s)."),
+            ReadinessTimeoutSeconds,
+            Fixture->SharedOne != nullptr
+                    && Fixture->SharedOne->IsEditing()
+                ? TEXT("true")
+                : TEXT("false"),
+            Subsystem != nullptr
+                    && Subsystem->GetEditingLevelInstance()
+                        == Fixture->SharedOne
+                ? TEXT("true")
+                : TEXT("false"),
+            EditLevel != nullptr ? TEXT("ready") : TEXT("null"),
+            EditLevel != nullptr
+                    && Fixture->Containing.World != nullptr
+                    && Fixture->Containing.World->GetCurrentLevel()
+                        == EditLevel
+                ? TEXT("ready")
+                : TEXT("not_ready")));
+    }
+
+    void RunAssertions(
+        ULevelInstanceSubsystem* Subsystem,
+        ULevel* EditLevel)
+    {
+        UWorld* EditSourceWorld = EditLevel->GetTypedOuter<UWorld>();
+        const bool bEditing = Fixture->SharedOne->IsEditing();
+        const bool bEditingExactInstance =
+            Subsystem->GetEditingLevelInstance() == Fixture->SharedOne;
+        const bool bHasComposedLevel = EditLevel
+            != Fixture->Containing.World->PersistentLevel;
+        const bool bComposedLevelOwnedByContainingWorld =
+            EditLevel->GetWorld() == Fixture->Containing.World;
+        const bool bComposedLevelIsCurrent =
+            Fixture->Containing.World->GetCurrentLevel() == EditLevel;
+        const bool bHasComposedSourceWorld = EditSourceWorld != nullptr;
+        const bool bAuthoredSourcePreserved =
+            Fixture->SharedOne->GetWorldAsset()
+                .ToSoftObjectPath().ToString()
+            == Fixture->SourceA.ObjectPath;
+        Test->TestTrue(
+            TEXT("Native Level Instance edit state is active"),
+            bEditing);
+        Test->TestTrue(
+            TEXT("Native edit state retains the exact placement instance"),
+            bEditingExactInstance);
+        Test->TestTrue(
+            TEXT("Native edit exposes a composed source Level"),
+            bHasComposedLevel);
+        Test->TestTrue(
+            TEXT("The composed edit Level belongs to the containing Editor World"),
+            bComposedLevelOwnedByContainingWorld);
+        Test->TestTrue(
+            TEXT("The composed edit Level is current"),
+            bComposedLevelIsCurrent);
+        Test->TestTrue(
+            TEXT("Native edit retains a loaded source World behind the composed Level"),
+            bHasComposedSourceWorld);
+        Test->TestTrue(
+            TEXT("Native edit preserves the canonical authored source path"),
+            bAuthoredSourcePreserved);
+        Test->TestTrue(
+            TEXT("Public Level Instance edit flow composes the saved source as the current Editor Level"),
+            bEditing
+                && bEditingExactInstance
+                && bHasComposedLevel
+                && bComposedLevelOwnedByContainingWorld
+                && bComposedLevelIsCurrent
+                && bHasComposedSourceWorld
+                && bAuthoredSourcePreserved);
+
+        AActor* EditActorOne = nullptr;
+        AActor* EditActorTwo = nullptr;
+        for (AActor* Actor : EditLevel->Actors)
+        {
+            if (Actor != nullptr
+                && Actor->GetFName() == Fixture->EditActorOneName)
+            {
+                EditActorOne = Actor;
+            }
+            else if (Actor != nullptr
+                && Actor->GetFName() == Fixture->EditActorTwoName)
+            {
+                EditActorTwo = Actor;
+            }
+        }
+        UTypedElementSelectionSet* Selection = GEditor != nullptr
+            && GEditor->GetSelectedActors() != nullptr
+            ? GEditor->GetSelectedActors()->GetElementSelectionSet()
+            : nullptr;
+        bool bCanInspectContext = Test->TestNotNull(
+            TEXT("Edit source retains the first saved Actor"),
+            EditActorOne);
+        bCanInspectContext &= Test->TestNotNull(
+            TEXT("Edit source retains the second saved Actor"),
+            EditActorTwo);
+        bCanInspectContext &= Test->TestNotNull(
+            TEXT("Level Editor exposes its typed selection set"),
+            Selection);
+        if (!bCanInspectContext)
+        {
+            if (GEditor != nullptr)
+            {
+                GEditor->SelectNone(false, true, false);
+            }
+            return;
+        }
+
+        Test->TestTrue(
+            TEXT("Composed source Actors carry UE's native edit-Level marker"),
+            EditActorOne->IsInEditLevelInstance()
+                && EditActorTwo->IsInEditLevelInstance());
+
+        const TArray<ULevel*> LevelsBefore =
+            Fixture->Containing.World->GetLevels();
+        UPackage* SourcePackage = EditLevel->GetOutermost();
+        UPackage* ContainingPackage =
+            Fixture->Containing.World->GetOutermost();
+        const bool bSourceDirtyBefore = SourcePackage->IsDirty();
+        const bool bContainingDirtyBefore =
+            ContainingPackage->IsDirty();
+        const bool bEditDirtyBefore =
+            Subsystem->IsEditingLevelInstanceDirty(Fixture->SharedOne);
+        auto BuildContext = [&](const FString& Case)
+        {
+            int32 AssetLoads = 0;
+            int32 PackageSaves = 0;
+            const FDelegateHandle LoadHandle =
+                FCoreUObjectDelegates::OnAssetLoaded.AddLambda(
+                    [&AssetLoads](UObject*)
+                    {
+                        ++AssetLoads;
+                    });
+            const FDelegateHandle SaveHandle =
+                FCoreUObjectDelegates::OnObjectPreSave.AddLambda(
+                    [SourcePackage, ContainingPackage, &PackageSaves](
+                        UObject* Object,
+                        FObjectPreSaveContext)
+                    {
+                        if (Object != nullptr
+                            && (Object->GetOutermost() == SourcePackage
+                                || Object->GetOutermost()
+                                    == ContainingPackage))
+                        {
+                            ++PackageSaves;
+                        }
+                    });
+            const TSharedPtr<FJsonObject> Result =
+                Loomle::EditorContext::FEditorContextService::Get()
+                    .BuildProviderForTesting(
+                        FName(TEXT("level_editor")),
+                        Loomle::EditorContext::FInteractionRecord());
+            FCoreUObjectDelegates::OnAssetLoaded.Remove(LoadHandle);
+            FCoreUObjectDelegates::OnObjectPreSave.Remove(SaveHandle);
+
+            TSharedPtr<FJsonObject> ValidationError;
+            Test->TestTrue(
+                *FString::Printf(
+                    TEXT("%s edit-mode Context is valid SAL Result data"),
+                    *Case),
+                FSalJson::ValidateResult(Result, ValidationError));
+            Test->TestEqual(
+                *FString::Printf(
+                    TEXT("%s edit-mode Context loads no Asset"),
+                    *Case),
+                AssetLoads,
+                0);
+            Test->TestEqual(
+                *FString::Printf(
+                    TEXT("%s edit-mode Context saves no source or containing package"),
+                    *Case),
+                PackageSaves,
+                0);
+            Test->TestTrue(
+                *FString::Printf(
+                    TEXT("%s edit-mode Context preserves the native edit state"),
+                    *Case),
+                Fixture->SharedOne->IsEditing()
+                    && Subsystem->GetEditingLevelInstance()
+                        == Fixture->SharedOne
+                    && Subsystem->GetLevelInstanceLevel(
+                        Fixture->SharedOne) == EditLevel
+                    && Fixture->Containing.World->GetCurrentLevel()
+                        == EditLevel
+                    && Fixture->Containing.World->GetLevels()
+                        == LevelsBefore
+                    && SourcePackage->IsDirty()
+                        == bSourceDirtyBefore
+                    && ContainingPackage->IsDirty()
+                        == bContainingDirtyBefore
+                    && Subsystem->IsEditingLevelInstanceDirty(
+                        Fixture->SharedOne) == bEditDirtyBefore);
+            return Result;
+        };
+
+        GEditor->SelectNone(false, true, false);
+        const TSharedPtr<FJsonObject> ZeroSelection =
+            BuildContext(TEXT("Zero-selection"));
+        Test->TestTrue(
+            TEXT("Zero-selection Context retains the edited source Level Target"),
+            !LevelHasError(ZeroSelection)
+                && HasCanonicalLevelTarget(
+                    ZeroSelection,
+                    Fixture->SourceA.ObjectPath)
+                && LevelHasCommentContaining(
+                    ZeroSelection,
+                    TEXT("selected: none")));
+
+        GEditor->SelectActor(EditActorOne, true, false, true);
+        GEditor->SelectActor(EditActorTwo, true, false, true);
+        const TSharedPtr<FJsonObject> MultiSelection =
+            BuildContext(TEXT("Multi-selection"));
+        Test->TestTrue(
+            TEXT("Multi-selection Context retains the edited source Level Target"),
+            !LevelHasError(MultiSelection)
+                && HasCanonicalLevelTarget(
+                    MultiSelection,
+                    Fixture->SourceA.ObjectPath)
+                && LevelHasCommentContaining(
+                    MultiSelection,
+                    TEXT("selected: multiple (2)")));
+
+        GEditor->SelectNone(false, true, false);
+        UObject* UnsupportedObject = UBlueprint::StaticClass();
+        const FTypedElementHandle ObjectHandle =
+            UEngineElementsLibrary::AcquireEditorObjectElementHandle(
+                UnsupportedObject);
+        const bool bObjectSelected = ObjectHandle
+            && Selection->SelectElement(
+                ObjectHandle,
+                FTypedElementSelectionOptions()
+                    .SetAllowHidden(true)
+                    .SetAllowLegacyNotifications(false));
+        const TArray<UObject*> SelectedObjects =
+            Selection->GetSelectedObjects();
+        const TSharedPtr<FJsonObject> UnsupportedSelection =
+            BuildContext(TEXT("Unsupported UObject selection"));
+        Test->TestTrue(
+            TEXT("Unsupported UObject selection is observed exactly"),
+            bObjectSelected
+                && SelectedObjects.Num() == 1
+                && SelectedObjects[0] == UnsupportedObject);
+        Test->TestTrue(
+            TEXT("Unsupported UObject Context retains the edited source Level Target"),
+            !LevelHasError(UnsupportedSelection)
+                && HasCanonicalLevelTarget(
+                    UnsupportedSelection,
+                    Fixture->SourceA.ObjectPath)
+                && LevelHasCommentContaining(
+                    UnsupportedSelection,
+                    TEXT("interface: unavailable")));
+
+        Selection->DeselectElement(
+            ObjectHandle,
+            FTypedElementSelectionOptions()
+                .SetAllowHidden(true)
+                .SetAllowLegacyNotifications(false));
+        Selection->ClearSelection(
+            FTypedElementSelectionOptions()
+                .SetAllowHidden(true)
+                .SetAllowLegacyNotifications(false));
+        GEditor->SelectNone(false, true, false);
+    }
+
+    FAutomationTestBase* Test = nullptr;
+    TSharedRef<FScopedLevelInstanceQueryFixture> Fixture;
+    double StartSeconds = 0.0;
+    EStage Stage = EStage::AwaitEditReady;
+    static constexpr double ReadinessTimeoutSeconds = 5.0;
+};
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelInstanceEditModeEditorContextTest,
+    "Loomle.Sal.Level.Query.LevelInstanceEditModeEditorContext",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelInstanceEditModeEditorContextTest::RunTest(
+    const FString& Parameters)
+{
+    const TSharedRef<FScopedLevelInstanceQueryFixture> FixtureOwner =
+        MakeShared<FScopedLevelInstanceQueryFixture>();
+    FScopedLevelInstanceQueryFixture& Fixture = *FixtureOwner;
+    FString Error;
+    if (!TestTrue(
+            TEXT("Level Instance edit-mode Context fixture builds"),
+            Fixture.Build(Error))
+        || !TestTrue(
+            TEXT("Level Instance edit-mode Context fixture becomes active"),
+            Fixture.Activate(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+
+    ULevelInstanceSubsystem* Subsystem =
+        Fixture.Containing.World->GetSubsystem<ULevelInstanceSubsystem>();
+    FText EnterReason;
+    if (!TestNotNull(
+            TEXT("Edit-mode Context fixture has a Level Instance subsystem"),
+            Subsystem)
+        || !TestTrue(
+            TEXT("Saved Level Instance source can enter native edit mode"),
+            Fixture.SharedOne->CanEnterEdit(&EnterReason)))
+    {
+        AddError(EnterReason.ToString());
+        return false;
+    }
+    Fixture.SharedOne->EnterEdit();
+
+    ADD_LATENT_AUTOMATION_COMMAND(
+        FRunLevelInstanceEditModeEditorContextCommand(
+            this,
+            FixtureOwner));
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FSalLevelComponentIdentityQueryTest,
     "Loomle.Sal.Level.Query.ComponentIdentity",
@@ -5556,6 +7019,1018 @@ bool FSalLevelComponentIdentityQueryTest::RunTest(
         TEXT("All Component reads preserve Component lifecycle and packages"),
         ComponentInvariant.Verify(*this));
 
+    const FString StableSCSId = ComponentFixture.SCSId;
+    const FName InitialSCSVariableName =
+        ComponentFixture.GetSCSVariableName();
+    auto VerifyDurabilityQueries =
+        [&](const FString& Stage) -> bool
+    {
+        UWorld* World = LevelFixture.Loaded.World;
+        if (World == nullptr
+            || ComponentFixture.Actor == nullptr
+            || ComponentFixture.TwinActor == nullptr)
+        {
+            AddError(FString::Printf(
+                TEXT("%s durability verification has no exact loaded World or owners."),
+                *Stage));
+            return false;
+        }
+
+        FLevelReadInvariant StageLevelInvariant(World);
+        FLevelComponentReadInvariant StageOwnerInvariant(
+            ComponentFixture.Actor,
+            ComponentFixture.GetBlueprintPackage());
+        FLevelComponentReadInvariant StageTwinInvariant(
+            ComponentFixture.TwinActor,
+            ComponentFixture.GetBlueprintPackage());
+
+        struct FDurableIdentity
+        {
+            FGuid ActorGuid;
+            FString Source;
+            FString Id;
+            AActor* ExpectedOwner = nullptr;
+            UActorComponent* ExpectedComponent = nullptr;
+        };
+        const TArray<FDurableIdentity> DurableIdentities = {
+            {
+                ComponentFixture.ActorId,
+                TEXT("native"),
+                ComponentFixture.NativeId,
+                ComponentFixture.Actor,
+                ComponentFixture.NativeComponent
+            },
+            {
+                ComponentFixture.ActorId,
+                TEXT("scs"),
+                ComponentFixture.SCSId,
+                ComponentFixture.Actor,
+                ComponentFixture.SCSComponent
+            },
+            {
+                ComponentFixture.ActorId,
+                TEXT("instance"),
+                ComponentFixture.InstanceId,
+                ComponentFixture.Actor,
+                ComponentFixture.InstanceComponent
+            },
+            {
+                ComponentFixture.ActorId,
+                TEXT("instance"),
+                ComponentFixture.PCGId,
+                ComponentFixture.Actor,
+                ComponentFixture.PCGComponent
+            },
+            {
+                ComponentFixture.TwinActorId,
+                TEXT("native"),
+                ComponentFixture.NativeId,
+                ComponentFixture.TwinActor,
+                ComponentFixture.TwinNativeComponent
+            },
+            {
+                ComponentFixture.TwinActorId,
+                TEXT("scs"),
+                ComponentFixture.SCSId,
+                ComponentFixture.TwinActor,
+                ComponentFixture.TwinSCSComponent
+            },
+            {
+                ComponentFixture.TwinActorId,
+                TEXT("instance"),
+                ComponentFixture.InstanceId,
+                ComponentFixture.TwinActor,
+                ComponentFixture.TwinInstanceComponent
+            },
+            {
+                ComponentFixture.TwinActorId,
+                TEXT("instance"),
+                ComponentFixture.PCGId,
+                ComponentFixture.TwinActor,
+                ComponentFixture.TwinPCGComponent
+            },
+            {
+                ComponentFixture.NativePCGActorId,
+                TEXT("native"),
+                ComponentFixture.NativePCGId,
+                ComponentFixture.NativePCGActor,
+                ComponentFixture.NativePCGComponent
+            }
+        };
+
+        int32 AssetLoads = 0;
+        int32 PackageSaves = 0;
+        UPackage* WorldPackage = World->GetOutermost();
+        UPackage* BlueprintPackage =
+            ComponentFixture.GetBlueprintPackage();
+        const FDelegateHandle LoadHandle =
+            FCoreUObjectDelegates::OnAssetLoaded.AddLambda(
+                [&AssetLoads](UObject*)
+                {
+                    ++AssetLoads;
+                });
+        const FDelegateHandle SaveHandle =
+            FCoreUObjectDelegates::OnObjectPreSave.AddLambda(
+                [WorldPackage, BlueprintPackage, &PackageSaves](
+                    UObject* Object,
+                    FObjectPreSaveContext)
+                {
+                    if (Object != nullptr
+                        && (Object->GetOutermost() == WorldPackage
+                            || Object->GetOutermost()
+                                == BlueprintPackage))
+                    {
+                        ++PackageSaves;
+                    }
+                });
+
+        const TSharedPtr<FJsonObject> CollectionResult =
+            FSalModule::BuildQueryResult(
+                LevelQueryArguments(
+                    Target,
+                    LevelOperation(TEXT("components"))));
+        const TArray<TSharedPtr<FJsonObject>> Collection =
+            LevelTaggedObjectFields(
+                CollectionResult,
+                TEXT("component"));
+        TArray<TSharedPtr<FJsonObject>> ExactResults;
+        ExactResults.Reserve(DurableIdentities.Num());
+        for (const FDurableIdentity& Identity : DurableIdentities)
+        {
+            ExactResults.Add(FSalModule::BuildQueryResult(
+                LevelQueryArguments(
+                    Target,
+                    LevelExactComponentOperation(
+                        LevelGuidText(Identity.ActorGuid),
+                        Identity.Source,
+                        Identity.Id))));
+        }
+        FSalResolvedTarget DirectLevelTarget;
+        TSharedPtr<FJsonObject> DirectTargetError;
+        const bool bDirectTargetResolved =
+            FSalTargetResolver().Resolve(
+                TEXT("component_durability"),
+                Target,
+                false,
+                DirectLevelTarget,
+                DirectTargetError);
+        struct FDirectComponentResolution
+        {
+            bool bResolved = false;
+            UActorComponent* Component = nullptr;
+            FString ActorId;
+            FString Source;
+            FString Id;
+            FString Code;
+        };
+        TArray<FDirectComponentResolution> DirectResolutions;
+        DirectResolutions.Reserve(DurableIdentities.Num());
+        for (const FDurableIdentity& Identity : DurableIdentities)
+        {
+            FDirectComponentResolution& Direct =
+                DirectResolutions.AddDefaulted_GetRef();
+            FString Name;
+            FString Type;
+            FString CreationMethod;
+            FString DeclaringClass;
+            FString Message;
+            Direct.bResolved = bDirectTargetResolved
+                && FSalLevelInterface::ResolveExactComponent(
+                    DirectLevelTarget,
+                    LevelGuidText(Identity.ActorGuid),
+                    Identity.Source,
+                    Identity.Id,
+                    Direct.Component,
+                    Direct.ActorId,
+                    Direct.Source,
+                    Direct.Id,
+                    Name,
+                    Type,
+                    CreationMethod,
+                    DeclaringClass,
+                    Direct.Code,
+                    Message);
+        }
+        const TSharedPtr<FJsonObject> PCGTargetResult =
+            FSalModule::BuildQueryResult(
+                PCGComponentQueryArguments(
+                    PCGComponentTarget(
+                        LevelFixture.Loaded.ObjectPath,
+                        ComponentFixture.ActorId,
+                        TEXT("instance"),
+                        ComponentFixture.PCGId),
+                    LevelOperation(TEXT("target"))));
+
+        FCoreUObjectDelegates::OnAssetLoaded.Remove(LoadHandle);
+        FCoreUObjectDelegates::OnObjectPreSave.Remove(SaveHandle);
+
+        bool bOk = TestTrue(
+            *FString::Printf(
+                TEXT("%s Component collection succeeds"),
+                *Stage),
+            !LevelHasError(CollectionResult));
+        bOk &= TestTrue(
+            *FString::Printf(
+                TEXT("%s direct Level Target resolves to the current loaded World"),
+                *Stage),
+            bDirectTargetResolved
+                && DirectLevelTarget.Object == World);
+        for (int32 Index = 0;
+             Index < DurableIdentities.Num();
+             ++Index)
+        {
+            const FDurableIdentity& Identity =
+                DurableIdentities[Index];
+            const FString IdentityActorId =
+                LevelGuidText(Identity.ActorGuid);
+            const TSharedPtr<FJsonObject> CollectionFields =
+                FindLevelComponentFieldsByIdentity(
+                    Collection,
+                    IdentityActorId,
+                    Identity.Source,
+                    Identity.Id);
+            bOk &= TestEqual(
+                *FString::Printf(
+                    TEXT("%s collection contains one exact %s/%s owner-qualified slot"),
+                    *Stage,
+                    *Identity.Source,
+                    *Identity.Id),
+                CountLevelComponentFieldsByIdentity(
+                    Collection,
+                    IdentityActorId,
+                    Identity.Source,
+                    Identity.Id),
+                1);
+            bOk &= TestNotNull(
+                *FString::Printf(
+                    TEXT("%s collection exposes the full Component StableRef"),
+                    *Stage),
+                CollectionFields.Get());
+
+            const TSharedPtr<FJsonObject>& ExactResult =
+                ExactResults[Index];
+            const TArray<TSharedPtr<FJsonObject>> ExactComponents =
+                LevelTaggedObjectFields(
+                    ExactResult,
+                    TEXT("component"));
+            const TSharedPtr<FJsonObject> ExactFields =
+                FindLevelComponentFieldsByIdentity(
+                    ExactComponents,
+                    IdentityActorId,
+                    Identity.Source,
+                    Identity.Id);
+            TArray<FString> OwnerRef;
+            bOk &= TestTrue(
+                *FString::Printf(
+                    TEXT("%s exact %s/%s resolves only inside Actor %s"),
+                    *Stage,
+                    *Identity.Source,
+                    *Identity.Id,
+                    *IdentityActorId),
+                !LevelHasError(ExactResult)
+                    && ExactComponents.Num() == 1
+                    && ExactFields.IsValid()
+                    && ReadLevelStableRefField(
+                        ExactFields,
+                        TEXT("actor"),
+                        TEXT("actor"),
+                        OwnerRef)
+                    && OwnerRef
+                        == TArray<FString>{IdentityActorId});
+            const FDirectComponentResolution& Direct =
+                DirectResolutions[Index];
+            bOk &= TestTrue(
+                *FString::Printf(
+                    TEXT("%s direct resolver returns the current %s/%s UObject for Actor %s"),
+                    *Stage,
+                    *Identity.Source,
+                    *Identity.Id,
+                    *IdentityActorId),
+                Direct.bResolved
+                    && Direct.Code.IsEmpty()
+                    && Direct.Component
+                        == Identity.ExpectedComponent
+                    && Direct.Component != nullptr
+                    && Direct.Component->GetOwner()
+                        == Identity.ExpectedOwner
+                    && Direct.ActorId == IdentityActorId
+                    && Direct.Source == Identity.Source
+                    && Direct.Id == Identity.Id);
+        }
+
+        bOk &= TestEqual(
+            *FString::Printf(
+                TEXT("%s same native slot appears once per Blueprint Actor"),
+                *Stage),
+            CountLevelFieldsById(Collection, ComponentFixture.NativeId),
+            2);
+        bOk &= TestEqual(
+            *FString::Printf(
+                TEXT("%s same SCS slot appears once per Blueprint Actor"),
+                *Stage),
+            CountLevelFieldsById(Collection, ComponentFixture.SCSId),
+            2);
+        bOk &= TestEqual(
+            *FString::Printf(
+                TEXT("%s same instance slot appears once per Blueprint Actor"),
+                *Stage),
+            CountLevelFieldsById(Collection, ComponentFixture.InstanceId),
+            2);
+        bOk &= TestEqual(
+            *FString::Printf(
+                TEXT("%s same original PCG slot appears once per Blueprint Actor"),
+                *Stage),
+            CountLevelFieldsById(Collection, ComponentFixture.PCGId),
+            2);
+
+        TMap<FString, FString> RelatedPCGTargets;
+        const FString OriginalPCGKey = PCGComponentIdentityKey(
+            LevelGuidText(ComponentFixture.ActorId),
+            TEXT("instance"),
+            ComponentFixture.PCGId);
+        const FString TwinPCGKey = PCGComponentIdentityKey(
+            LevelGuidText(ComponentFixture.TwinActorId),
+            TEXT("instance"),
+            ComponentFixture.PCGId);
+        bOk &= TestTrue(
+            *FString::Printf(
+                TEXT("%s same-slot PCG handoffs remain isolated by ActorGuid"),
+                *Stage),
+            ReadRelatedPCGComponentTargets(
+                CollectionResult,
+                LevelFixture.Loaded.ObjectPath,
+                RelatedPCGTargets)
+                && RelatedPCGTargets.Contains(OriginalPCGKey)
+                && RelatedPCGTargets.Contains(TwinPCGKey)
+                && RelatedPCGTargets.FindRef(OriginalPCGKey)
+                    != RelatedPCGTargets.FindRef(TwinPCGKey));
+        bOk &= TestTrue(
+            *FString::Printf(
+                TEXT("%s reloaded original PCG Component retains its specialized Target"),
+                *Stage),
+            !LevelHasError(PCGTargetResult)
+                && LevelHasTargetContext(
+                    PCGTargetResult,
+                    TEXT("exact_target")));
+        bOk &= TestEqual(
+            *FString::Printf(
+                TEXT("%s Query loads no Asset"),
+                *Stage),
+            AssetLoads,
+            0);
+        bOk &= TestEqual(
+            *FString::Printf(
+                TEXT("%s Query saves no Level or Blueprint package"),
+                *Stage),
+            PackageSaves,
+            0);
+        bOk &= TestTrue(
+            *FString::Printf(
+                TEXT("%s Query preserves Level and Editor state"),
+                *Stage),
+            StageLevelInvariant.Verify(*this));
+        bOk &= TestTrue(
+            *FString::Printf(
+                TEXT("%s Query preserves the first owner Component incarnation"),
+                *Stage),
+            StageOwnerInvariant.Verify(*this));
+        bOk &= TestTrue(
+            *FString::Printf(
+                TEXT("%s Query preserves the twin owner Component incarnation"),
+                *Stage),
+            StageTwinInvariant.Verify(*this));
+        return bOk;
+    };
+
+    bool bDurabilityReady = TestTrue(
+        TEXT("Same-Class Blueprint Actors can author identical native, SCS, instance, and PCG slots"),
+        ComponentFixture.AddSameSlotTwin(
+            LevelFixture.Loaded.World,
+            Error));
+    if (!bDurabilityReady && !Error.IsEmpty())
+    {
+        AddError(Error);
+    }
+    if (bDurabilityReady)
+    {
+        bDurabilityReady = VerifyDurabilityQueries(
+            TEXT("Same-slot/different-Actor"));
+    }
+
+    if (bDurabilityReady)
+    {
+        const TWeakObjectPtr<UActorComponent> SCSBeforeRerun =
+            ComponentFixture.SCSComponent;
+        Error.Reset();
+        bDurabilityReady = TestTrue(
+            TEXT("RerunConstructionScripts rebuilds the Blueprint Actors and allows identity refresh"),
+            ComponentFixture.RerunConstructionScriptsAndRefresh(
+                LevelFixture.Loaded.World,
+                Error));
+        if (!bDurabilityReady && !Error.IsEmpty())
+        {
+            AddError(Error);
+        }
+        if (bDurabilityReady)
+        {
+            TestEqual(
+                TEXT("RerunConstructionScripts preserves the qualified SCS StableRef"),
+                ComponentFixture.SCSId,
+                StableSCSId);
+            TestTrue(
+                TEXT("RerunConstructionScripts resolves the SCS StableRef to a current live Component"),
+                ComponentFixture.SCSComponent != nullptr
+                    && IsValid(ComponentFixture.SCSComponent)
+                    && !SCSBeforeRerun.IsValid()
+                    && SCSBeforeRerun
+                        != TWeakObjectPtr<UActorComponent>(
+                            ComponentFixture.SCSComponent));
+            TestTrue(
+                TEXT("RerunConstructionScripts retains the exact ActorGuid owner"),
+                ComponentFixture.Actor != nullptr
+                    && ComponentFixture.Actor->GetActorGuid()
+                        == ComponentFixture.ActorId);
+            bDurabilityReady = VerifyDurabilityQueries(
+                TEXT("RerunConstructionScripts"));
+        }
+    }
+
+    if (bDurabilityReady)
+    {
+        const TWeakObjectPtr<AActor> ActorBeforeRecompile =
+            ComponentFixture.Actor;
+        const TWeakObjectPtr<UActorComponent> SCSBeforeRecompile =
+            ComponentFixture.SCSComponent;
+        Error.Reset();
+        bDurabilityReady = TestTrue(
+            TEXT("SCS variable rename and Blueprint recompile refresh every owner by ActorGuid"),
+            ComponentFixture.RenameSCSRecompileAndRefresh(
+                LevelFixture.Loaded.World,
+                Error));
+        if (!bDurabilityReady && !Error.IsEmpty())
+        {
+            AddError(Error);
+        }
+        if (bDurabilityReady)
+        {
+            TestEqual(
+                TEXT("Blueprint recompile preserves the qualified SCS Guid StableRef"),
+                ComponentFixture.SCSId,
+                StableSCSId);
+            TestTrue(
+                TEXT("Blueprint recompile changes only SCS presentation identity"),
+                ComponentFixture.GetSCSVariableName()
+                    != InitialSCSVariableName);
+            TestTrue(
+                TEXT("Blueprint recompile does not reuse the superseded Actor incarnation"),
+                !ActorBeforeRecompile.IsValid()
+                    && ActorBeforeRecompile
+                        != TWeakObjectPtr<AActor>(
+                            ComponentFixture.Actor));
+            TestTrue(
+                TEXT("Blueprint recompile does not reuse the superseded SCS Component incarnation"),
+                !SCSBeforeRecompile.IsValid()
+                    && SCSBeforeRecompile
+                        != TWeakObjectPtr<UActorComponent>(
+                            ComponentFixture.SCSComponent));
+            bDurabilityReady = VerifyDurabilityQueries(
+                TEXT("Blueprint recompile"));
+        }
+    }
+
+    if (bDurabilityReady)
+    {
+        Error.Reset();
+        bDurabilityReady = TestTrue(
+            TEXT("Durability fixture saves its final recompiled Blueprint"),
+            ComponentFixture.SaveBlueprintForDurability(Error));
+        if (!bDurabilityReady && !Error.IsEmpty())
+        {
+            AddError(Error);
+        }
+    }
+    if (bDurabilityReady)
+    {
+        Error.Reset();
+        bDurabilityReady = TestTrue(
+            TEXT("Durability fixture saves the Component-bearing Level after the Blueprint"),
+            LevelFixture.SaveLoadedMapForDurability(Error));
+        if (!bDurabilityReady && !Error.IsEmpty())
+        {
+            AddError(Error);
+        }
+    }
+
+    if (bDurabilityReady)
+    {
+        const TWeakObjectPtr<AActor> OldActor =
+            ComponentFixture.Actor;
+        const TWeakObjectPtr<UActorComponent> OldNative =
+            ComponentFixture.NativeComponent;
+        const TWeakObjectPtr<UActorComponent> OldSCS =
+            ComponentFixture.SCSComponent;
+        const TWeakObjectPtr<UActorComponent> OldInstance =
+            ComponentFixture.InstanceComponent;
+        const TWeakObjectPtr<UActorComponent> OldPCG =
+            ComponentFixture.PCGComponent;
+        const TWeakObjectPtr<UBlueprint> OldBlueprint =
+            ComponentFixture.GetBlueprint();
+        const TWeakObjectPtr<UClass> OldGeneratedClass =
+            ComponentFixture.GetGeneratedClass();
+
+        ComponentFixture.ReleaseWorldObjectsForReload();
+        Error.Reset();
+        bDurabilityReady = TestTrue(
+            TEXT("Saved Component-bearing Level unloads completely"),
+            LevelFixture.UnloadLoadedMapForDurability(Error));
+        if (!bDurabilityReady && !Error.IsEmpty())
+        {
+            AddError(Error);
+        }
+        if (bDurabilityReady)
+        {
+            TestTrue(
+                TEXT("Map unload releases every captured Actor and Component incarnation"),
+                !OldActor.IsValid()
+                    && !OldNative.IsValid()
+                    && !OldSCS.IsValid()
+                    && !OldInstance.IsValid()
+                    && !OldPCG.IsValid());
+            Error.Reset();
+            bDurabilityReady = TestTrue(
+                TEXT("Saved durability Blueprint and generated Class unload completely"),
+                ComponentFixture.UnloadBlueprintForDurability(Error));
+            if (!bDurabilityReady && !Error.IsEmpty())
+            {
+                AddError(Error);
+            }
+        }
+        if (bDurabilityReady)
+        {
+            TestTrue(
+                TEXT("Blueprint unload releases the captured Blueprint and generated Class incarnations"),
+                !OldBlueprint.IsValid()
+                    && !OldGeneratedClass.IsValid());
+
+            int32 UnloadedQueryLoads = 0;
+            int32 UnloadedQuerySaves = 0;
+            const FDelegateHandle LoadHandle =
+                FCoreUObjectDelegates::OnAssetLoaded.AddLambda(
+                    [&UnloadedQueryLoads](UObject*)
+                    {
+                        ++UnloadedQueryLoads;
+                    });
+            const FDelegateHandle SaveHandle =
+                FCoreUObjectDelegates::OnObjectPreSave.AddLambda(
+                    [&UnloadedQuerySaves](
+                        UObject*,
+                        FObjectPreSaveContext)
+                    {
+                        ++UnloadedQuerySaves;
+                    });
+            const TSharedPtr<FJsonObject> UnloadedExact =
+                FSalModule::BuildQueryResult(
+                    LevelQueryArguments(
+                        Target,
+                        LevelExactComponentOperation(
+                            LevelGuidText(ComponentFixture.ActorId),
+                            TEXT("scs"),
+                            StableSCSId)));
+            FCoreUObjectDelegates::OnAssetLoaded.Remove(LoadHandle);
+            FCoreUObjectDelegates::OnObjectPreSave.Remove(SaveHandle);
+            TestTrue(
+                TEXT("Exact Component Query fails closed while its saved Level is unloaded"),
+                LevelHasDiagnostic(
+                    UnloadedExact,
+                    TEXT("capability.level_not_loaded")));
+            TestEqual(
+                TEXT("Unloaded exact Component Query loads no map, Blueprint, or Class"),
+                UnloadedQueryLoads,
+                0);
+            TestEqual(
+                TEXT("Unloaded exact Component Query saves no package"),
+                UnloadedQuerySaves,
+                0);
+            TestTrue(
+                TEXT("Unloaded exact Component Query leaves the map, Blueprint, and generated Class packages absent"),
+                FindPackage(
+                    nullptr,
+                    *LevelFixture.Loaded.PackageName) == nullptr
+                    && FindObject<UWorld>(
+                        nullptr,
+                        *LevelFixture.Loaded.ObjectPath) == nullptr
+                    && ComponentFixture
+                        .IsBlueprintUnloadedForDurability());
+
+            Error.Reset();
+            bDurabilityReady = TestTrue(
+                TEXT("Durability fixture explicitly reloads the saved Component-bearing Level from disk"),
+                LevelFixture.ReloadLoadedMapForDurability(Error));
+            if (!bDurabilityReady && !Error.IsEmpty())
+            {
+                AddError(Error);
+            }
+        }
+        if (bDurabilityReady)
+        {
+            Error.Reset();
+            bDurabilityReady = TestTrue(
+                TEXT("Reloaded durability Level becomes the active exact Editor source"),
+                LevelFixture.Activate(
+                    LevelFixture.Loaded,
+                    Error));
+            if (!bDurabilityReady && !Error.IsEmpty())
+            {
+                AddError(Error);
+            }
+        }
+        if (bDurabilityReady)
+        {
+            Error.Reset();
+            bDurabilityReady = TestTrue(
+                TEXT("Reloaded durability Level reacquires every Component from ActorGuid and source slot"),
+                ComponentFixture.RefreshAfterExternalLifecycle(
+                    LevelFixture.Loaded.World,
+                    Error));
+            if (!bDurabilityReady && !Error.IsEmpty())
+            {
+                AddError(Error);
+            }
+        }
+        if (bDurabilityReady)
+        {
+            const TWeakObjectPtr<AActor> ReloadedActor =
+                ComponentFixture.Actor;
+            const TWeakObjectPtr<UActorComponent> ReloadedNative =
+                ComponentFixture.NativeComponent;
+            const TWeakObjectPtr<UActorComponent> ReloadedSCS =
+                ComponentFixture.SCSComponent;
+            const TWeakObjectPtr<UActorComponent> ReloadedInstance =
+                ComponentFixture.InstanceComponent;
+            const TWeakObjectPtr<UActorComponent> ReloadedPCG =
+                ComponentFixture.PCGComponent;
+            const TWeakObjectPtr<UBlueprint> ReloadedBlueprint =
+                ComponentFixture.GetBlueprint();
+            const TWeakObjectPtr<UClass> ReloadedGeneratedClass =
+                ComponentFixture.GetGeneratedClass();
+            TestTrue(
+                TEXT("Reload creates new Actor, Component, Blueprint, and Class incarnations"),
+                !OldActor.IsValid()
+                    && !OldNative.IsValid()
+                    && !OldSCS.IsValid()
+                    && !OldInstance.IsValid()
+                    && !OldPCG.IsValid()
+                    && !OldBlueprint.IsValid()
+                    && !OldGeneratedClass.IsValid()
+                    && ReloadedActor.IsValid()
+                    && ReloadedNative.IsValid()
+                    && ReloadedSCS.IsValid()
+                    && ReloadedInstance.IsValid()
+                    && ReloadedPCG.IsValid()
+                    && ReloadedBlueprint.IsValid()
+                    && ReloadedGeneratedClass.IsValid()
+                    && ReloadedActor != OldActor
+                    && ReloadedNative != OldNative
+                    && ReloadedSCS != OldSCS
+                    && ReloadedInstance != OldInstance
+                    && ReloadedPCG != OldPCG
+                    && ReloadedBlueprint != OldBlueprint
+                    && ReloadedGeneratedClass
+                        != OldGeneratedClass);
+            bDurabilityReady = VerifyDurabilityQueries(
+                TEXT("Save/unload/reload"));
+        }
+    }
+
+    Error.Reset();
+    if (!LevelFixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    Error.Reset();
+    if (!ComponentFixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelEditorContextAndDeclarationHandoffTest,
+    "Loomle.Sal.Level.Query.EditorContextAndDeclarationHandoffs",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelEditorContextAndDeclarationHandoffTest::RunTest(
+    const FString& Parameters)
+{
+    // The Level fixture must destroy its Actor World before the Component
+    // fixture releases the generated Blueprint Class.
+    FScopedLevelComponentQueryFixture ComponentFixture;
+    FScopedLevelQueryFixture LevelFixture;
+    FString Error;
+    if (!TestTrue(
+            TEXT("Level handoff fixture builds"),
+            LevelFixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Level handoff fixture becomes the active Editor World"),
+            LevelFixture.Activate(LevelFixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Level declaration fixture builds"),
+            ComponentFixture.Build(LevelFixture, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+
+    FLevelReadInvariant LevelInvariant(LevelFixture.Loaded.World);
+    FLevelComponentReadInvariant ComponentInvariant(
+        ComponentFixture.Actor,
+        ComponentFixture.GetBlueprintPackage());
+    const TSharedRef<FJsonObject> Target = LevelTarget(
+        LevelFixture.Loaded.ObjectPath,
+        UWorld::StaticClass()->GetPathName());
+
+    for (const FString& Operation : {
+             TEXT("target"),
+             TEXT("summary"),
+             TEXT("actors"),
+             TEXT("components")})
+    {
+        const TSharedPtr<FJsonObject> Result =
+            FSalModule::BuildQueryResult(
+                LevelQueryArguments(
+                    Target,
+                    LevelOperation(Operation)));
+        const TSharedPtr<FJsonObject> AssetTarget =
+            ReadUniqueHandoffTarget(
+                Result,
+                TEXT("inspect_asset"));
+        TestTrue(
+            *FString::Printf(
+                TEXT("Successful Level %s retains one canonical source Asset Target"),
+                *Operation),
+            !LevelHasError(Result)
+                && IsCanonicalRelatedPathTarget(
+                    AssetTarget,
+                    TEXT("asset"),
+                    TEXT("path"),
+                    LevelFixture.Loaded.ObjectPath,
+                    UWorld::StaticClass()->GetPathName()));
+        TestTrue(
+            *FString::Printf(
+                TEXT("Level %s emits no per-row declaration navigation"),
+                *Operation),
+            CountHandoffPurpose(Result, TEXT("inspect_class")) == 0
+                && CountRelatedTargetDomain(
+                    Result,
+                    TEXT("class")) == 0
+                && CountHandoffPurpose(
+                    Result,
+                    TEXT("inspect_blueprint")) == 0
+                && CountRelatedTargetDomain(
+                    Result,
+                    TEXT("blueprint")) == 0);
+    }
+
+    const TSharedPtr<FJsonObject> UnloadedTargetResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                LevelTarget(
+                    LevelFixture.Unloaded.ObjectPath,
+                    UWorld::StaticClass()->GetPathName()),
+                LevelOperation(TEXT("target"))));
+    TestTrue(
+        TEXT("Source Asset navigation for an unloaded map stays zero-load"),
+        IsCanonicalRelatedPathTarget(
+            ReadUniqueHandoffTarget(
+                UnloadedTargetResult,
+                TEXT("inspect_asset")),
+            TEXT("asset"),
+            TEXT("path"),
+            LevelFixture.Unloaded.ObjectPath,
+            UWorld::StaticClass()->GetPathName())
+            && LevelFixture.IsUnloadedMapStillUnloaded());
+
+    const TSharedPtr<FJsonObject> InvalidExactActor =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelExactOperation(TEXT("not-an-actor-guid"))));
+    TestTrue(
+        TEXT("Failed exact Level Query emits no source Asset handoff"),
+        LevelHasError(InvalidExactActor)
+            && CountHandoffPurpose(
+                InvalidExactActor,
+                TEXT("inspect_asset")) == 0
+            && CountRelatedTargetDomain(
+                InvalidExactActor,
+                TEXT("asset")) == 0);
+
+    UBlueprintGeneratedClass* ActorClass =
+        Cast<UBlueprintGeneratedClass>(
+            ComponentFixture.Actor->GetClass());
+    UBlueprint* Blueprint = ActorClass != nullptr
+        ? Cast<UBlueprint>(ActorClass->ClassGeneratedBy)
+        : nullptr;
+    if (!TestNotNull(
+            TEXT("Declaration fixture retains its generated Blueprint"),
+            Blueprint))
+    {
+        return false;
+    }
+    const TSharedPtr<FJsonObject> ExactActor =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelExactOperation(
+                    LevelGuidText(ComponentFixture.ActorId))));
+    TestTrue(
+        TEXT("Exact Actor exposes its actual Class declaration Target"),
+        !LevelHasError(ExactActor)
+            && IsCanonicalRelatedPathTarget(
+                ReadUniqueHandoffTarget(
+                    ExactActor,
+                    TEXT("inspect_class")),
+                TEXT("class"),
+                TEXT("path"),
+                ActorClass->GetPathName()));
+    TestTrue(
+        TEXT("Exact Blueprint Actor exposes its proven generating Blueprint Target"),
+        IsCanonicalBlueprintTarget(
+            ReadUniqueHandoffTarget(
+                ExactActor,
+                TEXT("inspect_blueprint")),
+            Blueprint->GetPathName(),
+            Blueprint->GetBlueprintGuid()));
+    TestTrue(
+        TEXT("Exact Actor also retains the source map Asset Target"),
+        IsCanonicalRelatedPathTarget(
+            ReadUniqueHandoffTarget(
+                ExactActor,
+                TEXT("inspect_asset")),
+            TEXT("asset"),
+            TEXT("path"),
+            LevelFixture.Loaded.ObjectPath,
+            UWorld::StaticClass()->GetPathName()));
+
+    const TSharedPtr<FJsonObject> ExactNativeComponent =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelExactComponentOperation(
+                    LevelGuidText(ComponentFixture.ActorId),
+                    TEXT("native"),
+                    ComponentFixture.NativeId)));
+    TestTrue(
+        TEXT("Exact native Component exposes only its actual Class declaration"),
+        !LevelHasError(ExactNativeComponent)
+            && IsCanonicalRelatedPathTarget(
+                ReadUniqueHandoffTarget(
+                    ExactNativeComponent,
+                    TEXT("inspect_class")),
+                TEXT("class"),
+                TEXT("path"),
+                ComponentFixture.NativeComponent->GetClass()->GetPathName())
+            && CountHandoffPurpose(
+                ExactNativeComponent,
+                TEXT("inspect_blueprint")) == 0
+            && CountRelatedTargetDomain(
+                ExactNativeComponent,
+                TEXT("blueprint")) == 0);
+
+    const TSharedPtr<FJsonObject> ExactSCSComponent =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelExactComponentOperation(
+                    LevelGuidText(ComponentFixture.ActorId),
+                    TEXT("scs"),
+                    ComponentFixture.SCSId)));
+    TestTrue(
+        TEXT("Exact SCS Component exposes its actual runtime Class Target"),
+        !LevelHasError(ExactSCSComponent)
+            && IsCanonicalRelatedPathTarget(
+                ReadUniqueHandoffTarget(
+                    ExactSCSComponent,
+                    TEXT("inspect_class")),
+                TEXT("class"),
+                TEXT("path"),
+                ComponentFixture.SCSComponent->GetClass()->GetPathName()));
+    TestTrue(
+        TEXT("Exact SCS Component uses its locator-proven declaring Blueprint"),
+        IsCanonicalBlueprintTarget(
+            ReadUniqueHandoffTarget(
+                ExactSCSComponent,
+                TEXT("inspect_blueprint")),
+            Blueprint->GetPathName(),
+            Blueprint->GetBlueprintGuid()));
+
+    for (const TSharedPtr<FJsonObject>& Result : {
+             ExactActor,
+             ExactNativeComponent,
+             ExactSCSComponent})
+    {
+        TestTrue(
+            TEXT("Every successful exact object Query retains the source Asset Target"),
+            IsCanonicalRelatedPathTarget(
+                ReadUniqueHandoffTarget(
+                    Result,
+                    TEXT("inspect_asset")),
+                TEXT("asset"),
+                TEXT("path"),
+                LevelFixture.Loaded.ObjectPath,
+                UWorld::StaticClass()->GetPathName()));
+        TestTrue(
+            TEXT("Read-only declaration navigation emits no save or compile handoff"),
+            CountHandoffPurpose(Result, TEXT("save")) == 0
+                && CountHandoffPurpose(Result, TEXT("compile")) == 0);
+    }
+
+    const TSharedPtr<FJsonObject> ContextResult =
+        Loomle::EditorContext::FEditorContextService::Get()
+            .BuildLevelActorForTesting(
+                LevelFixture.Loaded.World,
+                ComponentFixture.Actor);
+    TSharedPtr<FJsonObject> ValidationError;
+    TestTrue(
+        TEXT("Selected Level Actor Editor Context is valid SAL Result data"),
+        FSalJson::ValidateResult(
+            ContextResult,
+            ValidationError));
+    TestTrue(
+        TEXT("Selected Level Actor Editor Context returns the canonical Level Target"),
+        !LevelHasError(ContextResult)
+            && LevelHasTargetContext(
+                ContextResult,
+                TEXT("exact_target"))
+            && HasCanonicalLevelTarget(
+                ContextResult,
+                LevelFixture.Loaded.ObjectPath));
+    TestTrue(
+        TEXT("Selected source Actor projects exactly one ActorGuid StableRef"),
+        HasSingleLocalStableRef(
+            ContextResult,
+            TEXT("actor"),
+            LevelGuidText(ComponentFixture.ActorId)));
+    TestTrue(
+        TEXT("Editor Context does not fabricate result handoffs"),
+        CountHandoffPurpose(ContextResult, TEXT("inspect_asset")) == 0
+            && CountRelatedTargetDomain(
+                ContextResult,
+                TEXT("asset")) == 0
+            && CountHandoffPurpose(ContextResult, TEXT("inspect_class")) == 0
+            && CountRelatedTargetDomain(
+                ContextResult,
+                TEXT("class")) == 0
+            && CountHandoffPurpose(
+                ContextResult,
+                TEXT("inspect_blueprint")) == 0
+            && CountRelatedTargetDomain(
+                ContextResult,
+                TEXT("blueprint")) == 0);
+
+    TestTrue(
+        TEXT("Handoff and Editor Context reads preserve Level and Editor state"),
+        LevelInvariant.Verify(*this));
+    TestTrue(
+        TEXT("Declaration handoffs preserve Component lifecycle and packages"),
+        ComponentInvariant.Verify(*this));
+
+    if (TestTrue(
+            TEXT("Corrupt Level fixture becomes active for fail-closed Context"),
+            LevelFixture.Activate(LevelFixture.Corrupt, Error)))
+    {
+        const TSharedPtr<FJsonObject> DuplicateContext =
+            Loomle::EditorContext::FEditorContextService::Get()
+                .BuildLevelActorForTesting(
+                    LevelFixture.Corrupt.World,
+                    LevelFixture.DuplicateFirst);
+        TestTrue(
+            TEXT("Duplicate ActorGuid Editor Context fails closed on StableRef projection"),
+            HasCanonicalLevelTarget(
+                DuplicateContext,
+                LevelFixture.Corrupt.ObjectPath)
+                && LevelHasDiagnostic(
+                    DuplicateContext,
+                    TEXT("context.identity_duplicate"))
+                && !HasSingleLocalStableRef(
+                    DuplicateContext,
+                    TEXT("actor"),
+                    LevelGuidText(LevelFixture.DuplicateId)));
+    }
+    else if (!Error.IsEmpty())
+    {
+        AddError(Error);
+    }
+
     Error.Reset();
     if (!LevelFixture.Cleanup(Error))
     {
@@ -6094,8 +8569,94 @@ bool FSalPCGComponentAuthoredQueryTest::RunTest(
                 && LevelTaggedObjectFields(
                     InvalidEmptyBagResult,
                     TEXT("parameter")).IsEmpty());
+        const TSharedPtr<FJsonObject> InvalidEmptyBagExactResult =
+            FSalModule::BuildQueryResult(
+                PCGComponentQueryArguments(
+                    ParameterTarget,
+                    PCGComponentExactParameterOperation(
+                        FGuid(
+                            0x7f000001,
+                            0x7f000002,
+                            0x7f000003,
+                            0x7f000004)),
+                    true));
+        TestTrue(
+            TEXT("Invalid zero-declaration storage also fails exact Parameter schema Query closed"),
+            LevelHasDiagnostic(
+                InvalidEmptyBagExactResult,
+                TEXT("validation.reference_scan_incomplete"))
+                && LevelTaggedObjectFields(
+                    InvalidEmptyBagExactResult,
+                    TEXT("parameter")).IsEmpty());
         EmptyOwnedGraphInstance->ParametersOverrides.Parameters =
             EmptyBagBefore;
+    }
+    if (EmptyOwnedGraphInstance != nullptr)
+    {
+        const TSet<FGuid> OverrideIdsBefore =
+            EmptyOwnedGraphInstance
+                ->ParametersOverrides.PropertiesIDsOverridden;
+        const FGuid StaleOverrideId(
+            0x7e000001,
+            0x7e000002,
+            0x7e000003,
+            0x7e000004);
+        TestFalse(
+            TEXT("Zero-declaration fixture begins without the hostile override Guid"),
+            OverrideIdsBefore.Contains(StaleOverrideId));
+        EmptyOwnedGraphInstance
+            ->ParametersOverrides.PropertiesIDsOverridden.Add(
+                StaleOverrideId);
+
+        FPCGParameterReadInvariant StaleOverrideInvariant({
+            EmptyOwnedGraphInstance});
+        const TSharedPtr<FJsonObject> StaleOverrideCollection =
+            FSalModule::BuildQueryResult(
+                PCGComponentQueryArguments(
+                    ParameterTarget,
+                    LevelOperation(TEXT("parameters"))));
+        TestTrue(
+            TEXT("A zero-declaration GraphInstance with a stale override bit fails collection readback closed"),
+            LevelHasDiagnostic(
+                StaleOverrideCollection,
+                TEXT("validation.reference_scan_incomplete"))
+                && LevelTaggedObjectFields(
+                    StaleOverrideCollection,
+                    TEXT("parameter")).IsEmpty());
+
+        const TSharedPtr<FJsonObject> StaleOverrideExact =
+            FSalModule::BuildQueryResult(
+                PCGComponentQueryArguments(
+                    ParameterTarget,
+                    PCGComponentExactParameterOperation(
+                        StaleOverrideId),
+                    true));
+        TestTrue(
+            TEXT("A stale override bit cannot leak through exact Parameter schema Query"),
+            LevelHasDiagnostic(
+                StaleOverrideExact,
+                TEXT("validation.reference_scan_incomplete"))
+                && LevelTaggedObjectFields(
+                    StaleOverrideExact,
+                    TEXT("parameter")).IsEmpty());
+        TestTrue(
+            TEXT("Stale-override rejection preserves the corrupt evidence for deterministic diagnosis"),
+            StaleOverrideInvariant.Verify(*this));
+
+        EmptyOwnedGraphInstance
+            ->ParametersOverrides.PropertiesIDsOverridden =
+                OverrideIdsBefore;
+        const TSharedPtr<FJsonObject> RestoredEmptyParameters =
+            FSalModule::BuildQueryResult(
+                PCGComponentQueryArguments(
+                    ParameterTarget,
+                    LevelOperation(TEXT("parameters"))));
+        TestTrue(
+            TEXT("Restoring the hostile override set restores complete empty Parameter readback"),
+            !LevelHasError(RestoredEmptyParameters)
+                && LevelTaggedObjectFields(
+                    RestoredEmptyParameters,
+                    TEXT("parameter")).IsEmpty());
     }
 
     const TSharedRef<FJsonObject> WrongTypeTarget = PCGComponentTarget(
@@ -6976,6 +9537,1803 @@ bool FSalPCGComponentParameterReadbackTest::RunTest(
     }
     Error.Reset();
     if (!ComponentFixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalPCGComponentParameterHostileBoundsTest,
+    "Loomle.Sal.PCGComponent.Query.ParameterHostileSizeAndNativeShapeBoundaries",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalPCGComponentParameterHostileBoundsTest::RunTest(
+    const FString& Parameters)
+{
+    // Keep this declaration order: the Level releases Component and Graph
+    // references before the authored fixture removes its asset records.
+    FScopedLevelComponentQueryFixture ComponentFixture;
+    FScopedLevelQueryFixture LevelFixture;
+    FString Error;
+    if (!TestTrue(
+            TEXT("Hostile PCG Parameter Level fixture builds"),
+            LevelFixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Hostile PCG Parameter source Level becomes active"),
+            LevelFixture.Activate(LevelFixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Hostile PCG Parameter Component fixture builds"),
+            ComponentFixture.Build(LevelFixture, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+
+    FScopedPCGComponentParameterFixture ParameterFixture;
+    if (!TestTrue(
+            TEXT("Hostile PCG Parameter GraphInstance fixture builds through public UE APIs"),
+            ParameterFixture.Build(
+                LevelFixture,
+                ComponentFixture,
+                Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+
+    const TSharedRef<FJsonObject> Target = PCGComponentTarget(
+        LevelFixture.Loaded.ObjectPath,
+        ComponentFixture.ActorId,
+        TEXT("instance"),
+        ComponentFixture.PCGId);
+    const FPropertyBagPropertyDesc* OwnedStringDesc =
+        ParameterFixture.OwnedGraphInstance
+            ->GetUserParametersStruct()
+            ->FindPropertyDescByID(
+                FScopedPCGComponentParameterFixture::ComponentOverrideId);
+    if (!TestNotNull(
+            TEXT("Hostile bounds fixture resolves the owned String descriptor"),
+            OwnedStringDesc))
+    {
+        return false;
+    }
+
+    constexpr int32 PerValueLimit = 8 * 1024;
+    const FString PerValueAtLimit =
+        FString::ChrN(PerValueLimit, TEXT('v'));
+    TestEqual(
+        TEXT("UE accepts a String at the exact 8 Ki code-unit boundary"),
+        ParameterFixture.OwnedGraphInstance->SetGraphParameter<FString>(
+            OwnedStringDesc->Name,
+            PerValueAtLimit),
+        EPropertyBagResult::Success);
+    ParameterFixture.ClearSetupDirtyFlags();
+    const TSharedPtr<FJsonObject> PerValueAtLimitResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                Target,
+                PCGComponentExactParameterOperation(
+                    FScopedPCGComponentParameterFixture::ComponentOverrideId),
+                true));
+    const TArray<TSharedPtr<FJsonObject>> PerValueAtLimitFields =
+        LevelTaggedObjectFields(
+            PerValueAtLimitResult,
+            TEXT("parameter"));
+    FString PerValueLocal;
+    FString PerValueEffective;
+    TestTrue(
+        TEXT("Exact Parameter with schema preserves the frozen read-only shape at 8 Ki"),
+        !LevelHasError(PerValueAtLimitResult)
+            && PerValueAtLimitFields.Num() == 1
+            && PerValueAtLimitFields[0]->Values.Num() == 10
+            && PerValueAtLimitFields[0]->TryGetStringField(
+                TEXT("localValue"),
+                PerValueLocal)
+            && PerValueLocal == PerValueAtLimit
+            && PerValueAtLimitFields[0]->TryGetStringField(
+                TEXT("effectiveValue"),
+                PerValueEffective)
+            && PerValueEffective == PerValueAtLimit
+            && LevelHasCommentContaining(
+                PerValueAtLimitResult,
+                TEXT("read-only"))
+            && !PerValueAtLimitFields[0]->HasField(TEXT("writable"))
+            && !PerValueAtLimitFields[0]->HasField(TEXT("operations"))
+            && CountHandoffPurpose(
+                PerValueAtLimitResult,
+                TEXT("save")) == 0);
+
+    TestEqual(
+        TEXT("UE accepts a String one code unit beyond the SAL readback limit"),
+        ParameterFixture.OwnedGraphInstance->SetGraphParameter<FString>(
+            OwnedStringDesc->Name,
+            FString::ChrN(PerValueLimit + 1, TEXT('v'))),
+        EPropertyBagResult::Success);
+    ParameterFixture.ClearSetupDirtyFlags();
+    const TSharedPtr<FJsonObject> PerValueOverflowResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                Target,
+                PCGComponentExactParameterOperation(
+                    FScopedPCGComponentParameterFixture::ComponentOverrideId)));
+    TestTrue(
+        TEXT("A String one code unit over 8 Ki fails exact readback atomically"),
+        LevelHasDiagnostic(
+            PerValueOverflowResult,
+            TEXT("validation.result_too_large"))
+            && LevelTaggedObjectFields(
+                PerValueOverflowResult,
+                TEXT("parameter")).IsEmpty());
+    TestEqual(
+        TEXT("Hostile fixture restores the ordinary Component override"),
+        ParameterFixture.OwnedGraphInstance->SetGraphParameter<FString>(
+            OwnedStringDesc->Name,
+            FScopedPCGComponentParameterFixture::ComponentOverrideValue),
+        EPropertyBagResult::Success);
+
+    constexpr int32 AggregateLimit = 64 * 1024;
+    constexpr int32 AggregateParameterCount = 8;
+    TArray<FName> AggregateNames;
+    TArray<FPropertyBagPropertyDesc> AggregateDescriptors;
+    AggregateNames.Reserve(AggregateParameterCount);
+    AggregateDescriptors.Reserve(AggregateParameterCount);
+    for (int32 Index = 0; Index < AggregateParameterCount; ++Index)
+    {
+        const FName Name(*FString::Printf(
+            TEXT("AggregateString_%02d"),
+            Index));
+        const FGuid Id(
+            0x71000000u,
+            0x71000001u,
+            0x71000002u,
+            static_cast<uint32>(Index + 1));
+        FPropertyBagPropertyDesc Desc(
+            Name,
+            EPropertyBagPropertyType::String);
+        Desc.ID = Id;
+        AggregateNames.Add(Name);
+        AggregateDescriptors.Add(MoveTemp(Desc));
+    }
+    if (!TestEqual(
+            TEXT("UE adds aggregate-boundary String descriptors through the Graph API"),
+            ParameterFixture.Graph->AddUserParameters(
+                AggregateDescriptors),
+            EPropertyBagAlterationResult::Success))
+    {
+        return false;
+    }
+    const int32 ExistingStringEvidenceChars =
+        FScopedPCGComponentParameterFixture::ComponentOverrideValue.Len()
+        + FString(TEXT("Double")).Len();
+    const int32 LastAggregateValueChars =
+        AggregateLimit
+        - ExistingStringEvidenceChars
+        - (AggregateParameterCount - 1) * PerValueLimit;
+    TestTrue(
+        TEXT("Aggregate-boundary fixture keeps every individual value within 8 Ki"),
+        LastAggregateValueChars > 0
+            && LastAggregateValueChars <= PerValueLimit);
+    bool bAggregateValuesSet = true;
+    for (int32 Index = 0; Index < AggregateParameterCount; ++Index)
+    {
+        const int32 Length = Index + 1 < AggregateParameterCount
+            ? PerValueLimit
+            : LastAggregateValueChars;
+        bAggregateValuesSet &=
+            ParameterFixture.Graph->SetGraphParameter<FString>(
+                AggregateNames[Index],
+                FString::ChrN(
+                    Length,
+                    static_cast<TCHAR>(TEXT('a') + Index)))
+            == EPropertyBagResult::Success;
+    }
+    if (!TestTrue(
+            TEXT("UE authors every aggregate-boundary String default"),
+            bAggregateValuesSet))
+    {
+        return false;
+    }
+    ParameterFixture.ClearSetupDirtyFlags();
+
+    const TSharedPtr<FJsonObject> AggregateAtLimitResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                Target,
+                PCGComponentExactParameterOperation(
+                    FScopedPCGComponentParameterFixture::GraphDefaultId)));
+    const int32 AuthoredAggregateChars = ExistingStringEvidenceChars
+        + (AggregateParameterCount - 1) * PerValueLimit
+        + LastAggregateValueChars;
+    TestTrue(
+        TEXT("A complete 64 Ki aggregate String-value snapshot remains readable"),
+        AuthoredAggregateChars == AggregateLimit
+            && !LevelHasError(AggregateAtLimitResult)
+            && LevelTaggedObjectFields(
+                AggregateAtLimitResult,
+                TEXT("parameter")).Num() == 1);
+
+    TestEqual(
+        TEXT("UE accepts an aggregate String snapshot one code unit over the SAL limit"),
+        ParameterFixture.Graph->SetGraphParameter<FString>(
+            AggregateNames.Last(),
+            FString::ChrN(
+                LastAggregateValueChars + 1,
+                TEXT('z'))),
+        EPropertyBagResult::Success);
+    ParameterFixture.ClearSetupDirtyFlags();
+    const TSharedPtr<FJsonObject> AggregateOverflowResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                Target,
+                PCGComponentExactParameterOperation(
+                    FScopedPCGComponentParameterFixture::GraphDefaultId)));
+    TestTrue(
+        TEXT("A 64 Ki plus one aggregate String-value snapshot fails atomically"),
+        LevelHasDiagnostic(
+            AggregateOverflowResult,
+            TEXT("validation.result_too_large"))
+            && LevelTaggedObjectFields(
+                AggregateOverflowResult,
+                TEXT("parameter")).IsEmpty());
+    TestEqual(
+        TEXT("Hostile fixture restores the exact aggregate boundary"),
+        ParameterFixture.Graph->SetGraphParameter<FString>(
+            AggregateNames.Last(),
+            FString::ChrN(
+                LastAggregateValueChars,
+                TEXT('z'))),
+        EPropertyBagResult::Success);
+
+#if UE_VERSION_NEWER_THAN_OR_EQUAL(5, 8, 0)
+    const FName UnsupportedMapName(TEXT("UnsupportedNativeMap"));
+    const FGuid UnsupportedMapId(
+        0x78000001,
+        0x78000002,
+        0x78000003,
+        0x78000004);
+    FPropertyBagPropertyDesc UnsupportedMapDesc(
+        UnsupportedMapName,
+        EPropertyBagContainerType::Map,
+        EPropertyBagPropertyType::Double,
+        nullptr,
+        CPF_Edit,
+        EPropertyBagPropertyType::Name);
+    UnsupportedMapDesc.ID = UnsupportedMapId;
+    if (TestEqual(
+            TEXT("UE 5.8 creates a native Name-to-Double Map descriptor"),
+            ParameterFixture.Graph->AddUserParameters(
+                {UnsupportedMapDesc}),
+            EPropertyBagAlterationResult::Success))
+    {
+        ParameterFixture.ClearSetupDirtyFlags();
+        const TSharedPtr<FJsonObject> MapCollectionResult =
+            FSalModule::BuildQueryResult(
+                PCGComponentQueryArguments(
+                    Target,
+                    LevelOperation(TEXT("parameters"))));
+        TestTrue(
+            TEXT("A native Map descriptor fails the closed public Parameter type environment"),
+            LevelHasDiagnostic(
+                MapCollectionResult,
+                TEXT("validation.reference_scan_incomplete"))
+                && LevelTaggedObjectFields(
+                    MapCollectionResult,
+                    TEXT("parameter")).IsEmpty());
+        const TSharedPtr<FJsonObject> MapExactResult =
+            FSalModule::BuildQueryResult(
+                PCGComponentQueryArguments(
+                    Target,
+                    PCGComponentExactParameterOperation(
+                        UnsupportedMapId),
+                    true));
+        TestTrue(
+            TEXT("A native Map cannot leak a partial descriptor through exact schema Query"),
+            LevelHasDiagnostic(
+                MapExactResult,
+                TEXT("validation.reference_scan_incomplete"))
+                && LevelTaggedObjectFields(
+                    MapExactResult,
+                    TEXT("parameter")).IsEmpty());
+
+        EPropertyBagAlterationResult RemoveMapResult =
+            EPropertyBagAlterationResult::InternalError;
+        ParameterFixture.Graph->UpdateUserParametersStruct(
+            [&RemoveMapResult, UnsupportedMapName](
+                FInstancedPropertyBag& Bag)
+            {
+                RemoveMapResult =
+                    Bag.RemovePropertyByName(UnsupportedMapName);
+            });
+        TestEqual(
+            TEXT("UE removes the Map through the public Graph Parameter update path"),
+            RemoveMapResult,
+            EPropertyBagAlterationResult::Success);
+        ParameterFixture.ClearSetupDirtyFlags();
+        const TSharedPtr<FJsonObject> AfterMapRemovalResult =
+            FSalModule::BuildQueryResult(
+                PCGComponentQueryArguments(
+                    Target,
+                    PCGComponentExactParameterOperation(
+                        FScopedPCGComponentParameterFixture::GraphDefaultId)));
+        TestFalse(
+            TEXT("Removing the Map restores the complete Parameter environment"),
+            LevelHasError(AfterMapRemovalResult));
+    }
+#endif
+
+    // Descriptor evidence is counted once for the Graph and once for each of
+    // the two aligned GraphInstances. Fifty-six 400-character names alone
+    // therefore contribute 67,200 code units, independently proving that the
+    // shared 64 Ki evidence budget has been crossed without mirroring the
+    // implementation's full accounting in this fixture.
+    constexpr int32 EvidenceOverflowDescriptorCount = 56;
+    constexpr int32 EvidenceOverflowNameChars = 400;
+    static_assert(
+        EvidenceOverflowDescriptorCount
+            * EvidenceOverflowNameChars
+            * 3
+            > 64 * 1024);
+    TArray<FPropertyBagPropertyDesc> EvidenceOverflowDescriptors;
+    EvidenceOverflowDescriptors.Reserve(
+        EvidenceOverflowDescriptorCount);
+    for (int32 Index = 0;
+         Index < EvidenceOverflowDescriptorCount;
+         ++Index)
+    {
+        const FString Prefix = FString::Printf(
+            TEXT("LoomleEvidenceOverflow_%02d_"),
+            Index);
+        const FName Name(*(
+            Prefix
+            + FString::ChrN(
+                EvidenceOverflowNameChars - Prefix.Len(),
+                TEXT('e'))));
+        FPropertyBagPropertyDesc Desc(
+            Name,
+            EPropertyBagPropertyType::String);
+        Desc.ID = FGuid(
+            0xb0000000u,
+            0xb0000001u,
+            0xb0000002u,
+            static_cast<uint32>(Index + 1));
+        EvidenceOverflowDescriptors.Add(MoveTemp(Desc));
+    }
+    if (TestEqual(
+            TEXT("UE adds an independently over-budget descriptor environment"),
+            ParameterFixture.Graph->AddUserParameters(
+                EvidenceOverflowDescriptors),
+            EPropertyBagAlterationResult::Success))
+    {
+        ParameterFixture.ClearSetupDirtyFlags();
+        const TSharedPtr<FJsonObject> EvidenceOverflowResult =
+            FSalModule::BuildQueryResult(
+                PCGComponentQueryArguments(
+                    Target,
+                    LevelOperation(TEXT("parameters"))));
+        TestTrue(
+            TEXT("Descriptor evidence above 64 Ki fails the complete Parameter environment atomically"),
+            LevelHasDiagnostic(
+                EvidenceOverflowResult,
+                TEXT("validation.reference_scan_incomplete"))
+                && LevelTaggedObjectFields(
+                    EvidenceOverflowResult,
+                    TEXT("parameter")).IsEmpty());
+    }
+
+    Error.Reset();
+    if (!LevelFixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    Error.Reset();
+    if (!ComponentFixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+class FScopedLevelWorldPartitionQueryFixture
+{
+public:
+    FScopedLevelWorldPartitionQueryFixture() = default;
+    FScopedLevelWorldPartitionQueryFixture(
+        const FScopedLevelWorldPartitionQueryFixture&) = delete;
+    FScopedLevelWorldPartitionQueryFixture& operator=(
+        const FScopedLevelWorldPartitionQueryFixture&) = delete;
+
+    ~FScopedLevelWorldPartitionQueryFixture()
+    {
+        FString Ignored;
+        Cleanup(Ignored);
+    }
+
+    bool Build(FString& OutError)
+    {
+        OutError.Reset();
+        const FString Token =
+            FGuid::NewGuid().ToString(EGuidFormats::Digits);
+        PackageName = FString::Printf(
+            TEXT("/Game/LoomleTests/LevelWorldPartition/%s/L_WP_UnloadedActor"),
+            *Token);
+        ObjectPath = PackageName + TEXT(".L_WP_UnloadedActor");
+        SourcePackageName = FString::Printf(
+            TEXT("/Game/LoomleTests/LevelWorldPartition/%s/L_WP_LevelInstanceSource"),
+            *Token);
+        SourceObjectPath = SourcePackageName
+            + TEXT(".L_WP_LevelInstanceSource");
+        MapFilename = FPackageName::LongPackageNameToFilename(
+            PackageName,
+            FPackageName::GetMapPackageExtension());
+        SourceMapFilename = FPackageName::LongPackageNameToFilename(
+            SourcePackageName,
+            FPackageName::GetMapPackageExtension());
+        IFileManager::Get().MakeDirectory(
+            *FPaths::GetPath(MapFilename),
+            true);
+        IFileManager::Get().MakeDirectory(
+            *FPaths::GetPath(SourceMapFilename),
+            true);
+
+        IWorldPartitionEditorModule& WorldPartitionEditor =
+            IWorldPartitionEditorModule::Get();
+        const bool bOriginalLoadingInEditor =
+            WorldPartitionEditor.GetEnableLoadingInEditor();
+        bExpectedLoadingInEditor = bOriginalLoadingInEditor;
+        const auto SetLoadingInEditorWithoutRetrofittingActiveWorld =
+            [&WorldPartitionEditor](const bool bEnabled)
+            {
+                // The setting callback otherwise rebuilds the loader adapter
+                // on GWorld. This fixture only needs to control how its new
+                // isolated partition is initialized.
+                UWorld* GlobalWorldBefore = GWorld.GetReference();
+                GWorld = nullptr;
+                WorldPartitionEditor.SetEnableLoadingInEditor(bEnabled);
+                GWorld = GlobalWorldBefore;
+            };
+        const UWorld::InitializationValues InitValues =
+            UWorld::InitializationValues()
+                .RequiresHitProxies(false)
+                .ShouldSimulatePhysics(false)
+                .EnableTraceCollision(false)
+                .CreateNavigation(false)
+                .CreateAISystem(false)
+                .AllowAudioPlayback(false)
+                .CreatePhysicsScene(false)
+                .CreateWorldPartition(true)
+                .EnableWorldPartitionStreaming(true);
+        FSavePackageArgs SaveArgs;
+        SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+        SaveArgs.Error = GLog;
+
+        // Author and fully release a real World Partition source before the
+        // containing placement exists. The later Level Instance descriptor
+        // must recover this source from durable descriptor/Asset Registry
+        // evidence rather than a loaded UWorld.
+        if (!bOriginalLoadingInEditor)
+        {
+            SetLoadingInEditorWithoutRetrofittingActiveWorld(true);
+        }
+        UPackage* SourcePackage = CreatePackage(*SourcePackageName);
+        SourceWorld = UWorld::CreateWorld(
+            EWorldType::Editor,
+            false,
+            FName(TEXT("L_WP_LevelInstanceSource")),
+            SourcePackage,
+            false,
+            ERHIFeatureLevel::Num,
+            &InitValues);
+        if (!bOriginalLoadingInEditor)
+        {
+            SetLoadingInEditorWithoutRetrofittingActiveWorld(false);
+        }
+        if (SourceWorld == nullptr
+            || SourceWorld->GetPathName() != SourceObjectPath
+            || SourceWorld->PersistentLevel == nullptr
+            || !SourceWorld->PersistentLevel->IsUsingExternalActors())
+        {
+            OutError = TEXT(
+                "UE failed to create the external-Actor World Partition Level Instance source map.");
+            return false;
+        }
+        SourceWorldRoot.Reset(SourceWorld);
+        SourceWorld->SetFlags(
+            RF_Public | RF_Standalone | RF_Transactional);
+        FAssetRegistryModule::AssetCreated(SourceWorld);
+
+        SourceWorldPartition = SourceWorld->GetWorldPartition();
+        SourceRootContainer = SourceWorldPartition != nullptr
+            ? SourceWorldPartition->GetActorDescContainerInstance()
+            : nullptr;
+        if (!IsValid(SourceWorldPartition)
+            || !IsValid(SourceRootContainer)
+            || !SourceRootContainer->IsInitialized()
+            || SourceRootContainer->GetContainerPackage()
+                != SourceWorld->GetOutermost()->GetFName()
+            || SourceRootContainer->GetParentContainerInstance() != nullptr)
+        {
+            OutError = TEXT(
+                "UE did not initialize the Level Instance source descriptor index.");
+            return false;
+        }
+
+        FActorSpawnParameters SourceSpawnParams;
+        SourceSpawnParams.Name = FName(TEXT("Actor_ChildOnly"));
+        SourceSpawnParams.OverrideLevel = SourceWorld->PersistentLevel;
+        SourceSpawnParams.ObjectFlags = RF_Transactional;
+        AActor* SourceActor = SourceWorld->SpawnActor<AActor>(
+            AActor::StaticClass(),
+            FTransform(FVector(128.0, 256.0, 64.0)),
+            SourceSpawnParams);
+        if (SourceActor == nullptr
+            || !SourceActor->GetActorGuid().IsValid()
+            || !SourceActor->IsPackageExternal()
+            || !SourceActor->GetIsSpatiallyLoaded())
+        {
+            OutError = TEXT(
+                "UE failed to create the source map's external child-only Actor.");
+            return false;
+        }
+        SourceActor->SetActorLabel(
+            TEXT("Loomle Child Container Only Actor"),
+            false);
+        SourceActorId = SourceActor->GetActorGuid();
+        SourceActorObjectPath = SourceActor->GetPathName();
+        UPackage* SourceExternalPackage =
+            SourceActor->GetExternalPackage();
+        if (SourceExternalPackage == nullptr
+            || SourceExternalPackage == SourceWorld->GetOutermost())
+        {
+            OutError = TEXT(
+                "The source map Actor was not assigned a genuine external package.");
+            return false;
+        }
+        SourceActorPackageName = SourceExternalPackage->GetName();
+        SourceActorFilename =
+            FPackageName::LongPackageNameToFilename(
+                SourceActorPackageName,
+                FPackageName::GetAssetPackageExtension());
+        IFileManager::Get().MakeDirectory(
+            *FPaths::GetPath(SourceActorFilename),
+            true);
+        if (!SourceActorPackageName.StartsWith(
+                ULevel::GetExternalActorsPath(SourcePackageName)
+                    + TEXT("/")))
+        {
+            OutError = TEXT(
+                "The source Actor package is not under its map's native ExternalActors path.");
+            return false;
+        }
+
+        SourceWorld->GetOutermost()->SetDirtyFlag(true);
+        SourceWorld->GetOutermost()->FullyLoad();
+        if (!UPackage::SavePackage(
+                SourceWorld->GetOutermost(),
+                SourceWorld,
+                *SourceMapFilename,
+                SaveArgs))
+        {
+            OutError = TEXT(
+                "UE failed to save the World Partition Level Instance source map.");
+            return false;
+        }
+        SourceWorld->GetOutermost()->SetDirtyFlag(false);
+        SourceExternalPackage->SetDirtyFlag(true);
+        {
+            UWorldPartition::FDisableNonDirtyActorTrackingScope NoAutoPin(
+                SourceWorldPartition,
+                true);
+            if (!UPackage::SavePackage(
+                    SourceExternalPackage,
+                    SourceActor,
+                    *SourceActorFilename,
+                    SaveArgs))
+            {
+                OutError = TEXT(
+                    "UE failed to save the source map's external Actor package.");
+                return false;
+            }
+            SourceExternalPackage->SetDirtyFlag(false);
+        }
+
+        FWorldPartitionActorDescInstance* SourceDescriptor =
+            SourceRootContainer->GetActorDescInstance(SourceActorId);
+        if (SourceDescriptor == nullptr
+            || SourceDescriptor->GetActorDesc() == nullptr
+            || SourceDescriptor->GetContainerInstance()
+                != SourceRootContainer
+            || SourceDescriptor->IsChildContainerInstance()
+            || SourceDescriptor->GetActorDesc()->GetActorPackage()
+                != FName(*SourceActorPackageName))
+        {
+            OutError = TEXT(
+                "Saving the source map did not publish its child-only root descriptor.");
+            return false;
+        }
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+            TEXT("AssetRegistry"))
+            .Get()
+            .ScanModifiedAssetFiles(
+                {SourceMapFilename, SourceActorFilename});
+
+        SourceWorldPartition->UnpinActors({SourceActorId});
+        if (SourceDescriptor->IsLoaded())
+        {
+            FWorldPartitionReference ReleaseSourceActor(
+                SourceRootContainer,
+                SourceActorId);
+            if (!ReleaseSourceActor.IsValid())
+            {
+                OutError = TEXT(
+                    "UE could not bind the saved source Actor through its public descriptor reference API.");
+                return false;
+            }
+            ReleaseSourceActor.Reset();
+        }
+        // FWorldPartitionReference::Reset marks the Actor descriptor unloaded,
+        // but UE 5.7 does not clear retention flags from every object in the
+        // external package. Prepare that exact fixture package before GC so
+        // descriptor-only state also means the package itself is absent.
+        PrepareLevelPackageForCollection(SourceExternalPackage);
+        SourceActor = nullptr;
+        SourceExternalPackage = nullptr;
+        SourcePackage = SourceWorld->GetOutermost();
+        SourceWorld->DestroyWorld(false);
+        PrepareLevelPackageForCollection(SourcePackage);
+        SourceWorld = nullptr;
+        SourceDescriptor = nullptr;
+        SourceRootContainer = nullptr;
+        SourceWorldPartition = nullptr;
+        SourceWorldRoot.Reset();
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+            TEXT("AssetRegistry"))
+            .Get()
+            .ScanModifiedAssetFiles(
+                {SourceMapFilename, SourceActorFilename});
+        const FAssetData SourceWorldAsset =
+            FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+                TEXT("AssetRegistry"))
+                .Get()
+                .GetAssetByObjectPath(
+                    FSoftObjectPath(SourceObjectPath),
+                    true);
+        const bool bSourceMapPackageLoaded =
+            FindPackage(nullptr, *SourcePackageName) != nullptr;
+        const bool bSourceWorldLoaded =
+            FindObject<UWorld>(nullptr, *SourceObjectPath) != nullptr;
+        const bool bSourceActorPackageLoaded =
+            FindPackage(nullptr, *SourceActorPackageName) != nullptr;
+        const bool bSourceUsesExternalActors =
+            ULevel::GetIsLevelUsingExternalActorsFromPackage(
+                FName(*SourcePackageName));
+        if (bSourceMapPackageLoaded
+            || bSourceWorldLoaded
+            || bSourceActorPackageLoaded
+            || !SourceWorldAsset.IsValid()
+            || !SourceWorldAsset.IsTopLevelAsset()
+            || SourceWorldAsset.PackageName
+                != FName(*SourcePackageName)
+            || SourceWorldAsset.AssetClassPath
+                != UWorld::StaticClass()->GetClassPathName()
+            || !bSourceUsesExternalActors)
+        {
+            OutError = FString::Printf(
+                TEXT("The saved World Partition source did not reach a durable unloaded Asset Registry state (mapPackageLoaded=%s, worldLoaded=%s, actorPackageLoaded=%s, assetValid=%s, topLevel=%s, assetPackage='%s', assetClass='%s', externalActorsTag=%s)."),
+                bSourceMapPackageLoaded ? TEXT("true") : TEXT("false"),
+                bSourceWorldLoaded ? TEXT("true") : TEXT("false"),
+                bSourceActorPackageLoaded ? TEXT("true") : TEXT("false"),
+                SourceWorldAsset.IsValid() ? TEXT("true") : TEXT("false"),
+                SourceWorldAsset.IsTopLevelAsset()
+                    ? TEXT("true")
+                    : TEXT("false"),
+                *SourceWorldAsset.PackageName.ToString(),
+                *SourceWorldAsset.AssetClassPath.ToString(),
+                bSourceUsesExternalActors ? TEXT("true") : TEXT("false"));
+            return false;
+        }
+
+        if (!bOriginalLoadingInEditor)
+        {
+            // UWorldPartition creates its force-load adapter only during
+            // initialization. Restore the user's global setting immediately
+            // after creating this isolated World.
+            SetLoadingInEditorWithoutRetrofittingActiveWorld(true);
+        }
+
+        UPackage* Package = CreatePackage(*PackageName);
+        World = UWorld::CreateWorld(
+            EWorldType::Editor,
+            false,
+            FName(TEXT("L_WP_UnloadedActor")),
+            Package,
+            false,
+            ERHIFeatureLevel::Num,
+            &InitValues);
+
+        if (!bOriginalLoadingInEditor)
+        {
+            SetLoadingInEditorWithoutRetrofittingActiveWorld(false);
+        }
+
+        if (World == nullptr
+            || World->GetPathName() != ObjectPath
+            || World->PersistentLevel == nullptr
+            || !World->PersistentLevel->IsUsingExternalActors())
+        {
+            OutError = TEXT(
+                "UE failed to create an exact external-Actor World Partition test map.");
+            return false;
+        }
+        WorldRoot.Reset(World);
+        World->SetFlags(RF_Public | RF_Standalone | RF_Transactional);
+        FAssetRegistryModule::AssetCreated(World);
+        bWorldRegistered = true;
+
+        WorldPartition = World->GetWorldPartition();
+        RootContainer = WorldPartition != nullptr
+            ? WorldPartition->GetActorDescContainerInstance()
+            : nullptr;
+        if (!IsValid(WorldPartition)
+            || !IsValid(RootContainer)
+            || !RootContainer->IsInitialized()
+            || RootContainer->GetContainerPackage()
+                != World->GetOutermost()->GetFName()
+            || RootContainer->GetParentContainerInstance() != nullptr)
+        {
+            OutError = TEXT(
+                "UE did not initialize the saved map's root World Partition descriptor index.");
+            return false;
+        }
+
+        FActorSpawnParameters SpawnParams;
+        SpawnParams.Name = FName(TEXT("PCG_UnloadedRootOwner"));
+        SpawnParams.OverrideLevel = World->PersistentLevel;
+        SpawnParams.ObjectFlags = RF_Transactional;
+        APCGVolume* Owner = World->SpawnActor<APCGVolume>(
+            APCGVolume::StaticClass(),
+            FTransform(FVector(3200.0, 1600.0, 100.0)),
+            SpawnParams);
+        UPCGComponent* Component = Owner != nullptr
+            ? Owner->PCGComponent.Get()
+            : nullptr;
+        if (Owner == nullptr
+            || Component == nullptr
+            || !Owner->GetActorGuid().IsValid()
+            || !Owner->IsPackageExternal()
+            || !Owner->GetIsSpatiallyLoaded()
+            || Component->CreationMethod
+                != EComponentCreationMethod::Native
+            || Component->GetConstOriginalComponent() != Component)
+        {
+            OutError = TEXT(
+                "UE failed to create a spatial external root Actor with a durable native PCG Component.");
+            return false;
+        }
+        Owner->SetActorLabel(
+            TEXT("Loomle Unloaded World Partition Root"),
+            false);
+        ActorId = Owner->GetActorGuid();
+        ActorObjectPath = Owner->GetPathName();
+        PCGComponentId = Component->GetFName().ToString();
+
+        UPackage* ExternalPackage = Owner->GetExternalPackage();
+        if (ExternalPackage == nullptr
+            || ExternalPackage == World->GetOutermost())
+        {
+            OutError = TEXT(
+                "The World Partition Actor was not assigned a genuine external package.");
+            return false;
+        }
+        ActorPackageName = ExternalPackage->GetName();
+        ActorFilename = FPackageName::LongPackageNameToFilename(
+            ActorPackageName,
+            FPackageName::GetAssetPackageExtension());
+        IFileManager::Get().MakeDirectory(
+            *FPaths::GetPath(ActorFilename),
+            true);
+        if (!ActorPackageName.StartsWith(
+                ULevel::GetExternalActorsPath(PackageName)
+                    + TEXT("/")))
+        {
+            OutError = TEXT(
+                "The Actor package is not under the map's native ExternalActors path.");
+            return false;
+        }
+
+        FActorSpawnParameters LevelInstanceSpawnParams;
+        LevelInstanceSpawnParams.Name =
+            FName(TEXT("LI_UnloadedRootPlacement"));
+        LevelInstanceSpawnParams.OverrideLevel = World->PersistentLevel;
+        LevelInstanceSpawnParams.ObjectFlags = RF_Transactional;
+        ALevelInstance* LevelInstance =
+            World->SpawnActor<ALevelInstance>(
+                ALevelInstance::StaticClass(),
+                FTransform(FVector(-2400.0, 800.0, 0.0)),
+                LevelInstanceSpawnParams);
+        const TSoftObjectPtr<UWorld> SourceAsset{
+            FSoftObjectPath(SourceObjectPath)};
+        if (LevelInstance == nullptr
+            || !LevelInstance->SetWorldAsset(SourceAsset)
+            || LevelInstance->GetWorldAsset().ToSoftObjectPath().ToString()
+                != SourceObjectPath
+            || LevelInstance->GetWorldAsset().Get() != nullptr
+            || !LevelInstance->GetActorGuid().IsValid()
+            || !LevelInstance->IsPackageExternal()
+            || !LevelInstance->GetIsSpatiallyLoaded())
+        {
+            OutError = TEXT(
+                "UE failed to create an unloaded-source external Level Instance root placement.");
+            return false;
+        }
+        LevelInstance->SetActorLabel(
+            TEXT("Loomle Unloaded Root Level Instance"),
+            false);
+        LevelInstanceActorId = LevelInstance->GetActorGuid();
+        LevelInstanceActorObjectPath = LevelInstance->GetPathName();
+        UPackage* LevelInstanceExternalPackage =
+            LevelInstance->GetExternalPackage();
+        if (LevelInstanceExternalPackage == nullptr
+            || LevelInstanceExternalPackage == World->GetOutermost())
+        {
+            OutError = TEXT(
+                "The Level Instance placement was not assigned a genuine external package.");
+            return false;
+        }
+        LevelInstanceActorPackageName =
+            LevelInstanceExternalPackage->GetName();
+        LevelInstanceActorFilename =
+            FPackageName::LongPackageNameToFilename(
+                LevelInstanceActorPackageName,
+                FPackageName::GetAssetPackageExtension());
+        IFileManager::Get().MakeDirectory(
+            *FPaths::GetPath(LevelInstanceActorFilename),
+            true);
+        if (!LevelInstanceActorPackageName.StartsWith(
+                ULevel::GetExternalActorsPath(PackageName)
+                    + TEXT("/")))
+        {
+            OutError = TEXT(
+                "The Level Instance placement package is not under the containing map's native ExternalActors path.");
+            return false;
+        }
+
+        // Match UE's native map-save ordering: persist the map while its
+        // external Actor is loaded, then persist and release external
+        // packages. This lets UWorldPartition::PreSave gather the authored
+        // external reference before the descriptor-only state is established.
+        World->GetOutermost()->SetDirtyFlag(true);
+        World->GetOutermost()->FullyLoad();
+        if (!UPackage::SavePackage(
+                World->GetOutermost(),
+                World,
+                *MapFilename,
+                SaveArgs))
+        {
+            OutError = TEXT(
+                "UE failed to save the World Partition map package.");
+            return false;
+        }
+        World->GetOutermost()->SetDirtyFlag(false);
+
+        ExternalPackage->SetDirtyFlag(true);
+        LevelInstanceExternalPackage->SetDirtyFlag(true);
+        {
+            // This is UE's public save-time scope for ensuring a newly saved
+            // spatial Actor (including a Level Instance placement) is
+            // released instead of silently transferred to the editor pin
+            // adapter.
+            UWorldPartition::FDisableNonDirtyActorTrackingScope NoAutoPin(
+                WorldPartition,
+                true);
+            if (!UPackage::SavePackage(
+                    ExternalPackage,
+                    Owner,
+                    *ActorFilename,
+                    SaveArgs))
+            {
+                OutError = TEXT(
+                    "UE failed to save the genuine external Actor package.");
+                return false;
+            }
+            ExternalPackage->SetDirtyFlag(false);
+            if (!UPackage::SavePackage(
+                    LevelInstanceExternalPackage,
+                    LevelInstance,
+                    *LevelInstanceActorFilename,
+                    SaveArgs))
+            {
+                OutError = TEXT(
+                    "UE failed to save the genuine external Level Instance placement package.");
+                return false;
+            }
+            LevelInstanceExternalPackage->SetDirtyFlag(false);
+        }
+
+        Descriptor = RootContainer->GetActorDescInstance(ActorId);
+        if (Descriptor == nullptr
+            || Descriptor->GetActorDesc() == nullptr
+            || Descriptor->GetContainerInstance() != RootContainer
+            || Descriptor->IsChildContainerInstance()
+            || Descriptor->GetActorDesc()->GetActorPackage()
+                != FName(*ActorPackageName))
+        {
+            OutError = TEXT(
+                "Saving the external Actor did not publish one genuine root Actor descriptor.");
+            return false;
+        }
+
+        LevelInstanceDescriptor =
+            RootContainer->GetActorDescInstance(LevelInstanceActorId);
+        if (LevelInstanceDescriptor == nullptr
+            || LevelInstanceDescriptor->GetActorDesc() == nullptr
+            || LevelInstanceDescriptor->GetContainerInstance()
+                != RootContainer
+            || !LevelInstanceDescriptor->IsChildContainerInstance()
+            || LevelInstanceDescriptor->GetActorDesc()
+                ->GetActorPackage()
+                != FName(*LevelInstanceActorPackageName)
+            || LevelInstanceDescriptor->GetActorDesc()
+                ->GetChildContainerPackage()
+                != FName(*SourcePackageName)
+            || LevelInstanceDescriptor->GetActorDesc()
+                ->GetActorNativeClass() == nullptr
+            || !LevelInstanceDescriptor->GetActorDesc()
+                ->GetActorNativeClass()
+                ->IsChildOf(ALevelInstance::StaticClass()))
+        {
+            OutError = TEXT(
+                "Saving the Level Instance did not publish a genuine root descriptor with its source child-container package.");
+            return false;
+        }
+        const TObjectPtr<UActorDescContainerInstance>* ChildContainerPtr =
+            RootContainer->GetChildContainerInstances().Find(
+                LevelInstanceActorId);
+        ChildContainer = ChildContainerPtr != nullptr
+            ? ChildContainerPtr->Get()
+            : nullptr;
+        SourceChildDescriptor = ChildContainer != nullptr
+            ? ChildContainer->GetActorDescInstance(SourceActorId)
+            : nullptr;
+        if (RootContainer->GetChildContainerInstances().Num() != 1
+            || !IsValid(ChildContainer)
+            || !ChildContainer->IsInitialized()
+            || ChildContainer->GetContainerPackage()
+                != FName(*SourcePackageName)
+            || ChildContainer->GetParentContainerInstance()
+                != RootContainer
+            || SourceChildDescriptor == nullptr
+            || SourceChildDescriptor->GetActorDesc() == nullptr
+            || SourceChildDescriptor->GetContainerInstance()
+                != ChildContainer
+            || SourceChildDescriptor->IsLoaded()
+            || SourceChildDescriptor->GetActor() != nullptr
+            || SourceChildDescriptor->GetActorDesc()->GetActorPackage()
+                != FName(*SourceActorPackageName)
+            || RootContainer->GetActorDescInstance(SourceActorId)
+                != nullptr
+            || !ChildContainer->GetChildContainerInstances().IsEmpty()
+            || FindPackage(nullptr, *SourcePackageName) != nullptr
+            || FindPackage(nullptr, *SourceActorPackageName) != nullptr
+            || HasLoadedSourceInstancePackage())
+        {
+            OutError = TEXT(
+                "UE failed to retain a descriptor-only child-container hierarchy for the unloaded Level Instance source.");
+            return false;
+        }
+
+        FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+            TEXT("AssetRegistry"))
+            .Get()
+            .ScanModifiedAssetFiles(
+                {MapFilename,
+                 ActorFilename,
+                 LevelInstanceActorFilename});
+
+        WorldPartition->UnpinActors(
+            {ActorId, LevelInstanceActorId});
+        if (Descriptor->IsLoaded())
+        {
+            FWorldPartitionReference ReleaseLoadedActor(
+                RootContainer,
+                ActorId);
+            if (!ReleaseLoadedActor.IsValid())
+            {
+                OutError = TEXT(
+                    "UE could not bind the saved Actor descriptor through its public reference API.");
+                return false;
+            }
+            ReleaseLoadedActor.Reset();
+        }
+        if (LevelInstanceDescriptor->IsLoaded())
+        {
+            FWorldPartitionReference ReleaseLevelInstance(
+                RootContainer,
+                LevelInstanceActorId);
+            if (!ReleaseLevelInstance.IsValid())
+            {
+                OutError = TEXT(
+                    "UE could not bind the saved Level Instance descriptor through its public reference API.");
+                return false;
+            }
+            ReleaseLevelInstance.Reset();
+        }
+        Owner = nullptr;
+        Component = nullptr;
+        ExternalPackage = nullptr;
+        LevelInstance = nullptr;
+        LevelInstanceExternalPackage = nullptr;
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+
+        Descriptor = RootContainer->GetActorDescInstance(ActorId);
+        LevelInstanceDescriptor =
+            RootContainer->GetActorDescInstance(LevelInstanceActorId);
+        ChildContainerPtr = RootContainer->GetChildContainerInstances()
+            .Find(LevelInstanceActorId);
+        ChildContainer = ChildContainerPtr != nullptr
+            ? ChildContainerPtr->Get()
+            : nullptr;
+        SourceChildDescriptor = ChildContainer != nullptr
+            ? ChildContainer->GetActorDescInstance(SourceActorId)
+            : nullptr;
+        if (Descriptor == nullptr
+            || Descriptor->IsLoaded()
+            || Descriptor->GetActor() != nullptr
+            || LevelInstanceDescriptor == nullptr
+            || LevelInstanceDescriptor->IsLoaded()
+            || LevelInstanceDescriptor->GetActor() != nullptr
+            || LevelInstanceDescriptor->GetActorDesc() == nullptr
+            || LevelInstanceDescriptor->GetActorDesc()
+                ->GetChildContainerPackage()
+                != FName(*SourcePackageName)
+            || SourceChildDescriptor == nullptr
+            || SourceChildDescriptor->IsLoaded()
+            || SourceChildDescriptor->GetActor() != nullptr
+            || WorldPartition->IsActorPinned(ActorId)
+            || WorldPartition->IsActorPinned(LevelInstanceActorId)
+            || FindPackage(nullptr, *ActorPackageName) != nullptr
+            || FindPackage(
+                nullptr,
+                *LevelInstanceActorPackageName) != nullptr
+            || FindPackage(nullptr, *SourcePackageName) != nullptr
+            || FindPackage(nullptr, *SourceActorPackageName) != nullptr
+            || HasLoadedSourceInstancePackage()
+            || !IFileManager::Get().FileExists(*MapFilename)
+            || !IFileManager::Get().FileExists(*ActorFilename)
+            || !IFileManager::Get().FileExists(
+                *LevelInstanceActorFilename)
+            || !IFileManager::Get().FileExists(*SourceMapFilename)
+            || !IFileManager::Get().FileExists(*SourceActorFilename))
+        {
+            OutError = TEXT(
+                "The saved external Actors did not reach a genuine root-and-child descriptor-only unloaded state.");
+            return false;
+        }
+        RootDescriptorCount = RootContainer->GetActorDescInstanceCount();
+        ChildDescriptorCount =
+            ChildContainer->GetActorDescInstanceCount();
+        PersistentActorSlotCount = World->PersistentLevel->Actors.Num();
+        return true;
+    }
+
+    bool Activate(FString& OutError)
+    {
+        if (GEditor == nullptr || World == nullptr)
+        {
+            OutError = TEXT(
+                "Cannot activate a null World Partition fixture in the Editor context.");
+            return false;
+        }
+        FWorldContext& Context = GEditor->GetEditorWorldContext();
+        if (!bEditorContextChanged)
+        {
+            OriginalEditorWorld = Context.World();
+            bEditorContextChanged = true;
+        }
+        Context.SetCurrentWorld(World);
+        if (Context.World() != World)
+        {
+            OutError = TEXT(
+                "UE failed to bind the World Partition fixture to the Editor context.");
+            return false;
+        }
+        return true;
+    }
+
+    TArray<FString> SavedFiles() const
+    {
+        return {
+            SourceMapFilename,
+            SourceActorFilename,
+            MapFilename,
+            ActorFilename,
+            LevelInstanceActorFilename};
+    }
+
+    bool VerifyDescriptorOnlyState() const
+    {
+        if (World == nullptr
+            || WorldPartition == nullptr
+            || RootContainer == nullptr)
+        {
+            return false;
+        }
+        FWorldPartitionActorDescInstance* Current =
+            RootContainer->GetActorDescInstance(ActorId);
+        FWorldPartitionActorDescInstance* CurrentLevelInstance =
+            RootContainer->GetActorDescInstance(LevelInstanceActorId);
+        const TObjectPtr<UActorDescContainerInstance>* ChildContainerPtr =
+            RootContainer->GetChildContainerInstances().Find(
+                LevelInstanceActorId);
+        UActorDescContainerInstance* CurrentChildContainer =
+            ChildContainerPtr != nullptr
+            ? ChildContainerPtr->Get()
+            : nullptr;
+        FWorldPartitionActorDescInstance* CurrentSourceChild =
+            CurrentChildContainer != nullptr
+            ? CurrentChildContainer->GetActorDescInstance(SourceActorId)
+            : nullptr;
+        const bool bLoadingSettingPreserved =
+            IWorldPartitionEditorModule::Get().GetEnableLoadingInEditor()
+                == bExpectedLoadingInEditor;
+        return Current == Descriptor
+            && Current != nullptr
+            && Current->GetActorDesc() != nullptr
+            && Current->GetContainerInstance() == RootContainer
+            && !Current->IsChildContainerInstance()
+            && !Current->IsLoaded()
+            && Current->GetActor() == nullptr
+            && CurrentLevelInstance == LevelInstanceDescriptor
+            && CurrentLevelInstance != nullptr
+            && CurrentLevelInstance->GetActorDesc() != nullptr
+            && CurrentLevelInstance->GetContainerInstance()
+                == RootContainer
+            && CurrentLevelInstance->IsChildContainerInstance()
+            && !CurrentLevelInstance->IsLoaded()
+            && CurrentLevelInstance->GetActor() == nullptr
+            && CurrentLevelInstance->GetActorDesc()
+                ->GetChildContainerPackage()
+                == FName(*SourcePackageName)
+            && RootContainer->GetActorDescInstanceCount()
+                == RootDescriptorCount
+            && RootContainer->GetChildContainerInstances().Num() == 1
+            && CurrentChildContainer == ChildContainer
+            && IsValid(CurrentChildContainer)
+            && CurrentChildContainer->IsInitialized()
+            && CurrentChildContainer->GetContainerPackage()
+                == FName(*SourcePackageName)
+            && CurrentChildContainer->GetParentContainerInstance()
+                == RootContainer
+            && CurrentChildContainer->GetActorDescInstanceCount()
+                == ChildDescriptorCount
+            && CurrentChildContainer->GetChildContainerInstances()
+                .IsEmpty()
+            && CurrentSourceChild == SourceChildDescriptor
+            && CurrentSourceChild != nullptr
+            && CurrentSourceChild->GetActorDesc() != nullptr
+            && CurrentSourceChild->GetContainerInstance()
+                == CurrentChildContainer
+            && !CurrentSourceChild->IsLoaded()
+            && CurrentSourceChild->GetActor() == nullptr
+            && CurrentSourceChild->GetActorDesc()->GetActorPackage()
+                == FName(*SourceActorPackageName)
+            && RootContainer->GetActorDescInstance(SourceActorId)
+                == nullptr
+            && !WorldPartition->IsActorPinned(ActorId)
+            && !WorldPartition->IsActorPinned(LevelInstanceActorId)
+            && bLoadingSettingPreserved
+            && !World->GetOutermost()->IsDirty()
+            && FindPackage(nullptr, *ActorPackageName) == nullptr
+            && FindPackage(
+                nullptr,
+                *LevelInstanceActorPackageName) == nullptr
+            && FindPackage(nullptr, *SourcePackageName) == nullptr
+            && FindPackage(nullptr, *SourceActorPackageName) == nullptr
+            && !HasLoadedSourceInstancePackage()
+            && World->PersistentLevel != nullptr
+            && World->PersistentLevel->Actors.Num()
+                == PersistentActorSlotCount;
+    }
+
+    bool Cleanup(FString& OutError)
+    {
+        OutError.Reset();
+        if (bCleaned)
+        {
+            return true;
+        }
+        bCleaned = true;
+
+        if (bEditorContextChanged && GEditor != nullptr)
+        {
+            GEditor->GetEditorWorldContext().SetCurrentWorld(
+                OriginalEditorWorld);
+            bEditorContextChanged = false;
+        }
+
+        if (World != nullptr)
+        {
+            if (bWorldRegistered)
+            {
+                FAssetRegistryModule::AssetDeleted(World);
+                bWorldRegistered = false;
+            }
+            UPackage* Package = World->GetOutermost();
+            World->DestroyWorld(false);
+            PrepareLevelPackageForCollection(Package);
+            World = nullptr;
+        }
+        if (SourceWorld != nullptr)
+        {
+            UPackage* Package = SourceWorld->GetOutermost();
+            SourceWorld->DestroyWorld(false);
+            PrepareLevelPackageForCollection(Package);
+            SourceWorld = nullptr;
+        }
+        for (const FString& FixturePackageName : {
+                 PackageName,
+                 ActorPackageName,
+                 LevelInstanceActorPackageName,
+                 SourcePackageName,
+                 SourceActorPackageName})
+        {
+            if (!FixturePackageName.IsEmpty())
+            {
+                PrepareLevelPackageForCollection(
+                    FindPackage(nullptr, *FixturePackageName));
+            }
+        }
+        Descriptor = nullptr;
+        LevelInstanceDescriptor = nullptr;
+        SourceChildDescriptor = nullptr;
+        ChildContainer = nullptr;
+        RootContainer = nullptr;
+        WorldPartition = nullptr;
+        SourceRootContainer = nullptr;
+        SourceWorldPartition = nullptr;
+        WorldRoot.Reset();
+        SourceWorldRoot.Reset();
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+
+        TArray<FString> DeletedFiles;
+        for (const FString& Filename : {
+                 ActorFilename,
+                 LevelInstanceActorFilename,
+                 MapFilename,
+                 SourceActorFilename,
+                 SourceMapFilename})
+        {
+            if (!Filename.IsEmpty())
+            {
+                IFileManager::Get().Delete(
+                    *Filename,
+                    false,
+                    true,
+                    true);
+                DeletedFiles.Add(Filename);
+            }
+        }
+        if (!DeletedFiles.IsEmpty())
+        {
+            FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+                TEXT("AssetRegistry"))
+                .Get()
+                .ScanModifiedAssetFiles(DeletedFiles);
+        }
+        for (const FString& LoadedPackageName : {
+                 PackageName,
+                 ActorPackageName,
+                 LevelInstanceActorPackageName,
+                 SourcePackageName,
+                 SourceActorPackageName})
+        {
+            if (!LoadedPackageName.IsEmpty()
+                && FindPackage(
+                    nullptr,
+                    *LoadedPackageName) != nullptr
+                && OutError.IsEmpty())
+            {
+                OutError = TEXT(
+                    "World Partition fixture package remained loaded during cleanup: ")
+                    + LoadedPackageName;
+            }
+        }
+        if (HasLoadedSourceInstancePackage()
+            && OutError.IsEmpty())
+        {
+            OutError = TEXT(
+                "World Partition fixture retained a temporary Level Instance source package during cleanup: ")
+                + SourcePackageName;
+        }
+        return OutError.IsEmpty();
+    }
+
+    FString PackageName;
+    FString ObjectPath;
+    FString MapFilename;
+    FString SourcePackageName;
+    FString SourceObjectPath;
+    FString SourceMapFilename;
+    FString SourceActorPackageName;
+    FString SourceActorFilename;
+    FString SourceActorObjectPath;
+    FString ActorPackageName;
+    FString ActorFilename;
+    FString ActorObjectPath;
+    FString LevelInstanceActorPackageName;
+    FString LevelInstanceActorFilename;
+    FString LevelInstanceActorObjectPath;
+    FString PCGComponentId;
+    FGuid ActorId;
+    FGuid LevelInstanceActorId;
+    FGuid SourceActorId;
+    UWorld* World = nullptr;
+    UWorldPartition* WorldPartition = nullptr;
+    UActorDescContainerInstance* RootContainer = nullptr;
+    FWorldPartitionActorDescInstance* Descriptor = nullptr;
+
+private:
+    bool HasLoadedSourceInstancePackage() const
+    {
+        if (SourcePackageName.IsEmpty())
+        {
+            return false;
+        }
+        const FString Prefix = TEXT("/Temp")
+            + FPackageName::GetLongPackagePath(SourcePackageName)
+            + TEXT("/")
+            + FPackageName::GetShortName(SourcePackageName)
+            + TEXT("_LevelInstance_");
+        for (TObjectIterator<UPackage> It; It; ++It)
+        {
+            if (It->GetName().StartsWith(Prefix))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    TStrongObjectPtr<UWorld> WorldRoot;
+    TStrongObjectPtr<UWorld> SourceWorldRoot;
+    UWorld* SourceWorld = nullptr;
+    UWorldPartition* SourceWorldPartition = nullptr;
+    UActorDescContainerInstance* SourceRootContainer = nullptr;
+    UActorDescContainerInstance* ChildContainer = nullptr;
+    FWorldPartitionActorDescInstance* LevelInstanceDescriptor = nullptr;
+    FWorldPartitionActorDescInstance* SourceChildDescriptor = nullptr;
+    UWorld* OriginalEditorWorld = nullptr;
+    uint32 RootDescriptorCount = 0;
+    uint32 ChildDescriptorCount = 0;
+    int32 PersistentActorSlotCount = 0;
+    bool bWorldRegistered = false;
+    bool bEditorContextChanged = false;
+    bool bExpectedLoadingInEditor = true;
+    bool bCleaned = false;
+};
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelWorldPartitionUnloadedRootActorTest,
+    "Loomle.Sal.Level.Query.WorldPartitionUnloadedRootActor",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelWorldPartitionUnloadedRootActorTest::RunTest(
+    const FString& Parameters)
+{
+    FScopedLevelWorldPartitionQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(
+            TEXT("A genuine saved World Partition fixture builds"),
+            Fixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("The World Partition source becomes the active Editor World"),
+            Fixture.Activate(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("The fixture begins with descriptor-only unloaded root and child-container Actors"),
+            Fixture.VerifyDescriptorOnlyState()))
+    {
+        return false;
+    }
+
+    const TSharedRef<FJsonObject> Target = LevelTarget(
+        Fixture.ObjectPath,
+        UWorld::StaticClass()->GetPathName());
+    const FString ActorId = LevelGuidText(Fixture.ActorId);
+    const FString LevelInstanceActorId =
+        LevelGuidText(Fixture.LevelInstanceActorId);
+    const FString SourceActorId =
+        LevelGuidText(Fixture.SourceActorId);
+    const TArray<FString> SavedFiles = Fixture.SavedFiles();
+    TArray<FDateTime> SavedFileTimestampsBefore;
+    TArray<int64> SavedFileSizesBefore;
+    for (const FString& Filename : SavedFiles)
+    {
+        SavedFileTimestampsBefore.Add(
+            IFileManager::Get().GetTimeStamp(*Filename));
+        SavedFileSizesBefore.Add(
+            IFileManager::Get().FileSize(*Filename));
+    }
+    const int32 UndoBefore =
+        GEditor != nullptr && GEditor->Trans != nullptr
+        ? GEditor->Trans->GetUndoCount()
+        : -1;
+    const int32 QueueBefore =
+        GEditor != nullptr && GEditor->Trans != nullptr
+        ? GEditor->Trans->GetQueueLength()
+        : -1;
+    TArray<AActor*> SelectedActorsBefore;
+    TArray<UActorComponent*> SelectedComponentsBefore;
+    if (GEditor != nullptr)
+    {
+        GEditor->GetSelectedActors()->GetSelectedObjects<AActor>(
+            SelectedActorsBefore);
+        GEditor->GetSelectedComponents()->GetSelectedObjects<UActorComponent>(
+            SelectedComponentsBefore);
+    }
+    FLevelReadInvariant Invariant(Fixture.World);
+    int32 TransactionEvents = 0;
+    const FDelegateHandle TransactionHandle =
+        FCoreUObjectDelegates::OnObjectTransacted.AddLambda(
+            [&TransactionEvents](UObject*, const FTransactionObjectEvent&)
+            {
+                ++TransactionEvents;
+            });
+
+    const TSharedPtr<FJsonObject> SubobjectTargetResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                LevelTarget(
+                    Fixture.ObjectPath + TEXT(":PersistentLevel"),
+                    UWorld::StaticClass()->GetPathName()),
+                LevelOperation(TEXT("target"))));
+    TestTrue(
+        TEXT("A Level Target cannot use a saved map subobject path"),
+        LevelHasDiagnostic(
+            SubobjectTargetResult,
+            TEXT("validation.invalid_target"))
+            && LevelHasTargetContext(
+                SubobjectTargetResult,
+                TEXT("unresolved_target"))
+            && !Fixture.World->GetOutermost()->IsDirty()
+            && Fixture.VerifyDescriptorOnlyState());
+
+    const TSharedPtr<FJsonObject> SummaryResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelOperation(TEXT("summary"))));
+    const TSharedPtr<FJsonObject> SummaryFields =
+        FirstLevelAssetFields(SummaryResult);
+    double UnloadedDescriptorCount = 0.0;
+    bool bIdentityComplete = false;
+    TestTrue(
+        TEXT("Level summary counts both unloaded root descriptors but not the child container in a complete identity audit"),
+        !LevelHasError(SummaryResult)
+            && SummaryFields.IsValid()
+            && SummaryFields->TryGetNumberField(
+                TEXT("unloadedDescriptorCount"),
+                UnloadedDescriptorCount)
+            && UnloadedDescriptorCount >= 2.0
+            && SummaryFields->TryGetBoolField(
+                TEXT("identityComplete"),
+                bIdentityComplete)
+            && bIdentityComplete);
+
+    const TSharedPtr<FJsonObject> ActorsResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelOperation(TEXT("actors"))));
+    const TArray<TSharedPtr<FJsonObject>> ActorFields =
+        LevelTaggedObjectFields(ActorsResult, TEXT("actor"));
+    const TSharedPtr<FJsonObject> CollectionMatch =
+        FindLevelFieldsById(ActorFields, ActorId);
+    FString CollectionPath;
+    FString CollectionPackage;
+    bool bCollectionLoaded = true;
+    bool bCollectionExternal = false;
+    bool bCollectionDescriptor = false;
+    bool bCollectionStable = false;
+    TestTrue(
+        TEXT("Level actors projects the genuine unloaded root descriptor exactly once"),
+        !LevelHasError(ActorsResult)
+            && CountLevelFieldsById(ActorFields, ActorId) == 1
+            && CollectionMatch.IsValid()
+            && CollectionMatch->TryGetStringField(
+                TEXT("path"),
+                CollectionPath)
+            && CollectionPath == Fixture.ActorObjectPath
+            && CollectionMatch->TryGetStringField(
+                TEXT("package"),
+                CollectionPackage)
+            && CollectionPackage == Fixture.ActorPackageName
+            && CollectionMatch->TryGetBoolField(
+                TEXT("loaded"),
+                bCollectionLoaded)
+            && !bCollectionLoaded
+            && CollectionMatch->TryGetBoolField(
+                TEXT("external"),
+                bCollectionExternal)
+            && bCollectionExternal
+            && CollectionMatch->TryGetBoolField(
+                TEXT("descriptor"),
+                bCollectionDescriptor)
+            && bCollectionDescriptor
+            && CollectionMatch->TryGetBoolField(
+                TEXT("stableRefAvailable"),
+                bCollectionStable)
+            && bCollectionStable);
+
+    const TSharedPtr<FJsonObject> LevelInstanceCollectionMatch =
+        FindLevelFieldsById(ActorFields, LevelInstanceActorId);
+    FString LevelInstanceCollectionPath;
+    FString LevelInstanceCollectionPackage;
+    FString CollectionRelatedAlias;
+    FString CollectionRelatedAsset;
+    FString CollectionSourceAlias;
+    bool bLevelInstanceCollectionLoaded = true;
+    bool bLevelInstanceCollectionExternal = false;
+    bool bLevelInstanceCollectionDescriptor = false;
+    bool bLevelInstanceCollectionStable = false;
+    bool bLevelInstanceCollectionType = false;
+    TestTrue(
+        TEXT("Level actors resolves sourceLevel and its handoff from the unloaded root Level Instance descriptor without leaking child Actors"),
+        !LevelHasError(ActorsResult)
+            && CountLevelFieldsById(
+                ActorFields,
+                LevelInstanceActorId) == 1
+            && CountLevelFieldsById(ActorFields, SourceActorId) == 0
+            && LevelInstanceCollectionMatch.IsValid()
+            && LevelInstanceCollectionMatch->TryGetStringField(
+                TEXT("path"),
+                LevelInstanceCollectionPath)
+            && LevelInstanceCollectionPath
+                == Fixture.LevelInstanceActorObjectPath
+            && LevelInstanceCollectionMatch->TryGetStringField(
+                TEXT("package"),
+                LevelInstanceCollectionPackage)
+            && LevelInstanceCollectionPackage
+                == Fixture.LevelInstanceActorPackageName
+            && LevelInstanceCollectionMatch->TryGetBoolField(
+                TEXT("levelInstance"),
+                bLevelInstanceCollectionType)
+            && bLevelInstanceCollectionType
+            && LevelInstanceCollectionMatch->TryGetBoolField(
+                TEXT("loaded"),
+                bLevelInstanceCollectionLoaded)
+            && !bLevelInstanceCollectionLoaded
+            && LevelInstanceCollectionMatch->TryGetBoolField(
+                TEXT("external"),
+                bLevelInstanceCollectionExternal)
+            && bLevelInstanceCollectionExternal
+            && LevelInstanceCollectionMatch->TryGetBoolField(
+                TEXT("descriptor"),
+                bLevelInstanceCollectionDescriptor)
+            && bLevelInstanceCollectionDescriptor
+            && LevelInstanceCollectionMatch->TryGetBoolField(
+                TEXT("stableRefAvailable"),
+                bLevelInstanceCollectionStable)
+            && bLevelInstanceCollectionStable
+            && ReadSingleRelatedLevelTarget(
+                ActorsResult,
+                CollectionRelatedAlias,
+                CollectionRelatedAsset)
+            && CollectionRelatedAsset == Fixture.SourceObjectPath
+            && HasSingleLevelHandoff(
+                ActorsResult,
+                TEXT("inspect_source_level"),
+                CollectionRelatedAlias)
+            && ReadLevelLocalField(
+                LevelInstanceCollectionMatch,
+                TEXT("sourceLevel"),
+                CollectionSourceAlias)
+            && CollectionSourceAlias == CollectionRelatedAlias);
+
+    const TSharedPtr<FJsonObject> ChildContainerSearchResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelOperation(
+                    TEXT("actors"),
+                    TEXT("Child Container Only"))));
+    TestTrue(
+        TEXT("Root Level Query does not traverse or project the child container"),
+        !LevelHasError(ChildContainerSearchResult)
+            && LevelTaggedObjectFields(
+                ChildContainerSearchResult,
+                TEXT("actor")).IsEmpty()
+            && HasNoLevelRelatedContext(
+                ChildContainerSearchResult));
+
+    const TSharedPtr<FJsonObject> ExactActorResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelExactOperation(ActorId)));
+    const TSharedPtr<FJsonObject> ExactActorFields =
+        FindLevelFieldsById(
+            LevelTaggedObjectFields(
+                ExactActorResult,
+                TEXT("actor")),
+            ActorId);
+    bool bExactLoaded = true;
+    bool bExactDescriptor = false;
+    TestTrue(
+        TEXT("Exact Actor StableRef resolves the same ActorGuid from descriptor evidence only"),
+        !LevelHasError(ExactActorResult)
+            && ExactActorFields.IsValid()
+            && ExactActorFields->TryGetBoolField(
+                TEXT("loaded"),
+                bExactLoaded)
+            && !bExactLoaded
+            && ExactActorFields->TryGetBoolField(
+                TEXT("descriptor"),
+                bExactDescriptor)
+            && bExactDescriptor);
+
+    const TSharedPtr<FJsonObject> ExactLevelInstanceResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelExactOperation(LevelInstanceActorId)));
+    const TSharedPtr<FJsonObject> ExactLevelInstanceFields =
+        FindLevelFieldsById(
+            LevelTaggedObjectFields(
+                ExactLevelInstanceResult,
+                TEXT("actor")),
+            LevelInstanceActorId);
+    FString ExactLevelInstanceRelatedAlias;
+    FString ExactLevelInstanceRelatedAsset;
+    FString ExactLevelInstanceSourceAlias;
+    bool bExactLevelInstanceLoaded = true;
+    bool bExactLevelInstanceDescriptor = false;
+    bool bExactLevelInstanceType = false;
+    TestTrue(
+        TEXT("Exact Level Instance StableRef resolves sourceLevel and its handoff from root descriptor evidence only"),
+        !LevelHasError(ExactLevelInstanceResult)
+            && ExactLevelInstanceFields.IsValid()
+            && ExactLevelInstanceFields->TryGetBoolField(
+                TEXT("levelInstance"),
+                bExactLevelInstanceType)
+            && bExactLevelInstanceType
+            && ExactLevelInstanceFields->TryGetBoolField(
+                TEXT("loaded"),
+                bExactLevelInstanceLoaded)
+            && !bExactLevelInstanceLoaded
+            && ExactLevelInstanceFields->TryGetBoolField(
+                TEXT("descriptor"),
+                bExactLevelInstanceDescriptor)
+            && bExactLevelInstanceDescriptor
+            && ReadSingleRelatedLevelTarget(
+                ExactLevelInstanceResult,
+                ExactLevelInstanceRelatedAlias,
+                ExactLevelInstanceRelatedAsset)
+            && ExactLevelInstanceRelatedAsset
+                == Fixture.SourceObjectPath
+            && HasSingleLevelHandoff(
+                ExactLevelInstanceResult,
+                TEXT("inspect_source_level"),
+                ExactLevelInstanceRelatedAlias)
+            && ReadLevelLocalField(
+                ExactLevelInstanceFields,
+                TEXT("sourceLevel"),
+                ExactLevelInstanceSourceAlias)
+            && ExactLevelInstanceSourceAlias
+                == ExactLevelInstanceRelatedAlias);
+
+    const TSharedPtr<FJsonObject> ExactChildActorResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelExactOperation(SourceActorId)));
+    TestTrue(
+        TEXT("A child-container ActorGuid is not an exact Actor of the containing Level Target"),
+        LevelHasDiagnostic(
+            ExactChildActorResult,
+            TEXT("resolution.object_not_found"))
+            && HasNoLevelRelatedContext(ExactChildActorResult));
+
+    const TSharedPtr<FJsonObject> ExactComponentResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelExactComponentOperation(
+                    ActorId,
+                    TEXT("native"),
+                    Fixture.PCGComponentId)));
+    TestTrue(
+        TEXT("Exact Level Component read refuses to load its descriptor-only owner"),
+        LevelHasDiagnostic(
+            ExactComponentResult,
+            TEXT("capability.component_owner_not_loaded")));
+
+    const TSharedPtr<FJsonObject> ExactPCGComponentResult =
+        FSalModule::BuildQueryResult(
+            PCGComponentQueryArguments(
+                PCGComponentTarget(
+                    Fixture.ObjectPath,
+                    Fixture.ActorId,
+                    TEXT("native"),
+                    Fixture.PCGComponentId),
+                LevelOperation(TEXT("target"))));
+    TestTrue(
+        TEXT("Exact PCG Component read refuses to load its descriptor-only owner"),
+        LevelHasDiagnostic(
+            ExactPCGComponentResult,
+            TEXT("capability.component_owner_not_loaded")));
+
+    FCoreUObjectDelegates::OnObjectTransacted.Remove(TransactionHandle);
+    TArray<AActor*> SelectedActorsAfter;
+    TArray<UActorComponent*> SelectedComponentsAfter;
+    if (GEditor != nullptr)
+    {
+        GEditor->GetSelectedActors()->GetSelectedObjects<AActor>(
+            SelectedActorsAfter);
+        GEditor->GetSelectedComponents()->GetSelectedObjects<UActorComponent>(
+            SelectedComponentsAfter);
+    }
+    TestTrue(
+        TEXT("Every World Partition Query preserves the descriptor-only unloaded and unpinned state"),
+        Fixture.VerifyDescriptorOnlyState());
+    bool bSavedFilesPreserved =
+        SavedFiles.Num() == SavedFileTimestampsBefore.Num()
+        && SavedFiles.Num() == SavedFileSizesBefore.Num();
+    for (int32 Index = 0;
+         bSavedFilesPreserved && Index < SavedFiles.Num();
+         ++Index)
+    {
+        bSavedFilesPreserved =
+            IFileManager::Get().GetTimeStamp(*SavedFiles[Index])
+                == SavedFileTimestampsBefore[Index]
+            && IFileManager::Get().FileSize(*SavedFiles[Index])
+                == SavedFileSizesBefore[Index];
+    }
+    TestTrue(
+        TEXT("World Partition Query does not rewrite any containing, placement, source, or child Actor package"),
+        bSavedFilesPreserved);
+    TestTrue(
+        TEXT("World Partition Query preserves the exact Actor selection"),
+        SelectedActorsAfter == SelectedActorsBefore);
+    TestTrue(
+        TEXT("World Partition Query preserves the exact Component selection"),
+        SelectedComponentsAfter == SelectedComponentsBefore);
+    TestEqual(
+        TEXT("World Partition Query emits no UObject transaction"),
+        TransactionEvents,
+        0);
+    if (GEditor != nullptr && GEditor->Trans != nullptr)
+    {
+        TestEqual(
+            TEXT("World Partition Query creates no Undo entry"),
+            GEditor->Trans->GetUndoCount(),
+            UndoBefore);
+        TestEqual(
+            TEXT("World Partition Query preserves the transaction queue"),
+            GEditor->Trans->GetQueueLength(),
+            QueueBefore);
+    }
+    TestTrue(
+        TEXT("All World Partition reads preserve the active World and authored state"),
+        Invariant.Verify(*this));
+
+    if (!Fixture.Cleanup(Error))
     {
         AddError(Error);
     }

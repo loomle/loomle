@@ -8,22 +8,27 @@
 #include "../SalObjectBuilder.h"
 #include "../SalResultTargets.h"
 #include "../SalRuntime.h"
+#include "../SalTargetResolver.h"
 #include "AssetRegistry/AssetData.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Editor.h"
+#include "Engine/Blueprint.h"
+#include "Engine/BlueprintGeneratedClass.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "Helpers/PCGHelpers.h"
 #include "LevelInstance/LevelInstanceActor.h"
 #include "LevelInstance/LevelInstanceInterface.h"
+#include "LevelInstance/LevelInstanceSubsystem.h"
 #include "Misc/PackageName.h"
 #include "Modules/ModuleManager.h"
 #include "PCGComponent.h"
 #include "UObject/Package.h"
+#include "UObject/SoftObjectPath.h"
 #include "Misc/SecureHash.h"
 #include "UObject/UObjectGlobals.h"
 #include "WorldPartition/ActorDescContainerInstance.h"
@@ -291,6 +296,223 @@ TSharedPtr<FJsonObject> LevelTargetValue(const FString& AssetPath)
         TEXT("type"),
         UWorld::StaticClass()->GetPathName());
     return Target;
+}
+
+TSharedPtr<FJsonObject> AssetTargetValue(
+    const FSalResolvedTarget& LevelTarget)
+{
+    if (LevelTarget.AssetPath.IsEmpty())
+    {
+        return nullptr;
+    }
+    TSharedPtr<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("target"));
+    Target->SetStringField(TEXT("domain"), TEXT("asset"));
+    Target->SetStringField(TEXT("path"), LevelTarget.AssetPath);
+    Target->SetStringField(TEXT("type"), TargetType(LevelTarget));
+    return Target;
+}
+
+bool IsValidDeclarationClass(const UClass* Class)
+{
+    if (!IsValid(Class)
+        || Class->HasAnyFlags(
+            IncompleteLoadFlags
+            | RF_NewerVersionExists)
+        || Class->HasAnyClassFlags(CLASS_NewerVersionExists)
+        // Native UClass singletons are intentionally RF_Transient even though
+        // their /Script identity is durable. Transient generated Classes are
+        // reconstruction products and must never become navigation Targets.
+        || (Class->HasAnyFlags(RF_Transient)
+            && !Class->HasAnyClassFlags(CLASS_Native))
+        || Class->GetName().StartsWith(TEXT("SKEL_"))
+        || Class->GetName().StartsWith(TEXT("REINST_")))
+    {
+        return false;
+    }
+    const UPackage* Package = Class->GetOutermost();
+    return Package != nullptr
+        && Package != GetTransientPackage()
+        && !Package->HasAnyFlags(RF_Transient)
+        && !Package->HasAnyPackageFlags(PKG_PlayInEditor);
+}
+
+TSharedPtr<FJsonObject> ClassTargetValue(const UClass* Class)
+{
+    if (!IsValidDeclarationClass(Class))
+    {
+        return nullptr;
+    }
+    const FString Path = Class->GetPathName();
+    if (Path.IsEmpty())
+    {
+        return nullptr;
+    }
+    TSharedPtr<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("target"));
+    Target->SetStringField(TEXT("domain"), TEXT("class"));
+    Target->SetStringField(TEXT("path"), Path);
+    return Target;
+}
+
+UBlueprint* ProvenGeneratingBlueprint(
+    UClass* CandidateClass,
+    FString& OutContainerPath)
+{
+    OutContainerPath.Reset();
+    UBlueprintGeneratedClass* GeneratedClass =
+        Cast<UBlueprintGeneratedClass>(CandidateClass);
+    UBlueprint* Blueprint = GeneratedClass != nullptr
+        ? Cast<UBlueprint>(GeneratedClass->ClassGeneratedBy)
+        : nullptr;
+    if (!IsValidDeclarationClass(GeneratedClass)
+        || !IsValid(Blueprint)
+        || Blueprint->HasAnyFlags(
+            IncompleteLoadFlags
+            | RF_Transient
+            | RF_NewerVersionExists)
+        || Blueprint->GeneratedClass != GeneratedClass
+        || !Blueprint->GetBlueprintGuid().IsValid())
+    {
+        return nullptr;
+    }
+
+    UObject* Container = Blueprint;
+    while (Container != nullptr && !Container->IsAsset())
+    {
+        Container = Container->GetOuter();
+    }
+    if (!IsValid(Container)
+        || Container->HasAnyFlags(IncompleteLoadFlags | RF_Transient)
+        || Container->GetOutermost() == GetTransientPackage()
+        || Container->GetOutermost()->HasAnyFlags(RF_Transient)
+        || Container->GetOutermost()->HasAnyPackageFlags(PKG_PlayInEditor)
+        || !(Blueprint == Container || Blueprint->IsIn(Container)))
+    {
+        return nullptr;
+    }
+    OutContainerPath = Container->GetPathName();
+    if (OutContainerPath.IsEmpty())
+    {
+        OutContainerPath.Reset();
+        return nullptr;
+    }
+    return Blueprint;
+}
+
+UClass* FindLoadedClassInActorHierarchy(
+    const AActor* Actor,
+    const FString& ExactPath)
+{
+    constexpr int32 MaxClassDepth = 256;
+    TSet<const UClass*> Seen;
+    UClass* Match = nullptr;
+    int32 MatchCount = 0;
+    int32 Depth = 0;
+    for (UClass* Current = Actor != nullptr
+             ? Actor->GetClass()
+             : nullptr;
+         Current != nullptr;
+         Current = Current->GetSuperClass())
+    {
+        if (++Depth > MaxClassDepth
+            || Seen.Contains(Current)
+            || !IsValidDeclarationClass(Current))
+        {
+            return nullptr;
+        }
+        Seen.Add(Current);
+        if (Current->GetPathName() == ExactPath)
+        {
+            Match = Current;
+            ++MatchCount;
+        }
+    }
+    return MatchCount == 1 ? Match : nullptr;
+}
+
+bool ResultHasErrorDiagnostic(
+    const TSharedPtr<FJsonObject>& Result)
+{
+    const TArray<TSharedPtr<FJsonValue>>* Diagnostics = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetArrayField(TEXT("diagnostics"), Diagnostics)
+        || Diagnostics == nullptr)
+    {
+        return true;
+    }
+    for (const TSharedPtr<FJsonValue>& Value : *Diagnostics)
+    {
+        const TSharedPtr<FJsonObject>* Diagnostic = nullptr;
+        FString Severity;
+        if (!Value.IsValid()
+            || !Value->TryGetObject(Diagnostic)
+            || Diagnostic == nullptr
+            || !(*Diagnostic).IsValid()
+            || !(*Diagnostic)->TryGetStringField(
+                TEXT("severity"),
+                Severity)
+            || Severity == TEXT("error"))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void AddSourceAssetHandoff(
+    const TSharedPtr<FJsonObject>& Result,
+    const FSalResolvedTarget& LevelTarget)
+{
+    if (ResultHasErrorDiagnostic(Result))
+    {
+        return;
+    }
+    ResultTargets::AddHandoff(
+        Result,
+        AssetTargetValue(LevelTarget),
+        TargetName(LevelTarget) + TEXT("_asset"),
+        TEXT("inspect_asset"));
+}
+
+void AddDeclarationHandoffs(
+    const TSharedPtr<FJsonObject>& Result,
+    UClass* ActualClass,
+    UClass* BlueprintDeclaringClass = nullptr,
+    const bool bUseExactBlueprintDeclaringClass = false)
+{
+    if (ResultHasErrorDiagnostic(Result))
+    {
+        return;
+    }
+
+    const TSharedPtr<FJsonObject> ClassTarget =
+        ClassTargetValue(ActualClass);
+    if (ClassTarget.IsValid())
+    {
+        ResultTargets::AddHandoff(
+            Result,
+            ClassTarget,
+            ActualClass->GetName() + TEXT("_class"),
+            TEXT("inspect_class"));
+    }
+
+    FString ContainerPath;
+    UBlueprint* Blueprint = ProvenGeneratingBlueprint(
+        bUseExactBlueprintDeclaringClass
+            ? BlueprintDeclaringClass
+            : ActualClass,
+        ContainerPath);
+    if (Blueprint != nullptr)
+    {
+        ResultTargets::AddHandoff(
+            Result,
+            ResultTargets::Blueprint(
+                ContainerPath,
+                GuidText(Blueprint->GetBlueprintGuid())),
+            Blueprint->GetName() + TEXT("_blueprint"),
+            TEXT("inspect_blueprint"));
+    }
 }
 
 struct FLevelActorEntry
@@ -2224,6 +2446,13 @@ TSharedPtr<FJsonObject> QueryExactActor(
             + TEXT("_source");
         AddLevelInstanceHandoffs(Result, {Pending});
     }
+    AActor* Actor = Match->Actor.Get();
+    if (IsValid(Actor))
+    {
+        AddDeclarationHandoffs(
+            Result,
+            Actor->GetClass());
+    }
     return Result;
 }
 
@@ -2375,6 +2604,24 @@ TSharedPtr<FJsonObject> QueryExactComponent(
             : Match->Name + TEXT("_pcg");
         AddPcgComponentHandoffs(Result, {Pending});
     }
+    UActorComponent* Component = Match->Component.Get();
+    if (IsValid(Component))
+    {
+        UClass* BlueprintDeclaringClass = nullptr;
+        if (Match->Source == TEXT("scs")
+            && !Match->DeclaringClass.IsEmpty())
+        {
+            BlueprintDeclaringClass =
+                FindLoadedClassInActorHierarchy(
+                    Match->Actor.Get(),
+                    Match->DeclaringClass);
+        }
+        AddDeclarationHandoffs(
+            Result,
+            Component->GetClass(),
+            BlueprintDeclaringClass,
+            Match->Source == TEXT("scs"));
+    }
     return Result;
 }
 }
@@ -2383,6 +2630,12 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Query(
     const FSalQuery& Query,
     const FSalResolvedTarget& Target)
 {
+    const auto Finalize = [&Target](
+        const TSharedPtr<FJsonObject>& Result)
+    {
+        AddSourceAssetHandoff(Result, Target);
+        return Result;
+    };
     FString Operation;
     if (!Query.Operation.IsValid()
         || !Query.Operation->TryGetStringField(TEXT("kind"), Operation))
@@ -2396,27 +2649,27 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Query(
     }
     if (Operation == TEXT("target"))
     {
-        return QueryTarget(Query, Target);
+        return Finalize(QueryTarget(Query, Target));
     }
     if (Operation == TEXT("summary"))
     {
-        return QuerySummary(Query, Target);
+        return Finalize(QuerySummary(Query, Target));
     }
     if (Operation == TEXT("actors"))
     {
-        return QueryActors(Query, Target);
+        return Finalize(QueryActors(Query, Target));
     }
     if (Operation == TEXT("components"))
     {
-        return QueryComponents(Query, Target);
+        return Finalize(QueryComponents(Query, Target));
     }
     if (Operation == TEXT("actor"))
     {
-        return QueryExactActor(Query, Target);
+        return Finalize(QueryExactActor(Query, Target));
     }
     if (Operation == TEXT("component"))
     {
-        return QueryExactComponent(Query, Target);
+        return Finalize(QueryExactComponent(Query, Target));
     }
     return QueryError(
         TEXT("capability.operation_unavailable"),
@@ -2426,6 +2679,228 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Query(
         Operation,
         FString(),
         {TEXT("target"), TEXT("summary"), TEXT("actors"), TEXT("components"), TEXT("actor"), TEXT("component")});
+}
+
+bool FSalLevelInterface::ResolveEditorContextTarget(
+    UWorld* EditorWorld,
+    const ULevel* SourceLevel,
+    FSalResolvedTarget& OutTarget,
+    FString& OutCode,
+    FString& OutMessage,
+    FString& OutSuggestion)
+{
+    OutTarget = FSalResolvedTarget();
+    OutCode = TEXT("resolution.unresolved_target");
+    OutMessage = TEXT(
+        "The Level Editor map has no registered persistent Level Target.");
+    OutSuggestion = TEXT(
+        "Save the current map, then retry editor with no arguments.");
+
+    if (!IsValid(EditorWorld))
+    {
+        OutCode = TEXT("context.owner_invalid");
+        OutMessage = TEXT("The Editor World is unavailable.");
+        OutSuggestion.Reset();
+        return false;
+    }
+
+    const FString EditorPackageName =
+        EditorWorld->GetOutermost()->GetName();
+    if (EditorWorld->HasAnyFlags(RF_Transient)
+        || EditorWorld->GetOutermost() == GetTransientPackage()
+        || EditorWorld->GetOutermost()->HasAnyFlags(RF_Transient)
+        || EditorWorld->GetOutermost()->HasAnyPackageFlags(PKG_PlayInEditor)
+        || !FPackageName::IsValidLongPackageName(EditorPackageName)
+        || FPackageName::IsTempPackage(EditorPackageName))
+    {
+        return false;
+    }
+    if (EditorWorld->WorldType != EWorldType::Editor
+        || EditorWorld->HasAnyFlags(IncompleteLoadFlags)
+        || GEditor == nullptr
+        || GEditor->GetEditorWorldContext().World() != EditorWorld)
+    {
+        OutCode = TEXT("context.owner_invalid");
+        OutMessage = TEXT(
+            "Editor Context accepts only the active authored Editor World, never PIE, preview, game, or a replaced World.");
+        OutSuggestion.Reset();
+        return false;
+    }
+
+    const ULevel* EffectiveLevel = SourceLevel != nullptr
+        ? SourceLevel
+        : EditorWorld->PersistentLevel;
+    if (!IsValid(EffectiveLevel)
+        || EffectiveLevel->HasAnyFlags(IncompleteLoadFlags)
+        || EffectiveLevel->GetWorld() != EditorWorld)
+    {
+        OutCode = TEXT("context.owner_invalid");
+        OutMessage = TEXT(
+            "The observed Level is unavailable or is not composed into the active Editor World.");
+        OutSuggestion.Reset();
+        return false;
+    }
+
+    FSoftObjectPath SourcePath;
+    if (ULevelInstanceSubsystem* LevelInstances =
+            EditorWorld->GetSubsystem<ULevelInstanceSubsystem>())
+    {
+        if (ILevelInstanceInterface* LevelInstance =
+                LevelInstances->GetOwningLevelInstance(EffectiveLevel))
+        {
+            SourcePath =
+                LevelInstance->GetWorldAsset().ToSoftObjectPath();
+        }
+    }
+    if (!SourcePath.IsValid())
+    {
+        UWorld* SourceWorld =
+            EffectiveLevel->GetTypedOuter<UWorld>();
+        if (!IsValid(SourceWorld)
+            || SourceWorld->PersistentLevel != EffectiveLevel)
+        {
+            OutCode = TEXT("context.native_inconsistent");
+            OutMessage = TEXT(
+                "The observed Level has no exact package-owned source World.");
+            OutSuggestion.Reset();
+            return false;
+        }
+        SourcePath = FSoftObjectPath(SourceWorld);
+    }
+    if (!SourcePath.IsValid()
+        || !SourcePath.GetSubPathString().IsEmpty())
+    {
+        OutMessage = TEXT(
+            "The observed Level source does not name one exact saved top-level map asset.");
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> TargetValue =
+        MakeShared<FJsonObject>();
+    TargetValue->SetStringField(TEXT("kind"), TEXT("target"));
+    TargetValue->SetStringField(TEXT("domain"), TEXT("level"));
+    TargetValue->SetStringField(
+        TEXT("asset"),
+        SourcePath.ToString());
+    TargetValue->SetStringField(
+        TEXT("type"),
+        UWorld::StaticClass()->GetPathName());
+    TSharedPtr<FJsonObject> ResolutionError;
+    if (!FSalTargetResolver().Resolve(
+            TEXT("level_context"),
+            TargetValue,
+            false,
+            OutTarget,
+            ResolutionError))
+    {
+        OutTarget = FSalResolvedTarget();
+        OutMessage = TEXT(
+            "The observed Level source has no registered persistent Level Target.");
+        return false;
+    }
+
+    UWorld* ExactWorld = nullptr;
+    ULevel* ExactLevel = nullptr;
+    FString Reason;
+    if (!IsExactLoadedSource(
+            OutTarget,
+            ExactWorld,
+            ExactLevel,
+            Reason)
+        || ExactLevel != EffectiveLevel)
+    {
+        OutTarget = FSalResolvedTarget();
+        OutCode = TEXT("context.native_inconsistent");
+        OutMessage = Reason.IsEmpty()
+            ? TEXT(
+                "The canonical source Level does not match the Level observed by Editor Context.")
+            : Reason;
+        OutSuggestion.Reset();
+        return false;
+    }
+
+    OutCode.Reset();
+    OutMessage.Reset();
+    OutSuggestion.Reset();
+    return true;
+}
+
+bool FSalLevelInterface::ResolveEditorContextActor(
+    const FSalResolvedTarget& Target,
+    const AActor* Actor,
+    FString& OutActorId,
+    FString& OutCode,
+    FString& OutMessage)
+{
+    OutActorId.Reset();
+    OutCode = TEXT("context.identity_missing");
+    OutMessage = TEXT(
+        "The selected Actor has no persistent identity in the exact source Level.");
+    if (!IsValid(Actor))
+    {
+        return false;
+    }
+
+    FLevelSnapshot Snapshot;
+    FString Reason;
+    if (!BuildSnapshot(
+            Target,
+            TEXT("editor_context"),
+            Snapshot,
+            Reason))
+    {
+        OutCode = TEXT("context.native_inconsistent");
+        OutMessage = Reason.IsEmpty()
+            ? TEXT(
+                "The selected Actor's exact source Level is no longer available.")
+            : Reason;
+        return false;
+    }
+    if (!Snapshot.bIdentityComplete)
+    {
+        OutCode = TEXT("context.identity_ambiguous");
+        OutMessage = TEXT(
+            "The complete root Actor/ActorDesc identity audit did not finish; selected Actor projection is fail-closed.");
+        return false;
+    }
+
+    const FLevelActorEntry* Match = nullptr;
+    int32 PointerMatches = 0;
+    for (const FLevelActorEntry& Entry : Snapshot.Actors)
+    {
+        if (Entry.Actor.Get() == Actor)
+        {
+            Match = &Entry;
+            ++PointerMatches;
+        }
+    }
+    if (PointerMatches != 1
+        || Match == nullptr
+        || !Match->bLoaded
+        || Actor->GetLevel() != Snapshot.Level)
+    {
+        OutCode = TEXT("context.native_inconsistent");
+        OutMessage = TEXT(
+            "The selected Actor is not the unique loaded authored source Actor in the canonical Level Target.");
+        return false;
+    }
+    if (!Match->Guid.IsValid()
+        || Actor->GetActorGuid() != Match->Guid)
+    {
+        return false;
+    }
+    if (Match->IdentityMultiplicity != 1)
+    {
+        OutCode = TEXT("context.identity_duplicate");
+        OutMessage = TEXT(
+            "The selected ActorGuid is duplicated in the exact Level identity environment.");
+        return false;
+    }
+
+    OutActorId = GuidText(Match->Guid);
+    OutCode.Reset();
+    OutMessage.Reset();
+    return true;
 }
 
 bool FSalLevelInterface::ResolveExactComponent(

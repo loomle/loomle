@@ -93,6 +93,21 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
       tools.tools.find((tool) => tool.name === "sal_schema")?.description,
       guide,
     );
+    assert.deepEqual(
+      ((tools.tools.find((tool) => tool.name === "sal_schema")?.inputSchema
+        .properties as Record<string, { enum?: string[] }>).module.enum),
+      [
+        "asset",
+        "blueprint",
+        "class",
+        "graph",
+        "state_tree",
+        "widget",
+        "level",
+        "pcg",
+        "pcg_component",
+      ],
+    );
     assert.equal(
       tools.tools.filter((tool) => tool.description?.includes(guide)).length,
       1,
@@ -113,6 +128,14 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
       tools.tools.find((tool) => tool.name === "python")?.description ?? "",
       /Before run, load use-unreal-python/,
     );
+
+    const pcgComponentSchema = await client.callTool({
+      name: "sal_schema",
+      arguments: { module: "pcg_component" },
+    });
+    assert.notEqual(pcgComponentSchema.isError, true);
+    assert.match(JSON.stringify(pcgComponentSchema), /# pcg_component/);
+    assert.match(JSON.stringify(pcgComponentSchema), /accepts no Patch Target/);
 
     const pythonSkill = await client.callTool({
       name: "agent_skill",

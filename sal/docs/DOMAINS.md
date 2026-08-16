@@ -16,7 +16,8 @@ with `Target.domain`.
 
 ## Protocol Domain Set
 
-The resident public catalog currently has six active Domain adapters:
+The resident public catalog has nine active Domain adapters. The final three
+are deliberately Query-only in protocol v6:
 
 | Domain | Target identity | Primary scope |
 | --- | --- | --- |
@@ -26,20 +27,14 @@ The resident public catalog currently has six active Domain adapters:
 | `graph` | Blueprint asset, `BlueprintGuid`, `GraphGuid` | one Graph, Nodes, Pins, Edges, Graph Palette |
 | `state_tree` | Asset Path plus verified StateTree Class | authored StateTree hierarchy and bindings |
 | `widget` | WidgetBlueprint asset plus `BlueprintGuid` | WidgetTree, Widgets, Slots, Widget Palette |
-
-Protocol v6 additionally recognizes and reserves three internal Phase-0 Domain
-keywords and Target shapes:
-
-| Domain | Canonical Target identity | Current status |
-| --- | --- | --- |
-| `level` | source-map Asset Path plus verified native Class | adapter unavailable |
-| `pcg` | PCG Graph Asset Path plus verified native Class | adapter unavailable |
-| `pcg_component` | Level asset, Actor Guid, source-aware component locator, and verified native Class | Query-shaped admission only; adapter unavailable |
+| `level` | source-map Asset Path plus verified native Class | read-only authored Actor and Component inspection |
+| `pcg` | PCG Graph Asset Path plus verified native Class | read-only PCG Graph, Node, Pin, and Edge inspection |
+| `pcg_component` | Level asset, Actor Guid, source-aware Component locator, and verified native Class | read-only Graph binding and effective Parameter inspection |
 
 All nine Domain names are structural keywords. They cannot be semantic tags,
-local aliases, or unquoted SAL Names. The three internal entries are not active
-interface cards or public operation claims; current Bridge handling fails
-closed with `capability.interface_unavailable`.
+local aliases, or unquoted SAL Names. `level`, `pcg`, and `pcg_component` are
+public Query surfaces but are absent from `PatchTarget`; their mutation and
+save contracts require a later protocol/capability release.
 
 ## Target Grammar
 
@@ -73,12 +68,10 @@ Patch requires the canonical exact form:
 - Graph: `asset + blueprintId + id`
 - StateTree: `asset + type`
 - Widget: `asset + id`
-- Level: `asset + type` (internal admission; adapter unavailable)
-- PCG: `asset + type` (internal admission; adapter unavailable)
 
-`pcg_component` is admitted for Query and canonical Result shapes only. Patch
-rejects it before adapter dispatch. Its `source` field is closed to `native`,
-`instance`, or `scs`.
+`level`, `pcg`, and `pcg_component` are admitted for Query and canonical
+Result shapes only. Patch rejects all three before adapter dispatch.
+`pcg_component.source` is closed to `native`, `instance`, or `scs`.
 
 Target fields are scalar address or verification facts. They cannot contain an
 alias, ObjectExpr, array, or another Target.

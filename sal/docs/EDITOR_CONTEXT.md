@@ -162,7 +162,7 @@ public concept. A provider:
 
 1. recognizes one exact editor surface;
 2. reads owner and selection through native public APIs;
-3. maps them to one of the six existing Domain Targets;
+3. maps them to one of the active Domain Targets;
 4. emits supported object data or faithful unsupported evidence.
 
 Priority:
@@ -301,48 +301,46 @@ uses the single-selection rules.
 
 ### Level Editor
 
-SAL currently has no Level or Actor Domain. Context may return the exact owning
-World as an Asset Target and preserve the selected Actor as ordinary evidence:
+The Level Editor maps one saved authored source map to a canonical `level`
+Target. The native top-level object is still a `UWorld`; `level` is the SAL
+ownership name for that map's authored Persistent Level state. Its canonical
+main Target is:
 
 ```sal
-result exact_target
-target world = target {
-  domain: asset,
-  path: "/Game/Maps/TestMap.TestMap",
+target {
+  domain: level,
+  asset: "/Game/Maps/TestMap.TestMap",
   type: "/Script/Engine.World"
-}
-objects
-{
-  nativeKind: "actor",
-  actorGuid: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-  label: "Enemy_2",
-  path: "/Game/Maps/TestMap.TestMap:PersistentLevel.Enemy_2",
-  type: "/Script/Engine.StaticMeshActor",
-  stableRefAvailable: false
 }
 ```
 
-`ActorGuid` is scoped to an authored Level but is not a StableRef in any of the
-six current Domain identity environments. Context does not emit a fused actor
-reference or imply a general Actor Query/Patch interface.
+With exactly one selected root authored Actor, Context reuses the Level
+adapter's complete Actor/ActorDesc identity audit before returning that
+Actor's Target-scoped `@ActorGuid`. A missing, duplicate, projected, or
+incompletely audited Actor identity fails closed. Zero or multiple selection
+retains the exact Level Target without inventing a selected object. Component
+and unsupported typed-element selections remain ordinary evidence unless a
+published Level identity can be proved; Context never fabricates a Component
+slot from its name or `CreationMethod`.
 
 For Level Instances, native authored and instance Guids remain ordinary
 evidence. A single selected Actor resolves to the saved authored World that
 owns its exact Level. For an edited Level Instance this is the source World
 reported by `ULevelInstanceSubsystem`, never the temporary instance package.
-Zero, multiple, or unsupported selections retain the Editor World owner.
-Editor Context reads Editor World, never transient PIE World.
+Zero, multiple, or unsupported selections retain the applicable authored
+source Level Target. Editor Context reads Editor World, never transient PIE or
+SIE World, and it never creates a public live-session Target.
 
 The native `SLevelViewport` widget type is direct structural evidence for the
 Level Editor even when its Focus Path contains no `SDockTab`. The broader
 `SEditorViewport` type and generic `LevelEditorViewport` metadata remain
 insufficient because asset editors and custom viewports reuse them.
 
-An unsaved Editor World has no registered persistent Asset Target. Context
+An unsaved Editor World has no registered persistent Level Target. Context
 still reports the recognized Level Editor surface and current selection state,
 but returns `unresolved_target` with a diagnostic that identifies the temporary
 map package and suggests saving the map. It never turns the transient package
-name into an Asset Target.
+name into a Level or Asset Target.
 
 ### Generic Details
 
@@ -418,7 +416,7 @@ missing Target fields.
 - multi-selection and bulk Patch;
 - selected Graph Pins;
 - Details property-row identity;
-- general Level, Actor, and Actor Component Domains;
+- persistent Component-slot projection plus Level/Actor/Component mutation;
 - Folder operations;
 - Widget animation, navigation, legacy binding, and MVVM;
 - private semantic selection from unsupported third-party editors.

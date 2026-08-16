@@ -34,9 +34,10 @@ rollback, safe cancellation, or idempotency guarantees.
 ## Calls and Interfaces Are Different
 
 The eight MCP calls describe transport, session, resident workflow, and
-fallback boundaries. The six active
-interface modules—Asset, Blueprint, Class, Graph, StateTree, and Widget—describe
-the UE objects and operations carried through `sal_query` and `sal_patch`.
+fallback boundaries. The nine active interface modules—Asset, Blueprint,
+Class, Graph, StateTree, Widget, Level, PCG, and PCG Component—describe the UE
+objects and operations carried through SAL. Level, PCG, and PCG Component are
+Query-only and are not accepted by `sal_patch` in this release.
 
 `sal_schema` connects the call and interface layers by exposing the active
 interface catalog. `agent_skill` supplies workflow policy for composing the

@@ -84,7 +84,7 @@ MCP-managed Agent Skills:
 - Skills guide use of existing Loomle tools. They grant no capabilities and
   have no separate install, update, or configuration lifecycle.
 
-Six active SAL interfaces:
+Nine active SAL interfaces:
 
 - Asset
 - Blueprint
@@ -92,6 +92,9 @@ Six active SAL interfaces:
 - Graph
 - StateTree
 - Widget
+- Level (Query only; absent from PatchTarget)
+- PCG (Query only; absent from PatchTarget)
+- PCG Component (Query only; absent from PatchTarget)
 
 Recommended workflow:
 
@@ -106,8 +109,11 @@ Recommended workflow:
 9. Apply the same authored Patch and read back.
 10. Compile and save through the owning asset.
 
-Every Query or Patch declares one flat
-`target { domain: asset|blueprint|class|graph|state_tree|widget, ... }`.
+Every Query declares one flat
+`target { domain: asset|blueprint|class|graph|state_tree|widget|level|pcg|pcg_component, ... }`.
+Patch uses the same form but accepts only Asset, Blueprint, Class, Graph,
+StateTree, and Widget in this release. Level, PCG, and PCG Component are
+Query-only and absent from PatchTarget.
 Contained objects use Target-relative `@identity/path` references; kind words
 never form part of identity. Ordinary objects use `{...}`. Optional semantic
 tags are erasable presentation metadata and never select a Domain or type.

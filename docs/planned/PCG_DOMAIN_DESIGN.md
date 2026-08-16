@@ -2,8 +2,10 @@
 
 ## Status
 
-PCG is not part of the current Loomle interface catalog. This document is the
-planned design for the authored, asset-backed SAL Domain named `pcg`.
+PCG is not part of the latest externally released Loomle interface catalog;
+that product catalog still contains six Domains. This document is the planned
+design and branch implementation contract for the authored, asset-backed SAL
+Domain named `pcg`.
 
 This document is one part of the Scene/PCG Domain family. The family-level
 ownership rules are defined in `SCENE_PCG_DOMAIN_FAMILY_DESIGN.md`; persistent
@@ -12,17 +14,30 @@ and runtime execution are defined in `PCG_RUNTIME_DOMAIN_DESIGN.md`. If a local
 operation appears possible through more than one surface, those ownership
 documents decide which adapter owns it.
 
-> Review status: the Target, identity, Query shape, and baseline authored
-> mutation boundary are ready for joint design review. Exact Palette encodings,
-> certified Settings fields, execution protocol naming, and result effect
-> schemas remain implementation release gates.
+> Review status: the Target, identity, and implemented read-only Query shape are
+> the frozen `pcg` contribution to the coordinated nine-Domain Query-only
+> release. Exact Palette encodings, certified Settings fields, mutation/save
+> effects, and execution protocol naming remain gates only for later capability
+> releases.
 
-> Current implementation slice: the internal read-only PCG Graph v1 remains on
-> Client-Bridge protocol v6 and publishes no `pcg` interface card. It implements
-> only Target open/canonicalization, `target`, `summary`, `nodes`, exact Node and
-> Pin reads, exact schema, persisted layout, and incident Edge projection.
-> `context`, `data flow`, Parameters, Palette, mutation, and execution remain
-> deferred.
+> Current implementation slice: the branch contains a nine-Domain Query-only
+> release candidate on Client-Bridge protocol v6, including the static `pcg`
+> card and offline schema. Its implemented surface remains limited to Target
+> open/canonicalization, `target`, `summary`, `nodes`, exact Node and Pin reads,
+> exact schema, persisted layout, and incident Edge projection. `context`,
+> `data flow`, Parameters, Palette, mutation, and execution remain deferred.
+
+> Current validation snapshot: the branch-local Query-only RC passes the PCG
+> Automation group 7/7 on both UE 5.7 and UE 5.8, the related Level and family
+> Phase 0 suites, both engine builds, and packaged end-to-end acceptance. The
+> protocol-v6 cards and nine-Domain catalog are formed in the branch but have
+> not been externally published.
+
+The next public milestone externally publishes that certified Query surface
+together with Query-only `level` and `pcg_component`. `pcg` is admitted only by
+`QueryTarget` and is rejected as a `PatchTarget` before Bridge dispatch.
+Authored mutation, save, execution, and the broader PCG related-Target surface
+are not gates for this first card.
 
 The baseline boundary and syntax direction are confirmed for design work:
 
@@ -43,11 +58,14 @@ The baseline boundary and syntax direction are confirmed for design work:
   separate `pcg_component` override boundary;
 - package persistence is a separate terminal-only `save` Patch.
 
-This document is not a public interface card. The internal protocol v6 Target
-reservation does not publish a static catalog entry, packaged schema, or native
-capability by itself. Exact field sets, Palette encodings, diagnostics, effect
-shapes, and new public Domain cards remain release gates until implemented and
-tested on both UE 5.7 and UE 5.8.
+This planned document is not the public card. The branch RC now contains
+`interfaces/pcg.md`, offline schema registration, the nine-Domain static
+catalog entry, and `PatchTarget` exclusion, but none is externally published.
+The branch-local UE 5.7/5.8 Query, related Level/Phase 0, build, and packaged
+end-to-end gates have passed. Final release-archive validation, Windows
+validation, and coordinated promotion remain publication gates. Palette
+encodings, writable schema, effect shapes, and persistence results gate only
+their later capabilities.
 
 ## Decision
 
@@ -77,10 +95,10 @@ failure never retries through another MCP server.
 
 ## Intent
 
-An agent should be able to inspect an existing PCG Graph, discover exact Node
-creation and field contracts, plan a topology change against real PCG native
-semantics, apply the complete edit atomically, and reopen the saved asset using
-the returned native identities.
+The full planned Domain should let an agent inspect an existing PCG Graph,
+discover exact Node creation and field contracts, plan a topology change
+against real PCG native semantics, apply the complete edit atomically, and
+reopen the saved asset using the returned native identities.
 
 The first useful workflow is:
 
@@ -92,6 +110,12 @@ The first useful workflow is:
 6. submit the live Patch;
 7. save in a separate terminal request;
 8. unload and reopen the Graph using the same Target and StableRefs.
+
+The first public milestone exposes only steps 1 and 2 for the currently
+certified Target, summary, Node, Pin, schema, layout, and Edge surface.
+Parameters, `context`, `data flow`, Palette, PCG-owned related Target/handoff
+projection, Patch, dry run, transaction, Undo, save, `sal.object()`, and
+execution remain unavailable.
 
 The Domain is valuable only if this path is materially safer and more
 deterministic than a series of independent PCG tool calls. Its surface is
@@ -1110,8 +1134,8 @@ Parameter type, or Palette id.
 
 ## Cross-Domain Handoffs
 
-This result projection is deferred beyond the current read-only slice. A later
-PCG Query may return independent related Targets:
+This result projection is deferred beyond the coordinated Query-only release.
+A later PCG Query capability may return independent related Targets:
 
 - Asset Target for the current Graph asset;
 - PCG Target for an independently saved subgraph asset;
@@ -1181,20 +1205,22 @@ exact-object, schema, layout, and Result-relationship forms already exist in
 the normalized protocol, so this slice does not bump v6 to v7. It adds no
 public MCP method or private RPC route.
 
-The current slice also creates no `interfaces/pcg.md`, static catalog entry,
-packaged schema card, or `sal_schema({module: "pcg"})` result. Later coordinated
-publication work includes:
+Historical Slice 1 created no card or catalog entry. The current branch RC now
+contains `interfaces/pcg.md`, its static catalog entry, and offline
+`sal_schema({module: "pcg"})`; these remain unpublished. External publication
+still requires:
 
 - update `LANGUAGE_CORE.md`, `DOMAINS.md`, and the local schema guide together;
-- add the static `pcg` interface card only when its advertised capability is
-  packaged and live-tested;
-- make `sal_schema({module: "pcg"})` local and Bridge-independent;
+- verify the static card and local Bridge-independent offline schema against
+  the current implementation;
 - generalize parser diagnostics that currently say "Graph Palette" when they
   mean any Pin-context Palette.
 
 Unless a later slice changes normalized wire values, those later capability and
-catalog additions continue to use protocol v6. `sal_query` and `sal_patch`
-continue to carry normalized requests through the existing private protocol.
+catalog additions continue to use protocol v6. The coordinated Query-only
+release keeps `pcg` out of `PatchTarget`. Publishing any later PCG Patch or save
+capability requires a coordinated protocol/capability bump even if the SAL
+statement spelling is unchanged.
 
 ## Implementation Slices
 
@@ -1206,10 +1232,10 @@ The family Phase 0 Target/admission and Domain-specific StableRef dispatch
 groundwork is a prerequisite. Slice 1 supplies the PCG Node/Pin lowerer but does
 not expand that groundwork with effects, save, mutation, or execution behavior.
 
-### Slice 1: Target, identity, and read-only Query
+### Slice 1: Target, identity, and read-only Query — implemented in RC
 
-- consume the internal family protocol v6 Target branch without publishing a
-  static interface card or adding a catalog/schema module;
+- at the original Slice 1 landing, consume the internal family protocol v6
+  Target branch without publishing a card or adding a catalog/schema module;
 - exact Target open/canonicalization;
 - `target`, `summary`, and bounded `nodes` Query;
 - structured Node and Pin StableRef lowering, including quoted Pin Labels and
@@ -1221,6 +1247,26 @@ not expand that groundwork with effects, save, mutation, or execution behavior.
 
 `context`, `data flow`, Parameters, Palette, related Target/handoff projection,
 all mutation, and all execution remain deferred beyond Slice 1.
+
+### Slice 1B: coordinated Query-only publication — RC implemented, branch-local acceptance passed
+
+- RC source contains Query identity persistence, pagination/cursor,
+  corruption, no-load, no-mutation, and saved-target hostile fixtures;
+- RC source contains `interfaces/pcg.md`, the offline
+  `sal_schema({module: "pcg"})` card, and branch-local nine-Domain catalog entry;
+- advertise only the Slice 1 Query surface; retain `context`, `data flow`,
+  Parameters, Palette, and PCG-owned related Target/handoff projection as exact
+  unavailable capabilities; and
+- reject `pcg` from `PatchTarget` before Bridge dispatch, with no effect, save,
+  projection, or execution schema added.
+
+The Query-only RC is branch-locally accepted but not released. Its current
+snapshot passes the PCG Automation group 7/7 on both UE 5.7 and UE 5.8, the
+related Level and family Phase 0 suites, both engine builds, and packaged
+Client/Bridge end-to-end acceptance. The protocol-v6 cards, offline schema,
+and nine-Domain catalog are complete in the branch but remain unpublished.
+Final release-archive validation, Windows validation, and the coordinated
+promotion gate remain outstanding.
 
 ### Slice 2: Blueprint-grade certified authored core
 
@@ -1241,8 +1287,7 @@ all mutation, and all execution remain deferred beyond Slice 1.
 - source-control-aware package save;
 - PCG `PreSave` snapshot and save failure semantics;
 - save/unload/reload identity and value readback;
-- static catalog and packaged Client parity;
-- targeted live MCP acceptance against both supported engines.
+- save-capability packaged acceptance against both supported engines.
 
 ### Slice 4: Capability-gated authored extensions
 
@@ -1270,8 +1315,8 @@ all mutation, and all execution remain deferred beyond Slice 1.
   Label containing `/` that remains one segment;
 - generated schema/type parity;
 - protocol remains exactly v6 across Client and Bridge Slice 1 fixtures;
-- static catalog absence and unavailable `sal_schema({module: "pcg"})` behavior
-  through Slice 1;
+- historical static-catalog absence through pre-RC Slice 1, followed by RC
+  card/catalog presence, offline schema, and `PatchTarget` rejection in 1B;
 - exact Client-Bridge protocol mismatch fixtures;
 - one-line connection formatter tests when the later mutation slice lands.
 
@@ -1355,11 +1400,34 @@ Loomle.Sal.PCG.Robust.*
 
 ## Acceptance Requirements
 
-The PCG Domain satisfies its necessary family-release gate only when:
+The PCG Domain satisfies its Query-only family-release gate when:
 
 - every canonical Target and StableRef round-trips after package reload;
 - no identity depends on Node title, localized text, facade Guid, array index,
   or synthesized Guid;
+- the advertised Target, summary, Node, Pin, schema, layout, and Edge reads are
+  deterministic, bounded, zero-load where specified, and
+  leave Graphs, external Settings, packages, delegates, and Undo unchanged;
+- every deferred Query operation returns an exact unavailable diagnostic rather
+  than a partial projection;
+- `pcg` is accepted by `QueryTarget` and rejected by `PatchTarget` before
+  Bridge dispatch;
+- both UE 5.7 and UE 5.8 targeted Query suites pass; and
+- the Client, Bridge, generated protocol, static catalog, offline card, and
+  packaged artifacts advertise the same Query-only `pcg` contract.
+
+The current branch snapshot satisfies this Query-only gate locally: the PCG
+group is 7/7 on UE 5.7 and UE 5.8, the related Level and family Phase 0 suites
+pass, both engine builds pass, and packaged end-to-end acceptance passes. The
+RC contract is distilled into `interfaces/pcg.md`, and the protocol-v6 cards,
+offline schema, and nine-Domain catalog are formed but not externally
+published. External publication still requires final release-archive and
+Windows validation plus the coordinated promotion gate with `level` and
+`pcg_component`; PCG-local Query acceptance alone does not authorize
+promotion.
+
+The later authored mutation/save capability has a separate gate:
+
 - exact schema is authoritative for every writable field and operation;
 - all certified Pin reconstruction and connection cascades are visible in
   `planned.effects`;
@@ -1373,12 +1441,6 @@ The PCG Domain satisfies its necessary family-release gate only when:
   later failure;
 - no dry run or current-Target Patch mutates an external Settings package;
 - save is independent, source-control-aware, and reload-verified;
-- both UE 5.7 and UE 5.8 targeted suites pass;
-- the Client, Bridge, generated protocol, static catalog, and packaged
-  artifacts advertise the same `pcg` Domain contract.
-
-Only after these gates pass may the planned design be distilled into
-`interfaces/pcg.md`. Public `sal_schema` publication still waits for the
-family's coordinated `level`, `pcg`, and Query-only `pcg_component`
-nine-Domain catalog release gate; PCG-local acceptance is necessary but not
-sufficient.
+- both UE 5.7 and UE 5.8 mutation/save suites pass; and
+- the Client, Bridge, generated protocol, static card, and packaged artifacts
+  advertise the same bumped Patch capability.

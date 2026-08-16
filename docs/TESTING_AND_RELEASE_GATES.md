@@ -141,7 +141,7 @@ compact vertical workflow:
 
 1. initialize MCP and verify the eight public tools;
 2. bind the copied project while it is offline;
-3. read local `sal_schema`, verify the six active interface modules, and load
+3. read local `sal_schema`, verify the nine active interface modules, and load
    the packaged `format-unreal-blueprints` Skill through `agent_skill`;
 4. start the Editor and observe the same project identity become ready;
 5. prove Game Thread admission with the exact read-only fixture Asset query,

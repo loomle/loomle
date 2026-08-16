@@ -102,6 +102,9 @@ case "$command_name" in
     grep -q '<title>Privacy | Loomle AI</title>' _site/privacy/index.html
     grep -q '<title>Python Fallback | Loomle AI</title>' _site/calls/python.html
     grep -q '<title>Format a Blueprint Graph | Loomle AI</title>' _site/workflows/blueprint-format-graph.html
+    grep -q '<title>Level | Loomle AI</title>' _site/tools/level.html
+    grep -q '<title>PCG | Loomle AI</title>' _site/tools/pcg.html
+    grep -q '<title>PCG Component | Loomle AI</title>' _site/tools/pcg-component.html
     grep -Fq "The latest stable Loomle release is available" _site/install.html
     grep -Fq "$latest_release_url" _site/install.html
     grep -Fq "$latest_57_archive_url" _site/install.html
@@ -141,6 +144,9 @@ case "$command_name" in
     grep -q '<span class="na">then</span>' _site/index.html
     grep -q '<span class="c1"># excerpt:' _site/index.html
     grep -q '<span class="kd">query</span>' _site/concepts/sal.html
+    grep -q '<span class="kt">level</span>' _site/tools/level.html
+    grep -q '<span class="kt">pcg</span>' _site/tools/pcg.html
+    grep -q '<span class="kt">pcg_component</span>' _site/tools/pcg-component.html
     grep -q 'language-sal highlighter-rouge' _site/workflows/blueprint-add-node.html
     grep -q 'SAL / PATCH TEXT' _site/index.html
     grep -q 'ADD / CONNECT' _site/index.html

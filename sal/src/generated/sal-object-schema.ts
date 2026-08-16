@@ -50,9 +50,7 @@ export type PatchTarget =
   | ClassTarget
   | CanonicalGraphTarget
   | CanonicalStateTreeTarget
-  | CanonicalWidgetTarget
-  | CanonicalLevelTarget
-  | CanonicalPcgTarget;
+  | CanonicalWidgetTarget;
 export type PatchStatement = RequestBinding | PatchOperation;
 export type BindingTarget = LocalRef | BindingMemberRef;
 export type PatchOperation =
@@ -404,18 +402,6 @@ export interface CanonicalWidgetTarget {
   asset: NonEmptyString;
   id: GuidString;
 }
-export interface CanonicalLevelTarget {
-  kind: "target";
-  domain: "level";
-  asset: NonEmptyString;
-  type: NonEmptyString;
-}
-export interface CanonicalPcgTarget {
-  kind: "target";
-  domain: "pcg";
-  asset: NonEmptyString;
-  type: NonEmptyString;
-}
 export interface RequestBinding {
   target: BindingTarget;
   value: RequestExpr;
@@ -572,6 +558,18 @@ export interface ExactQueryResult {
 export interface CanonicalTargetBinding {
   alias: LocalIdentifier;
   target: CanonicalTarget;
+}
+export interface CanonicalLevelTarget {
+  kind: "target";
+  domain: "level";
+  asset: NonEmptyString;
+  type: NonEmptyString;
+}
+export interface CanonicalPcgTarget {
+  kind: "target";
+  domain: "pcg";
+  asset: NonEmptyString;
+  type: NonEmptyString;
 }
 export interface TargetHandoff {
   kind: "target_handoff";

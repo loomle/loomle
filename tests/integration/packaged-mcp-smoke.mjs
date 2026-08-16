@@ -35,6 +35,9 @@ const schemaModules = [
   "graph",
   "state_tree",
   "widget",
+  "level",
+  "pcg",
+  "pcg_component",
 ];
 const toolTextBlockSeparator = "\n\u001e\n";
 const defaults = {

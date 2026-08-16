@@ -42,7 +42,7 @@ module Rouge
       ].freeze
 
       DOMAINS = %w[
-        asset blueprint class graph state_tree widget
+        asset blueprint class graph state_tree widget level pcg pcg_component
       ].freeze
 
       RESULT_CONTEXTS = %w[

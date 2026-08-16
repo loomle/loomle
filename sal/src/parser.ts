@@ -692,7 +692,10 @@ function isCanonicalTarget(target: QueryTarget): target is CanonicalTarget {
 }
 
 function isPatchTarget(target: QueryTarget): target is PatchTarget {
-  return target.domain !== "pcg_component" && isCanonicalTarget(target);
+  return target.domain !== "level"
+    && target.domain !== "pcg"
+    && target.domain !== "pcg_component"
+    && isCanonicalTarget(target);
 }
 
 function isCanonicalEditorTarget(target: QueryTarget): target is CanonicalEditorTarget {
@@ -946,10 +949,12 @@ function requestTarget(
       );
     }
     if (requestKind === "patch") {
-      if (explicit.target.domain === "pcg_component") {
+      if (explicit.target.domain === "level"
+        || explicit.target.domain === "pcg"
+        || explicit.target.domain === "pcg_component") {
         throw new ParseError(
           "language.invalid_patch_target",
-          "pcg_component is Query-only in this protocol version and cannot be selected by Patch.",
+          `${explicit.target.domain} is Query-only in this protocol version and cannot be selected by Patch.`,
           spanForLine(line),
         );
       }

@@ -70,6 +70,16 @@ const cases: Array<{ name: string; text: string; code: string }> = [
     code: "language.invalid_patch_target",
   },
   {
+    name: "level is Query-only",
+    text: "l = target {domain: level, asset: \"/Game/Maps/Arena.Arena\", type: \"/Script/Engine.World\"}\npatch l\nsave",
+    code: "language.invalid_patch_target",
+  },
+  {
+    name: "pcg is Query-only",
+    text: "g = target {domain: pcg, asset: \"/Game/PCG/Forest.Forest\", type: \"/Script/PCG.PCGGraph\"}\npatch g\nsave",
+    code: "language.invalid_patch_target",
+  },
+  {
     name: "pcg component source is closed",
     text: "c = target {domain: pcg_component, asset: \"/Game/Maps/Arena.Arena\", actorId: \"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\", source: \"runtime\", id: \"PCGComponent\", type: \"/Script/PCG.PCGComponent\"}\nquery c",
     code: "language.invalid_target_value",

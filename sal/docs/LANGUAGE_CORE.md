@@ -201,12 +201,10 @@ asset | blueprint | class | graph | state_tree | widget |
 level | pcg | pcg_component
 ```
 
-The first six have active public adapters and static interface cards. `level`,
-`pcg`, and `pcg_component` are internal Phase-0 admissions: their syntax,
-normalized shapes, canonical formatting, and Bridge validation are reserved,
-but they do not yet publish an adapter or interface card. Current Bridge
-resolution/dispatch handling fails closed with
-`capability.interface_unavailable`.
+All nine have active public Query adapters and static interface cards. `level`,
+`pcg`, and `pcg_component` are Query-only in protocol v6 and are excluded from
+`PatchTarget`; their later mutation and persistence capabilities require an
+explicit protocol/capability release.
 
 Every field after `domain` has a non-empty JSON string value. Domains close
 the accepted field set.
@@ -241,13 +239,14 @@ Target fields and admission are:
 | Graph | `asset + id` or `asset + name`, optional `blueprintId` | `asset + blueprintId + id` | same as canonical |
 | StateTree | `asset`, optional `type` | `asset + type` | same as canonical |
 | Widget | `asset`, optional `id` | `asset + id` | same as canonical |
-| Level (internal Phase 0) | `asset`, optional `type` | `asset + type` | same shape; adapter unavailable |
-| PCG (internal Phase 0) | `asset`, optional `type` | `asset + type` | same shape; adapter unavailable |
-| PCG Component (internal Phase 0) | `asset + actorId + source + id + type` | same exact fields | rejected before dispatch |
+| Level | `asset`, optional `type` | `asset + type` | rejected before dispatch |
+| PCG | `asset`, optional `type` | `asset + type` | rejected before dispatch |
+| PCG Component | `asset + actorId + source + id + type` | same exact fields | rejected before dispatch |
 
 For `pcg_component`, `source` is closed to `native`, `instance`, or `scs`.
-Grammar admission is not operation availability; the three internal rows do
-not make a Query or Patch capability public.
+Grammar admission remains distinct from operation availability. The three
+Query-only cards close their supported operations and return explicit
+unavailable diagnostics for deferred reads.
 
 When Graph supplies both `id` and `name`, `id` selects identity and `name` is a
 strict readable-state assertion. Canonical readback drops `name`.

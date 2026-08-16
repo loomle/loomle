@@ -2,7 +2,7 @@
 layout: default
 title: Diagnostics
 parent: Interfaces
-nav_order: 7
+nav_order: 10
 ---
 
 # Diagnostics

@@ -3,7 +3,7 @@ layout: default
 title: Interfaces
 nav_order: 6
 has_children: true
-description: The six active Loomle 0.7 SAL interface modules and their UE ownership boundaries.
+description: The nine active Loomle 0.7 SAL interface modules, their UE ownership boundaries, and their Query or Patch availability.
 permalink: /tools/
 ---
 
@@ -13,19 +13,25 @@ Interfaces describe the UE objects and operations carried through `sal_query`
 and `sal_patch`. They are separate from the Client's
 [eight public MCP calls](../calls/).
 
-Loomle 0.7 has six active interface modules:
+Loomle 0.7 has nine active interface modules:
 
-| Domain | Owns | Canonical exact Target |
-| --- | --- | --- |
-| [Asset](asset.html) | Asset Registry discovery and exact package save | Asset Object Path plus verified native Class |
-| [Blueprint](blueprint/) | Class Settings, declarations, Graph lifecycle, SCS Components, compile, and save | Asset Path plus Blueprint Guid |
-| [Class](blueprint/class.html) | Reflection and effective Class Defaults | native Class Path |
-| [Graph](blueprint/graph.html) | Nodes, Pins, Edges, flow, Palette-backed creation, and layout | Asset Path + Blueprint Guid + Graph Guid |
-| [StateTree](state-tree.html) | Authored hierarchy, Nodes, Transitions, Parameters, Bindings, compile, and save | exact StateTree Asset Path and Class Path |
-| [Widget](widget/) | Authored Widget tree, Slot state, and structural edits | Asset Path + WidgetBlueprint Guid |
+| Domain | Owns | Canonical exact Target | Access |
+| --- | --- | --- | --- |
+| [Asset](asset.html) | Asset Registry discovery and exact package save | Asset Object Path plus verified native Class | Query + Patch |
+| [Blueprint](blueprint/) | Class Settings, declarations, Graph lifecycle, SCS Components, compile, and save | Asset Path plus Blueprint Guid | Query + Patch |
+| [Class](blueprint/class.html) | Reflection and effective Class Defaults | native Class Path | Query + Patch |
+| [Graph](blueprint/graph.html) | Nodes, Pins, Edges, flow, Palette-backed creation, and layout | Asset Path + Blueprint Guid + Graph Guid | Query + Patch |
+| [StateTree](state-tree.html) | Authored hierarchy, Nodes, Transitions, Parameters, Bindings, compile, and save | exact StateTree Asset Path and Class Path | Query + Patch |
+| [Widget](widget/) | Authored Widget tree, Slot state, and structural edits | Asset Path + WidgetBlueprint Guid | Query + Patch |
+| [Level](level.html) | Persistent source-map Actors and serialized Components | map Asset Path plus verified native World Class | Query only; no `PatchTarget` |
+| [PCG](pcg.html) | Asset-backed PCG Graph Nodes, Pins, Settings evidence, Edges, and persisted layout | PCG Graph Asset Path plus verified native Class | Query only; no `PatchTarget` |
+| [PCG Component](pcg-component.html) | Persistent PCG configuration and Graph Parameters on one authored Level Component | map + ActorGuid + Component source and slot + native Class | Query only; no `PatchTarget` |
 
-These six names are the closed values of structural `Target.domain`. They are
-not semantic tags, object kinds, or StableRef prefixes.
+These nine names are the closed values of structural `Target.domain`. They are
+not semantic tags, object kinds, or StableRef prefixes. All nine are valid
+Query Targets and canonical Result Targets. `level`, `pcg`, and
+`pcg_component` are not admitted to `PatchTarget` in this release; the SAL
+parser rejects a Patch for them before Bridge dispatch.
 
 ## Use the Installed Contract
 
@@ -71,6 +77,8 @@ table, then carries ordered Object Text under `objects` or ends with
 
 ## Common Patch Shape
 
+Patch applies only to the six Domains admitted to `PatchTarget`.
+
 ```sal
 <alias> = target { domain: <domain>, ... }
 
@@ -106,7 +114,9 @@ or composes another Target. Cross-Domain work uses independent related Targets,
 explicit handoffs, and following requests.
 
 Graph and Widget authored changes finalize through their owning Blueprint.
-StateTree compiles and saves through its asset target. Each interface page
-states its own handoff and finalization boundary.
+StateTree compiles and saves through its asset target. The Query-only Level,
+PCG, and PCG Component interfaces expose only the related Targets and handoffs
+stated on their pages. Each interface page states its own handoff and
+finalization boundary.
 
 See [Diagnostics](diagnostics.html) for result health and compiler information.

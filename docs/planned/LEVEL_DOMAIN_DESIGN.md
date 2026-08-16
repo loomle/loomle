@@ -2,11 +2,13 @@
 
 ## Status
 
-Level is not part of the current Loomle interface catalog. This document is
-the design and internal implementation contract for a persistent authored
-Domain named `level`.
+Level is not part of the latest externally released Loomle interface catalog;
+that product catalog still contains six Domains. This document is the design
+and internal implementation contract for the persistent authored Domain named
+`level`.
 
-The unpublished scene/PCG family branch currently contains:
+The unpublished scene/PCG family branch now contains an internal nine-Domain
+Query-only release candidate. Its Level contribution includes:
 
 - protocol v6 Target, Result, handoff, and Domain-specific StableRef
   groundwork for `level`;
@@ -23,13 +25,41 @@ The unpublished scene/PCG family branch currently contains:
   adapter, bounded Graph-binding reader, and matching Level-to-Component
   handoff; and
 - Slice 1C-B-B's bounded Graph Parameter collection, exact descriptor-Guid
-  StableRef Query, effective-source readback, and read-only value projection.
+  StableRef Query, effective-source readback, and read-only value projection;
+- Slice 1C-C's read-only Level Editor Context and zero-load Asset, Class, and
+  proved-Blueprint related Target/handoff implementation; and
+- the static `level` card, offline schema registration, Query-only admission,
+  and explicit exclusion from `PatchTarget` used by the coordinated RC.
 
-These are internal contracts and adapters, not public interface cards. Other
-referenced ownership and Editor Context, schema, Palette, mutation, save, and
-the static `level` catalog entry remain planned. Slices 1A through 1C-A also
-retain the real unloaded-World-Partition and temporary Level Instance
-edit/composition fixture gates described below.
+The card and adapter are branch-internal release-candidate artifacts, not an
+external publication. Palette, mutation, save, and editable schema remain
+planned later capabilities. The latest branch-local acceptance snapshot has
+passed:
+
+- official UE 5.7 and UE 5.8 arm64 builds;
+- the eight-test `Loomle.Sal.Level.Query` group, seven-test coordinated PCG
+  Query group, and two-test family Phase 0 group on both engines;
+- the `ComponentIdentity` lifecycle fixture on both engines, including real
+  construction rerun and Blueprint recompile, persisted Blueprint/map
+  save-unload-reload, and same-slot isolation across distinct ActorGuids;
+- real saved unloaded-root World Partition Actor, unloaded Level Instance
+  descriptor, and native Level Instance edit-mode Editor Context fixtures on
+  both engines;
+- SAL, interface-card, Client, Site, version, native Client, and package unit
+  validation; and
+- local packaged end-to-end acceptance on UE 5.7 and UE 5.8.
+
+This evidence validates the internal Query-only RC; it does not publish it.
+The final release-artifact audit, Windows acceptance, and production promotion
+have not run, and no external catalog exposes `level` yet.
+
+The next public milestone is publication of the coordinated Scene/PCG
+**Query-only** catalog RC after those gates pass. The branch RC already contains
+the static card, read-only Editor Context, frozen related Target/handoff
+coverage, and `PatchTarget` exclusion; every Level Patch is rejected before
+Bridge dispatch. Exact
+editable schema, Palette, mutation, save, and their effect/result contracts are
+later capabilities and do not gate publication of the read-only card.
 
 The core boundary is confirmed:
 
@@ -59,11 +89,12 @@ The core boundary is confirmed:
   requests.
 
 This file is not a published interface card. Exact editable property sets,
-Actor and Component Palette coverage, preview-World support, remaining
-diagnostics, and package-save result fields remain implementation and release
-gates. The internal parser, resolver, and read-only Bridge adapter do not by
-themselves add a static schema module, public catalog entry, or packaged
-capability.
+Actor and Component Palette coverage, preview-World support, and package-save
+result fields remain gates for their later capabilities. The branch RC has
+landed its Query diagnostics, hostile-fixture sources, static schema module,
+and catalog entry. Current-snapshot dual-engine execution and local packaged
+Query acceptance now pass; final release-artifact, Windows, and production
+promotion gates still separate this branch-local RC from an external release.
 
 ## Decision
 
@@ -90,7 +121,7 @@ a `ULevel`. No persistent `world` Domain is introduced as an alias.
 
 ## Intent
 
-An agent should be able to:
+The full planned Domain should eventually let an agent:
 
 1. obtain the exact saved source Level from Editor Context or Asset discovery;
 2. inspect authored Actors without relying on labels, paths, selection, or
@@ -105,13 +136,18 @@ An agent should be able to:
 8. save the Level's package closure in a separate terminal request; and
 9. unload and reopen the source map with the same surviving Actor identities.
 
+The first public milestone stops at read-only inspection and navigation: items
+1 through 4 plus exact read-only schema, related Targets/handoffs, and Level
+Editor Context. It advertises no Palette, Patch, dry run, transaction, Undo, or
+save capability.
+
 The Domain is not useful if it merely wraps `GEditor` helpers while retaining
 implicit current-World scope, Actor labels, hidden Actor loading, nested
 transactions, or best-effort package save.
 
 ## Capability Boundary
 
-### In scope
+### Full planned scope
 
 The authored `level` Domain owns:
 
@@ -136,6 +172,7 @@ The authored `level` Domain owns:
 
 The first public Level surface does not own:
 
+- any authored Patch, dry run, transaction, Undo, lifecycle edit, or save;
 - an unsaved or transient Editor World;
 - PIE, SIE, game, preview, inactive client, or server World execution;
 - streaming state, visibility, viewport focus, selection, simulation, or
@@ -1253,7 +1290,10 @@ retention or mutation authority.
 
 ### Asset
 
-The source map may return its exact Asset Target:
+Every successful exact Level Query retains the source map's canonical Asset
+Target and the fixed `inspect_asset` handoff. This applies to the exact Level
+Target read and exact Actor/Component reads; collection and summary rows do not
+repeat per-object Class or Blueprint navigation. The source-map navigation is:
 
 ```sal
 related arenaAsset = target {
@@ -1266,11 +1306,26 @@ handoff inspect_asset to arenaAsset
 
 ### Blueprint and Class
 
-An Actor or Component may return:
+Only a loaded exact Actor or exact Component Query may return declaration
+navigation. It retains the live object's actual native Class Target with the
+fixed `inspect_class` handoff. A descriptor-only unloaded Actor has no live
+UObject Class authority and omits this handoff. A loaded exact read additionally
+retains one Blueprint Target with
+`inspect_blueprint` only when already-loaded evidence uniquely proves a
+Blueprint Generated Class and its exact `ClassGeneratedBy` Blueprint. For an
+SCS Component, the source-aware locator's declaring Blueprint Generated Class
+is the authority; the adapter does not infer a Blueprint from the current
+runtime Class or a display name.
 
-- a Class Target for exact defaults or native declaration facts;
-- a Blueprint Target for Blueprint-authored defaults, SCS lifecycle, compile,
-  or structural Component edits.
+`summary`, `actors`, and `components` do not emit per-row Class or Blueprint
+Targets/handoffs. Navigation adds no fields to Actor or Component Object Text,
+performs no load, and emits no `save` or `compile` handoff. Ambiguous, unloaded,
+transient, or non-Blueprint declaration evidence simply omits the applicable
+Class/Blueprint navigation while preserving the exact Level Query result.
+
+The Class Target is for exact defaults or native declaration facts. The
+Blueprint Target is for Blueprint-authored defaults, SCS lifecycle, compile,
+or structural Component edits.
 
 Level Patch never crosses into those Targets.
 
@@ -1383,28 +1438,38 @@ Object Text `LocalRef`, canonical related-Target table, and result-only handoff
 shape; `levelInstance` and `sourceLevel` are ordinary Actor result fields and
 require no new statement grammar or protocol version.
 
-Publishing Level still requires coordinated Core, Client, and Bridge work:
+The branch RC has landed the coordinated Core, Client, and Bridge contract for:
 
-- publish `level` in the closed static Domain/interface catalog;
-- add Level semantics for the existing `components` and `context` operations;
+- the branch-local nine-Domain static catalog and offline `level` card;
+- Level semantics for the existing `components` and `context` operations;
 - generalize the existing `palette ... to <request-ref>` branch beyond
   StateTree so Level destinations reuse current text grammar and normalized
   request refs;
-- teach Editor Context to return Level plus one selected Actor StableRef;
+- Editor Context returning Level plus one selected Actor StableRef;
 - retain unresolved behavior for unsaved maps;
-- add `sal_schema({module: "level"})` as an offline static module;
-- update packaged static catalog and publication fixtures together; and
-- allocate a later protocol version only if the eventual Component, mutation,
-  or effect contract actually changes normalized protocol shape.
+- `sal_schema({module: "level"})` as an offline static module; and
+- keeping `level` out of `PatchTarget` before Bridge dispatch.
+
+The current snapshot now has UE 5.7/5.8 arm64 build and targeted Automation
+evidence, real unloaded-root World Partition and native Level Instance
+edit/composition evidence, static-card/Client/Bridge parity, and local packaged
+end-to-end acceptance on both engines. External publication still requires the
+final release-artifact ZIP audit, Windows acceptance, and production promotion.
+
+Publishing any later Level Patch or save capability requires a coordinated
+protocol/capability bump even if the SAL statement spelling is unchanged. That
+later release also owns its editable schema, Palette, effect, transaction, and
+persistence result contracts.
 
 No public resolver or Domain-composition layer is added. `Target.domain`
 selects exactly one adapter, and one Patch still belongs to one Domain planner.
 
 ## Implementation Slices
 
-Each slice remains unpublished until its own gates pass. “Implemented
-internally” below means callable on the feature branch, not present in the
-public interface catalog or packaged capability.
+Each slice remains unpublished until its own gates pass. “Implemented in the
+RC” below means present on the feature branch, including its branch-local card
+where stated; it does not mean externally released. The current Query-only RC
+has separate dual-engine local packaged acceptance recorded below.
 
 The family Phase 0 Target/admission and Domain-specific StableRef work is a
 prerequisite and is not expanded here with effects, save, projection, or
@@ -1448,11 +1513,12 @@ mutation behavior.
 - degrade an unsupported unloaded Packed Level Actor to readable placement
   evidence without `sourceLevel`, plus a bounded warning.
 
-The implementation does not close the public release gates for a real
-unloaded root World Partition Level Instance descriptor on both engines or a
-true temporary Level Instance edit/composed-Level fixture. Those fixtures must
-prove that source readback performs no Actor load, child-container
-registration, map switch, or temporary-package Target substitution.
+The current UE 5.7/5.8 acceptance snapshot now includes both a real unloaded
+root World Partition Level Instance descriptor and a native Level Instance
+edit/composed-Level Editor Context fixture. They prove that source readback
+retains the canonical saved source without Actor load, child-container
+registration, map switch, edit-state change, save, or temporary-package Target
+substitution. This is branch-local RC evidence, not external publication.
 
 ### Slice 1C-A: Component identity Query — implemented internally
 
@@ -1466,22 +1532,37 @@ registration, map switch, or temporary-package Target substitution.
 - preserve World, Level, Actor, Component registration, construction,
   selection, transaction, package dirty, and load state across every Query.
 
-This slice does not load Components for unloaded World Partition descriptors
-and does not publish a static Level or `pcg_component` interface card. An
-authored original `UPCGComponent` remains a truthful generic `component`
-object, but no specialized handoff is emitted while that next Target is still
-guaranteed to return `capability.interface_unavailable`.
+At Slice 1C-A's original landing, it did not load Components for unloaded
+World Partition descriptors, publish a static Level or `pcg_component` card,
+or emit the later specialized handoff. Those card and handoff additions now
+live in the coordinated RC without changing the 1C-A identity boundary.
 
-The UE 5.7 and UE 5.8 official arm64 persistent hosts compile this slice and
-pass both the targeted `Loomle.Sal.Level.Query.ComponentIdentity` Automation
+At that slice's original landing, the UE 5.7 and UE 5.8 official arm64
+persistent hosts compiled it and passed the targeted
+`Loomle.Sal.Level.Query.ComponentIdentity` Automation
 test and the full five-test `Loomle.Sal.Level.Query` regression. The internal
 fixture proves native/SCS/instance identity, UCS and PCG generated/debug/
 cleanup exclusion, structured StableRef round-trip, deterministic Component
 pagination and cursor invalidation, summary count invariants, and read-only
-Editor/Component lifecycle behavior. Public release still requires a real
-World Partition unloaded-owner fixture, native/SCS reconstruction and
-save/reload persistence fixtures, same-slot/different-Actor coverage, and the
-remaining negative matrix under `Test Requirements`.
+Editor/Component lifecycle behavior. The current eight-test Query acceptance
+also closes the real World Partition unloaded-owner boundary through the
+descriptor-only fail-closed fixture. Its expanded `ComponentIdentity` fixture
+now also proves, on both supported engines:
+
+- real `RerunConstructionScripts` and Blueprint recompile replace live Actor or
+  SCS Component incarnations while the durable source-qualified locator
+  re-resolves to the current UObject;
+- a saved Blueprint and Level can be fully unloaded and explicitly reloaded
+  without an unloaded Query loading either package, while native, SCS,
+  instance, and original PCG Component locators survive and resolve to fresh
+  incarnations; and
+- identical native/SCS/instance slot identifiers on two Actors remain isolated
+  by ActorGuid, including direct resolver ownership checks rather than only
+  Result-text comparison.
+
+Hostile corruption cases that cannot arise after a completed synchronous
+compile or construction rerun remain defensive-regression work; they are not
+being represented as lifecycle evidence from these positive fixtures.
 
 ### Slice 1C-B-A: PCG Component binding Query and handoff — implemented internally
 
@@ -1509,15 +1590,18 @@ The specialized adapter's exact fields and reverse `inspect_level` /
 handoff is emitted from this Query-only slice because no authored state was
 changed.
 
-The official UE 5.7 and UE 5.8 arm64 persistent hosts compile this slice and
-pass `Loomle.Sal.PCGComponent.Query.AuthoredTargetSummaryAndBoundaries` plus
+At that slice's original landing, the official UE 5.7 and UE 5.8 arm64
+persistent hosts compiled it and passed
+`Loomle.Sal.PCGComponent.Query.AuthoredTargetSummaryAndBoundaries` plus
 the full five-test `Loomle.Sal.Level.Query` regression. The fixture covers
 saved versus unsaved top Graph navigation, direct unbound state, a parent
 GraphInstance whose chain ends unbound, bounded-depth failure, frozen nested
 field closure, the complete empty-Parameter case, and read-only
-Level/Component/Graph invariants. A real World Partition descriptor-only
-Component owner remains a public-release fixture gate; an entirely unloaded
-source map is separately covered by `capability.level_not_loaded`.
+Level/Component/Graph invariants. The current real World Partition fixture now
+proves that exact generic and PCG Component reads reject a descriptor-only
+owner with `capability.component_owner_not_loaded` without loading it; an
+entirely unloaded source map is separately covered by
+`capability.level_not_loaded`.
 
 ### Slice 1C-B-B: PCG Component Parameter readback — implemented internally
 
@@ -1531,29 +1615,39 @@ source map is separately covered by `capability.level_not_loaded`.
   result bounds, exact Parameter StableRef lowering, and incomplete-chain
   behavior documented in `PCG_RUNTIME_DOMAIN_DESIGN.md`.
 
-The official UE 5.7 and UE 5.8 arm64 persistent hosts compile this slice and
-pass the full `Loomle.Sal.PCGComponent.Query` group. The Parameter fixture
+At that slice's original landing, the official UE 5.7 and UE 5.8 arm64
+persistent hosts compiled it and passed the then-current full
+`Loomle.Sal.PCGComponent.Query` group. The Parameter fixture
 proves local, inherited, and Graph-default sources; canonical Guid identity
 through rename and removal; exact and paged Query; representative certified
 scalar encodings and descriptor-only unsupported value paths; bounded
 GraphInstance-chain failure; and unchanged bags, override bits, delegates,
 task/resource state, packages, and transactions. UE 5.8 additionally covers
 the descriptor-only `int8`, `int16`,
-and `uint16` additions. A native `map` descriptor remains intentionally
-fail-closed until its key shape has a lossless public representation.
+and `uint16` additions. Native `map` remains intentionally fail-closed because
+its key shape has no lossless representation in this public type shape; that
+behavior and its hostile fixture are now implemented in RC source.
 
-This internal acceptance is not the public-release hostile-fixture matrix.
-Before publication, Automation must still exercise a native UE 5.8 `map`
-descriptor, the exact 8 Ki per-value and 64 Ki aggregate/evidence boundaries,
-and a zero-declaration chain containing a stale override bit. The internal
-suite already covers invalid zero-declaration instance storage and exact
-Parameter `with schema`; the remaining hostile fixtures must prove fail-closed
-behavior without weakening the current bounds.
+RC source now includes the native UE 5.8 `map` fail-closed case, exact 8 Ki
+per-value and 64 Ki aggregate/evidence boundaries, and a zero-declaration chain
+with a stale override bit. The latest official UE 5.7/5.8 arm64 snapshot now
+passes the complete seven-test coordinated PCG Query group containing these
+hostile boundaries. That is internal RC acceptance; external publication still
+depends on the final distribution audit and promotion gates.
 
-### Slice 1C-C: other referenced ownership and Editor Context — planned
+### Slice 1C-C: other referenced ownership and Editor Context — implemented in RC
 
-- add proven Asset, Blueprint, and Class related Targets for read-only
-  navigation without granting cross-Domain authority;
+- attach the canonical source-map Asset Target plus `inspect_asset` to every
+  successful exact Level Query;
+- attach the actual Class Target plus `inspect_class` only to exact Actor and
+  Component Query;
+- attach `inspect_blueprint` only when already-loaded unique
+  Blueprint-Generated-Class/`ClassGeneratedBy` evidence proves the Blueprint;
+  SCS Components use the declaring Generated Class already proved by their
+  source-aware locator;
+- emit no per-row Class/Blueprint navigation from collections or summary, add
+  no Actor/Component Object Text fields, load nothing, and emit no `save` or
+  `compile` handoff;
 - upgrade Level Editor Context from Asset evidence to the shared Level
   resolver and identity index;
 - project one selected source Actor as `@ActorGuid` only after the full root
@@ -1561,7 +1655,43 @@ behavior without weakening the current bounds.
 - keep loading, pinning, selection changes, and transient runtime objects in
   explicit Python workflows outside SAL.
 
-### Slice 2: Exact schema and Palette discovery
+The implementation is present in the branch RC, including shared Level
+resolution for Editor Context and exact-query handoff injection. The latest
+snapshot passes the eight-test Level Query group on official UE 5.7 and UE 5.8,
+including the native edit-mode Context fixture, and passes local packaged
+end-to-end acceptance on both engines. It remains unpublished.
+
+### Slice 1D: coordinated Query-only publication — implemented and accepted in the branch RC
+
+Landed in RC source:
+
+- the read-only `level` card and offline
+  `sal_schema({module: "level"})` in the branch-local nine-Domain catalog;
+- the implemented Query, exact read-only schema, Editor Context, and related
+  Target/handoff paths;
+- rejection of canonical `level` from `PatchTarget` before Bridge dispatch;
+- coordinated Client/Bridge/generated protocol source and hostile fixture
+  coverage; and
+- no Palette, mutation effects, transaction, save result, `sal.object()`, or
+  execution capability.
+
+Current branch-local acceptance:
+
+- UE 5.7 and UE 5.8 arm64 builds pass;
+- Level Query passes 8/8, coordinated PCG Query passes 7/7, and family Phase 0
+  passes 2/2 on both engines;
+- real saved unloaded-root World Partition, unloaded Level Instance descriptor,
+  and native Level Instance edit-mode Context fixtures pass on both engines;
+- SAL, interfaces, Client, Site, version, native Client, and package unit suites
+  pass; and
+- local packaged end-to-end acceptance passes on both engines.
+
+Still required before external publication are the final release ZIP audit,
+Windows acceptance, and production promotion. These remaining distribution
+gates do not add mutation, Palette, save, or editable-schema capability to this
+Query-only slice.
+
+### Slice 2: Editable schema and Palette discovery
 
 - conservative loaded Actor and Component schema;
 - read-only unloaded descriptor schema;
@@ -1598,10 +1728,8 @@ behavior without weakening the current bounds.
 - extensible derived-state save guards, including PCG managed projections;
 - partial multi-package failure semantics;
 - save/unload/reload identity and value verification;
-- `pcg_component`, Asset, Blueprint/Class, and Level Instance source handoffs;
-- Python `sal.object()` projection interoperability without a live-World Target;
-- Editor Context and static catalog packaging;
-- full targeted acceptance on UE 5.7 and UE 5.8.
+- mutation/save-specific persistence-owner handoffs;
+- save-capability packaged acceptance on UE 5.7 and UE 5.8.
 
 ## Test Requirements
 
@@ -1740,10 +1868,10 @@ behavior without weakening the current bounds.
 - targeted native automation passes on official UE 5.7 and UE 5.8;
 - adapter builds without experimental ModelContextProtocol or PCGToolset;
 - public query/result schema is identical across versions for common facts;
-- API parity shims produce the same notifications, effects, Undo, and save
-  semantics;
-- live MCP acceptance covers Editor Context, Query, dry run, live Patch, Undo,
-  terminal save, and reload on both versions.
+- Query-only live MCP acceptance covers Editor Context, Query, handoffs,
+  `PatchTarget` rejection, and reload identity on both versions; and
+- later mutation/save acceptance separately proves that API parity shims
+  produce the same notifications, effects, Undo, and save semantics.
 
 Recommended native automation names are:
 
@@ -1756,7 +1884,7 @@ Loomle.Sal.Level.Robust.*
 
 ## Release Gates
 
-Level is ready for a public interface card only when:
+The Level RC card is ready for external publication when:
 
 - every canonical Target round-trips to the same saved source Level;
 - Actor identity depends only on one unique native ActorGuid in that Target;
@@ -1771,7 +1899,34 @@ Level is ready for a public interface card only when:
   without loading, pinning, child-container registration, or temporary-package
   Target substitution;
 - unloaded ActorDesc Query never loads or mutates an Actor;
-- exact schema advertises only operations that unchanged Patch accepts;
+- exact read-only schema advertises no Patch, Palette, transaction, or save
+  capability;
+- exact Query emits only the frozen zero-load Asset/Class/Blueprint related
+  Targets and handoffs, while collections and summary emit no per-row
+  declaration navigation;
+- `level` is accepted by `QueryTarget` and rejected by `PatchTarget` before
+  Bridge dispatch;
+- every Query preserves World/Level selection, Actor loading and construction,
+  package dirty state, transactions, Undo, and World Partition state;
+- UE 5.7 and UE 5.8 targeted Query suites both pass; and
+- Client, Bridge, protocol, Editor Context, static schema, and packaged
+  artifacts advertise the same Query-only contract.
+
+The current branch snapshot supplies the dual-engine build, targeted native
+Automation, real World Partition/Level Instance, contract-parity, and local
+packaged end-to-end evidence for this Query-only gate. It is still not an
+external release: the final ZIP artifact audit, Windows acceptance, and
+production promotion have not run.
+
+The distilled `interfaces/level.md` card and nine-Domain `sal_schema` catalog
+remain branch-local release-candidate artifacts. They may be exposed by an
+external release only after the remaining release-artifact, platform, and
+promotion gates pass.
+
+The later authored mutation/save capability has a separate release gate:
+
+- exact writable schema advertises only operations that unchanged Patch
+  accepts;
 - every published Palette entry replays without implicit editor state;
 - every reconstructive operation has exact isolated preflight or is
   unavailable;
@@ -1785,14 +1940,11 @@ Level is ready for a public interface card only when:
   claim;
 - no Level request mutates Blueprint structure, PCG Graphs, live Editor/PIE state,
   or referenced Assets;
-- UE 5.7 and UE 5.8 targeted suites both pass;
-- Client, Bridge, protocol, Editor Context, static schema, and packaged
-  artifacts advertise the same contract.
+- UE 5.7 and UE 5.8 mutation/save suites both pass; and
+- Client, Bridge, protocol, static schema, and packaged artifacts advertise the
+  same bumped Patch capability.
 
-Only after these gates pass should this design be distilled into
-`interfaces/level.md` and exposed through `sal_schema`.
-
-## Decisions Required Before Public Interface Freeze
+## Decisions Required Before Authored-Mutation Capability Freeze
 
 The ownership and identity boundary is settled. These narrower capability
 decisions remain:
@@ -1807,10 +1959,10 @@ decisions remain:
 4. What exact package-status and Source Control fields become the canonical
    multi-package save result?
 
-Internal Phase 0 and read-only Level slices 1A and 1B have landed on the family
-feature branch. Their presence does not publish a Domain; `level`, `pcg`, and
-Query-only `pcg_component` still enter the public catalog only through the
-coordinated family release.
+Internal Phase 0 and the implemented read-only Level slices have landed on the
+family feature branch. Their presence does not publish a Domain; Query-only
+`level`, `pcg`, and `pcg_component` still enter the public catalog only through
+the coordinated family release.
 
 None of these questions permits changing the persistent `level` Target,
 ActorGuid identity, Level Instance ownership, ActorDesc read-only boundary, or

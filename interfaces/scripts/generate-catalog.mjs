@@ -7,6 +7,9 @@ const modules = [
   ["graph", "Inspect and edit Graph Nodes, Pins, Edges, flow, and Node creation."],
   ["state_tree", "Inspect and edit authored StateTree hierarchy, bindings, and compile state."],
   ["widget", "Inspect and edit WidgetBlueprint trees, Widgets, placement, and events."],
+  ["level", "Inspect persistent source-map Actors and serialized Components without changing Editor or World state."],
+  ["pcg", "Inspect authored PCG Graph Nodes, Pins, Settings evidence, layout, and incident Edges."],
+  ["pcg_component", "Inspect one authored PCG Component binding and effective Graph Parameter values."],
 ];
 
 const packageRoot = new URL("../", import.meta.url);

@@ -599,9 +599,7 @@
         { "$ref": "#/$defs/ClassTarget" },
         { "$ref": "#/$defs/CanonicalGraphTarget" },
         { "$ref": "#/$defs/CanonicalStateTreeTarget" },
-        { "$ref": "#/$defs/CanonicalWidgetTarget" },
-        { "$ref": "#/$defs/CanonicalLevelTarget" },
-        { "$ref": "#/$defs/CanonicalPcgTarget" }
+        { "$ref": "#/$defs/CanonicalWidgetTarget" }
       ]
     },
     "QueryTargetBinding": {

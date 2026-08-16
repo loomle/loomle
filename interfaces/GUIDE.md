@@ -11,7 +11,7 @@ editor behavior intact.
 - `project({ projectId: "<id>" })` binds the session to one project.
 - `sal_query({ text })` executes one Query Text.
 - `sal_patch({ text })` executes one ordered Patch Text.
-- `sal_schema({})` lists the six active Domain interface cards.
+- `sal_schema({})` lists the nine active Domain interface cards.
 - `sal_schema({ module: "graph" })` returns one static card.
 - `agent_skill({})` lists resident Loomle workflow Skills.
 - `agent_skill({ name: "format-unreal-blueprints" })` loads one Skill before
@@ -90,29 +90,26 @@ summary
 semantic tags. A Target is flat: every non-`domain` field is a non-empty JSON
 string, and a Target cannot contain another Target or alias.
 
-The resident catalog has six active Domain adapters and interface cards:
+The resident catalog has nine active Domain adapters and interface cards.
+Query and Patch Target sets are deliberately separate:
 
-| Domain | Discovery Query | Canonical exact Target and Patch |
-| --- | --- | --- |
-| `asset` | `domain` only, or `path` with optional `type` | `path + type` |
-| `blueprint` | `asset`, optional `id` | `asset + id` |
-| `class` | `path` | `path` |
-| `graph` | `asset + id` or `asset + name`; optional `blueprintId` | `asset + blueprintId + id` |
-| `state_tree` | `asset`, optional `type` | `asset + type` |
-| `widget` | `asset`, optional `id` | `asset + id` |
-
-Protocol v6 also recognizes and reserves three internal Phase-0 Target shapes:
-
-| Domain keyword | Query admission | Canonical Result | Patch admission |
+| Domain | Query Target | Canonical Result | Patch Target |
 | --- | --- | --- | --- |
-| `level` | `asset`, optional `type` | `asset + type` | `asset + type` |
-| `pcg` | `asset`, optional `type` | `asset + type` | `asset + type` |
+| `asset` | `domain` only, or `path` with optional `type` | `path + type` | `path + type` |
+| `blueprint` | `asset`, optional `id` | `asset + id` | `asset + id` |
+| `class` | `path` | `path` | `path` |
+| `graph` | `asset + id` or `asset + name`; optional `blueprintId` | `asset + blueprintId + id` | `asset + blueprintId + id` |
+| `state_tree` | `asset`, optional `type` | `asset + type` | `asset + type` |
+| `widget` | `asset`, optional `id` | `asset + id` | `asset + id` |
+| `level` | `asset`, optional `type` | `asset + type` | unavailable |
+| `pcg` | `asset`, optional `type` | `asset + type` | unavailable |
 | `pcg_component` | `asset + actorId + source + id + type` | same exact fields | unavailable |
 
-This admission keeps the parser, normalized schema, formatter, and Bridge in
-lockstep while the adapters are developed. It is not a public capability
-claim: these three keywords have no active `sal_schema` card, and current
-Bridge handling fails closed with `capability.interface_unavailable`.
+The three Scene/PCG cards are public read-only Query interfaces. A Domain's
+presence in the catalog does not grant Patch admission: request parsing rejects
+a `level`, `pcg`, or `pcg_component` Patch before Bridge dispatch. A later
+authored-mutation release can expand `PatchTarget` without changing these
+canonical Query and Result identities.
 
 `type` is a native-Class assertion inside a selected Domain. It never selects
 or adds a Domain. The same `UWidgetBlueprint`, for example, has separate
@@ -251,6 +248,8 @@ or operation parameter.
 
 Patch statements execute in written order. Dry run follows the same parse,
 resolve, validate, and plan path, then stops before live application.
+Only Domains whose static card defines a Patch surface are Patch Targets;
+`level`, `pcg`, and `pcg_component` are Query-only in this release.
 
 ## Results And Handoffs
 

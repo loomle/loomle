@@ -37,9 +37,9 @@ node {
 
 Removing `node` cannot change type, identity, Domain, validation, or creation.
 `target { domain: ... }` is separate structural syntax, not an object or tag.
-JSON literals, the retired generic label `object`, `target`, `domain`, the six
-Domain names, and the structurally ambiguous `tree`, `context`, and `palette`
-words are reserved; they cannot be semantic tags or local aliases.
+JSON literals, the retired generic label `object`, `target`, `domain`, the nine
+current Domain names, and the structurally ambiguous `tree`, `context`, and
+`palette` words are reserved; they cannot be semantic tags or local aliases.
 Parentheses remain for true calls or explicitly defined non-object syntax:
 
 ```sal

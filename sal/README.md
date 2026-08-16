@@ -28,10 +28,11 @@ SAL Text
 - `catalog` supplies static interface descriptions and Text; the executor's
   `interfaces` property selects the names active for its current Domain.
 - Query and Patch use one flat `target { domain: ..., ... }`. `target`,
-  `domain`, and the six Domain values are structural SAL keywords.
+  `domain`, and the nine Domain values are structural SAL keywords.
 - The current Domains are `asset`, `blueprint`, `class`, `graph`,
-  `state_tree`, and `widget`; each owns its closed Target schema and
-  Target-relative identity environment.
+  `state_tree`, `widget`, `level`, `pcg`, and `pcg_component`; each owns its
+  closed Target schema and Target-relative identity environment. The three
+  Scene/PCG Domains are Query-only in protocol v6 and are not Patch Targets.
 - Query has one primary `operation` plus optional `where`, `with`, `orderBy`,
   and `page`.
 - Patch contains one ordered `statements` array. Bindings and operations are

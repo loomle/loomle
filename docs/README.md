@@ -36,9 +36,9 @@ owners rather than under `docs/`:
 - `../sal/`: SAL grammar, schemas, fixtures, and SDK implementation.
 - `../sal/docs/EDITOR.md`: unified Editor context and Blueprint/Graph
   presentation-control contract.
-- `../interfaces/`: the six active Asset, Blueprint, Class, Graph, StateTree,
-  and Widget interface cards, their shared reference-query contract, and the
-  resident guide.
+- `../interfaces/`: the nine active Domain interface cards, including the
+  Query-only Level, PCG, and PCG Component cards, their shared reference-query
+  contract, and the resident guide.
 - `../client/README.md`: current TypeScript Client tool boundary.
 
 ## Planned Designs

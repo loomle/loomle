@@ -11,6 +11,7 @@ class SDockTab;
 class SWidget;
 class SWindow;
 class FWidgetPath;
+class AActor;
 class UEdGraph;
 class UWorld;
 
@@ -130,6 +131,10 @@ public:
         TSharedPtr<SDockTab>& OutOwnerTab) const;
     /** Exercises Level Editor owner projection without replacing Editor World. */
     TSharedPtr<FJsonObject> BuildLevelWorldForTesting(UWorld* World) const;
+    /** Exercises exact selected source-Actor projection through Level identity. */
+    TSharedPtr<FJsonObject> BuildLevelActorForTesting(
+        UWorld* World,
+        AActor* Actor) const;
     /** Exercises Graph recognition when UE retains a stale UI selection state. */
     bool RecognizesBlueprintGraphSurfaceForTesting(
         FName SelectionState,

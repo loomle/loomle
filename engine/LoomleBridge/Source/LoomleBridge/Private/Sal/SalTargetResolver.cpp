@@ -398,29 +398,100 @@ bool FSalTargetResolver::ResolveTarget(
 
     if (Domain == TEXT("pcg"))
     {
+        if (bForPatch)
+        {
+            OutError = InvalidTarget(
+                TEXT("pcg is a Query-only Target and cannot be used by sal_patch."));
+            return false;
+        }
         FString Asset;
         FString ExpectedType;
         Target->TryGetStringField(TEXT("asset"), Asset);
         Target->TryGetStringField(TEXT("type"), ExpectedType);
 
-        TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
-        Args->SetStringField(TEXT("path"), Asset);
-        if (!ResolveValue(Alias, MakeCall(TEXT("asset"), Args), bForPatch, OutTarget, OutError))
+        const FSoftObjectPath RequestedPath(
+            NormalizeObjectPath(Asset));
+        if (!RequestedPath.IsValid()
+            || !RequestedPath.GetSubPathString().IsEmpty())
         {
+            OutError = InvalidTarget(
+                TEXT("PCG Target asset must be one exact top-level object path."));
             return false;
         }
 
-        UPCGGraph* Graph = Cast<UPCGGraph>(OutTarget.Object);
-        if (Graph == nullptr)
+        const FAssetRegistryModule& AssetRegistryModule =
+            FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
+                TEXT("AssetRegistry"));
+        const FAssetData AssetData =
+            AssetRegistryModule.Get().GetAssetByObjectPath(
+                RequestedPath,
+                true);
+        if (!AssetData.IsValid()
+            || !AssetData.IsTopLevelAsset())
+        {
+            OutError = ResolutionError(
+                FString::Printf(
+                    TEXT("Saved top-level PCG Graph asset was not found: %s."),
+                    *RequestedPath.ToString()),
+                RequestedPath.ToString(),
+                TEXT("Save the UPCGGraph as a standalone asset, then query its exact Object Path."));
+            return false;
+        }
+
+        const FSoftObjectPath CanonicalSoftPath =
+            AssetData.GetSoftObjectPath();
+        const FString CanonicalPath =
+            CanonicalSoftPath.ToString();
+        UClass* RegisteredClass =
+            FindObject<UClass>(AssetData.AssetClassPath);
+        if (!CanonicalSoftPath.IsValid()
+            || !CanonicalSoftPath.GetSubPathString().IsEmpty()
+            || CanonicalPath.IsEmpty()
+            || !IsValid(RegisteredClass)
+            || !RegisteredClass->IsChildOf(UPCGGraph::StaticClass()))
         {
             OutError = FSalDiagnostics::Result(
                 FSalDiagnostics::Error(
                     TEXT("capability.interface_unavailable"),
-                    TEXT("PCG Domain requires a top-level asset-backed UPCGGraph target."))
-                    .Ref(OutTarget.AssetPath)
+                    TEXT("The saved top-level asset is not a loaded native UPCGGraph Class and cannot be opened through the PCG Domain."))
+                    .Ref(CanonicalPath.IsEmpty()
+                        ? RequestedPath.ToString()
+                        : CanonicalPath)
                     .Build());
             return false;
         }
+
+        const FString RegisteredType =
+            AssetData.AssetClassPath.ToString();
+        if (!ExpectedType.IsEmpty()
+            && ExpectedType != RegisteredType)
+        {
+            OutError = InvalidTarget(FString::Printf(
+                TEXT("PCG target type %s does not match registered native Class %s."),
+                *ExpectedType,
+                *RegisteredType));
+            return false;
+        }
+
+        UPCGGraph* Graph =
+            LoadObject<UPCGGraph>(nullptr, *CanonicalPath);
+        if (!IsValid(Graph)
+            || Graph->HasAnyFlags(IncompleteLoadFlags)
+            || Graph->GetPathName() != CanonicalPath
+            || Graph->GetClass() != RegisteredClass
+            || Graph->GetOutermost() == GetTransientPackage()
+            || Graph->GetOutermost()->HasAnyFlags(RF_Transient)
+            || Graph->GetOutermost()->HasAnyPackageFlags(PKG_PlayInEditor))
+        {
+            OutError = ResolutionError(
+                FString::Printf(
+                    TEXT("The saved PCG Graph could not be opened as its exact registered object: %s."),
+                    *CanonicalPath),
+                CanonicalPath,
+                TEXT("Refresh the Asset Registry and query the exact saved UPCGGraph again."));
+            return false;
+        }
+
         if (!Graph->IsAsset() || Graph->GetTypedOuter<UPCGGraph>() != nullptr)
         {
             OutError = InvalidTarget(
@@ -429,15 +500,21 @@ bool FSalTargetResolver::ResolveTarget(
         }
 
         const FString ActualType = Graph->GetClass()->GetPathName();
-        if (!ExpectedType.IsEmpty() && ExpectedType != ActualType)
+        if (ActualType != RegisteredType)
         {
             OutError = InvalidTarget(FString::Printf(
-                TEXT("PCG target type %s does not match resolved native Class %s."),
-                *ExpectedType,
+                TEXT("PCG registered native Class %s does not match resolved native Class %s."),
+                *RegisteredType,
                 *ActualType));
             return false;
         }
 
+        OutTarget.Kind = ESalTargetKind::Asset;
+        OutTarget.Alias = Alias;
+        OutTarget.AssetPath = CanonicalPath;
+        OutTarget.Name = AssetData.AssetName.ToString();
+        OutTarget.Object = Graph;
+        OutTarget.Package = Graph->GetOutermost();
         OutTarget.Domain = ESalDomain::Pcg;
         OutTarget.Interfaces = {FName(TEXT("pcg"))};
         OutTarget.CanonicalTarget = MakeCanonicalTarget(TEXT("pcg"));
@@ -448,25 +525,48 @@ bool FSalTargetResolver::ResolveTarget(
 
     if (Domain == TEXT("level"))
     {
+        if (bForPatch)
+        {
+            OutError = InvalidTarget(
+                TEXT("level is a Query-only Target and cannot be used by sal_patch."));
+            return false;
+        }
         FString Asset;
         FString ExpectedType;
         Target->TryGetStringField(TEXT("asset"), Asset);
         Target->TryGetStringField(TEXT("type"), ExpectedType);
 
-        const FString ObjectPath = NormalizeObjectPath(Asset);
+        const FSoftObjectPath RequestedPath(
+            NormalizeObjectPath(Asset));
+        if (!RequestedPath.IsValid()
+            || !RequestedPath.GetSubPathString().IsEmpty())
+        {
+            OutError = InvalidTarget(
+                TEXT("Level Target asset must be one exact top-level World object path."));
+            return false;
+        }
         const FAssetRegistryModule& AssetRegistryModule =
             FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
         const FAssetData AssetData = AssetRegistryModule.Get().GetAssetByObjectPath(
-            FSoftObjectPath(ObjectPath),
+            RequestedPath,
             true);
+        const FSoftObjectPath CanonicalSoftPath =
+            AssetData.GetSoftObjectPath();
+        const FTopLevelAssetPath CanonicalAssetPath =
+            CanonicalSoftPath.GetAssetPath();
         const FString PackageName = AssetData.PackageName.ToString();
         if (!AssetData.IsValid()
+            || !AssetData.IsTopLevelAsset()
+            || !CanonicalSoftPath.IsValid()
+            || !CanonicalSoftPath.GetSubPathString().IsEmpty()
+            || AssetData.PackageName != CanonicalAssetPath.GetPackageName()
+            || AssetData.AssetName != CanonicalAssetPath.GetAssetName()
             || !FPackageName::IsValidLongPackageName(PackageName)
             || FPackageName::IsTempPackage(PackageName))
         {
             OutError = ResolutionError(
                 TEXT("Level Domain requires one registered saved source-map asset and never loads a map to resolve it."),
-                ObjectPath,
+                RequestedPath.ToString(),
                 TEXT("Save the source map, then retry its exact top-level object path."));
             return false;
         }
@@ -478,10 +578,10 @@ bool FSalTargetResolver::ResolveTarget(
             OutError = ResolutionError(
                 FString::Printf(
                     TEXT("Level target %s resolves to native Class %s instead of %s."),
-                    *ObjectPath,
+                    *RequestedPath.ToString(),
                     *ActualType,
                     *WorldType),
-                ObjectPath);
+                RequestedPath.ToString());
             return false;
         }
         if (!ExpectedType.IsEmpty() && ExpectedType != ActualType)
@@ -493,9 +593,9 @@ bool FSalTargetResolver::ResolveTarget(
             return false;
         }
 
-        const FString CanonicalPath = AssetData.GetSoftObjectPath().ToString();
+        const FString CanonicalPath = CanonicalSoftPath.ToString();
         UWorld* LoadedWorld = FindObject<UWorld>(
-            AssetData.GetSoftObjectPath().GetAssetPath());
+            CanonicalAssetPath);
         if (!IsValid(LoadedWorld)
             || LoadedWorld->HasAnyFlags(IncompleteLoadFlags))
         {

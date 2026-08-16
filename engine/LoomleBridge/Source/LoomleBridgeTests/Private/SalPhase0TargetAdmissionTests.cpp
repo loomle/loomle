@@ -312,8 +312,8 @@ bool FSalTargetAdmissionModesTest::RunTest(const FString& Parameters)
     TestTrue(
         TEXT("Canonical Result admission accepts an exact Level Target"),
         FSalJson::ValidateCanonicalTarget(CanonicalLevel, Message));
-    TestTrue(
-        TEXT("Patch admission accepts an exact Level Target"),
+    TestFalse(
+        TEXT("Patch admission rejects an exact Query-only Level Target"),
         DecodePatchTarget(CanonicalLevel));
 
     TestTrue(
@@ -329,8 +329,8 @@ bool FSalTargetAdmissionModesTest::RunTest(const FString& Parameters)
     TestTrue(
         TEXT("Canonical Result admission accepts an exact PCG Target"),
         FSalJson::ValidateCanonicalTarget(CanonicalPcg, Message));
-    TestTrue(
-        TEXT("Patch admission accepts an exact PCG Target"),
+    TestFalse(
+        TEXT("Patch admission rejects an exact Query-only PCG Target"),
         DecodePatchTarget(CanonicalPcg));
 
     const TSharedRef<FJsonObject> Component = PcgComponentTarget();
@@ -482,12 +482,12 @@ bool FSalPhase0PublicPathTest::RunTest(const FString& Parameters)
     const TSharedPtr<FJsonObject> MissingComponent =
         FSalModule::BuildQueryResult(QueryArguments(PcgComponentTarget()));
     TestTrue(
-        TEXT("pcg_component retains its unavailable native resolver"),
+        TEXT("pcg_component requires on-disk evidence for its owning Level"),
         HasDiagnostic(
             MissingComponent,
-            TEXT("capability.interface_unavailable")));
+            TEXT("resolution.target_not_found")));
     TestTrue(
-        TEXT("Unavailable pcg_component remains unresolved"),
+        TEXT("A pcg_component whose owning Level is missing remains unresolved"),
         HasTargetContext(MissingComponent, TEXT("unresolved_target")));
 
     const TSharedPtr<FJsonObject> LevelPatch =
@@ -497,13 +497,30 @@ bool FSalPhase0PublicPathTest::RunTest(const FString& Parameters)
                     TEXT("level"),
                     TEXT("/Script/Engine.World"))));
     TestTrue(
-        TEXT("Exact Level Patch passes JSON admission then requires a registered source map"),
+        TEXT("Exact Level Patch is rejected before adapter resolution"),
         HasDiagnostic(
             LevelPatch,
-            TEXT("resolution.target_not_found")));
+            TEXT("language.invalid_object_shape"),
+            TEXT("Query-only")));
     TestTrue(
-        TEXT("Missing Level Patch target remains unresolved"),
+        TEXT("Rejected Level Patch remains unresolved"),
         HasTargetContext(LevelPatch, TEXT("unresolved_target")));
+
+    const TSharedPtr<FJsonObject> PcgPatch =
+        FSalModule::BuildPatchResult(
+            PatchArguments(
+                AssetDomainTarget(
+                    TEXT("pcg"),
+                    TEXT("/Script/PCG.PCGGraph"))));
+    TestTrue(
+        TEXT("Exact PCG Patch is rejected before adapter resolution"),
+        HasDiagnostic(
+            PcgPatch,
+            TEXT("language.invalid_object_shape"),
+            TEXT("Query-only")));
+    TestTrue(
+        TEXT("Rejected PCG Patch remains unresolved"),
+        HasTargetContext(PcgPatch, TEXT("unresolved_target")));
 
     const TSharedPtr<FJsonObject> ComponentPatch =
         FSalModule::BuildPatchResult(

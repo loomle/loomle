@@ -4,7 +4,6 @@
 
 #include "Algo/Reverse.h"
 #include "AssetRegistry/AssetData.h"
-#include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetViewTypes.h"
 #include "BlueprintEditor.h"
 #include "ContentBrowserItem.h"
@@ -30,19 +29,15 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "K2Node.h"
 #include "LevelEditor.h"
-#include "LevelInstance/LevelInstanceInterface.h"
-#include "LevelInstance/LevelInstanceSubsystem.h"
-#include "Misc/PackageName.h"
-#include "Modules/ModuleManager.h"
 #include "Sal/SalDiagnostics.h"
 #include "Sal/SalJson.h"
+#include "Sal/Level/SalLevelInterface.h"
 #include "Sal/SalObjectBuilder.h"
 #include "SMyBlueprint.h"
 #include "SAssetView.h"
 #include "SSubobjectEditor.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "Types/ISlateMetaData.h"
-#include "UObject/SoftObjectPath.h"
 #include "WidgetBlueprint.h"
 #include "WidgetBlueprintEditor.h"
 #include "WidgetBlueprintEditorUtils.h"
@@ -1425,103 +1420,86 @@ public:
     }
 };
 
-FAssetData FindRegisteredWorldAsset(const FSoftObjectPath& Path)
+bool EmitAuthoredLevelOwner(
+    FContextOutput& Out,
+    UWorld* EditorWorld,
+    const ULevel* Level,
+    FSalResolvedTarget& OutTarget)
 {
-    if (!Path.IsValid())
+    FString Code;
+    FString Message;
+    FString Suggestion;
+    if (!FSalLevelInterface::ResolveEditorContextTarget(
+            EditorWorld,
+            Level,
+            OutTarget,
+            Code,
+            Message,
+            Suggestion))
     {
-        return FAssetData();
-    }
-    const FAssetRegistryModule& Module = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
-    return Module.Get().GetAssetByObjectPath(Path);
-}
-
-FAssetData FindRegisteredWorldAsset(UWorld* World)
-{
-    if (World == nullptr)
-    {
-        return FAssetData();
-    }
-    return FindRegisteredWorldAsset(FSoftObjectPath(World));
-}
-
-bool EmitWorldOwner(FContextOutput& Out, UWorld* World)
-{
-    const FString PackageName = World != nullptr
-        ? World->GetOutermost()->GetName()
-        : FString();
-    const FAssetData WorldAsset =
-        World != nullptr && !FPackageName::IsTempPackage(PackageName)
-            ? FindRegisteredWorldAsset(World)
-            : FAssetData();
-    if (WorldAsset.IsValid())
-    {
-        EmitAsset(Out, WorldAsset);
-        return true;
-    }
-    if (World != nullptr)
-    {
-        Out.Builder.AddComment(FString::Printf(
-            TEXT("map asset: unavailable\npackagePath: \"%s\"\nreason: map has no registered persistent Asset identity"),
-            *PackageName));
-        Out.Unresolved(
-            TEXT("The Level Editor map has no registered persistent Asset Target."),
-            TEXT("Save the current map, then retry editor with no arguments."),
-            PackageName);
-    }
-    return false;
-}
-
-bool EmitAuthoredLevelOwner(FContextOutput& Out, UWorld* EditorWorld, const ULevel* Level)
-{
-    if (EditorWorld != nullptr && Level != nullptr)
-    {
-        if (ULevelInstanceSubsystem* LevelInstances = EditorWorld->GetSubsystem<ULevelInstanceSubsystem>())
+        const UWorld* SourceWorld = Level != nullptr
+            ? Level->GetTypedOuter<UWorld>()
+            : EditorWorld;
+        const FString PackageName = SourceWorld != nullptr
+            ? SourceWorld->GetOutermost()->GetName()
+            : FString();
+        if (Code == TEXT("resolution.unresolved_target"))
         {
-            if (ILevelInstanceInterface* LevelInstance = LevelInstances->GetOwningLevelInstance(Level))
-            {
-                const FSoftObjectPath SourcePath = LevelInstance->GetWorldAsset().ToSoftObjectPath();
-                const FAssetData SourceAsset = FindRegisteredWorldAsset(SourcePath);
-                if (SourceAsset.IsValid())
-                {
-                    EmitAsset(Out, SourceAsset);
-                    return true;
-                }
-                Out.Builder.AddComment(FString::Printf(
-                    TEXT("map asset: unavailable\nsourceWorld: %s"),
-                    *CommentScalar(SourcePath.ToString())));
-                return false;
-            }
+            Out.Builder.AddComment(FString::Printf(
+                TEXT("map asset: unavailable\npackagePath: \"%s\"\nreason: map has no registered persistent Asset identity"),
+                *PackageName));
+            Out.Unresolved(
+                Message.IsEmpty()
+                    ? TEXT("The Level Editor map has no registered persistent Level Target.")
+                    : Message,
+                Suggestion.IsEmpty()
+                    ? TEXT("Save the current map, then retry editor with no arguments.")
+                    : Suggestion,
+                PackageName);
         }
-    }
-    UWorld* OwningWorld = Level != nullptr ? Level->GetTypedOuter<UWorld>() : nullptr;
-    const FAssetData WorldAsset = FindRegisteredWorldAsset(OwningWorld);
-    if (WorldAsset.IsValid())
-    {
-        EmitAsset(Out, WorldAsset);
-        return true;
-    }
-    EmitWorldOwner(Out, OwningWorld != nullptr ? OwningWorld : EditorWorld);
-    return false;
-}
-
-int32 CountActorGuidInLevel(const AActor* Actor)
-{
-    if (Actor == nullptr || Actor->GetLevel() == nullptr || !Actor->GetActorGuid().IsValid())
-    {
-        return 0;
-    }
-    int32 Count = 0;
-    for (const AActor* Candidate : Actor->GetLevel()->Actors)
-    {
-        if (Candidate != nullptr && Candidate->GetActorGuid() == Actor->GetActorGuid())
+        else
         {
-            ++Count;
+            Out.Builder.AddComment(FString::Printf(
+                TEXT("map source: unavailable\npackagePath: \"%s\"\nreason: %s"),
+                *PackageName,
+                *CommentScalar(Message)));
+            Out.Error(
+                Code.IsEmpty()
+                    ? TEXT("context.owner_invalid")
+                    : Code,
+                Message.IsEmpty()
+                    ? TEXT("The Level Editor source owner is unavailable.")
+                    : Message,
+                PackageName);
         }
+        return false;
     }
-    return Count;
+
+    FString Type;
+    if (OutTarget.CanonicalTarget.IsValid())
+    {
+        OutTarget.CanonicalTarget->TryGetStringField(
+            TEXT("type"),
+            Type);
+    }
+    const FString Alias = Out.Builder.UniqueAlias(
+        OutTarget.Name.IsEmpty()
+            ? TEXT("level")
+            : OutTarget.Name);
+    TSharedPtr<FJsonObject> Fields = Args();
+    Fields->SetStringField(TEXT("path"), OutTarget.AssetPath);
+    Fields->SetStringField(TEXT("type"), Type);
+    Out.Builder.AddLocalBinding(
+        Alias,
+        Value::Call(TEXT("asset"), Fields));
+    Out.ExactTarget(Alias, OutTarget.CanonicalTarget);
+    return true;
 }
 
-void EmitActorDescription(FContextOutput& Out, AActor* Actor, const bool bOwnerScopeAvailable)
+void EmitActorDescription(
+    FContextOutput& Out,
+    AActor* Actor,
+    const FSalResolvedTarget* OwnerTarget)
 {
     if (Actor == nullptr)
     {
@@ -1529,9 +1507,33 @@ void EmitActorDescription(FContextOutput& Out, AActor* Actor, const bool bOwnerS
     }
     const FGuid ActorGuid = Actor->GetActorGuid();
     const FGuid InstanceGuid = Actor->GetActorInstanceGuid();
-    const bool bLevelScopedRef = bOwnerScopeAvailable
-        && ActorGuid.IsValid()
-        && CountActorGuidInLevel(Actor) == 1;
+    FString StableActorId;
+    FString Code;
+    FString Message;
+    const bool bLevelScopedRef = OwnerTarget != nullptr
+        && FSalLevelInterface::ResolveEditorContextActor(
+            *OwnerTarget,
+            Actor,
+            StableActorId,
+            Code,
+            Message);
+    if (bLevelScopedRef)
+    {
+        Out.Builder.AddLocalBinding(
+            Out.Builder.UniqueAlias(TEXT("selected_actor")),
+            Value::Stable(TEXT("actor"), StableActorId));
+    }
+    else if (OwnerTarget != nullptr)
+    {
+        Out.Error(
+            Code.IsEmpty()
+                ? TEXT("context.identity_missing")
+                : Code,
+            Message.IsEmpty()
+                ? TEXT("The selected Actor has no exact persistent Level StableRef.")
+                : Message,
+            Actor->GetPathName());
+    }
     TArray<FString> Lines;
     Lines.Add(TEXT("selected: actor"));
     if (ActorGuid.IsValid())
@@ -1549,17 +1551,16 @@ void EmitActorDescription(FContextOutput& Out, AActor* Actor, const bool bOwnerS
     Lines.Add(FString::Printf(TEXT("label: %s"), *CommentScalar(Actor->GetActorLabel())));
     Lines.Add(FString::Printf(TEXT("path: \"%s\""), *Actor->GetPathName()));
     Lines.Add(FString::Printf(TEXT("type: \"%s\""), *Actor->GetClass()->GetPathName()));
-    Lines.Add(TEXT("interface: unavailable"));
     Lines.Add(bLevelScopedRef
-        ? TEXT("graphPaletteUse: requires the exact owning Level Blueprint and Graph target")
-        : TEXT("graph palette actor context: unavailable (ActorGuid is missing or not unique in the owning Level)"));
+        ? TEXT("interface: level")
+        : TEXT("interface: unavailable"));
     Out.Builder.AddComment(FString::Join(Lines, TEXT("\n")));
 }
 
 void EmitActorComponentDescription(
     FContextOutput& Out,
     UActorComponent* Component,
-    const bool bOwnerScopeAvailable)
+    const FSalResolvedTarget* OwnerTarget)
 {
     if (Component == nullptr)
     {
@@ -1568,14 +1569,21 @@ void EmitActorComponentDescription(
     AActor* Owner = Component->GetOwner();
     TArray<FString> Lines;
     Lines.Add(TEXT("selected: actor component"));
-    if (bOwnerScopeAvailable
+    FString StableOwnerId;
+    FString Code;
+    FString Message;
+    if (OwnerTarget != nullptr
         && Owner != nullptr
-        && Owner->GetActorGuid().IsValid()
-        && CountActorGuidInLevel(Owner) == 1)
+        && FSalLevelInterface::ResolveEditorContextActor(
+            *OwnerTarget,
+            Owner,
+            StableOwnerId,
+            Code,
+            Message))
     {
         Lines.Add(FString::Printf(
             TEXT("ownerActorGuid: %s"),
-            *GuidText(Owner->GetActorGuid())));
+            *StableOwnerId));
     }
     else if (Owner != nullptr)
     {
@@ -1644,23 +1652,39 @@ public:
             Out.Error(TEXT("context.owner_invalid"), TEXT("The Editor World is unavailable."));
             return Out.Finish();
         }
+        ULevel* ContextLevel = EditorWorld->GetCurrentLevel();
         UTypedElementSelectionSet* Selection = GLevelEditorModeTools().GetEditorSelectionSet();
         if (Selection == nullptr)
         {
-            EmitWorldOwner(Out, EditorWorld);
+            FSalResolvedTarget OwnerTarget;
+            EmitAuthoredLevelOwner(
+                Out,
+                EditorWorld,
+                ContextLevel,
+                OwnerTarget);
             Out.Error(TEXT("context.owner_invalid"), TEXT("The Level Editor typed selection set is unavailable."));
             return Out.Finish();
         }
         const int32 Count = Selection->GetNumSelectedElements();
         if (Count == 0)
         {
-            EmitWorldOwner(Out, EditorWorld);
+            FSalResolvedTarget OwnerTarget;
+            EmitAuthoredLevelOwner(
+                Out,
+                EditorWorld,
+                ContextLevel,
+                OwnerTarget);
             AddNoSelection(Out);
             return Out.Finish();
         }
         if (Count > 1)
         {
-            EmitWorldOwner(Out, EditorWorld);
+            FSalResolvedTarget OwnerTarget;
+            EmitAuthoredLevelOwner(
+                Out,
+                EditorWorld,
+                ContextLevel,
+                OwnerTarget);
             AddMultipleSelection(Out, Count);
             return Out.Finish();
         }
@@ -1668,7 +1692,12 @@ public:
         const TArray<UObject*> Objects = Selection->GetSelectedObjects();
         if (Objects.Num() != 1 || Objects[0] == nullptr)
         {
-            EmitWorldOwner(Out, EditorWorld);
+            FSalResolvedTarget OwnerTarget;
+            EmitAuthoredLevelOwner(
+                Out,
+                EditorWorld,
+                ContextLevel,
+                OwnerTarget);
             Out.Builder.AddComment(TEXT(
                 "selected: typed element\n"
                 "native UObject: unavailable\n"
@@ -1678,36 +1707,54 @@ public:
         UObject* Object = Objects[0];
         if (AActor* Actor = Cast<AActor>(Object))
         {
-            const bool bOwnerScopeAvailable = EmitAuthoredLevelOwner(Out, EditorWorld, Actor->GetLevel());
+            FSalResolvedTarget OwnerTarget;
+            const bool bOwnerScopeAvailable = EmitAuthoredLevelOwner(
+                Out,
+                EditorWorld,
+                Actor->GetLevel(),
+                OwnerTarget);
             if (Actor->GetWorld() != EditorWorld)
             {
                 Out.Error(TEXT("context.native_inconsistent"), TEXT("The selected Actor is not owned by the Editor World."), Actor->GetPathName());
             }
             else
             {
-                EmitActorDescription(Out, Actor, bOwnerScopeAvailable);
+                EmitActorDescription(
+                    Out,
+                    Actor,
+                    bOwnerScopeAvailable ? &OwnerTarget : nullptr);
             }
             return Out.Finish();
         }
         if (UActorComponent* Component = Cast<UActorComponent>(Object))
         {
             AActor* Owner = Component->GetOwner();
+            FSalResolvedTarget OwnerTarget;
             const bool bOwnerScopeAvailable = EmitAuthoredLevelOwner(
                 Out,
                 EditorWorld,
-                Owner != nullptr ? Owner->GetLevel() : nullptr);
+                Owner != nullptr ? Owner->GetLevel() : nullptr,
+                OwnerTarget);
             if (Owner != nullptr && Owner->GetWorld() != EditorWorld)
             {
                 Out.Error(TEXT("context.native_inconsistent"), TEXT("The selected Actor Component is not owned by the Editor World."), Component->GetPathName());
             }
             else
             {
-                EmitActorComponentDescription(Out, Component, bOwnerScopeAvailable);
+                EmitActorComponentDescription(
+                    Out,
+                    Component,
+                    bOwnerScopeAvailable ? &OwnerTarget : nullptr);
             }
             return Out.Finish();
         }
 
-        EmitWorldOwner(Out, EditorWorld);
+        FSalResolvedTarget OwnerTarget;
+        EmitAuthoredLevelOwner(
+            Out,
+            EditorWorld,
+            ContextLevel,
+            OwnerTarget);
         Out.Builder.AddComment(FString::Printf(
             TEXT("selected: UObject\npath: \"%s\"\ntype: \"%s\"\ninterface: unavailable"),
             *Object->GetPathName(),
@@ -2927,8 +2974,48 @@ public:
     {
         FContextOutput Out;
         AddSurface(Out, TEXT("Level Editor"));
-        EmitWorldOwner(Out, World);
+        FSalResolvedTarget OwnerTarget;
+        EmitAuthoredLevelOwner(
+            Out,
+            World,
+            World != nullptr ? World->GetCurrentLevel() : nullptr,
+            OwnerTarget);
         AddNoSelection(Out);
+        return Validate(Out.Finish());
+    }
+
+    TSharedPtr<FJsonObject> BuildLevelActorForTesting(
+        UWorld* World,
+        AActor* Actor) const
+    {
+        FContextOutput Out;
+        AddSurface(Out, TEXT("Level Editor"));
+        FSalResolvedTarget OwnerTarget;
+        const bool bOwnerScopeAvailable = EmitAuthoredLevelOwner(
+            Out,
+            World,
+            Actor != nullptr ? Actor->GetLevel() : nullptr,
+            OwnerTarget);
+        if (Actor == nullptr)
+        {
+            Out.Error(
+                TEXT("context.owner_invalid"),
+                TEXT("The selected Actor is unavailable."));
+        }
+        else if (Actor->GetWorld() != World)
+        {
+            Out.Error(
+                TEXT("context.native_inconsistent"),
+                TEXT("The selected Actor is not owned by the Editor World."),
+                Actor->GetPathName());
+        }
+        else
+        {
+            EmitActorDescription(
+                Out,
+                Actor,
+                bOwnerScopeAvailable ? &OwnerTarget : nullptr);
+        }
         return Validate(Out.Finish());
     }
 
@@ -3285,6 +3372,14 @@ TSharedPtr<FJsonObject>
 FEditorContextService::BuildLevelWorldForTesting(UWorld* World) const
 {
     return Impl->BuildLevelWorldForTesting(World);
+}
+
+TSharedPtr<FJsonObject>
+FEditorContextService::BuildLevelActorForTesting(
+    UWorld* World,
+    AActor* Actor) const
+{
+    return Impl->BuildLevelActorForTesting(World, Actor);
 }
 
 bool FEditorContextService::RecognizesBlueprintGraphSurfaceForTesting(

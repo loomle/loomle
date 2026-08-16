@@ -38,27 +38,41 @@ set.
 ### Target
 
 ```ts
-type Target =
+type QueryTarget =
   | AssetTarget
   | BlueprintTarget
   | ClassTarget
   | GraphTarget
   | StateTreeTarget
-  | WidgetTarget;
+  | WidgetTarget
+  | LevelTarget
+  | PcgTarget
+  | PcgComponentTarget;
+
+type PatchTarget =
+  | CanonicalAssetTarget
+  | CanonicalBlueprintTarget
+  | ClassTarget
+  | CanonicalGraphTarget
+  | CanonicalStateTreeTarget
+  | CanonicalWidgetTarget;
+
+type Target = QueryTarget; // compatibility alias
 ```
 
 Every branch has `kind: "target"` and a literal `domain`. Target branches are
 closed and flat. All address/verification fields are non-empty strings.
 
 ```ts
-interface TargetBinding<T extends Target = Target> {
+interface TargetBinding<T extends QueryTarget = QueryTarget> {
   alias: LocalIdentifier;
   target: T;
 }
 ```
 
 Query accepts Domain discovery forms. Patch accepts only generated canonical
-Target profiles.
+Target profiles from its separate `PatchTarget` union. `level`, `pcg`, and
+`pcg_component` are Query-only in protocol v6 and do not enter that union.
 
 ### References
 
@@ -120,7 +134,7 @@ Target binding or related Target table.
 ```ts
 interface QueryRequest {
   kind: "query";
-  target: TargetBinding<QueryAcceptedTarget>;
+  target: TargetBinding<QueryTarget>;
   operation: QueryOperation;
   where?: Condition;
   with?: [Identifier, ...Identifier[]];
@@ -130,7 +144,7 @@ interface QueryRequest {
 
 interface PatchRequest {
   kind: "patch";
-  target: TargetBinding<CanonicalTarget>;
+  target: TargetBinding<PatchTarget>;
   dryRun: boolean;
   statements: [PatchStatement, ...PatchStatement[]];
 }

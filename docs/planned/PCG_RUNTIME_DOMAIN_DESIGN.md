@@ -2,9 +2,11 @@
 
 ## Status
 
-This is a planned design. Nothing in this file adds a public Domain, Target,
-tool, request schema, private route, runtime registry, or compatibility adapter
-by documentation alone.
+This is a planned design for the complete runtime family. The latest externally
+released product still has six SAL Domains. The unpublished feature branch now
+contains a nine-Domain Query-only release candidate, including the persistent
+`pcg_component` card and adapter; documentation alone still adds no public
+Domain, tool, route, runtime registry, or compatibility adapter.
 
 This document is subordinate to
 [`SCENE_PCG_DOMAIN_FAMILY_DESIGN.md`](SCENE_PCG_DOMAIN_FAMILY_DESIGN.md) for
@@ -12,12 +14,26 @@ cross-owner architecture and complements
 [`PCG_DOMAIN_DESIGN.md`](PCG_DOMAIN_DESIGN.md), which owns asset-backed
 `UPCGGraph` authorship. If the documents disagree, the family design governs.
 
-The first persistent Component implementation is split into two confirmed
-internal slices. Slice 1C-B-A implements canonical resolution, `target`,
-`summary`, exact schema, bounded zero-load Graph-binding readback, and related
+The first persistent Component implementation was split into two confirmed
+internal prerequisite slices. Slice 1C-B-A implements canonical resolution,
+`target`, `summary`, exact schema, bounded zero-load Graph-binding readback, and related
 Level/Graph handoffs. Slice 1C-B-B implements bounded Parameter enumeration and
 exact Parameter readback. Neither slice enables Patch, execution, live
-resources, or a public interface card by itself.
+resources, or a public interface card by itself. The coordinated 1C-B-C RC now
+adds the branch-local static card and offline schema without enabling those
+later capabilities.
+
+The next coordinated family milestone is external publication of this combined
+Query-only RC alongside `level` and `pcg`. The branch card is already present;
+`pcg_component` is in `QueryTarget` and absent from `PatchTarget`. Publication
+still awaits the final release-archive audit, Windows acceptance, and
+production promotion. The current branch-local Query-only snapshot already
+passes the official UE 5.7 and UE 5.8 arm64 builds, Level Query 8/8, coordinated
+PCG Query 7/7, and family Phase 0 2/2 on both engines, plus packaged end-to-end
+acceptance on both engines. Its nine-Domain offline `sal_schema` catalog and all
+three new static cards are complete but remain unpublished. Mutation, Python
+`sal.object()` projection, and typed execution are later capability releases
+and do not gate this card.
 
 The runtime model has one Target-backed SAL Domain, one non-Target execution
 owner, and one private World-binding service:
@@ -1621,8 +1637,13 @@ result fields, static internal card, and diagnostics does not add a Target
 field, Query operation kind, StableRef form, or protocol-version bump.
 Slice 1C-B-B likewise uses the existing `parameters` collection and StableRef
 grammar without changing protocol v6. Its operation advertisement and exact
-result capability must still be enabled atomically across Client, Bridge, and
-the static card when the Domain is published.
+result capability are enabled together across Client, Bridge, and the static
+RC card, but remain unpublished pending acceptance.
+
+The coordinated Query-only publication does not allocate another version
+beyond the still-unpublished family protocol v6. Any later admission of
+`pcg_component` through `PatchTarget` requires a coordinated
+protocol/capability bump even if no new SAL statement spelling is needed.
 
 Those Target sets are type/admissibility sets only. After admission, the
 request's single `Target.domain` selects exactly one adapter. A set never
@@ -1698,7 +1719,7 @@ World ticket, async-kernel extraction, or execution frontend is implemented.
 The separately versioned family `sal.object()` projection slice also lands
 before typed-runtime work begins. Typed execution is the final family stage.
 
-### Slice 0: family Target prerequisite
+### Slice 0: family Target prerequisite — historical implemented prerequisite
 
 - consume the family Phase 0 Target variants and three-way admission rules;
 - accept canonical `pcg_component` in Query and canonical Result/related
@@ -1711,7 +1732,7 @@ before typed-runtime work begins. Typed execution is the final family stage.
 - add no async kernel, World registry, typed schema, execution frontend,
   projection envelope, effect schema, save support, or public interface card.
 
-### Slice 1C-B-A: persistent target, summary, and navigation
+### Slice 1C-B-A: persistent target, summary, and navigation — implemented
 
 - canonical Component Target with `asset, actorId, source, id, type`;
 - native/instance `FName` slot resolution and documented incarnation semantics;
@@ -1725,7 +1746,7 @@ before typed-runtime work begins. Typed execution is the final family stage.
 - no Property Bag or Parameter readback;
 - no Component Patch and no execution.
 
-### Slice 1C-B-B: Component Parameter readback
+### Slice 1C-B-B: Component Parameter readback — implemented
 
 - descriptor-Guid declaration and effective-source Query;
 - inherited external GraphInstance coverage;
@@ -1734,6 +1755,28 @@ before typed-runtime work begins. Typed execution is the final family stage.
 - lossless common-engine type/value encoding and bounded exact Parameter
   StableRef Query;
 - no mutation, Graph refresh, callback, task, resource, or save behavior.
+
+### Slice 1C-B-C: coordinated Query-only publication — RC implemented, branch-local acceptance passed
+
+- RC source contains the native UE 5.8 `map` fail-closed, exact 8 Ki/64 Ki
+  value-budget, stale zero-declaration override, unloaded-owner,
+  identity-reload, and other hostile Query fixtures;
+- RC source contains the combined binding and Parameter Query surface in the
+  static `pcg_component` card and offline schema inside the branch-local
+  nine-Domain catalog;
+- keep `pcg_component` in `QueryTarget` and reject it from `PatchTarget` before
+  Bridge dispatch; packaged Client/Bridge parity passes on both supported
+  engines; and
+- add no mutation, save, Python projection, World ticket, async kernel, or
+  execution capability.
+
+The current Query-only snapshot passes the official UE 5.7 and UE 5.8 arm64
+builds; Level Query 8/8, coordinated PCG Query 7/7, and family Phase 0 2/2 on
+both engines; and packaged end-to-end acceptance on both engines. The
+nine-Domain offline `sal_schema` catalog and all three new static cards are
+complete in the branch. This is branch-local RC acceptance, not an external
+publication: the final release-archive audit, Windows acceptance, and production
+promotion have not run.
 
 ### Slice 2: Component mutation research
 
@@ -1805,12 +1848,13 @@ before typed-runtime work begins. Typed execution is the final family stage.
 - supported PIE/SIE and multi-World matrix;
 - cross-World concurrency and runtime-loss tests.
 
-Each slice may land internally only after its static catalog or request schema,
-native automation, Client/Bridge parity, packaged acceptance, and both-engine
-tests pass. The Target-backed `level`, `pcg`, and Query-only `pcg_component`
-surfaces still ship as one coordinated nine-Domain SAL catalog release. The
-Python projection annex and typed PCG frontend are separately versioned
-capability releases.
+Internal slices require their native automation and Client/Bridge parity. The
+static card and branch catalog are authored and branch-locally accepted in
+Slice 1C-B-C but become public only after the remaining release-archive,
+Windows, and promotion gates pass. Query-only `level`, `pcg`, and
+`pcg_component` ship as one coordinated nine-Domain SAL catalog release.
+Component mutation, the Python projection annex, and the typed PCG frontend are
+separately versioned capability releases.
 
 ## Test Requirements
 
@@ -2010,7 +2054,23 @@ capability guards.
 
 ## Acceptance Requirements
 
-This design can leave planned status only when:
+The coordinated `pcg_component` Query-only card requires only the persistent
+Target/locator, Graph-binding, Parameter identity/value, bounded zero-load,
+read-only invariant, Query/Patch-admission, both-engine, static-card, and
+packaged Client/Bridge gates defined above. It does not wait for Component
+mutation, `sal.object()`, a World registry, the async kernel, or typed PCG
+execution.
+
+The current branch snapshot satisfies that Query-only gate: official UE 5.7
+and UE 5.8 arm64 builds pass; Level Query passes 8/8, coordinated PCG Query
+passes 7/7, and family Phase 0 passes 2/2 on both engines; packaged end-to-end
+acceptance passes on both engines; and the nine-Domain offline `sal_schema`
+catalog and all three new static cards are complete. The RC remains unpublished
+until the final release-archive audit, Windows acceptance, and production
+promotion are complete. This result does not implement or accept the typed
+runtime and execution design below.
+
+The complete later runtime design can leave planned status only when:
 
 - `pcg_component` has the exact canonical Target shape defined here, including
   the source-aware locator; no live World Target is introduced;

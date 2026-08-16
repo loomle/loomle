@@ -27,7 +27,14 @@ class
 graph
 state_tree
 widget
+level
+pcg
+pcg_component
 ```
+
+All nine cards describe Query Targets. The `level`, `pcg`, and
+`pcg_component` cards are read-only in this release and are absent from
+`PatchTarget`.
 
 ## One Static Card
 

@@ -217,6 +217,7 @@ TSharedPtr<FJsonObject> CanonicalPcgTarget(UPCGGraph* Graph)
     }
     UPackage* Package = Graph->GetOutermost();
     if (Package == nullptr
+        || Graph->GetOuter() != Package
         || Package == GetTransientPackage()
         || Package->HasAnyFlags(RF_Transient)
         || Package->HasAnyPackageFlags(PKG_PlayInEditor)
@@ -236,6 +237,10 @@ TSharedPtr<FJsonObject> CanonicalPcgTarget(UPCGGraph* Graph)
         true);
     const FString ActualType = Graph->GetClass()->GetPathName();
     if (!Data.IsValid()
+        || !Data.IsTopLevelAsset()
+        || Data.PackageName != Package->GetFName()
+        || Data.AssetName != Graph->GetFName()
+        || !Data.GetSoftObjectPath().GetSubPathString().IsEmpty()
         || Data.AssetClassPath.ToString() != ActualType
         || Data.GetSoftObjectPath().ToString() != Graph->GetPathName())
     {

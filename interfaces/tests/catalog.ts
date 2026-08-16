@@ -4,7 +4,17 @@ import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { catalog, guide } from "../src/index.js";
 
-const expectedNames = ["asset", "blueprint", "class", "graph", "state_tree", "widget"];
+const expectedNames = [
+  "asset",
+  "blueprint",
+  "class",
+  "graph",
+  "state_tree",
+  "widget",
+  "level",
+  "pcg",
+  "pcg_component",
+];
 const interfacesRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const repositoryRoot = resolve(interfacesRoot, "..");
 const resultFragmentMarker =
@@ -82,6 +92,8 @@ assert.match(guide, /operation: "open" \| "close"/);
 assert.doesNotMatch(guide, /editor_context/);
 assert.match(guide, /## Schema Discovery/);
 assert.match(guide, /operation-less form is the shared exact-target read/);
+assert.match(guide, /nine active Domain interface cards/);
+assert.match(guide, /`level`, `pcg`, and `pcg_component` are Query-only/);
 assert.deepEqual(
   catalog.map(({ name }) => name),
   expectedNames,
@@ -117,6 +129,32 @@ assert.match(
   /planned\.operations[\s\S]*scope: "graph"[\s\S]*diff\.changes/,
   "Graph interface must document precise move planning and move-only diffs.",
 );
+
+const levelInterface = catalog.find(({ name }) => name === "level");
+assert.ok(levelInterface, "Level interface must be present.");
+assert.match(levelInterface.text, /This interface is read-only\./);
+assert.match(levelInterface.text, /actors \["text"\][\s\S]*components \["text"\]/);
+assert.match(levelInterface.text, /native[\s\S]*scs[\s\S]*instance/);
+assert.match(levelInterface.text, /accepts no Patch Target/);
+assert.doesNotMatch(levelInterface.text, /^## Patch$/m);
+
+const pcgInterface = catalog.find(({ name }) => name === "pcg");
+assert.ok(pcgInterface, "PCG interface must be present.");
+assert.match(pcgInterface.text, /This interface is\s+read-only\./);
+assert.match(pcgInterface.text, /@SurfaceSampler_0\/in\/"Bounding Shape"/);
+assert.match(pcgInterface.text, /persisted integer Node position as `at: \[x, y\]`/);
+assert.match(pcgInterface.text, /accepts no Patch Target/);
+assert.doesNotMatch(pcgInterface.text, /^## Patch$/m);
+
+const pcgComponentInterface = catalog.find(({ name }) => name === "pcg_component");
+assert.ok(pcgComponentInterface, "PCG Component interface must be present.");
+assert.match(pcgComponentInterface.text, /parameters \["text"\]/);
+assert.match(
+  pcgComponentInterface.text,
+  /component_override[\s\S]*parent_instance[\s\S]*graph_default/,
+);
+assert.match(pcgComponentInterface.text, /accepts no Patch Target/);
+assert.doesNotMatch(pcgComponentInterface.text, /^## Patch$/m);
 
 const formalDocumentationFiles = [
   ...markdownFiles(resolve(repositoryRoot, "sal/docs")),

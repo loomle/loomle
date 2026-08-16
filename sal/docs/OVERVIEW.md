@@ -76,7 +76,7 @@ ambiguous with tagged StableRefs.
 
 ## Domains And Targets
 
-The six Domains are:
+The nine Domains are:
 
 - `asset`
 - `blueprint`
@@ -84,6 +84,9 @@ The six Domains are:
 - `graph`
 - `state_tree`
 - `widget`
+- `level` (Query-only)
+- `pcg` (Query-only)
+- `pcg_component` (Query-only)
 
 Every request has exactly one Target and exactly one Domain. Targets are flat,
 closed records whose non-`domain` values are non-empty JSON strings. They do

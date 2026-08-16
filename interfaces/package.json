@@ -19,6 +19,9 @@
     "blueprint.md",
     "class.md",
     "graph.md",
+    "level.md",
+    "pcg.md",
+    "pcg_component.md",
     "state_tree.md",
     "widget.md"
   ],

@@ -27,12 +27,18 @@ assert.ok(
   schema.$defs.CollectionOperation.properties.kind.enum.includes("actors"),
   "protocol v6 must admit the Level actors collection operation",
 );
-assert.equal(
-  schema.$defs.PatchTarget.oneOf.some(
-    (entry: { $ref: string }) => entry.$ref === "#/$defs/PcgComponentTarget",
-  ),
-  false,
-  "pcg_component must remain Query-only until its edit guard is certified",
-);
+for (const queryOnlyTarget of [
+  "CanonicalLevelTarget",
+  "CanonicalPcgTarget",
+  "PcgComponentTarget",
+]) {
+  assert.equal(
+    schema.$defs.PatchTarget.oneOf.some(
+      (entry: { $ref: string }) => entry.$ref === `#/$defs/${queryOnlyTarget}`,
+    ),
+    false,
+    `${queryOnlyTarget} must remain Query-only in the coordinated nine-Domain release`,
+  );
+}
 
 console.log("[PASS] embedded runtime Schema and reserved words match the canonical JSON");
