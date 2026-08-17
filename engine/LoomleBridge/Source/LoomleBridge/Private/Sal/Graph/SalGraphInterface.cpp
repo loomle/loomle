@@ -47,6 +47,7 @@
 #include "K2Node_EditablePinBase.h"
 #include "K2Node_ExecutionSequence.h"
 #include "K2Node_Event.h"
+#include "K2Node_GetSubsystem.h"
 #include "K2Node_FunctionEntry.h"
 #include "K2Node_FunctionResult.h"
 #include "K2Node_MakeArray.h"
@@ -6234,6 +6235,51 @@ const FObjectProperty* FindFunctionActionBinding(
         : nullptr;
 }
 
+// UK2Node_GetSubsystem and its subclasses register one generic
+// UBlueprintNodeSpawner per subsystem class, carrying the class only in each
+// spawner's CustomizeNodeDelegate. UE's GetSpawnerSignature() therefore
+// collapses every subsystem action to the same Node-class signature and SAL
+// Palette identities collide (Issue #196). Disambiguate by reading the
+// template Node's CustomClass from its result Pin type and adding it to the
+// signature.
+void AddSubsystemClassIdentity(
+    FBlueprintNodeSignature& Signature,
+    const UBlueprintNodeSpawner* Spawner)
+{
+    if (Spawner == nullptr
+        || Spawner->NodeClass == nullptr
+        || !Spawner->NodeClass->IsChildOf(
+            UK2Node_GetSubsystem::StaticClass()))
+    {
+        return;
+    }
+    UEdGraphNode* Template = Spawner->GetTemplateNode();
+    UK2Node_GetSubsystem* SubsystemNode =
+        Cast<UK2Node_GetSubsystem>(Template);
+    if (SubsystemNode == nullptr)
+    {
+        return;
+    }
+    if (Template->Pins.IsEmpty())
+    {
+        Template->AllocateDefaultPins();
+    }
+    const UEdGraphPin* ResultPin = SubsystemNode->GetResultPin();
+    const UClass* CustomClass =
+        ResultPin != nullptr
+            ? Cast<UClass>(
+                ResultPin->PinType.PinSubCategoryObject.Get())
+            : nullptr;
+    if (CustomClass != nullptr)
+    {
+        static const FName SubsystemKey(
+            TEXT("LoomleSubsystemClass"));
+        Signature.AddNamedValue(
+            SubsystemKey,
+            CustomClass->GetPathName());
+    }
+}
+
 void AddFunctionBindingIdentity(
     FBlueprintNodeSignature& Signature,
     const FObjectProperty* Property,
@@ -6337,21 +6383,24 @@ FString PaletteActionToken(
         return VariablePaletteActionToken(VariableSpawner);
     }
     FBlueprintNodeSignature Signature = Spawner->GetSpawnerSignature();
-    if (Signature.IsValid()
-        && Target != nullptr
-        && PaletteContext != nullptr)
+    if (Signature.IsValid())
     {
-        if (const UBlueprintFunctionNodeSpawner* FunctionSpawner =
-                Cast<UBlueprintFunctionNodeSpawner>(Spawner))
+        AddSubsystemClassIdentity(Signature, Spawner);
+        if (Target != nullptr
+            && PaletteContext != nullptr)
         {
-            AddFunctionBindingIdentity(
-                Signature,
-                FindFunctionActionBinding(
-                    Action,
-                    FunctionSpawner,
-                    *Target,
-                    *PaletteContext),
-                *Target);
+            if (const UBlueprintFunctionNodeSpawner* FunctionSpawner =
+                    Cast<UBlueprintFunctionNodeSpawner>(Spawner))
+            {
+                AddFunctionBindingIdentity(
+                    Signature,
+                    FindFunctionActionBinding(
+                        Action,
+                        FunctionSpawner,
+                        *Target,
+                        *PaletteContext),
+                    *Target);
+            }
         }
     }
     if (Signature.IsValid()) return GuidText(Signature.AsGuid());

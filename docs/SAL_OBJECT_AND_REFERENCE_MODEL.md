@@ -1375,6 +1375,16 @@ exactly as the compiler does, so UE's self-context and Blueprint-ownership
 decisions see a coherent sandbox context rather than the null owner that
 plain duplication leaves behind.
 
+Graph Palette identity must uniquely name the exact UE creation action, not
+just its Node class. UE's `FBlueprintNodeSpawner::GetSpawnerSignature()`
+collapses every `UK2Node_GetSubsystem` action to the same Node-class signature
+because each subsystem class lives only in that spawner's
+`CustomizeNodeDelegate` (Issue #196). Graph Patch reads the spawner template
+Node's `CustomClass` from its result Pin type and folds it into the signature,
+so every subsystem-specific creation action receives a stable unique Palette
+identity that exact Palette schema and dry run can replay without
+`resolution.palette_ambiguous`.
+
 One UE Node spawner may produce several native menu actions by binding the same
 callable to different Blueprint object properties. Graph Palette identity
 includes that native bound-property identity in addition to the spawner

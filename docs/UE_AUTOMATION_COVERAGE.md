@@ -227,6 +227,23 @@ member owner. The new Graph robustness coverage proves:
   (`resolution.palette_not_spawnable` or `validation.spawn_failed`) instead of
   invoking UE's spawner.
 
+## Subsystem Palette Identity Audit (Issue #196)
+
+The August 17 Issue #196 regression proved that every `K2Node_GetSubsystem`
+creation action shared one SAL Palette identity: UE's
+`GetSpawnerSignature()` contains only the Node class while each subsystem
+class lives in the spawner's `CustomizeNodeDelegate`. Graph Patch now folds
+the template Node's `CustomClass` (read from the result Pin type) into the
+signature. The new Graph robustness coverage proves, for four distinct
+Blueprint-allowable subsystem classes in the Editor:
+
+- each subsystem-specific action exposes a unique, replayable Palette
+  identity (previously one shared identity);
+- exact Palette schema resolves every identity without
+  `resolution.palette_ambiguous`;
+- dry run materializes each action through the sandbox and returns a valid
+  plan.
+
 ## SAL v3 Object And Target Migration Audit
 
 The SAL v3 migration raises the source suite from 129 to 135 tests. The added

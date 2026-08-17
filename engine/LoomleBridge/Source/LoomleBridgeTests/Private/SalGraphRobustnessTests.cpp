@@ -39,17 +39,23 @@
 #include "K2Node_IfThenElse.h"
 #include "K2Node_MacroInstance.h"
 #include "K2Node_MakeArray.h"
+#include "K2Node_GetSubsystem.h"
 #include "K2Node_VariableGet.h"
 #include "K2Node_VariableSet.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
+#include "Subsystems/AudioEngineSubsystem.h"
+#include "Subsystems/GameInstanceSubsystem.h"
+#include "Subsystems/LocalPlayerSubsystem.h"
+#include "Subsystems/WorldSubsystem.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "PackageTools.h"
 #include "UObject/Package.h"
 #include "UObject/UObjectGlobals.h"
+#include "UObject/UObjectHash.h"
 #include "WidgetBlueprint.h"
 
 namespace
@@ -4098,6 +4104,179 @@ bool FSalRobustGraphSandboxClassIdentityTest::RunTest(
         SandboxGenerated != Fixture.Blueprint->GeneratedClass
             && SandboxSkeleton
                 != Fixture.Blueprint->SkeletonGeneratedClass);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Issue #196: distinct K2Node_GetSubsystem creation actions shared one SAL
+// palette identity because UE's FBlueprintNodeSpawner::GetSpawnerSignature
+// contains only the Node class, while each subsystem action's CustomClass
+// lives in its CustomizeNodeDelegate. Every subsystem-specific creation
+// action must expose a stable unique palette identity and materialize through
+// exact Palette schema and dry run.
+// ---------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphSubsystemPaletteIdentityTest,
+    "Loomle.Sal.Robustness.Graph.SubsystemPaletteIdentity",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphSubsystemPaletteIdentityTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(
+            *this,
+            TEXT("subsystem Palette identity coverage")))
+    {
+        return false;
+    }
+    // Collect the same Blueprint-allowable subsystem classes that
+    // UK2Node_GetSubsystem::GetMenuActions registers spawners for.
+    TArray<UClass*> SubsystemClasses;
+    {
+        TArray<UClass*> Derived;
+        GetDerivedClasses(
+            UGameInstanceSubsystem::StaticClass(),
+            Derived);
+        SubsystemClasses.Append(Derived);
+        Derived.Reset();
+        GetDerivedClasses(
+            UWorldSubsystem::StaticClass(),
+            Derived);
+        SubsystemClasses.Append(Derived);
+        Derived.Reset();
+        GetDerivedClasses(
+            ULocalPlayerSubsystem::StaticClass(),
+            Derived);
+        SubsystemClasses.Append(Derived);
+        Derived.Reset();
+        GetDerivedClasses(
+            UAudioEngineSubsystem::StaticClass(),
+            Derived);
+        SubsystemClasses.Append(Derived);
+        SubsystemClasses.RemoveAll(
+            [](const UClass* Class)
+            {
+                return Class == nullptr
+                    || !UEdGraphSchema_K2::
+                        IsAllowableBlueprintVariableType(
+                            Class,
+                            true);
+            });
+        SubsystemClasses.Sort(
+            [](const UClass& A, const UClass& B)
+            {
+                return A.GetName() < B.GetName();
+            });
+        if (SubsystemClasses.Num() > 4)
+        {
+            SubsystemClasses.SetNum(4);
+        }
+    }
+    TestTrue(
+        TEXT("Editor exposes at least two subsystem classes"),
+        SubsystemClasses.Num() >= 2);
+    if (SubsystemClasses.Num() < 2)
+    {
+        return false;
+    }
+
+    FRobustGraphFixture Fixture;
+    if (!TestTrue(
+            TEXT("subsystem Palette identity fixture is valid"),
+            Fixture.IsValid()))
+    {
+        return false;
+    }
+    const FSalResolvedTarget Target =
+        RobustGraphTarget(Fixture.Blueprint, Fixture.Graph);
+    const FString GetSubsystemType =
+        TEXT("/Script/BlueprintGraph.K2Node_GetSubsystem");
+
+    TArray<FString> PaletteIds;
+    TArray<FString> Labels;
+    for (const UClass* SubsystemClass : SubsystemClasses)
+    {
+        FSalQuery Query =
+            RobustGraphQuery(TEXT("palette_entries"));
+        Query.Operation->SetStringField(
+            TEXT("text"),
+            TEXT("Get ") + SubsystemClass->GetName());
+        Query.PageLimit = 20;
+        const TSharedPtr<FJsonObject> Result =
+            FSalGraphInterface::Query(Query, Target);
+        if (RobustGraphHasError(Result))
+        {
+            continue;
+        }
+        const FString Id = RobustGraphFindPaletteId(
+            Result,
+            GetSubsystemType);
+        if (Id.IsEmpty())
+        {
+            continue;
+        }
+        PaletteIds.Add(Id);
+        Labels.Add(SubsystemClass->GetName());
+    }
+    TestTrue(
+        TEXT("subsystem Palette discovers at least two distinct actions"),
+        PaletteIds.Num() >= 2);
+    if (PaletteIds.Num() < 2)
+    {
+        return false;
+    }
+
+    TSet<FString> UniqueIds;
+    for (const FString& Id : PaletteIds)
+    {
+        UniqueIds.Add(Id);
+    }
+    TestEqual(
+        TEXT("each subsystem action has a unique Palette identity"),
+        UniqueIds.Num(),
+        PaletteIds.Num());
+
+    for (int32 Index = 0; Index < 2; ++Index)
+    {
+        FSalQuery Exact =
+            RobustGraphQuery(TEXT("palette"));
+        Exact.Operation->SetStringField(
+            TEXT("id"),
+            PaletteIds[Index]);
+        Exact.With.Add(TEXT("schema"));
+        const TSharedPtr<FJsonObject> ExactResult =
+            FSalGraphInterface::Query(Exact, Target);
+        TestFalse(
+            *FString::Printf(
+                TEXT("exact subsystem Palette resolves [%s]"),
+                *RobustGraphDiagnosticsText(ExactResult)),
+            RobustGraphHasError(ExactResult));
+
+        const FString Alias =
+            FString::Printf(TEXT("Subsystem%d"), Index);
+        FSalPatch Patch;
+        Patch.Alias = TEXT("graph");
+        Patch.bDryRun = true;
+        Patch.Statements = {
+            RobustGraphBinding(
+                Alias,
+                PaletteIds[Index],
+                GetSubsystemType),
+            RobustGraphUnary(
+                TEXT("add"),
+                RobustGraphLocal(Alias))};
+        const TSharedPtr<FJsonObject> DryRun =
+            FSalGraphInterface::Patch(Patch, Target);
+        TestTrue(
+            *FString::Printf(
+                TEXT("subsystem action %d (%s) dry run resolves through sandbox [%s]"),
+                Index,
+                *Labels[Index],
+                *RobustGraphDiagnosticsText(DryRun)),
+            RobustGraphResultBool(DryRun, TEXT("valid")));
+    }
     return true;
 }
 
