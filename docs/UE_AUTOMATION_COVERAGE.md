@@ -205,6 +205,28 @@ unchanged, live apply adds exactly the requested three Nodes, and one Undo remov
 them atomically. The final macOS arm64 Graph robustness run passed all 9 tests
 with no warning or failure.
 
+## Function Call Sandbox Dry-Run Audit (Issue #195)
+
+The August 17 Issue #195 crash proved that Graph dry-run could terminate the
+Editor inside `FMemberReference::SetGivenSelfScope` when a function call Node
+was materialized against the isolated sandbox with an inconsistent or stale
+member owner. The new Graph robustness coverage proves:
+
+- a native static function call (`Add_IntInt`) and a Blueprint-defined
+  self-context function can be discovered on an Event Graph Palette and dry-run
+  together through the sandbox with repeated calls from the same self-context
+  Palette action, returning a valid plan while leaving the live Graph unchanged;
+- the same self-context function dry-runs successfully in a newly created
+  Function Graph;
+- the dry-run sandbox restores `UClass::ClassGeneratedBy` on its duplicated
+  Generated and Skeleton classes to the sandbox Blueprint (the classes remain
+  isolated in the transient package and distinct from the live Blueprint), so
+  UE's self-context and Blueprint-ownership decisions resolve coherently;
+- a binding or materialization that cannot satisfy the action's member owner or
+  self scope must fail closed with a structured diagnostic
+  (`resolution.palette_not_spawnable` or `validation.spawn_failed`) instead of
+  invoking UE's spawner.
+
 ## SAL v3 Object And Target Migration Audit
 
 The SAL v3 migration raises the source suite from 129 to 135 tests. The added
