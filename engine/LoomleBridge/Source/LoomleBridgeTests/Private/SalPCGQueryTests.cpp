@@ -3342,6 +3342,12 @@ bool FSalPcgPatchSaveTest::RunTest(const FString& Parameters)
         !Fixture.Package->IsDirty());
 
     // Save/unload/reload preserves identity, values, positions, and topology.
+    // The authored edits left committed Undo records that root the Graph and
+    // its package; reset the transaction buffer so the fixture can unload.
+    if (GEditor != nullptr && GEditor->Trans != nullptr)
+    {
+        GEditor->Trans->Reset(FText::FromString(TEXT("SAL test cleanup")));
+    }
     Error.Reset();
     const bool bUnloaded = Fixture.Unload(Error);
     TestTrue(
