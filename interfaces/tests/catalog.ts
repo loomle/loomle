@@ -93,7 +93,7 @@ assert.doesNotMatch(guide, /editor_context/);
 assert.match(guide, /## Schema Discovery/);
 assert.match(guide, /operation-less form is the shared exact-target read/);
 assert.match(guide, /nine active Domain interface cards/);
-assert.match(guide, /`level`, `pcg`, and `pcg_component` are Query-only/);
+assert.match(guide, /`pcg` and `pcg_component` remain[\s\S]*Query-only/);
 assert.deepEqual(
   catalog.map(({ name }) => name),
   expectedNames,
@@ -135,8 +135,7 @@ assert.ok(levelInterface, "Level interface must be present.");
 assert.match(levelInterface.text, /This interface is read-only\./);
 assert.match(levelInterface.text, /actors \["text"\][\s\S]*components \["text"\]/);
 assert.match(levelInterface.text, /native[\s\S]*scs[\s\S]*instance/);
-assert.match(levelInterface.text, /accepts no Patch Target/);
-assert.doesNotMatch(levelInterface.text, /^## Patch$/m);
+assert.match(levelInterface.text, /Patch Target for authored/);
 
 const pcgInterface = catalog.find(({ name }) => name === "pcg");
 assert.ok(pcgInterface, "PCG interface must be present.");

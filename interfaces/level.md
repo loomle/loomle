@@ -173,7 +173,25 @@ changes the active Level Target.
 
 Level Query never loads or pins Actors, switches maps or current Levels,
 reruns construction, changes selection, registers Components, dirties a
-package, or creates an Undo entry. `level` accepts no Patch Target in this
-release. Actor or Component mutation, lifecycle, Palette creation Patch, exact
-writable schema, save, live World control, and PIE/SIE observation remain
-unavailable.
+package, or creates an Undo entry.
+
+## Patch
+
+`level` is a Patch Target for authored Actor and Component field edits:
+
+```sal
+patch arena [dry run]
+set @actor-guid.bHidden = true
+reset @actor-guid.bCanBeDamaged
+```
+
+Exact schema (`with schema`) advertises the scalar `set`/`reset` fields on a
+loaded persisted Actor or Component; any other field, unloaded descriptor,
+or unsupported statement fails closed. Edits are planned and applied inside
+one top-level transaction with `Modify` and native post-edit notifications,
+archetype/template reset sources, readback, and rollback on failure. A dry
+run shares the plan without touching the live object.
+
+Actor or Component lifecycle creation and removal, the transform invoke,
+attachment, Palette creation Patch, save, live World control, and PIE/SIE
+observation remain unavailable in this capability.

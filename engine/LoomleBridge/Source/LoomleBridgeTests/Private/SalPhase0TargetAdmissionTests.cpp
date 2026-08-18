@@ -500,7 +500,7 @@ bool FSalPhase0PublicPathTest::RunTest(const FString& Parameters)
     TestTrue(
         TEXT("Exact Level Patch is admitted for adapter resolution after "
             "the authored-mutation capability bump"),
-        !LevelHasDiagnostic(
+        !HasDiagnostic(
             LevelPatch,
             TEXT("language.invalid_object_shape")));
 

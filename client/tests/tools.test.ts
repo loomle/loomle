@@ -825,7 +825,7 @@ test("sal_schema is local and does not call Bridge", async () => {
   assert.match(stateTree.content[0].text, /^# state_tree$/m);
   assert.equal(level.isError, undefined);
   assert.match(level.content[0].text, /^# level$/m);
-  assert.match(level.content[0].text, /accepts no Patch Target/);
+  assert.match(level.content[0].text, /Patch Target for authored/);
   assert.equal(pcg.isError, undefined);
   assert.match(pcg.content[0].text, /^# pcg$/m);
   assert.match(pcg.content[0].text, /accepts no Patch Target/);
