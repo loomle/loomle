@@ -1117,6 +1117,12 @@
             "title": "Default write failed"
         },
         {
+            "code": "validation.disconnect_failed",
+            "layer": "validation",
+            "defaultSeverity": "error",
+            "title": "Disconnect failed"
+        },
+        {
             "code": "validation.duplicate_alias",
             "layer": "validation",
             "defaultSeverity": "error",
@@ -1361,6 +1367,12 @@
             "layer": "validation",
             "defaultSeverity": "error",
             "title": "Required actor protected"
+        },
+        {
+            "code": "validation.required_node_protected",
+            "layer": "validation",
+            "defaultSeverity": "error",
+            "title": "Required node protected"
         },
         {
             "code": "validation.reset_source_unavailable",

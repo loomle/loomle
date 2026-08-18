@@ -1977,6 +1977,28 @@ bool FSalPCGInterface::LowerStableReference(
     return true;
 }
 
+bool ReadPcgPinRef(
+    const TSharedPtr<FJsonObject>& Ref,
+    FString& OutNode,
+    FString& OutDirection,
+    FString& OutLabel)
+{
+    OutNode.Reset();
+    OutDirection.Reset();
+    OutLabel.Reset();
+    FString Kind;
+    if (!Ref.IsValid()
+        || !Ref->TryGetStringField(TEXT("kind"), Kind)
+        || Kind != TEXT("pin")
+        || !Ref->TryGetStringField(TEXT("node"), OutNode)
+        || !Ref->TryGetStringField(TEXT("direction"), OutDirection)
+        || !Ref->TryGetStringField(TEXT("label"), OutLabel))
+    {
+        return false;
+    }
+    return !OutNode.IsEmpty() && !OutLabel.IsEmpty();
+}
+
 TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
     const FSalPatch& Patch,
     const FSalResolvedTarget& Target)
@@ -2070,7 +2092,17 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
         FString PaletteId;
         TWeakObjectPtr<UPCGNode> Node;
     };
+    struct FPendingEdge
+    {
+        FString Kind;
+        TWeakObjectPtr<UPCGNode> From;
+        FString FromLabel;
+        TWeakObjectPtr<UPCGNode> To;
+        FString ToLabel;
+    };
     TArray<FCreatedNode> Created;
+    TArray<TWeakObjectPtr<UPCGNode>> Removed;
+    TArray<FPendingEdge> PendingEdges;
     for (const TSharedPtr<FJsonValue>& StatementValue : Patch.Statements)
     {
         const TSharedPtr<FJsonObject>* Statement = nullptr;
@@ -2090,6 +2122,162 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
         }
         FString Kind;
         (*Statement)->TryGetStringField(TEXT("kind"), Kind);
+        if (Kind == TEXT("remove"))
+        {
+            const TSharedPtr<FJsonObject>* TargetRef = nullptr;
+            FString TargetKind;
+            if (!(*Statement)->TryGetObjectField(TEXT("target"), TargetRef)
+                || TargetRef == nullptr
+                || !(*TargetRef).IsValid()
+                || !(*TargetRef)->TryGetStringField(TEXT("kind"), TargetKind)
+                || TargetKind != TEXT("node"))
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("validation.edit_target_invalid"),
+                        TEXT("PCG remove requires one exact Node "
+                            "StableRef."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(TEXT("remove"))
+                        .Build());
+                continue;
+            }
+            FString NodeId;
+            if (!(*TargetRef)->TryGetStringField(TEXT("id"), NodeId))
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("validation.edit_target_invalid"),
+                        TEXT("PCG remove Node identity is invalid."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(TEXT("remove"))
+                        .Build());
+                continue;
+            }
+            bool bAmbiguous = false;
+            UPCGNode* Node = FindNode(Graph, NodeId, bAmbiguous);
+            if (Node == nullptr)
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        bAmbiguous
+                            ? TEXT("resolution.identity_conflict")
+                            : TEXT("resolution.node_not_found"),
+                        bAmbiguous
+                            ? TEXT("Multiple PCG Nodes share this identity; "
+                                "the removal is ambiguous.")
+                            : TEXT("PCG Node was not found in the bound "
+                                "Graph."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(TEXT("remove"))
+                        .Ref(NodeId)
+                        .Build());
+                continue;
+            }
+            if (Node == Graph->GetInputNode()
+                || Node == Graph->GetOutputNode())
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("validation.required_node_protected"),
+                        TEXT("Removal of the Graph default input or output "
+                            "Node is not allowed."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(TEXT("remove"))
+                        .Ref(NodeId)
+                        .Build());
+                continue;
+            }
+            Removed.Add(Node);
+            continue;
+        }
+        if (Kind == TEXT("connect") || Kind == TEXT("disconnect"))
+        {
+            const TSharedPtr<FJsonObject>* From = nullptr;
+            const TSharedPtr<FJsonObject>* To = nullptr;
+            FString FromNode;
+            FString FromDirection;
+            FString FromLabel;
+            FString ToNode;
+            FString ToDirection;
+            FString ToLabel;
+            if (!(*Statement)->TryGetObjectField(TEXT("from"), From)
+                || From == nullptr
+                || !ReadPcgPinRef(*From, FromNode, FromDirection, FromLabel)
+                || !(*Statement)->TryGetObjectField(TEXT("to"), To)
+                || To == nullptr
+                || !ReadPcgPinRef(*To, ToNode, ToDirection, ToLabel))
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("validation.edit_target_invalid"),
+                        TEXT("PCG connect/disconnect requires one exact "
+                            "output Pin and one exact input Pin."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(Kind)
+                        .Build());
+                continue;
+            }
+            bool bFromAmbiguous = false;
+            UPCGNode* FromNodePtr = FindNode(
+                Graph, FromNode, bFromAmbiguous);
+            bool bToAmbiguous = false;
+            UPCGNode* ToNodePtr = FindNode(Graph, ToNode, bToAmbiguous);
+            if (FromNodePtr == nullptr || ToNodePtr == nullptr)
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("resolution.node_not_found"),
+                        TEXT("PCG connect/disconnect references an "
+                            "unknown Node."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(Kind)
+                        .Build());
+                continue;
+            }
+            if (FromDirection != TEXT("out") || ToDirection != TEXT("in"))
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("validation.edit_target_invalid"),
+                        TEXT("PCG connect requires an output source Pin "
+                            "and an input destination Pin."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(Kind)
+                        .Build());
+                continue;
+            }
+            const UPCGPin* FromPin = FindPin(
+                FromNodePtr,
+                TEXT("out"),
+                FromLabel,
+                bFromAmbiguous);
+            const UPCGPin* ToPin = FindPin(
+                ToNodePtr,
+                TEXT("in"),
+                ToLabel,
+                bToAmbiguous);
+            if (FromPin == nullptr || ToPin == nullptr)
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("resolution.pin_not_found"),
+                        TEXT("PCG connect/disconnect references an "
+                            "unknown Pin."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(Kind)
+                        .Build());
+                continue;
+            }
+            PendingEdges.Add({
+                Kind,
+                TWeakObjectPtr<UPCGNode>(FromNodePtr),
+                FromLabel,
+                TWeakObjectPtr<UPCGNode>(ToNodePtr),
+                ToLabel,
+            });
+            continue;
+        }
         if (Kind != TEXT("add"))
         {
             Diagnostics.Add(
@@ -2098,7 +2286,8 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
                     FString::Printf(
                         TEXT("PCG Patch does not yet support the %s "
                             "statement in this capability; supported "
-                            "statements are add."),
+                            "statements are add, remove, connect, and "
+                            "disconnect."),
                         *Kind))
                     .Interface(TEXT("pcg"))
                     .Operation(Kind)
@@ -2166,14 +2355,13 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
             Target.AssetPath,
             TEXT("pcg"));
     }
-    if (Created.IsEmpty())
+    if (Created.IsEmpty() && Removed.IsEmpty() && PendingEdges.IsEmpty())
     {
         return MakeMutationResult(
             NoObjects,
             {FSalDiagnostics::Error(
                     TEXT("validation.no_operations"),
-                    TEXT("PCG Patch contained no supported add "
-                        "statements."))
+                    TEXT("PCG Patch contained no supported statements."))
                 .Interface(TEXT("pcg"))
                 .Build()},
             Patch.bDryRun,
@@ -2195,6 +2383,38 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
             Operation->SetStringField(
                 TEXT("palette"),
                 CreatedNode.PaletteId);
+            Operations.Add(MakeShared<FJsonValueObject>(Operation));
+        }
+        for (const TWeakObjectPtr<UPCGNode>& RemovedNode : Removed)
+        {
+            if (UPCGNode* Node = RemovedNode.Get())
+            {
+                TSharedPtr<FJsonObject> Operation = MakeShared<FJsonObject>();
+                Operation->SetStringField(TEXT("kind"), TEXT("remove"));
+                Operation->SetStringField(
+                    TEXT("ref"),
+                    Node->GetFName().ToString());
+                Operations.Add(MakeShared<FJsonValueObject>(Operation));
+            }
+        }
+        for (const FPendingEdge& Edge : PendingEdges)
+        {
+            TSharedPtr<FJsonObject> Operation = MakeShared<FJsonObject>();
+            Operation->SetStringField(TEXT("kind"), Edge.Kind);
+            if (UPCGNode* From = Edge.From.Get())
+            {
+                Operation->SetStringField(
+                    TEXT("from"),
+                    From->GetFName().ToString() + TEXT("/out/")
+                        + Edge.FromLabel);
+            }
+            if (UPCGNode* To = Edge.To.Get())
+            {
+                Operation->SetStringField(
+                    TEXT("to"),
+                    To->GetFName().ToString() + TEXT("/in/")
+                        + Edge.ToLabel);
+            }
             Operations.Add(MakeShared<FJsonValueObject>(Operation));
         }
         Planned->SetArrayField(TEXT("operations"), Operations);
@@ -2288,6 +2508,100 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
         ResultBuilder.AddLocalBinding(
             ResultAliases.Allocate(CreatedNode.Alias, TEXT("node")),
             Value::Call(TEXT("node"), Args));
+    }
+    for (const TWeakObjectPtr<UPCGNode>& RemovedNode : Removed)
+    {
+        UPCGNode* Node = RemovedNode.Get();
+        if (!IsValid(Node))
+        {
+            Transaction.Cancel();
+            return MakeMutationResult(
+                NoObjects,
+                {FSalDiagnostics::Error(
+                        TEXT("validation.object_invalidated"),
+                        TEXT("A PCG removal target was invalidated before "
+                            "apply; the transaction was rolled back."))
+                    .Interface(TEXT("pcg"))
+                    .Operation(TEXT("remove"))
+                    .Build()},
+                false,
+                false,
+                false,
+                Target.AssetPath,
+                TEXT("pcg"));
+        }
+        Graph->Modify();
+        Graph->RemoveNode(Node);
+    }
+    for (const FPendingEdge& Edge : PendingEdges)
+    {
+        UPCGNode* From = Edge.From.Get();
+        UPCGNode* To = Edge.To.Get();
+        if (!IsValid(From) || !IsValid(To))
+        {
+            Transaction.Cancel();
+            return MakeMutationResult(
+                NoObjects,
+                {FSalDiagnostics::Error(
+                        TEXT("validation.object_invalidated"),
+                        TEXT("A PCG edge endpoint was invalidated before "
+                            "apply; the transaction was rolled back."))
+                    .Interface(TEXT("pcg"))
+                    .Operation(Edge.Kind)
+                    .Build()},
+                false,
+                false,
+                false,
+                Target.AssetPath,
+                TEXT("pcg"));
+        }
+        Graph->Modify();
+        if (Edge.Kind == TEXT("connect"))
+        {
+            if (!Graph->AddEdge(
+                    From,
+                    FName(*Edge.FromLabel),
+                    To,
+                    FName(*Edge.ToLabel)))
+            {
+                Transaction.Cancel();
+                return MakeMutationResult(
+                    NoObjects,
+                    {FSalDiagnostics::Error(
+                            TEXT("validation.connect_failed"),
+                            TEXT("UE rejected the requested PCG edge."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(TEXT("connect"))
+                        .Build()},
+                    false,
+                    false,
+                    false,
+                    Target.AssetPath,
+                    TEXT("pcg"));
+            }
+        }
+        else if (!Graph->RemoveEdge(
+                     From,
+                     FName(*Edge.FromLabel),
+                     To,
+                     FName(*Edge.ToLabel)))
+        {
+            Transaction.Cancel();
+            return MakeMutationResult(
+                NoObjects,
+                {FSalDiagnostics::Error(
+                        TEXT("validation.disconnect_failed"),
+                        TEXT("UE rejected the requested PCG edge "
+                            "disconnect."))
+                    .Interface(TEXT("pcg"))
+                    .Operation(TEXT("disconnect"))
+                    .Build()},
+                false,
+                false,
+                false,
+                Target.AssetPath,
+                TEXT("pcg"));
+        }
     }
     return MakeMutationResult(
         ResultBuilder.BuildObject(),

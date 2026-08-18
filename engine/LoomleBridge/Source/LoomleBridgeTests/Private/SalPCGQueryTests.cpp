@@ -2723,6 +2723,195 @@ bool FSalPcgPatchNodeCreationTest::RunTest(
     return true;
 }
 
+
+TSharedRef<FJsonObject> PcgConnectStatement(
+    const FString& FromNode,
+    const FString& FromLabel,
+    const FString& ToNode,
+    const FString& ToLabel,
+    const FString& Kind = TEXT("connect"))
+{
+    TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
+    Statement->SetStringField(TEXT("kind"), Kind);
+    TSharedRef<FJsonObject> From = MakeShared<FJsonObject>();
+    From->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    From->SetArrayField(
+        TEXT("identityPath"),
+        PCGStringValues({FromNode, TEXT("out"), FromLabel}));
+    TSharedRef<FJsonObject> To = MakeShared<FJsonObject>();
+    To->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    To->SetArrayField(
+        TEXT("identityPath"),
+        PCGStringValues({ToNode, TEXT("in"), ToLabel}));
+    Statement->SetObjectField(TEXT("from"), From);
+    Statement->SetObjectField(TEXT("to"), To);
+    return Statement;
+}
+
+TSharedRef<FJsonObject> PcgRemoveNodeStatement(const FString& NodeId)
+{
+    TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
+    Statement->SetStringField(TEXT("kind"), TEXT("remove"));
+    TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    Target->SetArrayField(
+        TEXT("identityPath"),
+        PCGStringValues({NodeId}));
+    Statement->SetObjectField(TEXT("target"), Target);
+    return Statement;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalPcgPatchEdgeAndRemoveTest,
+    "Loomle.Sal.PCG.Patch.EdgeAndRemove",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalPcgPatchEdgeAndRemoveTest::RunTest(
+    const FString& Parameters)
+{
+    FScopedPersistentPcgQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("PCG edge fixture creates and saves"), Fixture.CreateAndSave(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const FString GraphPath = Fixture.ObjectPath;
+    const FString GraphType = Fixture.Graph->GetClass()->GetPathName();
+    const TSharedRef<FJsonObject> Target =
+        PcgTarget(GraphPath, GraphType);
+    const int32 NodeCountBefore = Fixture.Graph->GetNodes().Num();
+    UPCGNode* const AuthoredNode = Fixture.AuthoredNode;
+    if (!TestNotNull(TEXT("PCG edge fixture authored Node"), AuthoredNode))
+    {
+        return false;
+    }
+    if (AuthoredNode->GetOutputPins().IsEmpty())
+    {
+        AddError(TEXT("Authored Node exposes no output Pin."));
+        return false;
+    }
+    const FString AuthoredOutLabel =
+        AuthoredNode->GetOutputPins()[0]->Properties.Label.ToString();
+
+    // Add one Node via the Palette.
+    const TSharedPtr<FJsonObject> PaletteResult =
+        FSalModule::BuildQueryResult(
+            QueryArguments(Target, Operation(TEXT("palette_entries"))));
+    const TArray<FString> PaletteIds =
+        CollectPCGNodePaletteIds(PaletteResult);
+    if (!TestTrue(TEXT("PCG edge Palette exposes entries"), !PaletteIds.IsEmpty()))
+    {
+        return false;
+    }
+    const TSharedPtr<FJsonObject> AddResult =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                PcgAddNodeStatements(TEXT("sample"), PaletteIds[0])));
+    bool bValid = false;
+    bool bApplied = false;
+    if (!(PcgMutationHasField(AddResult, TEXT("applied"), bApplied) && bApplied))
+    {
+        AddError(TEXT("PCG edge fixture add failed to apply."));
+        return false;
+    }
+    TestEqual(
+        TEXT("PCG edge fixture added one Node"),
+        Fixture.Graph->GetNodes().Num(),
+        NodeCountBefore + 1);
+    UPCGNode* NewNode = nullptr;
+    for (UPCGNode* Node : Fixture.Graph->GetNodes())
+    {
+        if (Node != nullptr && Node != Fixture.Graph->GetInputNode()
+            && Node != Fixture.Graph->GetOutputNode()
+            && Node != AuthoredNode)
+        {
+            NewNode = Node;
+        }
+    }
+    if (!TestNotNull(TEXT("PCG edge fixture found the created Node"), NewNode))
+    {
+        return false;
+    }
+    if (NewNode->GetInputPins().IsEmpty())
+    {
+        AddError(TEXT("Created Node exposes no input Pin."));
+        return false;
+    }
+    const FString NewNodeId = NewNode->GetFName().ToString();
+    const FString NewInLabel =
+        NewNode->GetInputPins()[0]->Properties.Label.ToString();
+    const int32 EdgeCountBefore = NewNode->GetInputPin(
+        FName(*NewInLabel))->Edges.Num();
+
+    // Connect the Authored output to the new input.
+    const TSharedPtr<FJsonObject> ConnectResult =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                {MakeShared<FJsonValueObject>(PcgConnectStatement(
+                    AuthoredNode->GetFName().ToString(),
+                    AuthoredOutLabel,
+                    NewNodeId,
+                    NewInLabel))}));
+    TestTrue(
+        TEXT("PCG connect applies"),
+        PcgMutationHasField(ConnectResult, TEXT("applied"), bApplied) && bApplied);
+    TestEqual(
+        TEXT("PCG connect added one edge"),
+        NewNode->GetInputPin(FName(*NewInLabel))->Edges.Num(),
+        EdgeCountBefore + 1);
+
+    // Disconnect the same pair.
+    const TSharedPtr<FJsonObject> DisconnectResult =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                {MakeShared<FJsonValueObject>(PcgConnectStatement(
+                    AuthoredNode->GetFName().ToString(),
+                    AuthoredOutLabel,
+                    NewNodeId,
+                    NewInLabel,
+                    TEXT("disconnect")))}));
+    TestTrue(
+        TEXT("PCG disconnect applies"),
+        PcgMutationHasField(DisconnectResult, TEXT("applied"), bApplied) && bApplied);
+    TestEqual(
+        TEXT("PCG disconnect removed one edge"),
+        NewNode->GetInputPin(FName(*NewInLabel))->Edges.Num(),
+        EdgeCountBefore);
+
+    // Remove the created Node.
+    const TSharedPtr<FJsonObject> RemoveResult =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                {MakeShared<FJsonValueObject>(PcgRemoveNodeStatement(NewNodeId))}));
+    TestTrue(
+        TEXT("PCG remove applies"),
+        PcgMutationHasField(RemoveResult, TEXT("applied"), bApplied) && bApplied);
+    TestEqual(
+        TEXT("PCG remove deleted the Node"),
+        Fixture.Graph->GetNodes().Num(),
+        NodeCountBefore);
+
+    if (GEditor != nullptr && GEditor->Trans != nullptr)
+    {
+        GEditor->Trans->Reset(FText::FromString(TEXT("SAL test cleanup")));
+    }
+    if (Fixture.Graph->GetOutermost() != nullptr)
+    {
+        Fixture.Graph->GetOutermost()->SetDirtyFlag(false);
+    }
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
 }
 
 #endif
