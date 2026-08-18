@@ -6,6 +6,7 @@
 
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
+#include "Curves/CurveFloat.h"
 #include "Misc/AutomationTest.h"
 #include "UObject/UObjectGlobals.h"
 
@@ -154,18 +155,20 @@ bool FSalProjectionStaleAndTransientTest::RunTest(const FString& Parameters)
         StaleRecord != nullptr
             && (*StaleRecord)->TryGetStringField(TEXT("status"), StaleStatus)
             && StaleStatus == TEXT("stale"));
-    const TSharedPtr<FJsonObject>* StaleDiagnostics = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* StaleDiagnostics = nullptr;
     TestTrue(
-        TEXT("The stale record reports the exact diagnostic code"),
+        TEXT("The stale record reports its diagnostics"),
         StaleRecord != nullptr
-            && (*StaleRecord)->TryGetObjectField(
+            && (*StaleRecord)->TryGetArrayField(
                 TEXT("diagnostics"),
                 StaleDiagnostics)
             && StaleDiagnostics != nullptr
-            && (*StaleDiagnostics).IsValid());
+            && !StaleDiagnostics->IsEmpty());
 
     // A transient-only object reports unsupported with transient_only.
-    UObject* Probe = NewObject<UObject>(
+    // UObject itself is abstract; use a concrete asset class created in the
+    // transient package so the object has no persistent SAL identity.
+    UObject* Probe = NewObject<UCurveFloat>(
         GetTransientPackage(),
         FName(TEXT("LoomleProjectionTransientProbe")));
     if (!TestNotNull(
@@ -194,15 +197,15 @@ bool FSalProjectionStaleAndTransientTest::RunTest(const FString& Parameters)
                 TEXT("status"),
                 TransientStatus)
             && TransientStatus == TEXT("unsupported"));
-    const TSharedPtr<FJsonObject>* TransientDiagnostics = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* TransientDiagnostics = nullptr;
     TestTrue(
         TEXT("The transient record reports the transient-only diagnostic"),
         TransientRecord != nullptr
-            && (*TransientRecord)->TryGetObjectField(
+            && (*TransientRecord)->TryGetArrayField(
                 TEXT("diagnostics"),
                 TransientDiagnostics)
             && TransientDiagnostics != nullptr
-            && (*TransientDiagnostics).IsValid());
+            && !TransientDiagnostics->IsEmpty());
     return true;
 }
 
