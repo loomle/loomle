@@ -22,7 +22,7 @@
 #include "Engine/Level.h"
 #include "Engine/LevelScriptActor.h"
 #include "Engine/World.h"
-#include "Engine/WorldSettings.h"
+#include "GameFramework/WorldSettings.h"
 #include "GameFramework/Actor.h"
 #include "Helpers/PCGHelpers.h"
 #include "Kismet2/ComponentEditorUtils.h"

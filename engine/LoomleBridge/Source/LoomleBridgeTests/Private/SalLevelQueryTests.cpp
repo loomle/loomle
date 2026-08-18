@@ -31,7 +31,7 @@
 #include "Engine/StaticMeshActor.h"
 #include "Engine/LevelScriptActor.h"
 #include "Engine/World.h"
-#include "Engine/WorldSettings.h"
+#include "GameFramework/WorldSettings.h"
 #include "GameFramework/Actor.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformTime.h"
