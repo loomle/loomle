@@ -3421,7 +3421,7 @@ bool FSalPcgPatchSaveTest::RunTest(const FString& Parameters)
                     ReloadedField->ContainerPtrToValuePtr<void>(
                         ReloadedSettings),
                     ReloadedSettings,
-                    PPF_None) != nullptr
+                    PPF_None)
                 && SavedValueAfter == SavedValueBefore);
     }
     TestFalse(
