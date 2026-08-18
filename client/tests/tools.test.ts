@@ -123,6 +123,21 @@ test("exposes the unified editor tool", () => {
   });
   assert.equal(Array.isArray(python?.inputSchema.oneOf), true);
   assert.equal((python?.outputSchema?.properties as Record<string, unknown>).status !== undefined, true);
+  const schema = toolDefinitions.find((tool) => tool.name === "sal_schema");
+  assert.deepEqual(
+    (schema?.inputSchema.properties as Record<string, { enum?: string[] }>).module.enum,
+    [
+      "asset",
+      "blueprint",
+      "class",
+      "graph",
+      "state_tree",
+      "widget",
+      "level",
+      "pcg",
+      "pcg_component",
+    ],
+  );
   assert.ok(toolDefinitions.every((tool) => tool.title.length > 0));
   assert.ok(toolDefinitions.every((tool) => typeof tool.annotations.openWorldHint === "boolean"));
 });
@@ -801,10 +816,22 @@ test("sal_schema is local and does not call Bridge", async () => {
   const service = new SalToolService(rpc);
   const graph = await service.call("sal_schema", { module: "graph" });
   const stateTree = await service.call("sal_schema", { module: "state_tree" });
+  const level = await service.call("sal_schema", { module: "level" });
+  const pcg = await service.call("sal_schema", { module: "pcg" });
+  const pcgComponent = await service.call("sal_schema", { module: "pcg_component" });
   assert.equal(graph.isError, undefined);
   assert.match(graph.content[0].text, /^# graph$/m);
   assert.equal(stateTree.isError, undefined);
   assert.match(stateTree.content[0].text, /^# state_tree$/m);
+  assert.equal(level.isError, undefined);
+  assert.match(level.content[0].text, /^# level$/m);
+  assert.match(level.content[0].text, /accepts no Patch Target/);
+  assert.equal(pcg.isError, undefined);
+  assert.match(pcg.content[0].text, /^# pcg$/m);
+  assert.match(pcg.content[0].text, /accepts no Patch Target/);
+  assert.equal(pcgComponent.isError, undefined);
+  assert.match(pcgComponent.content[0].text, /^# pcg_component$/m);
+  assert.match(pcgComponent.content[0].text, /accepts no Patch Target/);
   assert.equal(rpc.calls.length, 0);
 });
 
