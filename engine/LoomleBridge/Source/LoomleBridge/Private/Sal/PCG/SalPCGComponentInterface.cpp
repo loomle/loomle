@@ -1988,6 +1988,7 @@ TSharedPtr<FJsonObject> FSalPCGComponentInterface::Patch(
         }
         const TSharedPtr<FJsonObject>* TargetRef = nullptr;
         const TSharedPtr<FJsonObject>* ObjectRef = nullptr;
+        const TArray<TSharedPtr<FJsonValue>>* PathSegments = nullptr;
         FString RefKind;
         FString RefId;
         FString Path;
@@ -2001,7 +2002,11 @@ TSharedPtr<FJsonObject> FSalPCGComponentInterface::Patch(
             || RefKind != TEXT("component")
             || !(*ObjectRef)->TryGetStringField(TEXT("id"), RefId)
             || RefId != ComponentSlot
-            || !(*Statement)->TryGetStringField(TEXT("path"), Path))
+            || !(*TargetRef)->TryGetArrayField(TEXT("path"), PathSegments)
+            || PathSegments == nullptr
+            || PathSegments->Num() != 1
+            || !(*PathSegments)[0].IsValid()
+            || !(*PathSegments)[0]->TryGetString(Path))
         {
             Diagnostics.Add(
                 FSalDiagnostics::Error(
