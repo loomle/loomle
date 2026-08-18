@@ -12429,6 +12429,20 @@ bool FSalLevelPatchTransformTest::RunTest(const FString& Parameters)
     {
         return false;
     }
+    // A plain AActor has no scene root; the compound transform needs one to
+    // carry location, rotation, and scale.
+    USceneComponent* Root = NewObject<USceneComponent>(
+        Actor,
+        USceneComponent::StaticClass(),
+        FName(TEXT("LoomleSchemaSceneRoot")),
+        RF_Transactional);
+    if (!TestNotNull(TEXT("Transform Actor gains a scene root"), Root))
+    {
+        return false;
+    }
+    Actor->SetRootComponent(Root);
+    Root->OnComponentCreated();
+    Root->RegisterComponent();
     const FTransform Original = Actor->GetActorTransform();
 
     // Dry run plans without applying.
