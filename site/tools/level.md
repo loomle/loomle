@@ -134,13 +134,29 @@ set @actor-guid.bHidden = true
 reset @actor-guid.bCanBeDamaged
 ```
 
-Exact schema (`with schema`) advertises the scalar `set`/`reset` fields on a
-loaded persisted Actor or Component; any other field, unloaded descriptor,
-or unsupported statement fails closed. Edits are planned and applied inside
-one top-level transaction with `Modify` and native post-edit notifications,
-archetype/template reset sources, readback, and rollback on failure. A dry
-run shares the plan without touching the live object.
+Exact schema (`with schema`) advertises the scalar `set`/`reset` fields and
+the compound transform on a loaded persisted Actor or Component; any other
+field, unloaded descriptor, or unsupported statement fails closed. Edits are
+planned and applied inside one top-level transaction with `Modify` and native
+post-edit notifications, archetype/template reset sources, readback, and
+rollback on failure. A dry run shares the plan without touching the live
+object.
 
-Actor or Component lifecycle creation and removal, the transform invoke,
-attachment, Palette creation Patch, save, live World control, and PIE/SIE
-observation remain unavailable in this capability.
+The compound Actor transform is the schema-discovered invoke:
+
+```sal
+patch arena [dry run]
+invoke @actor-guid SetActorTransform(
+  location: [x, y, z],
+  rotation: [pitch, yaw, roll],
+  scale: [x, y, z]
+)
+```
+
+Each axis array is optional and defaults to the current native value. A
+transform on an Actor whose edits could schedule PCG generate or cleanup is
+unavailable while async suppression is unproven.
+
+Actor or Component lifecycle creation and removal, attachment, Palette
+creation Patch, save, live World control, and PIE/SIE observation remain
+unavailable in this capability.
