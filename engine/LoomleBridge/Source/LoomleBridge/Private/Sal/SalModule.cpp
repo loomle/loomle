@@ -2447,11 +2447,6 @@ TSharedPtr<FJsonObject> FSalModule::BuildPatchResult(const TSharedPtr<FJsonObjec
         Target,
         nullptr,
         &Patch);
-    {
-        FString Dump;
-        FJsonSerializer::Serialize(Result.ToSharedRef(), TJsonWriterFactory<>::Create(&Dump));
-        UE_LOG(LogTemp, Warning, TEXT("Loomle Patch decorated result: %s"), *Dump);
-    }
     TSharedPtr<FJsonObject> Validated = ValidateOutgoing(Result);
     if (!Validated.IsValid() || !Validated->HasField(TEXT("isError")))
     {

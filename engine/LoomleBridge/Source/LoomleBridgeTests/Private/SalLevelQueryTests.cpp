@@ -12667,11 +12667,13 @@ bool FSalLevelPatchLifecycleTest::RunTest(const FString& Parameters)
     bool bApplied = false;
     if (!(LevelMutationHasField(DryRun, TEXT("valid"), bValid) && bValid))
     {
-        FString Dump;
-        FJsonSerializer::Serialize(DryRun.ToSharedRef(), TJsonWriterFactory<>::Create(&Dump));
+        FString Code;
+        FString Message;
+        FirstLevelDiagnostic(DryRun, Code, Message);
         AddError(FString::Printf(
-            TEXT("Level Actor add dry-run result: %s"),
-            *Dump));
+            TEXT("Level Actor add dry-run error: %s (%s)"),
+            *Code,
+            *Message));
     }
     TestTrue(
         TEXT("Level Actor add dry-run validates"),

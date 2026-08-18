@@ -4640,6 +4640,24 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
         }
         FString Kind;
         (*Statement)->TryGetStringField(TEXT("kind"), Kind);
+        const bool bBindingStatement =
+            (*Statement)->HasField(TEXT("target"))
+            && (*Statement)->HasField(TEXT("value"))
+            && !(*Statement)->HasField(TEXT("kind"));
+        if (bBindingStatement)
+        {
+            // Creation bindings were collected before the operation loop.
+            continue;
+        }
+        if (Kind.IsEmpty())
+        {
+            Diagnostics.Add(
+                LevelPatchError(
+                    TEXT("validation.statement_invalid"),
+                    TEXT("Level Patch operation statement has no kind."),
+                    TEXT("patch")));
+            continue;
+        }
         if (Kind == TEXT("add"))
         {
             const TSharedPtr<FJsonObject>* TargetRef = nullptr;
@@ -4994,20 +5012,6 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
     const bool bHasErrors = !Diagnostics.IsEmpty();
     if (bHasErrors)
     {
-        for (const TSharedPtr<FJsonObject>& Diagnostic : Diagnostics)
-        {
-            FString Code;
-            if (Diagnostic.IsValid())
-            {
-                Diagnostic->TryGetStringField(TEXT("code"), Code);
-            }
-            UE_LOG(
-                LogTemp,
-                Warning,
-                TEXT("Loomle Level Patch diagnostic: %s (valid=%d)"),
-                *Code,
-                Diagnostic.IsValid() ? 1 : 0);
-        }
         return MakeMutationResult(
             NoObjects,
             Diagnostics,
