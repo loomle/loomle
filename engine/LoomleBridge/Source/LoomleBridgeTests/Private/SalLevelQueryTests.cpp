@@ -11416,6 +11416,7 @@ struct FLevelPaletteEntryView
 {
     FString Alias;
     FString PaletteId;
+    FString Id;
     FString Name;
     FString Category;
     FString Type;
@@ -11469,6 +11470,7 @@ TArray<FLevelPaletteEntryView> CollectLevelPaletteEntries(
                 FLevelPaletteEntryView Entry;
                 Entry.Alias = Alias;
                 (*Fields)->TryGetStringField(TEXT("palette"), Entry.PaletteId);
+                (*Fields)->TryGetStringField(TEXT("id"), Entry.Id);
                 (*Fields)->TryGetStringField(TEXT("name"), Entry.Name);
                 (*Fields)->TryGetStringField(TEXT("category"), Entry.Category);
                 (*Fields)->TryGetStringField(TEXT("type"), Entry.Type);
@@ -12720,7 +12722,7 @@ bool FSalLevelPatchLifecycleTest::RunTest(const FString& Parameters)
     for (const FLevelPaletteEntryView& View :
         CollectLevelPaletteEntries(AddResult))
     {
-        if (View.PaletteId == CreatedId)
+        if (View.Id == CreatedId)
         {
             bResultBindsCreated = true;
         }
