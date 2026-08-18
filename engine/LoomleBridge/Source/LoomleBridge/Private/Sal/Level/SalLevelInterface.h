@@ -20,6 +20,17 @@ public:
         const FSalQuery& Query,
         const FSalResolvedTarget& Target);
 
+    /**
+     * Authored level mutation (Slice 3). Supports exact-schema `set` and
+     * `reset` on loaded persisted Actor and Component scalar fields inside
+     * one top-level transaction with dry-run planning, readback, and
+     * rollback. Lifecycle, transform invoke, attachment, and save land in
+     * later increments and fail closed here.
+     */
+    static TSharedPtr<FJsonObject> Patch(
+        const FSalPatch& Patch,
+        const FSalResolvedTarget& Target);
+
     /** Resolve a Level-scoped Actor or source-qualified Component StableRef. */
     static bool LowerStableReference(
         const FSalResolvedTarget& Target,

@@ -3609,6 +3609,362 @@ TSharedPtr<FJsonObject> QueryLevelPalette(
     }
     return Builder.BuildResult();
 }
+
+// ============================================================================
+// Level authored mutation (Slice 3)
+//
+// Exact-schema `set` and `reset` on loaded persisted Actor and Component
+// scalar fields, planned and applied inside one top-level transaction with
+// dry-run planning, native notifications, readback, and rollback. Lifecycle,
+// transform invoke, attachment, and save land in later increments and fail
+// closed here. Every edit is revalidated against the schema-advertised
+// surface before planning.
+// ============================================================================
+
+struct FLevelPlannedEdit
+{
+    FString Kind; // "set" | "reset"
+    FString RefText;
+    TWeakObjectPtr<UObject> Object;
+    FProperty* Property = nullptr;
+    FString Before;
+    FString After;
+};
+
+bool LevelValueImportText(
+    const TSharedPtr<FJsonValue>& Expression,
+    FString& OutText)
+{
+    OutText.Reset();
+    if (!Expression.IsValid())
+    {
+        return false;
+    }
+    bool Boolean = false;
+    double Number = 0.0;
+    FString String;
+    if (Expression->TryGetBool(Boolean))
+    {
+        OutText = Boolean ? TEXT("true") : TEXT("false");
+        return true;
+    }
+    if (Expression->TryGetNumber(Number))
+    {
+        OutText = LexToString(Number);
+        return true;
+    }
+    if (Expression->TryGetString(String))
+    {
+        OutText = String;
+        return true;
+    }
+    return false;
+}
+
+bool LevelImportScalarValue(
+    FProperty* Property,
+    UObject* Object,
+    const FString& Text,
+    FString& OutError)
+{
+    if (Property == nullptr || Object == nullptr)
+    {
+        OutError = TEXT("Level Patch edit target is invalid.");
+        return false;
+    }
+    void* Value = Property->ContainerPtrToValuePtr<void>(Object);
+    const TCHAR* End = Property->ImportText_Direct(
+        *Text,
+        Value,
+        Object,
+        PPF_None,
+        GLog);
+    if (End == nullptr)
+    {
+        OutError = FString::Printf(
+            TEXT("UE could not import the requested value for %s."),
+            *Property->GetName());
+        return false;
+    }
+    while (*End != TEXT('\0') && FChar::IsWhitespace(*End))
+    {
+        ++End;
+    }
+    if (*End != TEXT('\0'))
+    {
+        OutError = FString::Printf(
+            TEXT("The requested value for %s contains unconsumed text."),
+            *Property->GetName());
+        return false;
+    }
+    return true;
+}
+
+FString LevelExportScalarValue(
+    const FProperty* Property,
+    const UObject* Object)
+{
+    if (Property == nullptr || Object == nullptr)
+    {
+        return FString();
+    }
+    const void* Value = Property->ContainerPtrToValuePtr<void>(Object);
+    FString Exported;
+    Property->ExportText_Direct(
+        Exported,
+        Value,
+        Value,
+        const_cast<UObject*>(Object),
+        PPF_None);
+    return Exported;
+}
+
+// Resolve one lowered exact Actor or Component owner ref and the exact
+// member field inside the loaded source Level.
+bool ResolveLevelPatchMember(
+    const TSharedPtr<FJsonObject>& Statement,
+    const FSalResolvedTarget& Target,
+    FLevelSnapshot& Snapshot,
+    FString& OutOwnerIdentity,
+    UObject*& OutObject,
+    FProperty*& OutProperty,
+    FString& OutFieldName,
+    FString& OutError)
+{
+    OutObject = nullptr;
+    OutProperty = nullptr;
+    OutError.Reset();
+    const TSharedPtr<FJsonObject>* TargetRef = nullptr;
+    const TSharedPtr<FJsonObject>* Owner = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* Path = nullptr;
+    FString TargetKind;
+    if (!Statement.IsValid()
+        || !Statement->TryGetObjectField(TEXT("target"), TargetRef)
+        || TargetRef == nullptr
+        || !(*TargetRef).IsValid()
+        || !(*TargetRef)->TryGetStringField(TEXT("kind"), TargetKind)
+        || TargetKind != TEXT("member")
+        || !(*TargetRef)->TryGetObjectField(TEXT("object"), Owner)
+        || Owner == nullptr
+        || !(*Owner).IsValid()
+        || !(*TargetRef)->TryGetArrayField(TEXT("path"), Path)
+        || Path == nullptr
+        || Path->Num() != 1
+        || !(*Path)[0]->TryGetString(OutFieldName)
+        || OutFieldName.IsEmpty())
+    {
+        OutError = TEXT(
+            "Level set/reset requires exactly one member field on one exact "
+            "persisted Actor or Component.");
+        return false;
+    }
+
+    FString OwnerKind;
+    (*Owner)->TryGetStringField(TEXT("kind"), OwnerKind);
+    if (OwnerKind == TEXT("actor"))
+    {
+        FString Id;
+        FGuid Guid;
+        if (!(*Owner)->TryGetStringField(TEXT("id"), Id)
+            || !ParseActorGuid(Id, Guid))
+        {
+            OutError = TEXT(
+                "Level set/reset owner Actor identity is invalid.");
+            return false;
+        }
+        FLevelActorEntry* Match = nullptr;
+        int32 MatchCount = 0;
+        for (FLevelActorEntry& Entry : Snapshot.Actors)
+        {
+            if (Entry.Guid == Guid)
+            {
+                Match = &Entry;
+                ++MatchCount;
+            }
+        }
+        if (MatchCount != 1 || Match == nullptr || !Match->bLoaded)
+        {
+            OutError = MatchCount > 1
+                ? TEXT("Multiple persisted Level Actor records share this "
+                    "ActorGuid; the edit is ambiguous.")
+                : TEXT("The exact persisted Actor is not loaded or not "
+                    "present; Level Patch will not load an unloaded "
+                    "descriptor.");
+            return false;
+        }
+        AActor* Actor = Match->Actor.Get();
+        if (!IsValid(Actor))
+        {
+            OutError = TEXT("The exact persisted Actor UObject is invalid.");
+            return false;
+        }
+        OutOwnerIdentity = Guid.ToString(
+            EGuidFormats::DigitsWithHyphensLower);
+        OutObject = Actor;
+    }
+    else if (OwnerKind == TEXT("component"))
+    {
+        FString ActorId;
+        FString Source;
+        FString Id;
+        FGuid ActorGuid;
+        if (!(*Owner)->TryGetStringField(TEXT("actorId"), ActorId)
+            || !(*Owner)->TryGetStringField(TEXT("source"), Source)
+            || !(*Owner)->TryGetStringField(TEXT("id"), Id)
+            || !ParseActorGuid(ActorId, ActorGuid))
+        {
+            OutError = TEXT(
+                "Level set/reset owner Component identity is invalid.");
+            return false;
+        }
+        FLevelActorEntry* OwnerEntry = nullptr;
+        int32 OwnerMatches = 0;
+        for (FLevelActorEntry& Entry : Snapshot.Actors)
+        {
+            if (Entry.Guid == ActorGuid)
+            {
+                OwnerEntry = &Entry;
+                ++OwnerMatches;
+            }
+        }
+        AActor* OwnerActor = OwnerEntry != nullptr
+            ? OwnerEntry->Actor.Get()
+            : nullptr;
+        if (OwnerMatches != 1 || OwnerEntry == nullptr
+            || !OwnerEntry->bLoaded || !IsValid(OwnerActor))
+        {
+            OutError = TEXT(
+                "Level set/reset owner Actor is not a loaded persisted "
+                "Actor.");
+            return false;
+        }
+        FSalLevelComponentSnapshot ComponentSnapshot;
+        FString ComponentReason;
+        if (!BuildLevelComponentSnapshot(
+                TArray<AActor*>{OwnerActor},
+                TEXT("patch"),
+                ComponentSnapshot,
+                ComponentReason)
+            || !ComponentSnapshot.bIdentityComplete)
+        {
+            OutError = ComponentReason.IsEmpty()
+                ? TEXT("The Component source identity scan is incomplete; "
+                    "the edit is fail-closed.")
+                : ComponentReason;
+            return false;
+        }
+        const FSalLevelComponentEntry* Match = nullptr;
+        int32 MatchCount = 0;
+        for (const FSalLevelComponentEntry& Entry
+            : ComponentSnapshot.Entries)
+        {
+            if (Entry.ActorGuid == ActorGuid
+                && Entry.Source == Source
+                && Entry.Id == Id)
+            {
+                Match = &Entry;
+                ++MatchCount;
+            }
+        }
+        if (MatchCount != 1 || Match == nullptr)
+        {
+            OutError = TEXT(
+                "No unique persisted Component matches the requested "
+                "source-qualified identity.");
+            return false;
+        }
+        UActorComponent* Component = Match->Component.Get();
+        if (!IsValid(Component))
+        {
+            OutError = TEXT("The exact persisted Component UObject is "
+                "invalid.");
+            return false;
+        }
+        OutOwnerIdentity = ActorId + TEXT("/") + Source + TEXT("/") + Id;
+        OutObject = Component;
+    }
+    else
+    {
+        OutError = TEXT(
+            "Level set/reset owner must be one exact persisted Actor or "
+            "Component.");
+        return false;
+    }
+
+    OutProperty = FindFProperty<FProperty>(
+        OutObject->GetClass(),
+        FName(*OutFieldName));
+    if (OutProperty == nullptr)
+    {
+        OutError = FString::Printf(
+            TEXT("The exact schema does not advertise a field named %s on "
+                "this object."),
+            *OutFieldName);
+        return false;
+    }
+    if (!IsLevelScalarSetCandidate(OutProperty))
+    {
+        OutError = FString::Printf(
+            TEXT("Field %s is not a schema-advertised scalar set/reset "
+                "field on this exact instance."),
+            *OutFieldName);
+        return false;
+    }
+    return true;
+}
+
+// Returns the exact native archetype/template value for reset.
+bool LevelResetValue(
+    const FProperty* Property,
+    const UObject* Object,
+    FString& OutText)
+{
+    const UObject* Archetype = Object != nullptr
+        ? Object->GetArchetype()
+        : nullptr;
+    if (Property == nullptr || Archetype == nullptr)
+    {
+        return false;
+    }
+    const void* Value = Property->ContainerPtrToValuePtr<void>(Archetype);
+    FString Exported;
+    Property->ExportText_Direct(
+        Exported,
+        Value,
+        Value,
+        const_cast<UObject*>(Archetype),
+        PPF_None);
+    OutText = Exported;
+    return true;
+}
+
+TSharedPtr<FJsonObject> LevelPlannedObject(
+    const TArray<TSharedPtr<FLevelPlannedEdit>>& Edits)
+{
+    TSharedPtr<FJsonObject> Planned = MakeShared<FJsonObject>();
+    TArray<TSharedPtr<FJsonValue>> Operations;
+    for (const TSharedPtr<FLevelPlannedEdit>& Edit : Edits)
+    {
+        if (!Edit.IsValid())
+        {
+            continue;
+        }
+        TSharedPtr<FJsonObject> Operation = MakeShared<FJsonObject>();
+        Operation->SetStringField(TEXT("kind"), Edit->Kind);
+        Operation->SetStringField(TEXT("ref"), Edit->RefText);
+        Operation->SetStringField(
+            TEXT("field"),
+            Edit->Property != nullptr
+                ? Edit->Property->GetName()
+                : FString());
+        Operation->SetStringField(TEXT("before"), Edit->Before);
+        Operation->SetStringField(TEXT("after"), Edit->After);
+        Operations.Add(MakeShared<FJsonValueObject>(Operation));
+    }
+    Planned->SetArrayField(TEXT("operations"), Operations);
+    return Planned;
+}
+
 }
 
 TSharedPtr<FJsonObject> FSalLevelInterface::Query(
@@ -3672,6 +4028,337 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Query(
         Operation,
         FString(),
         {TEXT("target"), TEXT("summary"), TEXT("actors"), TEXT("components"), TEXT("actor"), TEXT("component"), TEXT("palette_entries"), TEXT("palette")});
+}
+
+TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
+    const FSalPatch& Patch,
+    const FSalResolvedTarget& Target)
+{
+    const TSharedPtr<FJsonObject> NoObjects = MakeShared<FJsonObject>();
+
+    if (Target.Domain != ESalDomain::Level)
+    {
+        return MakeMutationResult(
+            NoObjects,
+            {FSalDiagnostics::Error(
+                    TEXT("validation.exact_level_required"),
+                    TEXT("Level Patch requires the canonical exact Level "
+                        "Target."))
+                .Interface(TEXT("level"))
+                .Build()},
+            Patch.bDryRun,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("level"));
+    }
+
+    UWorld* World = nullptr;
+    ULevel* Level = nullptr;
+    FString SourceReason;
+    if (!IsExactLoadedSource(Target, World, Level, SourceReason))
+    {
+        return MakeMutationResult(
+            NoObjects,
+            {FSalDiagnostics::Error(
+                    TEXT("capability.level_not_loaded"),
+                    SourceReason.IsEmpty()
+                        ? TEXT("Level Patch requires the exact authored "
+                            "Editor source World to be loaded.")
+                        : SourceReason)
+                .Interface(TEXT("level"))
+                .Build()},
+            Patch.bDryRun,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("level"));
+    }
+
+    FLevelSnapshot Snapshot;
+    FString SnapshotReason;
+    if (!BuildSnapshot(Target, TEXT("patch"), Snapshot, SnapshotReason))
+    {
+        return MakeMutationResult(
+            NoObjects,
+            {FSalDiagnostics::Error(
+                    TEXT("capability.level_not_loaded"),
+                    SnapshotReason.IsEmpty()
+                        ? TEXT("Level Patch identity environment is "
+                            "unavailable.")
+                        : SnapshotReason)
+                .Interface(TEXT("level"))
+                .Build()},
+            Patch.bDryRun,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("level"));
+    }
+    if (!Snapshot.bIdentityComplete)
+    {
+        return MakeMutationResult(
+            NoObjects,
+            {FSalDiagnostics::Error(
+                    TEXT("validation.reference_scan_incomplete"),
+                    TEXT("The Level Actor identity environment is "
+                        "incomplete; Level Patch is fail-closed."))
+                .Interface(TEXT("level"))
+                .Build()},
+            Patch.bDryRun,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("level"));
+    }
+
+    TArray<TSharedPtr<FJsonObject>> Diagnostics;
+    TArray<TSharedPtr<FLevelPlannedEdit>> Edits;
+    for (const TSharedPtr<FJsonValue>& StatementValue : Patch.Statements)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        if (!StatementValue.IsValid()
+            || !StatementValue->TryGetObject(Statement)
+            || Statement == nullptr
+            || !(*Statement).IsValid())
+        {
+            Diagnostics.Add(
+                FSalDiagnostics::Error(
+                    TEXT("validation.statement_invalid"),
+                    TEXT("Level Patch statement is malformed."))
+                    .Interface(TEXT("level"))
+                    .Build());
+            continue;
+        }
+        FString Kind;
+        (*Statement)->TryGetStringField(TEXT("kind"), Kind);
+        if (Kind != TEXT("set") && Kind != TEXT("reset"))
+        {
+            Diagnostics.Add(
+                FSalDiagnostics::Error(
+                    TEXT("capability.operation_unavailable"),
+                    FString::Printf(
+                        TEXT("Level Patch does not yet support the %s "
+                            "statement in this capability; supported "
+                            "statements are set and reset."),
+                        *Kind))
+                    .Interface(TEXT("level"))
+                    .Operation(Kind)
+                    .Build());
+            continue;
+        }
+        FString OwnerIdentity;
+        UObject* Object = nullptr;
+        FProperty* Property = nullptr;
+        FString FieldName;
+        FString Error;
+        if (!ResolveLevelPatchMember(
+                *Statement,
+                Target,
+                Snapshot,
+                OwnerIdentity,
+                Object,
+                Property,
+                FieldName,
+                Error))
+        {
+            Diagnostics.Add(
+                FSalDiagnostics::Error(
+                    TEXT("validation.edit_target_invalid"),
+                    Error)
+                    .Interface(TEXT("level"))
+                    .Operation(Kind)
+                    .Build());
+            continue;
+        }
+        TSharedPtr<FLevelPlannedEdit> Edit =
+            MakeShared<FLevelPlannedEdit>();
+        Edit->Kind = Kind;
+        Edit->RefText = OwnerIdentity + TEXT(".") + FieldName;
+        Edit->Object = Object;
+        Edit->Property = Property;
+        Edit->Before = LevelExportScalarValue(Property, Object);
+        if (Kind == TEXT("set"))
+        {
+            const TSharedPtr<FJsonValue>* Value = nullptr;
+            FString Text;
+            if (!(*Statement)->TryGetField(TEXT("value"), Value)
+                || !LevelValueImportText(Value, Text)
+                || !LevelImportScalarValue(
+                    Property,
+                    Object,
+                    Text,
+                    Error))
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("validation.value_invalid"),
+                        Error.IsEmpty()
+                            ? TEXT("Level set value must be a scalar "
+                                "string, number, or Boolean.")
+                            : Error)
+                        .Interface(TEXT("level"))
+                        .Operation(Kind)
+                        .Ref(Edit->RefText)
+                        .Build());
+                continue;
+            }
+            Edit->After = Text;
+        }
+        else
+        {
+            FString ResetText;
+            if (!LevelResetValue(Property, Object, ResetText))
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("validation.reset_source_unavailable"),
+                        TEXT("Level reset could not resolve one exact "
+                            "native archetype or template value."))
+                        .Interface(TEXT("level"))
+                        .Operation(Kind)
+                        .Ref(Edit->RefText)
+                        .Build());
+                continue;
+            }
+            Edit->After = ResetText;
+        }
+        Edits.Add(Edit);
+    }
+
+    const bool bHasErrors = !Diagnostics.IsEmpty();
+    if (bHasErrors)
+    {
+        return MakeMutationResult(
+            NoObjects,
+            Diagnostics,
+            Patch.bDryRun,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("level"),
+            LevelPlannedObject(Edits));
+    }
+    if (Edits.IsEmpty())
+    {
+        return MakeMutationResult(
+            NoObjects,
+            {FSalDiagnostics::Error(
+                    TEXT("validation.no_operations"),
+                    TEXT("Level Patch contained no supported set or reset "
+                        "statements."))
+                .Interface(TEXT("level"))
+                .Build()},
+            Patch.bDryRun,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("level"));
+    }
+
+    if (Patch.bDryRun)
+    {
+        return MakeMutationResult(
+            NoObjects,
+            {},
+            true,
+            true,
+            false,
+            Target.AssetPath,
+            TEXT("level"),
+            LevelPlannedObject(Edits));
+    }
+
+    FScopedTransaction Transaction(
+        FText::FromString(TEXT("SAL Edit Level")));
+    if (!Transaction.IsOutstanding())
+    {
+        return MakeMutationResult(
+            NoObjects,
+            {FSalDiagnostics::Error(
+                    TEXT("capability.transaction_unavailable"),
+                    TEXT("UE did not open the required Level Patch "
+                        "transaction."))
+                .Interface(TEXT("level"))
+                .Build()},
+            false,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("level"),
+            LevelPlannedObject(Edits));
+    }
+    for (const TSharedPtr<FLevelPlannedEdit>& Edit : Edits)
+    {
+        UObject* Object = Edit->Object.Get();
+        if (!IsValid(Object))
+        {
+            Transaction.Cancel();
+            return MakeMutationResult(
+                NoObjects,
+                {FSalDiagnostics::Error(
+                        TEXT("validation.object_invalidated"),
+                        TEXT("A Level Patch edit target was invalidated "
+                            "before apply; the transaction was rolled "
+                            "back."))
+                    .Interface(TEXT("level"))
+                    .Ref(Edit->RefText)
+                    .Build()},
+                false,
+                false,
+                false,
+                Target.AssetPath,
+                TEXT("level"),
+                LevelPlannedObject(Edits));
+        }
+        Object->Modify();
+        FString Error;
+        if (!LevelImportScalarValue(
+                Edit->Property,
+                Object,
+                Edit->After,
+                Error))
+        {
+            Transaction.Cancel();
+            return MakeMutationResult(
+                NoObjects,
+                {FSalDiagnostics::Error(
+                        TEXT("validation.apply_failed"),
+                        Error)
+                    .Interface(TEXT("level"))
+                    .Ref(Edit->RefText)
+                    .Build()},
+                false,
+                false,
+                false,
+                Target.AssetPath,
+                TEXT("level"),
+                LevelPlannedObject(Edits));
+        }
+        FPropertyChangedEvent ChangedEvent(Edit->Property);
+        Object->PostEditChangeProperty(ChangedEvent);
+    }
+    Transaction.Commit();
+
+    for (const TSharedPtr<FLevelPlannedEdit>& Edit : Edits)
+    {
+        UObject* Object = Edit->Object.Get();
+        if (IsValid(Object) && Edit->Property != nullptr)
+        {
+            Edit->Before = LevelExportScalarValue(
+                Edit->Property,
+                Object);
+        }
+    }
+    return MakeMutationResult(
+        NoObjects,
+        {},
+        false,
+        true,
+        true,
+        Target.AssetPath,
+        TEXT("level"),
+        LevelPlannedObject(Edits));
 }
 
 bool FSalLevelInterface::ResolveEditorContextTarget(

@@ -12050,6 +12050,287 @@ bool FSalLevelSchemaOnLoadedComponentTest::RunTest(const FString& Parameters)
     return true;
 }
 
+
+// ============================================================================
+// Level authored mutation (Slice 3) tests
+// ============================================================================
+
+TSharedRef<FJsonObject> LevelPatchArguments(
+    const TSharedRef<FJsonObject>& Target,
+    const TArray<TSharedPtr<FJsonValue>>& Statements,
+    const bool bDryRun = false)
+{
+    TSharedRef<FJsonObject> Binding = MakeShared<FJsonObject>();
+    Binding->SetStringField(TEXT("alias"), TEXT("level_scope"));
+    Binding->SetObjectField(TEXT("target"), Target);
+    TSharedRef<FJsonObject> Patch = MakeShared<FJsonObject>();
+    Patch->SetStringField(TEXT("kind"), TEXT("patch"));
+    Patch->SetObjectField(TEXT("target"), Binding);
+    Patch->SetBoolField(TEXT("dryRun"), bDryRun);
+    Patch->SetArrayField(TEXT("statements"), Statements);
+    TSharedRef<FJsonObject> Arguments = MakeShared<FJsonObject>();
+    Arguments->SetObjectField(TEXT("object"), Patch);
+    return Arguments;
+}
+
+TSharedRef<FJsonObject> LevelSetStatement(
+    const FString& ActorId,
+    const FString& Field,
+    const TSharedPtr<FJsonValue>& Value)
+{
+    TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
+    Statement->SetStringField(TEXT("kind"), TEXT("set"));
+    TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("member"));
+    TSharedRef<FJsonObject> Owner = MakeShared<FJsonObject>();
+    Owner->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    Owner->SetArrayField(
+        TEXT("identityPath"),
+        LevelStringValues({ActorId}));
+    Target->SetObjectField(TEXT("object"), Owner);
+    Target->SetArrayField(TEXT("path"), LevelStringValues({Field}));
+    Statement->SetObjectField(TEXT("target"), Target);
+    Statement->SetField(TEXT("value"), Value);
+    return Statement;
+}
+
+TSharedRef<FJsonObject> LevelResetStatement(
+    const FString& ActorId,
+    const FString& Field)
+{
+    TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
+    Statement->SetStringField(TEXT("kind"), TEXT("reset"));
+    TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("member"));
+    TSharedRef<FJsonObject> Owner = MakeShared<FJsonObject>();
+    Owner->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    Owner->SetArrayField(
+        TEXT("identityPath"),
+        LevelStringValues({ActorId}));
+    Target->SetObjectField(TEXT("object"), Owner);
+    Target->SetArrayField(TEXT("path"), LevelStringValues({Field}));
+    Statement->SetObjectField(TEXT("target"), Target);
+    return Statement;
+}
+
+bool LevelMutationHasField(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& Field,
+    bool& OutValue)
+{
+    OutValue = false;
+    return Result.IsValid()
+        && Result->TryGetBoolField(Field, OutValue);
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelPatchSetResetTest,
+    "Loomle.Sal.Level.Patch.SetReset",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelPatchSetResetTest::RunTest(const FString& Parameters)
+{
+    FScopedLevelQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("Level Patch fixture builds"), Fixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Level Patch fixture activates the loaded source"),
+            Fixture.Activate(Fixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const TSharedRef<FJsonObject> Target =
+        LevelTarget(
+            Fixture.Loaded.ObjectPath,
+            UWorld::StaticClass()->GetPathName());
+    const FString ActorId = LevelGuidText(Fixture.AlphaId);
+
+    AActor* Actor = Fixture.Alpha;
+    if (!TestNotNull(TEXT("Patch target Actor is loaded"), Actor))
+    {
+        return false;
+    }
+    const bool bOriginalHidden = Actor->IsHidden();
+    const int32 UndoCountBefore = GEditor != nullptr
+        ? GEditor->Trans->GetUndoCount()
+        : 0;
+
+    // Dry run plans without applying.
+    const TSharedPtr<FJsonObject> DryRun = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {LevelSetStatement(ActorId, TEXT("bHidden"), MakeShared<FJsonValueBool>(!bOriginalHidden))},
+            true));
+    bool bValid = false;
+    bool bApplied = false;
+    bool bDryRun = false;
+    TestTrue(
+        TEXT("Level dry-run Patch validates"),
+        LevelMutationHasField(DryRun, TEXT("valid"), bValid) && bValid);
+    TestTrue(
+        TEXT("Level dry-run Patch never applies"),
+        LevelMutationHasField(DryRun, TEXT("applied"), bApplied) && !bApplied);
+    TestTrue(
+        TEXT("Level dry-run Patch reports dryRun"),
+        LevelMutationHasField(DryRun, TEXT("dryRun"), bDryRun) && bDryRun);
+    TestTrue(
+        TEXT("Level dry-run Patch preserves the live value"),
+        Actor->IsHidden() == bOriginalHidden);
+
+    // Live set applies and reads back.
+    const TSharedPtr<FJsonObject> SetResult = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {LevelSetStatement(ActorId, TEXT("bHidden"), MakeShared<FJsonValueBool>(!bOriginalHidden))}));
+    TestTrue(
+        TEXT("Level live Patch applies"),
+        LevelMutationHasField(SetResult, TEXT("applied"), bApplied) && bApplied);
+    TestTrue(
+        TEXT("Level live Patch is valid"),
+        LevelMutationHasField(SetResult, TEXT("valid"), bValid) && bValid);
+    TestTrue(
+        TEXT("Level live Patch readback matches the requested value"),
+        Actor->IsHidden() == !bOriginalHidden);
+    if (GEditor != nullptr)
+    {
+        TestEqual(
+            TEXT("Level Patch creates one Undo entry"),
+            GEditor->Trans->GetUndoCount(),
+            UndoCountBefore + 1);
+    }
+
+    // Reset restores the exact archetype value.
+    const TSharedPtr<FJsonObject> ResetResult = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {LevelResetStatement(ActorId, TEXT("bHidden"))}));
+    TestTrue(
+        TEXT("Level reset Patch applies"),
+        LevelMutationHasField(ResetResult, TEXT("applied"), bApplied) && bApplied);
+    TestTrue(
+        TEXT("Level reset restores the archetype value"),
+        Actor->IsHidden() == bOriginalHidden);
+
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelPatchValidationTest,
+    "Loomle.Sal.Level.Patch.Validation",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelPatchValidationTest::RunTest(const FString& Parameters)
+{
+    FScopedLevelQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("Level Patch fixture builds"), Fixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Level Patch fixture activates the loaded source"),
+            Fixture.Activate(Fixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const TSharedRef<FJsonObject> Target =
+        LevelTarget(
+            Fixture.Loaded.ObjectPath,
+            UWorld::StaticClass()->GetPathName());
+    const FString ActorId = LevelGuidText(Fixture.AlphaId);
+
+    // Unsupported statement fails closed.
+    TSharedRef<FJsonObject> SaveStatement = MakeShared<FJsonObject>();
+    SaveStatement->SetStringField(TEXT("kind"), TEXT("save"));
+    const TSharedPtr<FJsonObject> SaveResult = FSalModule::BuildPatchResult(
+        LevelPatchArguments(Target, {SaveStatement}));
+    bool bValid = false;
+    TestTrue(
+        TEXT("Level Patch rejects unsupported statements"),
+        LevelMutationHasField(SaveResult, TEXT("valid"), bValid) && !bValid);
+    TestTrue(
+        TEXT("Level Patch reports the unsupported statement"),
+        LevelHasDiagnostic(
+            SaveResult,
+            TEXT("capability.operation_unavailable")));
+
+    // Unknown field fails closed.
+    const TSharedPtr<FJsonObject> UnknownField = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {LevelSetStatement(
+                ActorId,
+                TEXT("NotARealField"),
+                MakeShared<FJsonValueBool>(true))}));
+    TestTrue(
+        TEXT("Level Patch rejects unknown fields"),
+        LevelMutationHasField(UnknownField, TEXT("valid"), bValid) && !bValid);
+    TestTrue(
+        TEXT("Level Patch reports the unknown field"),
+        LevelHasDiagnostic(
+            UnknownField,
+            TEXT("validation.edit_target_invalid")));
+
+    // Missing value fails closed.
+    TSharedRef<FJsonObject> MissingValue = MakeShared<FJsonObject>();
+    MissingValue->SetStringField(TEXT("kind"), TEXT("set"));
+    TSharedRef<FJsonObject> MemberTarget = MakeShared<FJsonObject>();
+    MemberTarget->SetStringField(TEXT("kind"), TEXT("member"));
+    TSharedRef<FJsonObject> Owner = MakeShared<FJsonObject>();
+    Owner->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    Owner->SetArrayField(
+        TEXT("identityPath"),
+        LevelStringValues({ActorId}));
+    MemberTarget->SetObjectField(TEXT("object"), Owner);
+    MemberTarget->SetArrayField(
+        TEXT("path"),
+        LevelStringValues({TEXT("bHidden")}));
+    MissingValue->SetObjectField(TEXT("target"), MemberTarget);
+    const TSharedPtr<FJsonObject> MissingValueResult =
+        FSalModule::BuildPatchResult(
+            LevelPatchArguments(Target, {MissingValue}));
+    TestTrue(
+        TEXT("Level Patch rejects a set without a value"),
+        LevelMutationHasField(
+            MissingValueResult,
+            TEXT("valid"),
+            bValid) && !bValid);
+
+    // Unloaded map fails closed.
+    const TSharedRef<FJsonObject> UnloadedTarget =
+        LevelTarget(Fixture.Unloaded.ObjectPath);
+    const TSharedPtr<FJsonObject> UnloadedResult =
+        FSalModule::BuildPatchResult(
+            LevelPatchArguments(
+                UnloadedTarget,
+                {LevelSetStatement(
+                    ActorId,
+                    TEXT("bHidden"),
+                    MakeShared<FJsonValueBool>(true))}));
+    TestTrue(
+        TEXT("Level Patch fails closed on an unloaded source map"),
+        LevelHasDiagnostic(
+            UnloadedResult,
+            TEXT("capability.level_not_loaded")));
+
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
 }
 
 #endif

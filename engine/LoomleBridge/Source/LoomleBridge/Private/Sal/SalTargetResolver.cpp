@@ -525,12 +525,6 @@ bool FSalTargetResolver::ResolveTarget(
 
     if (Domain == TEXT("level"))
     {
-        if (bForPatch)
-        {
-            OutError = InvalidTarget(
-                TEXT("level is a Query-only Target and cannot be used by sal_patch."));
-            return false;
-        }
         FString Asset;
         FString ExpectedType;
         Target->TryGetStringField(TEXT("asset"), Asset);

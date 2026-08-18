@@ -2363,6 +2363,7 @@ TSharedPtr<FJsonObject> DispatchPatch(const FSalPatch& Patch, const FSalResolved
     case ESalDomain::Widget:
         return FSalWidgetInterface::Patch(Patch, Target);
     case ESalDomain::Level:
+        return FSalLevelInterface::Patch(Patch, Target);
     case ESalDomain::Pcg:
     case ESalDomain::PcgComponent:
         return InterfaceError(TEXT("patch"), Target);
