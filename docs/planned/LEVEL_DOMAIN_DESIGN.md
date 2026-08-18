@@ -1770,9 +1770,20 @@ Slice 3-A progress (branch, not published):
   unknown or non-schema fields, missing values, and malformed owners fail
   closed before planning.
 
-Remaining in Slice 3: the Actor transform compound operation, native
-observer/construction effect coverage, the shared execution-source lease, and
-the preview-World kernel for lifecycle operations.
+Slice 3-B progress (branch, not published):
+
+- the compound Actor transform is the schema-discovered
+  `invoke SetActorTransform(location, rotation, scale)` on one exact loaded
+  persisted Actor; each axis is an optional three-number array that defaults
+  to the current native value, applied through the same top-level transaction
+  with Modify, native notifications, readback, and rollback;
+- transforms on PCG-managed Actors are unavailable while async suppression is
+  unproven; malformed arguments and unsupported invoke operations fail
+  closed; the exact schema advertises the operation fields.
+
+Remaining in Slice 3: native observer/construction effect coverage, the
+shared execution-source lease, the dirty ledger, and the preview-World kernel
+for lifecycle operations.
 
 ### Slice 4: Actor and Component lifecycle
 
