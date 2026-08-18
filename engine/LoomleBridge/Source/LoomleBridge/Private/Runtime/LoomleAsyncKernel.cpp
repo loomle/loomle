@@ -20,9 +20,10 @@ namespace
 FString SerializeObject(const TSharedPtr<FJsonObject>& Object)
 {
     FString Output;
-    const TSharedRef<FCondensedJsonWriter> Writer =
-        TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(
-            &Output);
+    const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>>
+        Writer = TJsonWriterFactory<
+            TCHAR,
+            TCondensedJsonPrintPolicy<TCHAR>>::Create(&Output);
     if (!Object.IsValid()
         || !FJsonSerializer::Serialize(Object.ToSharedRef(), Writer))
     {
@@ -126,7 +127,7 @@ const FLoomleAsyncKernel::FProfile* FLoomleAsyncKernel::ProfileLocked(
 
 FLoomleAsyncKernel::FRecordPtr FLoomleAsyncKernel::Allocate(
     const FString& Namespace,
-    FString& OutError,
+    TSharedPtr<FJsonObject>& OutError,
     FString& OutBusyExecutionId)
 {
     OutError.Reset();
@@ -242,6 +243,15 @@ TSharedPtr<FJsonObject> FLoomleAsyncKernel::Snapshot(
     bool bIncludeExecutionId,
     bool bExposeIfRunning)
 {
+    FScopeLock Lock(&Mutex);
+    return SnapshotLocked(Record, bIncludeExecutionId, bExposeIfRunning);
+}
+
+TSharedPtr<FJsonObject> FLoomleAsyncKernel::SnapshotLocked(
+    const FRecordPtr& Record,
+    bool bIncludeExecutionId,
+    bool bExposeIfRunning) const
+{
     if (!Record.IsValid())
     {
         return MakeTerminalFailure(
@@ -249,7 +259,6 @@ TSharedPtr<FJsonObject> FLoomleAsyncKernel::Snapshot(
             TEXT("The execution record is unavailable."),
             true);
     }
-    FScopeLock Lock(&Mutex);
     if (Record->State == EState::Terminal)
     {
         TSharedPtr<FJsonObject> Terminal = ParseObject(Record->TerminalJson);
@@ -306,7 +315,7 @@ TSharedPtr<FJsonObject> FLoomleAsyncKernel::Snapshot(
 TSharedPtr<FJsonObject> FLoomleAsyncKernel::Poll(
     const FString& Namespace,
     const FString& ExecutionId,
-    FString& OutError)
+    TSharedPtr<FJsonObject>& OutError)
 {
     OutError.Reset();
     FScopeLock Lock(&Mutex);
@@ -336,7 +345,7 @@ TSharedPtr<FJsonObject> FLoomleAsyncKernel::Poll(
                     "runtime."));
         return nullptr;
     }
-    return Snapshot(*Found, true, false);
+    return SnapshotLocked(*Found, true, false);
 }
 
 void FLoomleAsyncKernel::Tick()

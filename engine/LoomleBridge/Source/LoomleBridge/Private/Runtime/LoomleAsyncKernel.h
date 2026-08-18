@@ -39,6 +39,7 @@ public:
         FString ExpiredMessage;
         FString LostCode;
         FString LostMessage;
+        FString PollToolName;
         int32 PollAfterMs = 1000;
 
         // Builds the poll arguments object for this frontend, given the
@@ -65,12 +66,12 @@ public:
 
     /**
      * Allocate a record and make it the active execution for its Namespace.
-     * On busy or shutdown failure, OutError is a dispatch error and
+     * On busy or shutdown failure, OutError is a dispatch error object and
      * OutBusyExecutionId carries the active exposed id when available.
      */
     FRecordPtr Allocate(
         const FString& Namespace,
-        FString& OutError,
+        TSharedPtr<FJsonObject>& OutError,
         FString& OutBusyExecutionId);
 
     void Begin(const FRecordPtr& Record);
@@ -92,7 +93,7 @@ public:
     TSharedPtr<FJsonObject> Poll(
         const FString& Namespace,
         const FString& ExecutionId,
-        FString& OutError);
+        TSharedPtr<FJsonObject>& OutError);
 
     /** Expire retained terminals beyond the retention window; call from the
      *  frontend tick. */
@@ -103,8 +104,10 @@ public:
 private:
     const FProfile* ProfileLocked(const FString& Namespace) const;
     void CleanupExpiredLocked(double NowSeconds);
-    TSharedPtr<FJsonObject> RunningSnapshotLocked(
-        const FRecordPtr& Record) const;
+    TSharedPtr<FJsonObject> SnapshotLocked(
+        const FRecordPtr& Record,
+        bool bIncludeExecutionId,
+        bool bExposeIfRunning) const;
 
     mutable FCriticalSection Mutex;
     TMap<FString, FProfile> Profiles;
