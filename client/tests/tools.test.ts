@@ -170,6 +170,39 @@ test("python run returns the agent-defined structured result without an executio
   }]);
 });
 
+test("python run accepts the sal.object() projection annex and projected views", async () => {
+  const response = {
+    status: "succeeded",
+    stateMayHaveChanged: true,
+    result: {
+      marked: {
+        status: "projected",
+        relation: "exact",
+        view: {
+          target: {
+            alias: "projection",
+            target: { kind: "target", domain: "class", path: "/Script/Engine.Actor" },
+          },
+          object: { statements: [] },
+          diagnostics: [],
+          comments: [],
+        },
+      },
+    },
+    projection: { complete: true, marked: 1, projected: 1 },
+    logs: [],
+    logsTruncated: false,
+    durationMs: 8,
+  };
+  const rpc = new MockRpc(response);
+  const result = await new SalToolService(rpc).call("python", {
+    operation: "run",
+    script: "def run():\n    return {'marked': sal.object(unreal.Actor)}",
+  });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(result.structuredContent, response);
+});
+
 test("python run returns an exact poll continuation for a detached execution", async () => {
   const response = {
     status: "running",

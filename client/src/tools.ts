@@ -138,6 +138,17 @@ const pythonOutputSchema: Record<string, unknown> = {
     logsTruncated: { type: "boolean" },
     durationMs: { type: "integer", minimum: 0 },
     elapsedMs: { type: "integer", minimum: 0 },
+    projection: {
+      type: "object",
+      required: ["complete", "marked", "projected"],
+      properties: {
+        complete: { type: "boolean", description: "False when a projector or Bridge integrity fault occurred." },
+        marked: { type: "integer", minimum: 0, description: "Number of sal.object() markers in the script result." },
+        projected: { type: "integer", minimum: 0, description: "Number of markers replaced with canonical projected views." },
+      },
+      additionalProperties: false,
+      description: "Read-only Python sal.object() projection annex; present only when the script marked UObjects.",
+    },
     continuation: {
       type: "object",
       required: ["tool", "arguments", "pollAfterMs"],
@@ -272,7 +283,7 @@ export const toolDefinitions: readonly ToolDefinition[] = [
   {
     name: "python",
     title: "Run Unreal Python",
-    description: "Run full Python in the bound Unreal Editor when no structured Loomle interface covers the capability. Before run, load use-unreal-python; for PIE also load debug-unreal-pie-with-python. Follow a returned poll exactly; never replay. No built-in dry run, rollback, safe cancellation, or idempotency.",
+    description: "Run Python in the bound Editor when no Loomle interface covers the capability. Before run, load use-unreal-python; for PIE also load debug-unreal-pie-with-python. Poll exactly; never replay. sal.object(value) marks UObjects for canonical projection. No dry run, rollback, cancellation, idempotency.",
     inputSchema: pythonInputSchema,
     outputSchema: pythonOutputSchema,
     annotations: {
@@ -778,6 +789,7 @@ function requirePythonExecutionResult(value: unknown): PythonExecutionResult {
     "durationMs",
     "elapsedMs",
     "continuation",
+    "projection",
   ], "Python execution result");
   const status = value.status;
   if (status !== "running" && status !== "succeeded" && status !== "failed" && status !== "lost") {

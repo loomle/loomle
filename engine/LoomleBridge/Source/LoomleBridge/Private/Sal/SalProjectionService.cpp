@@ -2,8 +2,8 @@
 
 #include "SalProjectionService.h"
 
-#include "../SalDiagnostics.h"
-#include "../SalModule.h"
+#include "SalDiagnostics.h"
+#include "SalModule.h"
 
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
@@ -26,7 +26,7 @@ namespace Loomle::Sal
 namespace
 {
 
-TSharedRef<FJsonObject> ProjectionError(
+TSharedPtr<FJsonObject> ProjectionError(
     const FString& Code,
     const FString& Message,
     const FString& Ref)
@@ -36,13 +36,6 @@ TSharedRef<FJsonObject> ProjectionError(
         .Operation(TEXT("projection"))
         .Ref(Ref)
         .Build();
-}
-
-TSharedPtr<FJsonValue> MarkerValue(const TSharedPtr<FJsonObject>& Object)
-{
-    return Object.IsValid()
-        ? Object->TryGetField(FSalProjectionService::MarkerKey)
-        : TSharedPtr<FJsonValue>();
 }
 
 // A source map World: the loaded authored Editor World that is not a

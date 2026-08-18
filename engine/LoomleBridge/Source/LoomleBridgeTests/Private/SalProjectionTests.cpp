@@ -13,13 +13,13 @@ namespace
 {
 using namespace Loomle::Sal;
 
-TSharedRef<FJsonObject> ProjectionResult(const FString& Path)
+TSharedPtr<FJsonObject> ProjectionResult(const FString& Path)
 {
-    TSharedRef<FJsonObject> Marker = MakeShared<FJsonObject>();
+    TSharedPtr<FJsonObject> Marker = MakeShared<FJsonObject>();
     Marker->SetStringField(
         FSalProjectionService::MarkerKey,
         Path);
-    TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetObjectField(TEXT("result"), Marker);
     return Result;
 }
@@ -77,7 +77,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FSalProjectionClassViewTest::RunTest(const FString& Parameters)
 {
-    TSharedRef<FJsonObject> Result = ProjectionResult(
+    TSharedPtr<FJsonObject> Result = ProjectionResult(
         TEXT("/Script/Engine.Actor"));
     TestTrue(
         TEXT("Projection completes for a native Class marker"),
@@ -139,7 +139,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FSalProjectionStaleAndTransientTest::RunTest(const FString& Parameters)
 {
     // A marker whose object no longer resolves reports stale.
-    TSharedRef<FJsonObject> StaleResult = ProjectionResult(
+    TSharedPtr<FJsonObject> StaleResult = ProjectionResult(
         TEXT("/Game/LoomleTests/DoesNotExist.DoesNotExist"));
     TestTrue(
         TEXT("Projection completes for a stale marker"),
@@ -178,7 +178,7 @@ bool FSalProjectionStaleAndTransientTest::RunTest(const FString& Parameters)
     TestTrue(
         TEXT("The transient probe path resolves through the marker protocol"),
         FindObject<UObject>(nullptr, *ProbePath) == Probe);
-    TSharedRef<FJsonObject> TransientResult = ProjectionResult(ProbePath);
+    TSharedPtr<FJsonObject> TransientResult = ProjectionResult(ProbePath);
     TestTrue(
         TEXT("Projection completes for a transient marker"),
         FSalProjectionService::ProjectResult(TransientResult));
