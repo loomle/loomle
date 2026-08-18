@@ -5169,7 +5169,7 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
             SpawnParams.ObjectFlags = RF_Transactional;
             AActor* NewActor = SourceWorld->SpawnActor(
                 Op->Entry.ActorClass,
-                FTransform::Identity,
+                &FTransform::Identity,
                 SpawnParams);
             if (!IsValid(NewActor))
             {
