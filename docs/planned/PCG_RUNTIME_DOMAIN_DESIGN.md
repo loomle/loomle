@@ -1799,10 +1799,31 @@ Slice 3-A progress (branch, not published):
   runner staging, Game Thread admission, native execution, log capture,
   result-file staging, projection) and delegates only the record lifecycle to
   the kernel, so ordinary Python behavior, ids, and acceptance results are
-  unchanged;
+  unchanged (implemented on the branch);
 - the kernel and the refactored Python service are verified by the complete
   existing Python acceptance suite (deferred TaskGraph entry, structured
   result, play-session admission, sal.object() projection, validation).
+
+Slice 3-B progress (branch, not published):
+
+- a Bridge-private `FTypedPcgWorldRegistry` (under `Runtime/Pcg/`) keys live
+  Worlds by native identity and an incarnation epoch and never publishes a
+  Domain, Target, StableRef, handoff, or generic World control surface;
+- normalized typed-PCG selectors: `worldKind: editor` or
+  `worldKind: pie` with `playMode: play|simulate` and `pieInstance`; SIE is a
+  PIE World context plus the global editor simulate state, and preview,
+  inactive, transition, Standalone, and New Process Worlds are rejected;
+- `Prepare` proves the canonical `pcg_component` source Target to one exact
+  live Component incarnation (Editor World through the SAL resolver; PIE
+  duplicate by persistent ActorGuid and Component slot) and issues a
+  short-lived source-bound opaque `pcg_<guid>` ticket bound to the normalized
+  selector, World epoch, source Target, and Component path;
+- `Validate` revalidates selector + ticket + source atomically and fails stale
+  on expiry, epoch/World replacement, selector or source mismatch, or
+  Component reconstruction; epoch invalidation invalidates every ticket;
+- automation `Loomle.Runtime.Pcg.World.SelectorNormalization` and
+  `Loomle.Runtime.Pcg.World.TicketLifecycle` cover selector parsing,
+  Editor World resolution, prepare, validate, mismatch, and stale rejection.
 
 - begin only after the separate family `sal.object()` projection slice has
   preserved ordinary Python behavior and passed its own compatibility gates;
