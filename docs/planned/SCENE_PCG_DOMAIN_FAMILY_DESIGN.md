@@ -942,18 +942,35 @@ The family should land internally in this dependency order:
    engines; and packaged end-to-end acceptance passes on both engines. External
    publication still requires the final release-archive audit, Windows
    acceptance, and production promotion.
-7. **`level` and `pcg` authored mutation and exact save**: each follows its
-   independent protocol/capability bump, transaction, persistence,
-   failure-injection, and 5.7/5.8 gates. `pcg_component` mutation remains a
-   separate later edit-guard capability.
-8. **Python `sal.object()` projection**: explicit marker registration,
-   read-only Domain projectors, standard SAL exact Query results, bounded
-   terminal retention, and later Skill guidance. Editor/PIE/SIE control remains
-   explicit Python outside SAL.
-9. **shared async-kernel extraction and typed PCG execution frontend**:
-   preserve ordinary Python behavior, then add private World epoch/ticket
-   discovery, exact source input, PCG leases, derived-effect ownership,
-   cancellation, cleanup, and inspection.
+7. **`level` and `pcg` authored mutation and exact save — implemented in the
+   branch**: each follows its independent protocol/capability bump,
+   transaction, persistence, failure-injection, and 5.7/5.8 gates. `level`
+   ships set/reset, the compound Actor transform, Palette-backed Actor and
+   instance Component lifecycle, and the terminal map save (PCG derived-state
+   guard; World Partition closure still a release gate). `pcg` ships
+   Palette-backed Node creation, removal, edge connect/disconnect, Settings
+   set/reset, absolute move, and the terminal Graph package save.
+8. **Python `sal.object()` projection — implemented in the branch**: the
+   runner injects a `sal` namespace; markers are replaced in place at
+   terminalization by canonical views from the same Domain adapters, with the
+   projection annex and the projection.* diagnostic layer. Editor/PIE/SIE
+   control remains explicit Python outside SAL.
+9. **shared async-kernel extraction and typed PCG execution frontend —
+   implemented in the branch (first sub-slice)**: `FLoomleAsyncKernel` owns
+   the frontend-neutral lifecycle (extracted from the Python fallback without
+   changing its behavior); `FTypedPcgWorldRegistry` owns normalized selectors,
+   World epochs, and source-bound tickets; `FTypedPcgExecutionCoordinator`
+   admits one Editor-World generate per validated selector + ticket + source,
+   captures the lossless native task id, and observes terminal generation.
+   PIE parity, leases, cancellation, cleanup, derived-effect ownership, and
+   inspection remain later sub-slices.
+10. **`pcg_component` authored edit guard — implemented in the branch**:
+    the canonical Target enters `PatchTarget` and `FSalPCGComponentInterface`
+    applies certified scalar edits (Seed set/reset) inside one transaction
+    gated by the fail-closed async edit guard (idle before and after, rollback
+    if a native notification starts an asynchronous PCG task); a terminal
+    save is a level-owned no-op. Parameter override mutation and Graph
+    assignment remain later increments.
 
 Read-only `level` and `pcg` implementation can proceed in parallel, but
 `pcg_component` must not invent temporary identity while waiting for either
