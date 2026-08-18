@@ -11646,10 +11646,16 @@ bool FSalLevelPaletteActorEntriesTest::RunTest(const FString& Parameters)
         bAllWellFormed);
 
     const FString FirstId = Entries[0].PaletteId;
+    // Build a fresh destination: LowerQueryForDomain rewrites shared
+    // destination objects in place, so an exact replay must not reuse the
+    // already-lowered discovery destination.
+    const TSharedRef<FJsonObject> ExactDestination = LevelPaletteMemberRef(
+        LevelPaletteLocalRef(TEXT("level_scope")),
+        TEXT("Actors"));
     const TSharedPtr<FJsonObject> ExactResult = FSalModule::BuildQueryResult(
         LevelQueryArguments(
             Target,
-            LevelPaletteOperation(FirstId, Destination)));
+            LevelPaletteOperation(FirstId, ExactDestination)));
     if (LevelHasError(ExactResult))
     {
         FString Code;
@@ -11753,10 +11759,14 @@ bool FSalLevelPaletteComponentEntriesTest::RunTest(const FString& Parameters)
         TEXT("Component Palette entries carry opaque ids, names, types, and honest unavailability"),
         bAllWellFormed);
 
+    // Fresh destination; the discovery destination was lowered in place.
+    const TSharedRef<FJsonObject> ExactDestination = LevelPaletteMemberRef(
+        LevelStableRef(LevelGuidText(Fixture.AlphaId)),
+        TEXT("Components"));
     const TSharedPtr<FJsonObject> ExactResult = FSalModule::BuildQueryResult(
         LevelQueryArguments(
             Target,
-            LevelPaletteOperation(Entries[0].PaletteId, Destination)));
+            LevelPaletteOperation(Entries[0].PaletteId, ExactDestination)));
     if (LevelHasError(ExactResult))
     {
         FString Code;

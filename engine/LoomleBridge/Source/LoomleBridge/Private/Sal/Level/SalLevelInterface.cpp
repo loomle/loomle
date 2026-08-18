@@ -2718,12 +2718,13 @@ FString LevelPaletteDigest(const FString& Material)
 FString ActorPaletteId(
     const FString& ClassPath,
     const FString& FactoryPath,
-    const FString& AssetType)
+    const FString& AssetType,
+    const FString& Category)
 {
     return TEXT("level.actor.")
         + LevelPaletteDigest(
             TEXT("actor|") + ClassPath + TEXT("|") + FactoryPath
-            + TEXT("|") + AssetType);
+            + TEXT("|") + AssetType + TEXT("|") + Category);
 }
 
 FString ComponentPaletteId(const FString& ClassPath)
@@ -2981,16 +2982,17 @@ bool DiscoverActorPaletteEntries(TArray<LevelPalette::FEntry>& Out)
                     Item->AssetData.AssetClassPath.ToString();
             }
             LevelPalette::FEntry Entry;
+            Entry.Category = Category.DisplayName.ToString();
             Entry.Id = ActorPaletteId(
                 ClassPath,
                 FactoryPath,
-                SourceAssetType);
+                SourceAssetType,
+                Entry.Category);
             Entry.DisplayName = Item->DisplayName.ToString();
             if (Entry.DisplayName.IsEmpty())
             {
                 Entry.DisplayName = Item->NativeName;
             }
-            Entry.Category = Category.DisplayName.ToString();
             Entry.NativeType = ClassPath;
             Entry.SourceAssetType = SourceAssetType;
             Entry.KindName = TEXT("actor");
