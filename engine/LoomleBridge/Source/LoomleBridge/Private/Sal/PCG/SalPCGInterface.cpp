@@ -2931,8 +2931,8 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
                 Target.AssetPath,
                 TEXT("pcg"));
         }
-        Node->UpdatePins();
-        Graph->NotifyGraphChanged(EPCGChangeType::Settings);
+        FPropertyChangedEvent ChangedEvent(Edit->Property);
+        Settings->PostEditChangeProperty(ChangedEvent);
     }
     for (const TWeakObjectPtr<UPCGNode>& RemovedNode : Removed)
     {
