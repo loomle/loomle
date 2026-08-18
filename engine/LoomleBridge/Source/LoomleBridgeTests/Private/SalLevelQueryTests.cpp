@@ -11929,7 +11929,7 @@ bool FSalLevelSchemaOnLoadedActorTest::RunTest(const FString& Parameters)
     {
         if (Comment.Contains(TEXT("subject: actor"))
             && Comment.Contains(TEXT("identity: @"))
-            && Comment.Contains(TEXT("mutation: inactive"))
+            && Comment.Contains(TEXT("mutation: active"))
             && Comment.Contains(TEXT("identity fields (read-only)"))
             && Comment.Contains(TEXT("lifecycle:"))
             && Comment.Contains(TEXT("fields:")))
