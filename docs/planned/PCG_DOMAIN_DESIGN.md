@@ -1282,6 +1282,21 @@ promotion gate remain outstanding.
 - direct disconnect/break;
 - complete transient preflight and transaction rollback.
 
+Slice 2-A progress (branch, not published):
+
+- the coordinated protocol bump admits the canonical PCG Graph Target into
+  `PatchTarget` (parser, normalized schema, resolver, SalJson, and Bridge
+  dispatch together); `pcg_component` remains Query-only;
+- `FSalPCGInterface::Patch` implements Palette-backed Node add from native
+  `UPCGSettings` classes (`AddNodeOfType` inside one top-level transaction,
+  final Node identity readback); the PCG Query also exposes node
+  `palette_entries` discovery;
+- settings set/reset, move, connection, removal, and save fail closed here.
+
+Remaining in Slice 2: Node removal, certified graph-owned Settings set/reset,
+absolute move, connection/disconnect/break, the external-object guard, and
+the detached transient sandbox.
+
 ### Slice 3: Save and packaged acceptance
 
 - source-control-aware package save;
