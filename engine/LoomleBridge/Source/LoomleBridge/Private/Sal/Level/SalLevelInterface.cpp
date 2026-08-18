@@ -4994,6 +4994,20 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
     const bool bHasErrors = !Diagnostics.IsEmpty();
     if (bHasErrors)
     {
+        for (const TSharedPtr<FJsonObject>& Diagnostic : Diagnostics)
+        {
+            FString Code;
+            if (Diagnostic.IsValid())
+            {
+                Diagnostic->TryGetStringField(TEXT("code"), Code);
+            }
+            UE_LOG(
+                LogTemp,
+                Warning,
+                TEXT("Loomle Level Patch diagnostic: %s (valid=%d)"),
+                *Code,
+                Diagnostic.IsValid() ? 1 : 0);
+        }
         return MakeMutationResult(
             NoObjects,
             Diagnostics,
