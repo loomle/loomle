@@ -692,8 +692,7 @@ function isCanonicalTarget(target: QueryTarget): target is CanonicalTarget {
 }
 
 function isPatchTarget(target: QueryTarget): target is PatchTarget {
-  return target.domain !== "level"
-    && target.domain !== "pcg"
+  return target.domain !== "pcg"
     && target.domain !== "pcg_component"
     && isCanonicalTarget(target);
 }
@@ -949,8 +948,7 @@ function requestTarget(
       );
     }
     if (requestKind === "patch") {
-      if (explicit.target.domain === "level"
-        || explicit.target.domain === "pcg"
+      if (explicit.target.domain === "pcg"
         || explicit.target.domain === "pcg_component") {
         throw new ParseError(
           "language.invalid_patch_target",

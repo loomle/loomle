@@ -76,6 +76,11 @@ palette @actor.static_mesh to arena.Actors`,
 
 query arena
 palette @actor.static_mesh to @${actorId}.Components`,
+  `arena = target {domain: level, asset: "/Game/Maps/Arena.Arena", type: "/Script/Engine.World"}
+
+patch arena dry run
+set @${actorId}.bHidden = true
+reset @${actorId}.bCanBeDamaged`,
   `forest = target {domain: pcg, asset: "/Game/PCG/PCG_Forest.PCG_Forest", type: "/Script/PCG.PCGGraph"}
 
 query forest

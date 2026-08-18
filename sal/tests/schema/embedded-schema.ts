@@ -28,7 +28,6 @@ assert.ok(
   "protocol v6 must admit the Level actors collection operation",
 );
 for (const queryOnlyTarget of [
-  "CanonicalLevelTarget",
   "CanonicalPcgTarget",
   "PcgComponentTarget",
 ]) {
@@ -37,8 +36,14 @@ for (const queryOnlyTarget of [
       (entry: { $ref: string }) => entry.$ref === `#/$defs/${queryOnlyTarget}`,
     ),
     false,
-    `${queryOnlyTarget} must remain Query-only in the coordinated nine-Domain release`,
+    `${queryOnlyTarget} must remain Query-only in the coordinated release`,
   );
 }
+assert.ok(
+  schema.$defs.PatchTarget.oneOf.some(
+    (entry: { $ref: string }) => entry.$ref === "#/$defs/CanonicalLevelTarget",
+  ),
+  "level entered PatchTarget with the authored-mutation capability bump",
+);
 
 console.log("[PASS] embedded runtime Schema and reserved words match the canonical JSON");
