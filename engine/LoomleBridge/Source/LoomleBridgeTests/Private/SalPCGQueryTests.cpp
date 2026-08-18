@@ -2618,8 +2618,10 @@ bool FSalPcgPatchNodeCreationTest::RunTest(
         return false;
     }
     const FString GraphPath = Fixture.ObjectPath;
+    const FString GraphType = Fixture.Graph->GetClass()->GetPathName();
     const int32 NodeCountBefore = Fixture.Graph->GetNodes().Num();
-    const TSharedRef<FJsonObject> Target = PcgTarget(GraphPath);
+    const TSharedRef<FJsonObject> Target =
+        PcgTarget(GraphPath, GraphType);
 
     // Discover one node Palette entry.
     const TSharedPtr<FJsonObject> PaletteResult =
