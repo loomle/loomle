@@ -311,7 +311,10 @@ TSharedPtr<FJsonObject> FLoomleAsyncKernel::SnapshotLocked(
         : FPlatformTime::Seconds();
     Running->SetNumberField(
         TEXT("elapsedMs"),
-        FMath::Max(0.0, (FPlatformTime::Seconds() - Start) * 1000.0));
+        static_cast<double>(FMath::Max<int64>(
+            0,
+            FMath::RoundToInt64(
+                (FPlatformTime::Seconds() - Start) * 1000.0))));
     const FProfile* Profile = ProfileLocked(Record->Namespace);
     if (Profile != nullptr && Profile->BuildPollArguments)
     {
