@@ -4076,7 +4076,10 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
     const FSalPatch& Patch,
     const FSalResolvedTarget& Target)
 {
-    const TSharedPtr<FJsonObject> NoObjects = MakeShared<FJsonObject>();
+    // The mutation envelope's object must be a valid ObjectText even when
+    // nothing is returned; an empty statements document is the neutral form.
+    const TSharedPtr<FJsonObject> NoObjects =
+        FSalObjectBuilder().BuildObject();
 
     if (Target.Domain != ESalDomain::Level)
     {

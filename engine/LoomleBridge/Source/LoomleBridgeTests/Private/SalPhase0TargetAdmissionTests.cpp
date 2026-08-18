@@ -312,8 +312,9 @@ bool FSalTargetAdmissionModesTest::RunTest(const FString& Parameters)
     TestTrue(
         TEXT("Canonical Result admission accepts an exact Level Target"),
         FSalJson::ValidateCanonicalTarget(CanonicalLevel, Message));
-    TestFalse(
-        TEXT("Patch admission rejects an exact Query-only Level Target"),
+    TestTrue(
+        TEXT("Patch admission accepts an exact Level Target after the "
+            "authored-mutation capability bump"),
         DecodePatchTarget(CanonicalLevel));
 
     TestTrue(
@@ -497,14 +498,11 @@ bool FSalPhase0PublicPathTest::RunTest(const FString& Parameters)
                     TEXT("level"),
                     TEXT("/Script/Engine.World"))));
     TestTrue(
-        TEXT("Exact Level Patch is rejected before adapter resolution"),
-        HasDiagnostic(
+        TEXT("Exact Level Patch is admitted for adapter resolution after "
+            "the authored-mutation capability bump"),
+        !LevelHasDiagnostic(
             LevelPatch,
-            TEXT("language.invalid_object_shape"),
-            TEXT("Query-only")));
-    TestTrue(
-        TEXT("Rejected Level Patch remains unresolved"),
-        HasTargetContext(LevelPatch, TEXT("unresolved_target")));
+            TEXT("language.invalid_object_shape")));
 
     const TSharedPtr<FJsonObject> PcgPatch =
         FSalModule::BuildPatchResult(
