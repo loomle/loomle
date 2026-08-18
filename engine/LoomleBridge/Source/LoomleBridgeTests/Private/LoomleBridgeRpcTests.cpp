@@ -541,7 +541,8 @@ bool FLoomleBridgePythonSalObjectProjectionTest::RunTest(const FString& Paramete
         TEXT(
             "import unreal\n"
             "def run():\n"
-            "    return {'marked': sal.object(unreal.Actor)}\n"));
+            "    material = unreal.load_object(None, '/Engine/EngineMaterials/DefaultMaterial.DefaultMaterial')\n"
+            "    return {'marked': sal.object(material) if material else {'missing': True}}\n"));
     FPythonDispatchResult DispatchResult;
     DispatchPythonFromWorker(*this, Module, Arguments, DispatchResult);
     const TSharedPtr<FJsonObject>& Payload = DispatchResult.Payload;
@@ -603,7 +604,7 @@ bool FLoomleBridgePythonSalObjectProjectionTest::RunTest(const FString& Paramete
     FString RecordStatus;
     FString Relation;
     TestTrue(
-        TEXT("The marked Class record is projected with relation exact"),
+        TEXT("The marked asset record is projected with relation exact"),
         Record != nullptr
             && (*Record)->TryGetStringField(TEXT("status"), RecordStatus)
             && RecordStatus == TEXT("projected")
@@ -613,8 +614,9 @@ bool FLoomleBridgePythonSalObjectProjectionTest::RunTest(const FString& Paramete
     const TSharedPtr<FJsonObject>* Binding = nullptr;
     const TSharedPtr<FJsonObject>* Target = nullptr;
     FString Domain;
+    FString Path;
     TestTrue(
-        TEXT("The Class projection carries a canonical class view"),
+        TEXT("The asset projection carries a canonical asset view"),
         Record != nullptr
             && (*Record)->TryGetObjectField(TEXT("view"), View)
             && View != nullptr
@@ -626,7 +628,10 @@ bool FLoomleBridgePythonSalObjectProjectionTest::RunTest(const FString& Paramete
             && Target != nullptr
             && (*Target).IsValid()
             && (*Target)->TryGetStringField(TEXT("domain"), Domain)
-            && Domain == TEXT("class"));
+            && Domain == TEXT("asset")
+            && (*Target)->TryGetStringField(TEXT("path"), Path)
+            && Path == TEXT(
+                "/Engine/EngineMaterials/DefaultMaterial.DefaultMaterial"));
 
     FLoomleBridgeRpcTestAccess::ShutdownPythonExecutionService(Module);
     return true;
