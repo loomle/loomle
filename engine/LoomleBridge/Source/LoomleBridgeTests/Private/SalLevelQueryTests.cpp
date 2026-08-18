@@ -11829,6 +11829,223 @@ bool FSalLevelPaletteUnloadedLevelTest::RunTest(const FString& Parameters)
     return true;
 }
 
+// ============================================================================
+// Level exact schema (Slice 2-B) tests
+// ============================================================================
+
+TSharedRef<FJsonObject> LevelQueryArgumentsWithSchema(
+    const TSharedRef<FJsonObject>& Target,
+    const TSharedRef<FJsonObject>& Operation)
+{
+    TSharedRef<FJsonObject> Query = MakeShared<FJsonObject>();
+    Query->SetStringField(TEXT("kind"), TEXT("query"));
+    Query->SetObjectField(TEXT("target"), LevelTargetBinding(Target));
+    Query->SetObjectField(TEXT("operation"), Operation);
+    Query->SetArrayField(
+        TEXT("with"),
+        LevelStringValues({TEXT("schema")}));
+    TSharedRef<FJsonObject> Arguments = MakeShared<FJsonObject>();
+    Arguments->SetObjectField(TEXT("object"), Query);
+    return Arguments;
+}
+
+TArray<FString> CollectLevelComments(
+    const TSharedPtr<FJsonObject>& Result)
+{
+    TArray<FString> Out;
+    const TSharedPtr<FJsonObject>* Object = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* Statements = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetObjectField(TEXT("object"), Object)
+        || Object == nullptr
+        || !(*Object).IsValid()
+        || !(*Object)->TryGetArrayField(TEXT("statements"), Statements)
+        || Statements == nullptr)
+    {
+        return Out;
+    }
+    for (const TSharedPtr<FJsonValue>& StatementValue : *Statements)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        FString Kind;
+        if (StatementValue.IsValid()
+            && StatementValue->TryGetObject(Statement)
+            && Statement != nullptr
+            && (*Statement).IsValid()
+            && (*Statement)->TryGetStringField(TEXT("kind"), Kind)
+            && Kind == TEXT("comment"))
+        {
+            FString Text;
+            if ((*Statement)->TryGetStringField(TEXT("text"), Text))
+            {
+                Out.Add(Text);
+            }
+        }
+    }
+    return Out;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelSchemaOnLoadedActorTest,
+    "Loomle.Sal.Level.Query.SchemaOnLoadedActor",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelSchemaOnLoadedActorTest::RunTest(const FString& Parameters)
+{
+    FScopedLevelQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("Level schema fixture builds"), Fixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Level schema fixture activates the loaded source"),
+            Fixture.Activate(Fixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const TSharedRef<FJsonObject> Target =
+        LevelTarget(Fixture.Loaded.ObjectPath);
+
+    const TSharedPtr<FJsonObject> Result = FSalModule::BuildQueryResult(
+        LevelQueryArgumentsWithSchema(
+            Target,
+            LevelExactOperation(LevelGuidText(Fixture.AlphaId))));
+    if (!TestFalse(
+            TEXT("Loaded Actor schema Query has no error"),
+            LevelHasError(Result)))
+    {
+        return false;
+    }
+    bool bClassifiesSurface = false;
+    for (const FString& Comment : CollectLevelComments(Result))
+    {
+        if (Comment.Contains(TEXT("subject: actor"))
+            && Comment.Contains(TEXT("identity: @"))
+            && Comment.Contains(TEXT("mutation: inactive"))
+            && Comment.Contains(TEXT("identity fields (read-only)"))
+            && Comment.Contains(TEXT("lifecycle:"))
+            && Comment.Contains(TEXT("fields:")))
+        {
+            bClassifiesSurface = true;
+        }
+    }
+    TestTrue(
+        TEXT("Loaded Actor exact schema classifies identity, mutation, lifecycle, and fields"),
+        bClassifiesSurface);
+
+    const TSharedPtr<FJsonObject> NoSchemaResult = FSalModule::BuildQueryResult(
+        LevelQueryArguments(
+            Target,
+            LevelExactOperation(LevelGuidText(Fixture.AlphaId))));
+    TestTrue(
+        TEXT("Exact Actor read without with schema emits no schema comment"),
+        !LevelHasError(NoSchemaResult)
+            && CollectLevelComments(NoSchemaResult).IsEmpty());
+
+    TSharedRef<FJsonObject> QueryWithWhere = MakeShared<FJsonObject>();
+    QueryWithWhere->SetStringField(TEXT("kind"), TEXT("query"));
+    QueryWithWhere->SetObjectField(
+        TEXT("target"),
+        LevelTargetBinding(Target));
+    QueryWithWhere->SetObjectField(
+        TEXT("operation"),
+        LevelExactOperation(LevelGuidText(Fixture.AlphaId)));
+    TSharedRef<FJsonObject> Condition = MakeShared<FJsonObject>();
+    Condition->SetStringField(TEXT("kind"), TEXT("eq"));
+    TSharedRef<FJsonObject> Field = MakeShared<FJsonObject>();
+    Field->SetArrayField(
+        TEXT("path"),
+        LevelStringValues({TEXT("Name")}));
+    Condition->SetObjectField(TEXT("field"), Field);
+    Condition->SetStringField(TEXT("value"), TEXT("x"));
+    QueryWithWhere->SetObjectField(TEXT("where"), Condition);
+    TSharedRef<FJsonObject> WhereArguments = MakeShared<FJsonObject>();
+    WhereArguments->SetObjectField(TEXT("object"), QueryWithWhere);
+    const TSharedPtr<FJsonObject> WhereResult2 =
+        FSalModule::BuildQueryResult(WhereArguments);
+    TestTrue(
+        TEXT("Exact Level Actor read rejects where even with schema capability"),
+        LevelHasDiagnostic(
+            WhereResult2,
+            TEXT("capability.clause_unavailable")));
+
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelSchemaOnLoadedComponentTest,
+    "Loomle.Sal.Level.Query.SchemaOnLoadedComponent",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelSchemaOnLoadedComponentTest::RunTest(const FString& Parameters)
+{
+    FScopedLevelQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("Level schema fixture builds"), Fixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Level schema fixture activates the loaded source"),
+            Fixture.Activate(Fixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const TSharedRef<FJsonObject> Target =
+        LevelTarget(Fixture.Loaded.ObjectPath);
+    const UActorComponent* RootComponent =
+        Fixture.Alpha != nullptr
+            ? Fixture.Alpha->GetRootComponent()
+            : nullptr;
+    if (!TestNotNull(TEXT("Alpha has a root Component"), RootComponent))
+    {
+        return false;
+    }
+    const TSharedPtr<FJsonObject> Result = FSalModule::BuildQueryResult(
+        LevelQueryArgumentsWithSchema(
+            Target,
+            LevelExactComponentOperation(
+                LevelGuidText(Fixture.AlphaId),
+                TEXT("native"),
+                RootComponent->GetName())));
+    if (!TestFalse(
+            TEXT("Loaded Component schema Query has no error"),
+            LevelHasError(Result)))
+    {
+        return false;
+    }
+    bool bClassifiesSurface = false;
+    for (const FString& Comment : CollectLevelComments(Result))
+    {
+        if (Comment.Contains(TEXT("subject: component"))
+            && Comment.Contains(TEXT("source: native"))
+            && Comment.Contains(TEXT("mutation: inactive"))
+            && Comment.Contains(TEXT("lifecycle:"))
+            && Comment.Contains(TEXT("fields:")))
+        {
+            bClassifiesSurface = true;
+        }
+    }
+    TestTrue(
+        TEXT("Loaded Component exact schema classifies identity, mutation, lifecycle, and fields"),
+        bClassifiesSurface);
+
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
 }
 
 #endif

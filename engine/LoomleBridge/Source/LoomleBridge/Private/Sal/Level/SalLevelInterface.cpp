@@ -33,6 +33,7 @@
 #include "SComponentClassCombo.h"
 #include "UObject/Package.h"
 #include "UObject/SoftObjectPath.h"
+#include "UObject/UnrealType.h"
 #include "Misc/SecureHash.h"
 #include "UObject/UObjectGlobals.h"
 #include "WorldPartition/ActorDescContainerInstance.h"
@@ -2341,15 +2342,252 @@ bool ParseActorGuid(const FString& Text, FGuid& OutGuid)
         && GuidText(OutGuid).Equals(Text, ESearchCase::CaseSensitive);
 }
 
+// ============================================================================
+// Level exact schema (Slice 2-B)
+//
+// Conservative, instance-specific editable schema for one exact loaded Actor
+// or Component. Authored mutation Patch is not active in this capability, so
+// the schema classifies the surface (read-only identity fields, scalar
+// set/reset candidates, compound transform, lifecycle) and reports the exact
+// availability constraints. Every advertised field is revalidated against
+// the full native setter, cascade, reset-source, and readback gates at Patch
+// planning time; nothing here claims a live mutation capability.
+// ============================================================================
+
+bool LevelExactSchemaGate(
+    const FSalQuery& Query,
+    FString& OutUnsupportedDetail)
+{
+    OutUnsupportedDetail.Reset();
+    for (const FString& Detail : Query.With)
+    {
+        if (Detail != TEXT("schema"))
+        {
+            OutUnsupportedDetail = Detail;
+            return false;
+        }
+    }
+    return !Query.Where.IsValid()
+        && Query.OrderBy.IsEmpty()
+        && Query.PageLimit <= 0
+        && Query.PageAfter.IsEmpty();
+}
+
+bool IsLevelScalarSetCandidate(const FProperty* Property)
+{
+    if (Property == nullptr
+        || Property->HasAnyPropertyFlags(
+            CPF_Transient | CPF_DuplicateTransient | CPF_Deprecated)
+        || !Property->HasAnyPropertyFlags(CPF_Edit)
+        || Property->HasAnyPropertyFlags(CPF_EditorOnly))
+    {
+        return false;
+    }
+    return Property->IsA(FBoolProperty::StaticClass())
+        || Property->IsA(FIntProperty::StaticClass())
+        || Property->IsA(FInt64Property::StaticClass())
+        || Property->IsA(FFloatProperty::StaticClass())
+        || Property->IsA(FDoubleProperty::StaticClass())
+        || Property->IsA(FStrProperty::StaticClass())
+        || Property->IsA(FNameProperty::StaticClass());
+}
+
+void AppendLevelFieldSchema(
+    FString& OutText,
+    const UObject* Object,
+    const TSet<FName>& IdentityFields)
+{
+    if (Object == nullptr)
+    {
+        return;
+    }
+    constexpr int32 MaxSchemaFields = 64;
+    int32 FieldCount = 0;
+    for (TFieldIterator<FProperty> It(Object->GetClass()); It; ++It)
+    {
+        const FProperty* Property = *It;
+        if (Property == nullptr
+            || Property->HasAnyPropertyFlags(CPF_EditorOnly)
+            || IdentityFields.Contains(Property->GetFName()))
+        {
+            continue;
+        }
+        if (FieldCount >= MaxSchemaFields)
+        {
+            OutText += TEXT("\n  ... additional fields bounded");
+            break;
+        }
+        const bool bWritable = IsLevelScalarSetCandidate(Property);
+        const bool bResettable = bWritable
+            && !Property->HasMetaData(TEXT("NoResetToDefault"));
+        OutText += FString::Printf(
+            TEXT("\n  %s:\n    type: %s\n    writable: %s\n    resettable: %s"),
+            *Property->GetName(),
+            *NativePropertyTypeText(Property),
+            bWritable ? TEXT("true") : TEXT("false"),
+            bResettable ? TEXT("true") : TEXT("false"));
+        ++FieldCount;
+    }
+}
+
+bool HasPCGManagedComponent(const AActor* Actor)
+{
+    if (Actor == nullptr)
+    {
+        return false;
+    }
+    if (Actor->FindComponentByClass<UPCGComponent>() != nullptr)
+    {
+        return true;
+    }
+    for (const UActorComponent* Component : Actor->GetComponents())
+    {
+        if (Component != nullptr
+            && Component->IsA(UPCGComponent::StaticClass()))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+FString LevelActorSchemaText(
+    const FLevelActorEntry& Entry,
+    const FString& ActorId)
+{
+    FString Text = FString::Printf(
+        TEXT("schema:\n  subject: actor\n  identity: @%s\n  type: %s\n  loaded: %s"),
+        *ActorId,
+        *Entry.Type,
+        Entry.bLoaded ? TEXT("true") : TEXT("false"));
+    if (!Entry.bLoaded)
+    {
+        Text += TEXT(
+            "\n  mutation: unavailable (Actor is an unloaded descriptor; live "
+            "property schema is not advertised)");
+        return Text;
+    }
+    Text += TEXT(
+        "\n  mutation: inactive (authored Patch capability is not landed; "
+        "fields are classified candidates revalidated at Patch planning)");
+    const AActor* Actor = Entry.Actor.Get();
+    if (!IsValid(Actor))
+    {
+        Text += TEXT(
+            "\n  mutation: unavailable (the loaded Actor UObject is invalid)");
+        return Text;
+    }
+    if (HasPCGManagedComponent(Actor))
+    {
+        Text += TEXT(
+            "\n  constraint: PCG async suppression is not proven; transform, "
+            "reconstruction, and lifecycle edits on this Actor are "
+            "unavailable");
+    }
+    Text += TEXT(
+        "\n  identity fields (read-only): id, type, Name, ActorLabel, path, "
+        "package, levelInstance, loaded, external, descriptor, "
+        "identityValid, identityUnique");
+    Text += TEXT(
+        "\n  compound:\n"
+        "    transform: classified (native SetActorTransform; exact "
+        "planning only)");
+    Text += TEXT(
+        "\n  lifecycle:\n"
+        "    create: unavailable\n"
+        "    remove: unavailable (preview-World execution is required)");
+    Text += TEXT("\n  fields:");
+    AppendLevelFieldSchema(
+        Text,
+        Actor,
+        {
+            TEXT("id"),
+            TEXT("type"),
+            TEXT("Name"),
+            TEXT("ActorLabel"),
+            TEXT("path"),
+            TEXT("package"),
+            TEXT("levelInstance"),
+            TEXT("loaded"),
+            TEXT("external"),
+            TEXT("descriptor"),
+            TEXT("identityValid"),
+            TEXT("identityUnique"),
+        });
+    return Text;
+}
+
+FString LevelComponentSchemaText(
+    const FLevelActorEntry& ActorEntry,
+    const FSalLevelComponentEntry& ComponentEntry,
+    const FString& ActorId,
+    const FString& Source,
+    const FString& Id,
+    const FString& ComponentType)
+{
+    FString Text = FString::Printf(
+        TEXT("schema:\n  subject: component\n  identity: @%s/%s/%s\n  type: %s\n  source: %s"),
+        *ActorId,
+        *Source,
+        *Id,
+        *ComponentType,
+        *Source);
+    Text += TEXT(
+        "\n  mutation: inactive (authored Patch capability is not landed; "
+        "fields are classified candidates revalidated at Patch planning)");
+    const AActor* Actor = ActorEntry.Actor.Get();
+    const UActorComponent* Component = ComponentEntry.Component.Get();
+    if (!IsValid(Actor) || !IsValid(Component))
+    {
+        Text += TEXT(
+            "\n  mutation: unavailable (the loaded Component UObject is "
+            "invalid)");
+        return Text;
+    }
+    if (HasPCGManagedComponent(Actor))
+    {
+        Text += TEXT(
+            "\n  constraint: PCG async suppression is not proven; edits that "
+            "could schedule generate or cleanup are unavailable");
+    }
+    Text += TEXT(
+        "\n  identity fields (read-only): id, name, type, loaded, "
+        "registered, stableRefAvailable");
+    Text += TEXT(
+        "\n  lifecycle:\n"
+        "    create: unavailable\n"
+        "    remove: unavailable (preview-World execution is required)");
+    Text += TEXT("\n  fields:");
+    AppendLevelFieldSchema(
+        Text,
+        Component,
+        {
+            TEXT("id"),
+            TEXT("name"),
+            TEXT("type"),
+            TEXT("loaded"),
+            TEXT("registered"),
+            TEXT("stableRefAvailable"),
+        });
+    return Text;
+}
+
 TSharedPtr<FJsonObject> QueryExactActor(
     const FSalQuery& Query,
     const FSalResolvedTarget& Target)
 {
-    if (HasAnyClauses(Query))
+    FString UnsupportedDetail;
+    if (!LevelExactSchemaGate(Query, UnsupportedDetail))
     {
         return QueryError(
-            TEXT("capability.clause_unavailable"),
-            TEXT("Exact Level Actor read accepts no Query clauses in this read-only slice."),
+            UnsupportedDetail.IsEmpty()
+                ? TEXT("capability.clause_unavailable")
+                : TEXT("capability.detail_unavailable"),
+            UnsupportedDetail.IsEmpty()
+                ? TEXT("Exact Level Actor read accepts only optional with schema.")
+                : FString::Printf(
+                    TEXT("Exact Level Actor read does not support with %s in this capability."),
+                    *UnsupportedDetail),
             TEXT("actor"));
     }
     FString Id;
@@ -2435,6 +2673,11 @@ TSharedPtr<FJsonObject> QueryExactActor(
             LevelAlias,
             true,
             &ActorFields));
+    if (Query.With.Contains(TEXT("schema")))
+    {
+        Builder.AddComment(
+            LevelActorSchemaText(*Match, GuidText(Guid)));
+    }
     TSharedPtr<FJsonObject> Result = Builder.BuildResult(
         Snapshot.FinalDiagnostics(TEXT("actor")));
     if (ActorFields.IsValid()
@@ -2464,11 +2707,18 @@ TSharedPtr<FJsonObject> QueryExactComponent(
     const FSalQuery& Query,
     const FSalResolvedTarget& Target)
 {
-    if (HasAnyClauses(Query))
+    FString UnsupportedDetail;
+    if (!LevelExactSchemaGate(Query, UnsupportedDetail))
     {
         return QueryError(
-            TEXT("capability.clause_unavailable"),
-            TEXT("Exact Level Component read accepts no Query clauses in this read-only slice."),
+            UnsupportedDetail.IsEmpty()
+                ? TEXT("capability.clause_unavailable")
+                : TEXT("capability.detail_unavailable"),
+            UnsupportedDetail.IsEmpty()
+                ? TEXT("Exact Level Component read accepts only optional with schema.")
+                : FString::Printf(
+                    TEXT("Exact Level Component read does not support with %s in this capability."),
+                    *UnsupportedDetail),
             TEXT("component"));
     }
     FString ActorId;
@@ -2594,6 +2844,17 @@ TSharedPtr<FJsonObject> QueryExactComponent(
         Builder.UniqueAlias(
             Match->Name.IsEmpty() ? TEXT("component") : Match->Name),
         ComponentValue(*Match, &ComponentFields));
+    if (Query.With.Contains(TEXT("schema")))
+    {
+        Builder.AddComment(
+            LevelComponentSchemaText(
+                *Owner,
+                *Match,
+                GuidText(ActorGuid),
+                Match->Source,
+                Match->Id,
+                Match->Type));
+    }
     TSharedPtr<FJsonObject> Result = Builder.BuildResult(
         LevelSnapshot.FinalDiagnostics(TEXT("component")));
     TSharedPtr<FJsonObject> PcgTarget =
