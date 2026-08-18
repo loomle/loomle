@@ -1724,8 +1724,24 @@ Palette discovery progress (branch Slice 2-A, not published):
   revalidates the digest against the same destination before returning one
   entry, so stale or cross-destination ids fail closed.
 
-Remaining in Slice 2: conservative exact editable schema on loaded Actors and
-Components, read-only unloaded descriptor schema, and reset-source proof.
+Exact schema progress (branch Slice 2-B, not published):
+
+- exact loaded Actor and Component reads accept `with schema` and emit a
+  bounded schema comment classifying the surface: read-only identity fields,
+  scalar `set`/`reset` candidates (persistent, instance-editable,
+  non-editor-only scalar reflection properties), the compound Actor
+  transform, lifecycle availability, and a PCG async-suppression constraint
+  when a managed `UPCGComponent` is present;
+- unloaded Actor descriptors report that live property schema is not
+  advertised; `where`/`order by`/`page` and non-`schema` details remain
+  rejected;
+- the schema header states that authored mutation Patch is inactive and every
+  advertised field is revalidated against the full native setter, cascade,
+  reset-source, and readback gates at Patch planning time.
+
+Remaining in Slice 2: unloaded descriptor read-only schema, exact native
+value serialization and reset-source proof, and the full gate revalidation
+that lands with authored mutation.
 
 ### Slice 3: Existing-object authored mutation
 
