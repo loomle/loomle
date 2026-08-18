@@ -59,6 +59,8 @@ summary
 actors ["text"]
 components ["text"]
 @identity
+palette entries ["text"] to <destination>
+palette @id to <same-destination>
 ```
 
 `actors` includes loaded persisted Actors and unloaded root World Partition
@@ -67,6 +69,39 @@ of loaded Actors and never loads or pins an unloaded owner. Both collections
 accept optional case-insensitive text search and cursor pagination; their
 default page limit is 50 and maximum is 200. Exact reads accept no Query
 clauses, and dynamic schema is unavailable.
+
+## Palette Discovery
+
+Palette discovery is destination-bound and read-only:
+
+```sal
+query arena
+palette entries "Static Mesh" to arena.Actors
+
+query arena
+palette entries "Audio" to @aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.Components
+```
+
+`arena.Actors` names the currently bound Level Target and discovers Actor
+creation capabilities for the exact loaded source map. An exact persisted
+Actor `@actorGuid.Components` discovers instance Component creation
+capabilities for that Actor. An exact replay re-resolves the same destination
+and revalidates the opaque `palette` id before returning one entry:
+
+```sal
+query arena
+palette @level.actor.<digest> to arena.Actors
+```
+
+Entries report the exact native Class, the editor category, and any required
+source Asset type. Actor entries use the editor's placeable-capability
+catalog; Component entries use the editor's instance-Component list and are
+restricted to direct instance creation. Session state such as Favorites or
+Recently Placed is never advertised. Creation Patch is not active in this
+interface, so every entry reports `creation: unavailable` with the exact
+capability reason; discovery never claims a creation capability the adapter
+cannot execute. Ordering is canonical and fixed, and discovery is bounded by
+the same 50/200 page limits as the collections.
 
 ## Related Targets
 
@@ -88,5 +123,5 @@ targets nor grant save or compile authority.
 `level` is not a `PatchTarget`. It never loads or pins Actors, switches maps or
 current Levels, reruns construction, changes selection, registers Components,
 dirties a package, or creates an Undo entry. Actor and Component mutation,
-lifecycle, Palette, save, live World control, and PIE/SIE observation remain
-outside this interface.
+lifecycle, Palette creation Patch, save, live World control, and PIE/SIE
+observation remain outside this interface.

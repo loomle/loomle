@@ -11340,6 +11340,456 @@ bool FSalLevelWorldPartitionUnloadedRootActorTest::RunTest(
     return true;
 }
 
+// ============================================================================
+// Level Palette discovery (Slice 2) tests
+// ============================================================================
+
+TSharedRef<FJsonObject> LevelPaletteLocalRef(const FString& Alias)
+{
+    TSharedRef<FJsonObject> Ref = MakeShared<FJsonObject>();
+    Ref->SetStringField(TEXT("kind"), TEXT("local"));
+    Ref->SetStringField(TEXT("name"), Alias);
+    return Ref;
+}
+
+TSharedRef<FJsonObject> LevelPaletteMemberRef(
+    const TSharedRef<FJsonObject>& ObjectRef,
+    const FString& Member)
+{
+    TSharedRef<FJsonObject> Ref = MakeShared<FJsonObject>();
+    Ref->SetStringField(TEXT("kind"), TEXT("member"));
+    Ref->SetObjectField(TEXT("object"), ObjectRef);
+    Ref->SetArrayField(TEXT("path"), LevelStringValues({Member}));
+    return Ref;
+}
+
+TSharedRef<FJsonObject> LevelPaletteEntriesOperation(
+    const TSharedRef<FJsonObject>& Destination,
+    const FString& SearchText = FString())
+{
+    TSharedRef<FJsonObject> Operation =
+        LevelOperation(TEXT("palette_entries"), SearchText);
+    Operation->SetObjectField(TEXT("to"), Destination);
+    return Operation;
+}
+
+TSharedRef<FJsonObject> LevelPaletteOperation(
+    const FString& Id,
+    const TSharedRef<FJsonObject>& Destination)
+{
+    TSharedRef<FJsonObject> Operation = LevelOperation(TEXT("palette"));
+    Operation->SetStringField(TEXT("id"), Id);
+    Operation->SetObjectField(TEXT("to"), Destination);
+    return Operation;
+}
+
+struct FLevelPaletteEntryView
+{
+    FString Alias;
+    FString PaletteId;
+    FString Name;
+    FString Category;
+    FString Type;
+    FString Creation;
+    FString Reason;
+};
+
+TArray<FLevelPaletteEntryView> CollectLevelPaletteEntries(
+    const TSharedPtr<FJsonObject>& Result)
+{
+    TArray<FLevelPaletteEntryView> Out;
+    const TSharedPtr<FJsonObject>* Object = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* Statements = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetObjectField(TEXT("object"), Object)
+        || Object == nullptr
+        || !(*Object).IsValid()
+        || !(*Object)->TryGetArrayField(TEXT("statements"), Statements)
+        || Statements == nullptr)
+    {
+        return Out;
+    }
+    for (const TSharedPtr<FJsonValue>& StatementValue : *Statements)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        const TSharedPtr<FJsonObject>* Target = nullptr;
+        const TSharedPtr<FJsonObject>* Value = nullptr;
+        FString TargetKind;
+        FString Alias;
+        if (StatementValue.IsValid()
+            && StatementValue->TryGetObject(Statement)
+            && Statement != nullptr
+            && (*Statement).IsValid()
+            && (*Statement)->TryGetObjectField(TEXT("target"), Target)
+            && Target != nullptr
+            && (*Target).IsValid()
+            && (*Target)->TryGetStringField(TEXT("kind"), TargetKind)
+            && TargetKind == TEXT("local")
+            && (*Target)->TryGetStringField(TEXT("name"), Alias)
+            && (*Statement)->TryGetObjectField(TEXT("value"), Value)
+            && Value != nullptr
+            && (*Value).IsValid())
+        {
+            FString ValueKind;
+            const TSharedPtr<FJsonObject>* Args = nullptr;
+            if ((*Value)->TryGetStringField(TEXT("kind"), ValueKind)
+                && ValueKind == TEXT("call")
+                && (*Value)->TryGetObjectField(TEXT("args"), Args)
+                && Args != nullptr)
+            {
+                FLevelPaletteEntryView Entry;
+                Entry.Alias = Alias;
+                (*Args)->TryGetStringField(TEXT("palette"), Entry.PaletteId);
+                (*Args)->TryGetStringField(TEXT("name"), Entry.Name);
+                (*Args)->TryGetStringField(TEXT("category"), Entry.Category);
+                (*Args)->TryGetStringField(TEXT("type"), Entry.Type);
+                (*Args)->TryGetStringField(TEXT("creation"), Entry.Creation);
+                (*Args)->TryGetStringField(TEXT("reason"), Entry.Reason);
+                Out.Add(MoveTemp(Entry));
+            }
+        }
+    }
+    return Out;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelPaletteDestinationValidationTest,
+    "Loomle.Sal.Level.Query.PaletteDestinationValidation",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelPaletteDestinationValidationTest::RunTest(const FString& Parameters)
+{
+    FScopedLevelQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("Level palette fixture builds"), Fixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Level palette fixture activates the loaded source"),
+            Fixture.Activate(Fixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const TSharedRef<FJsonObject> Target =
+        LevelTarget(Fixture.Loaded.ObjectPath);
+
+    const TSharedPtr<FJsonObject> NoToResult = FSalModule::BuildQueryResult(
+        LevelQueryArguments(Target, LevelOperation(TEXT("palette_entries"))));
+    TestTrue(
+        TEXT("Level palette entries requires one destination"),
+        LevelHasDiagnostic(
+            NoToResult,
+            TEXT("validation.palette_context_invalid")));
+
+    const TSharedPtr<FJsonObject> WrongAliasResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelPaletteEntriesOperation(
+                    LevelPaletteMemberRef(
+                        LevelPaletteLocalRef(TEXT("other")),
+                        TEXT("Actors")))));
+    TestTrue(
+        TEXT("Level Actor Palette destination must name the bound alias"),
+        LevelHasDiagnostic(
+            WrongAliasResult,
+            TEXT("validation.palette_context_invalid")));
+
+    const TSharedPtr<FJsonObject> BadPathResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelPaletteEntriesOperation(
+                    LevelPaletteMemberRef(
+                        LevelPaletteLocalRef(TEXT("level_scope")),
+                        TEXT("Levels")))));
+    TestTrue(
+        TEXT("Level Palette destination path is closed to Actors and Components"),
+        LevelHasDiagnostic(
+            BadPathResult,
+            TEXT("validation.palette_context_invalid")));
+
+    const TSharedPtr<FJsonObject> AliasComponentsResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelPaletteEntriesOperation(
+                    LevelPaletteMemberRef(
+                        LevelPaletteLocalRef(TEXT("level_scope")),
+                        TEXT("Components")))));
+    TestTrue(
+        TEXT("Level Component Palette destination requires an exact Actor"),
+        LevelHasDiagnostic(
+            AliasComponentsResult,
+            TEXT("validation.palette_context_invalid")));
+
+    const TSharedPtr<FJsonObject> InvalidGuidResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelPaletteEntriesOperation(
+                    LevelPaletteMemberRef(
+                        LevelStableRef(TEXT("not-a-guid")),
+                        TEXT("Components")))));
+    TestTrue(
+        TEXT("Level Component Palette destination rejects a malformed ActorGuid"),
+        LevelHasDiagnostic(
+            InvalidGuidResult,
+            TEXT("validation.palette_context_invalid")));
+
+    const TSharedPtr<FJsonObject> MissingActorResult =
+        FSalModule::BuildQueryResult(
+            LevelQueryArguments(
+                Target,
+                LevelPaletteEntriesOperation(
+                    LevelPaletteMemberRef(
+                        LevelStableRef(
+                            FGuid::NewGuid().ToString(
+                                EGuidFormats::DigitsWithHyphensLower)),
+                        TEXT("Components")))));
+    TestTrue(
+        TEXT("Level Component Palette destination fails closed on an unknown Actor"),
+        LevelHasDiagnostic(
+            MissingActorResult,
+            TEXT("resolution.object_not_found")));
+
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelPaletteActorEntriesTest,
+    "Loomle.Sal.Level.Query.PaletteActorEntries",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelPaletteActorEntriesTest::RunTest(const FString& Parameters)
+{
+    FScopedLevelQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("Level palette fixture builds"), Fixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Level palette fixture activates the loaded source"),
+            Fixture.Activate(Fixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const TSharedRef<FJsonObject> Target =
+        LevelTarget(Fixture.Loaded.ObjectPath);
+    const TSharedRef<FJsonObject> Destination = LevelPaletteMemberRef(
+        LevelPaletteLocalRef(TEXT("level_scope")),
+        TEXT("Actors"));
+
+    const TSharedPtr<FJsonObject> EntriesResult = FSalModule::BuildQueryResult(
+        LevelQueryArguments(
+            Target,
+            LevelPaletteEntriesOperation(Destination)));
+    if (!TestFalse(TEXT("Actor Palette discovery has no error"), LevelHasError(EntriesResult)))
+    {
+        return false;
+    }
+    const TArray<FLevelPaletteEntryView> Entries =
+        CollectLevelPaletteEntries(EntriesResult);
+    if (!TestTrue(TEXT("Actor Palette discovery returns entries"), Entries.Num() > 0))
+    {
+        return false;
+    }
+    bool bAllWellFormed = true;
+    for (const FLevelPaletteEntryView& Entry : Entries)
+    {
+        bAllWellFormed = bAllWellFormed
+            && Entry.PaletteId.StartsWith(TEXT("level.actor."))
+            && !Entry.Name.IsEmpty()
+            && !Entry.Type.IsEmpty()
+            && Entry.Creation == TEXT("unavailable")
+            && !Entry.Reason.IsEmpty();
+    }
+    TestTrue(
+        TEXT("Actor Palette entries carry opaque ids, names, types, and honest unavailability"),
+        bAllWellFormed);
+
+    const FString FirstId = Entries[0].PaletteId;
+    const TSharedPtr<FJsonObject> ExactResult = FSalModule::BuildQueryResult(
+        LevelQueryArguments(
+            Target,
+            LevelPaletteOperation(FirstId, Destination)));
+    if (!TestFalse(TEXT("Exact Actor Palette replay has no error"), LevelHasError(ExactResult)))
+    {
+        return false;
+    }
+    const TArray<FLevelPaletteEntryView> ExactEntries =
+        CollectLevelPaletteEntries(ExactResult);
+    TestTrue(
+        TEXT("Exact Actor Palette replay returns exactly one entry with the same id"),
+        ExactEntries.Num() == 1
+            && ExactEntries[0].PaletteId == FirstId
+            && ExactEntries[0].Name == Entries[0].Name
+            && ExactEntries[0].Type == Entries[0].Type);
+
+    const TSharedPtr<FJsonObject> StaleResult = FSalModule::BuildQueryResult(
+        LevelQueryArguments(
+            Target,
+            LevelPaletteOperation(
+                TEXT("level.actor.0000000000000000000000000000000000000000"),
+                Destination)));
+    TestTrue(
+        TEXT("Exact Actor Palette replay rejects a stale id"),
+        LevelHasDiagnostic(StaleResult, TEXT("resolution.palette_not_found")));
+
+    const TSharedPtr<FJsonObject> PagedResult = FSalModule::BuildQueryResult(
+        LevelQueryArguments(
+            Target,
+            LevelPaletteEntriesOperation(Destination),
+            5));
+    const TArray<FLevelPaletteEntryView> PagedEntries =
+        CollectLevelPaletteEntries(PagedResult);
+    TestTrue(
+        TEXT("Actor Palette discovery honors the page limit"),
+        PagedEntries.Num() > 0 && PagedEntries.Num() <= 5);
+
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelPaletteComponentEntriesTest,
+    "Loomle.Sal.Level.Query.PaletteComponentEntries",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelPaletteComponentEntriesTest::RunTest(const FString& Parameters)
+{
+    FScopedLevelQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("Level palette fixture builds"), Fixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Level palette fixture activates the loaded source"),
+            Fixture.Activate(Fixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const TSharedRef<FJsonObject> Target =
+        LevelTarget(Fixture.Loaded.ObjectPath);
+    const TSharedRef<FJsonObject> Destination = LevelPaletteMemberRef(
+        LevelStableRef(LevelGuidText(Fixture.AlphaId)),
+        TEXT("Components"));
+
+    const TSharedPtr<FJsonObject> EntriesResult = FSalModule::BuildQueryResult(
+        LevelQueryArguments(
+            Target,
+            LevelPaletteEntriesOperation(Destination)));
+    if (!TestFalse(TEXT("Component Palette discovery has no error"), LevelHasError(EntriesResult)))
+    {
+        return false;
+    }
+    const TArray<FLevelPaletteEntryView> Entries =
+        CollectLevelPaletteEntries(EntriesResult);
+    if (!TestTrue(TEXT("Component Palette discovery returns entries"), Entries.Num() > 0))
+    {
+        return false;
+    }
+    bool bAllWellFormed = true;
+    for (const FLevelPaletteEntryView& Entry : Entries)
+    {
+        bAllWellFormed = bAllWellFormed
+            && Entry.PaletteId.StartsWith(TEXT("level.component."))
+            && !Entry.Name.IsEmpty()
+            && !Entry.Type.IsEmpty()
+            && Entry.Creation == TEXT("unavailable")
+            && !Entry.Reason.IsEmpty();
+    }
+    TestTrue(
+        TEXT("Component Palette entries carry opaque ids, names, types, and honest unavailability"),
+        bAllWellFormed);
+
+    const TSharedPtr<FJsonObject> ExactResult = FSalModule::BuildQueryResult(
+        LevelQueryArguments(
+            Target,
+            LevelPaletteOperation(Entries[0].PaletteId, Destination)));
+    if (!TestFalse(TEXT("Exact Component Palette replay has no error"), LevelHasError(ExactResult)))
+    {
+        return false;
+    }
+    const TArray<FLevelPaletteEntryView> ExactEntries =
+        CollectLevelPaletteEntries(ExactResult);
+    TestTrue(
+        TEXT("Exact Component Palette replay returns the same entry"),
+        ExactEntries.Num() == 1
+            && ExactEntries[0].PaletteId == Entries[0].PaletteId);
+
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelPaletteUnloadedLevelTest,
+    "Loomle.Sal.Level.Query.PaletteUnloadedLevel",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelPaletteUnloadedLevelTest::RunTest(const FString& Parameters)
+{
+    FScopedLevelQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("Level palette fixture builds"), Fixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Level palette fixture activates the loaded source"),
+            Fixture.Activate(Fixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const TSharedRef<FJsonObject> Target =
+        LevelTarget(Fixture.Loaded.ObjectPath);
+    const TSharedRef<FJsonObject> Destination = LevelPaletteMemberRef(
+        LevelPaletteLocalRef(TEXT("level_scope")),
+        TEXT("Actors"));
+
+    UWorld* OriginalWorld = Fixture.Loaded.World;
+    FString CleanupError;
+    if (!FScopedLevelQueryFixture::UnloadMap(Fixture.Loaded, CleanupError))
+    {
+        AddError(CleanupError);
+        return false;
+    }
+    const TSharedPtr<FJsonObject> Result = FSalModule::BuildQueryResult(
+        LevelQueryArguments(
+            Target,
+            LevelPaletteEntriesOperation(Destination)));
+    TestTrue(
+        TEXT("Actor Palette discovery fails closed on an unloaded source map"),
+        LevelHasDiagnostic(Result, TEXT("capability.level_not_loaded")));
+    TestNotNull(TEXT("Unloaded-map palette keeps the source World out of the active Editor World"), OriginalWorld);
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
 }
 
 #endif

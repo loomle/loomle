@@ -12,21 +12,25 @@
 #include "AssetRegistry/AssetData.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
+#include "ComponentTypeRegistry.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Editor.h"
+#include "Editor/PlacementMode/Public/IPlacementModeModule.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "Helpers/PCGHelpers.h"
+#include "Kismet2/ComponentEditorUtils.h"
 #include "LevelInstance/LevelInstanceActor.h"
 #include "LevelInstance/LevelInstanceInterface.h"
 #include "LevelInstance/LevelInstanceSubsystem.h"
 #include "Misc/PackageName.h"
 #include "Modules/ModuleManager.h"
 #include "PCGComponent.h"
+#include "SComponentClassCombo.h"
 #include "UObject/Package.h"
 #include "UObject/SoftObjectPath.h"
 #include "Misc/SecureHash.h"
@@ -2624,6 +2628,720 @@ TSharedPtr<FJsonObject> QueryExactComponent(
     }
     return Result;
 }
+
+// ============================================================================
+// Level Palette discovery (Slice 2)
+//
+// Destination-bound discovery of Actor and instance Component creation
+// capabilities for one exact Level Target. Creation Patch is not active in
+// this capability: every entry reports creation as unavailable until the
+// preview-World execution path lands. Discovery is read-only; it never loads
+// an asset or Actor, switches a map, changes selection, dirties a package,
+// or starts an editor workflow. Opaque Palette ids are deterministic digests
+// of the exact capability material and are revalidated by re-enumeration on
+// every exact replay, so an id never bypasses destination or engine checks.
+// ============================================================================
+
+namespace LevelPalette
+{
+enum class EDestinationKind : uint8
+{
+    Actor,
+    Component
+};
+
+struct FDestination
+{
+    EDestinationKind Kind = EDestinationKind::Actor;
+    FGuid ActorGuid;
+    FString ActorLabel;
+};
+
+struct FEntry
+{
+    FString Id;
+    FString DisplayName;
+    FString Category;
+    FString NativeType;
+    FString SourceAssetType;
+    FString KindName;
+    bool bCreationAvailable = false;
+    FString UnavailableReason;
+};
+}
+
+class FLevelPaletteUniqueNameAllocator
+{
+public:
+    void Reserve(const FString& Name)
+    {
+        Used.Add(Name);
+    }
+
+    FString Allocate(const FString& Preferred, const FString& Fallback = TEXT("item"))
+    {
+        const FString Base = FSalObjectBuilder::SanitizeIdentifier(Preferred, Fallback);
+        if (!Used.Contains(Base))
+        {
+            Used.Add(Base);
+            NextSuffix.FindOrAdd(Base) = 2;
+            return Base;
+        }
+        int32& Suffix = NextSuffix.FindOrAdd(Base);
+        if (Suffix < 2)
+        {
+            Suffix = 2;
+        }
+        for (;;)
+        {
+            const FString Candidate = FString::Printf(TEXT("%s_%d"), *Base, Suffix++);
+            if (!Used.Contains(Candidate))
+            {
+                Used.Add(Candidate);
+                return Candidate;
+            }
+        }
+    }
+
+private:
+    TSet<FString> Used;
+    TMap<FString, int32> NextSuffix;
+};
+
+FString LevelPaletteDigest(const FString& Material)
+{
+    return FSHA1::HashBuffer(
+        *Material,
+        Material.Len() * sizeof(TCHAR)).ToString();
+}
+
+FString ActorPaletteId(
+    const FString& ClassPath,
+    const FString& FactoryPath,
+    const FString& AssetType)
+{
+    return TEXT("level.actor.")
+        + LevelPaletteDigest(
+            TEXT("actor|") + ClassPath + TEXT("|") + FactoryPath
+            + TEXT("|") + AssetType);
+}
+
+FString ComponentPaletteId(const FString& ClassPath)
+{
+    return TEXT("level.component.") + LevelPaletteDigest(
+        TEXT("component|") + ClassPath);
+}
+
+bool ResolveLevelPaletteDestination(
+    const FSalQuery& Query,
+    LevelPalette::FDestination& Out,
+    FString& OutMessage)
+{
+    Out = LevelPalette::FDestination();
+    OutMessage.Reset();
+    const TSharedPtr<FJsonObject>* DestinationRef = nullptr;
+    if (!Query.Operation.IsValid()
+        || !Query.Operation->TryGetObjectField(TEXT("to"), DestinationRef)
+        || DestinationRef == nullptr
+        || !(*DestinationRef).IsValid())
+    {
+        OutMessage =
+            TEXT("Level palette requires one exact destination after to.");
+        return false;
+    }
+    const TSharedPtr<FJsonObject>& Ref = *DestinationRef;
+    FString RefKind;
+    TArray<TSharedPtr<FJsonValue>> Path;
+    if (!Ref->TryGetStringField(TEXT("kind"), RefKind)
+        || RefKind != TEXT("member")
+        || !Ref->TryGetArrayField(TEXT("path"), Path)
+        || Path.Num() != 1)
+    {
+        OutMessage = TEXT(
+            "A Level Palette destination must be a member reference such as "
+            "arena.Actors or @actorGuid.Components.");
+        return false;
+    }
+    FString Member;
+    if (!Path[0]->TryGetString(Member))
+    {
+        OutMessage = TEXT(
+            "A Level Palette destination member must be a path name.");
+        return false;
+    }
+    const TSharedPtr<FJsonObject>* ObjectRef = nullptr;
+    if (!Ref->TryGetObjectField(TEXT("object"), ObjectRef)
+        || ObjectRef == nullptr
+        || !(*ObjectRef).IsValid())
+    {
+        OutMessage = TEXT(
+            "A Level Palette destination must name a Level Target or one "
+            "exact persisted Actor.");
+        return false;
+    }
+    FString ObjectKind;
+    (*ObjectRef)->TryGetStringField(TEXT("kind"), ObjectKind);
+    if (Member == TEXT("Actors"))
+    {
+        FString AliasName;
+        if (ObjectKind != TEXT("local")
+            || !(*ObjectRef)->TryGetStringField(TEXT("name"), AliasName)
+            || AliasName != Query.Alias)
+        {
+            OutMessage = TEXT(
+                "A Level Actor Palette destination must name the currently "
+                "bound target alias, such as arena.Actors.");
+            return false;
+        }
+        Out.Kind = LevelPalette::EDestinationKind::Actor;
+        return true;
+    }
+    if (Member == TEXT("Components"))
+    {
+        if (ObjectKind != TEXT("stable_ref"))
+        {
+            OutMessage = TEXT(
+                "A Level Component Palette destination must be one exact "
+                "persisted Actor StableRef, such as @actorGuid.Components.");
+            return false;
+        }
+        TArray<TSharedPtr<FJsonValue>> IdentityPath;
+        if (!(*ObjectRef)->TryGetArrayField(TEXT("identityPath"), IdentityPath)
+            || IdentityPath.Num() != 1)
+        {
+            OutMessage = TEXT(
+                "A Level Component Palette destination Actor identity must "
+                "be exactly one ActorGuid.");
+            return false;
+        }
+        FString GuidText;
+        if (!IdentityPath[0]->TryGetString(GuidText)
+            || !ParseActorGuid(GuidText, Out.ActorGuid))
+        {
+            OutMessage = TEXT(
+                "A Level Component Palette destination ActorGuid is invalid "
+                "or not a persisted Actor identity.");
+            return false;
+        }
+        Out.Kind = LevelPalette::EDestinationKind::Component;
+        return true;
+    }
+    OutMessage = TEXT(
+        "A Level Palette destination path must be exactly Actors or "
+        "Components.");
+    return false;
+}
+
+// Returns nullptr on success, otherwise the fail-closed Query error result.
+TSharedPtr<FJsonObject> ResolveLevelPaletteContext(
+    const FSalQuery& Query,
+    const FSalResolvedTarget& Target,
+    const FString& Operation,
+    LevelPalette::FDestination& Out,
+    FString& OutActorLabel)
+{
+    OutActorLabel.Reset();
+    FString Message;
+    if (!ResolveLevelPaletteDestination(Query, Out, Message))
+    {
+        return QueryError(
+            TEXT("validation.palette_context_invalid"),
+            Message,
+            Operation);
+    }
+    if (Out.Kind == LevelPalette::EDestinationKind::Actor)
+    {
+        UWorld* World = nullptr;
+        ULevel* Level = nullptr;
+        FString Reason;
+        if (!IsExactLoadedSource(Target, World, Level, Reason))
+        {
+            return ContentUnavailable(Operation, Target, Reason);
+        }
+        return nullptr;
+    }
+    FLevelSnapshot Snapshot;
+    FString SnapshotReason;
+    if (!BuildSnapshot(Target, Operation, Snapshot, SnapshotReason))
+    {
+        return ContentUnavailable(Operation, Target, SnapshotReason);
+    }
+    if (!Snapshot.bIdentityComplete)
+    {
+        return QueryError(
+            TEXT("validation.reference_scan_incomplete"),
+            TEXT("The Level Actor identity environment is incomplete; "
+                "Palette destination resolution is fail-closed."),
+            Operation);
+    }
+    const FLevelActorEntry* Match = nullptr;
+    int32 MatchCount = 0;
+    for (const FLevelActorEntry& Entry : Snapshot.Actors)
+    {
+        if (Entry.Guid == Out.ActorGuid)
+        {
+            Match = &Entry;
+            ++MatchCount;
+        }
+    }
+    if (MatchCount != 1 || Match == nullptr || !IsValid(Match->Actor.Get()))
+    {
+        return QueryError(
+            MatchCount > 1
+                ? TEXT("resolution.identity_conflict")
+                : TEXT("resolution.object_not_found"),
+            MatchCount > 1
+                ? TEXT("Multiple persisted Level Actor records share this "
+                    "ActorGuid.")
+                : TEXT("No loaded persisted Actor has this ActorGuid in the "
+                    "exact Level Target."),
+            Operation,
+            Out.ActorGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
+    }
+    OutActorLabel = Match->Label;
+    return nullptr;
+}
+
+bool DiscoverActorPaletteEntries(TArray<LevelPalette::FEntry>& Out)
+{
+    if (!IPlacementModeModule::IsAvailable())
+    {
+        return false;
+    }
+    IPlacementModeModule& Placement = IPlacementModeModule::Get();
+    TArray<FPlacementCategoryInfo> Categories;
+    Placement.GetSortedCategories(Categories);
+    for (const FPlacementCategoryInfo& Category : Categories)
+    {
+        const FName Handle = Category.UniqueHandle;
+        if (Handle == FBuiltInPlacementCategories::Favorites()
+            || Handle == FBuiltInPlacementCategories::RecentlyPlaced())
+        {
+            // Session state is not authored capability.
+            continue;
+        }
+        TArray<TSharedPtr<FPlaceableItem>> Items;
+        Placement.GetFilteredItemsForCategory(
+            Handle,
+            Items,
+            [](const TSharedPtr<FPlaceableItem>&)
+            {
+                return true;
+            });
+        for (const TSharedPtr<FPlaceableItem>& Item : Items)
+        {
+            if (!Item.IsValid() || Item->DragHandler.IsValid())
+            {
+                // Custom drag handlers are editor UI, not placeable classes.
+                continue;
+            }
+            UClass* ActorClass = nullptr;
+            if (Item->Factory != nullptr)
+            {
+                ActorClass = Item->Factory->GetDefaultActorClass(
+                    Item->AssetData);
+            }
+            if (ActorClass == nullptr
+                || !ActorClass->IsChildOf(AActor::StaticClass()))
+            {
+                continue;
+            }
+            const FString ClassPath =
+                ActorClass->GetClassPathName().ToString();
+            const FString FactoryPath =
+                Item->Factory != nullptr
+                    ? Item->Factory->GetClass()->GetClassPathName().ToString()
+                    : FString();
+            FString SourceAssetType;
+            if (Item->AssetData.IsValid()
+                && Item->AssetData.GetClass() != nullptr
+                && Item->AssetData.GetClass() != UClass::StaticClass())
+            {
+                SourceAssetType =
+                    Item->AssetData.AssetClassPath.ToString();
+            }
+            LevelPalette::FEntry Entry;
+            Entry.Id = ActorPaletteId(
+                ClassPath,
+                FactoryPath,
+                SourceAssetType);
+            Entry.DisplayName = Item->DisplayName.ToString();
+            if (Entry.DisplayName.IsEmpty())
+            {
+                Entry.DisplayName = Item->NativeName;
+            }
+            Entry.Category = Category.DisplayName.ToString();
+            Entry.NativeType = ClassPath;
+            Entry.SourceAssetType = SourceAssetType;
+            Entry.KindName = TEXT("actor");
+            Entry.bCreationAvailable = false;
+            Entry.UnavailableReason = TEXT(
+                "Level Actor creation Patch is not active in this "
+                "capability; preview-World execution is required.");
+            Out.Add(MoveTemp(Entry));
+        }
+    }
+    return true;
+}
+
+void DiscoverComponentPaletteEntries(TArray<LevelPalette::FEntry>& Out)
+{
+    TArray<FComponentClassComboEntryPtr>* ComponentList = nullptr;
+    FComponentTypeRegistry& Registry = FComponentTypeRegistry::Get();
+    Registry.SubscribeToComponentList(ComponentList);
+    if (ComponentList == nullptr)
+    {
+        return;
+    }
+    for (const FComponentClassComboEntryPtr& RawEntry : *ComponentList)
+    {
+        if (!RawEntry.IsValid()
+            || RawEntry->IsHeading()
+            || RawEntry->IsSeparator()
+            || !RawEntry->IsClass()
+            || RawEntry->GetComponentCreateAction()
+                != EComponentCreateAction::SpawnExistingClass)
+        {
+            continue;
+        }
+        const UClass* ComponentClass = RawEntry->GetComponentClass();
+        if (ComponentClass == nullptr
+            || !ComponentClass->IsChildOf(UActorComponent::StaticClass())
+            || ComponentClass->HasAnyClassFlags(CLASS_Abstract))
+        {
+            continue;
+        }
+        const FString ClassPath =
+            ComponentClass->GetClassPathName().ToString();
+        LevelPalette::FEntry Entry;
+        Entry.Id = ComponentPaletteId(ClassPath);
+        Entry.DisplayName = ComponentClass->GetDisplayNameText().ToString();
+        if (Entry.DisplayName.IsEmpty())
+        {
+            Entry.DisplayName = ComponentClass->GetName();
+        }
+        Entry.Category = TEXT("Components");
+        Entry.NativeType = ClassPath;
+        Entry.KindName = TEXT("component");
+        Entry.bCreationAvailable = false;
+        Entry.UnavailableReason = TEXT(
+            "Instance Component creation Patch is not active in this "
+            "capability; preview-World execution is required.");
+        Out.Add(MoveTemp(Entry));
+    }
+}
+
+bool LevelPaletteMatchesSearch(
+    const LevelPalette::FEntry& Entry,
+    const FString& Search)
+{
+    if (Search.IsEmpty())
+    {
+        return true;
+    }
+    return Entry.DisplayName.Contains(Search, ESearchCase::IgnoreCase)
+        || Entry.Category.Contains(Search, ESearchCase::IgnoreCase)
+        || Entry.NativeType.Contains(Search, ESearchCase::IgnoreCase);
+}
+
+void SortLevelPaletteEntries(TArray<LevelPalette::FEntry>& Entries)
+{
+    Entries.StableSort(
+        [](const LevelPalette::FEntry& A, const LevelPalette::FEntry& B)
+        {
+            const int32 CategoryCompare = A.Category.Compare(B.Category);
+            if (CategoryCompare != 0)
+            {
+                return CategoryCompare < 0;
+            }
+            return A.DisplayName.Compare(B.DisplayName) < 0;
+        });
+}
+
+FString LevelPaletteFingerprint(
+    const FSalQuery& Query,
+    const FSalResolvedTarget& Target,
+    const LevelPalette::FDestination& Destination)
+{
+    FCursorFingerprintBuilder Fingerprint;
+    Fingerprint.Add(TEXT("level_palette1"));
+    Fingerprint.Add(Target.AssetPath);
+    Fingerprint.Add(
+        Destination.Kind == LevelPalette::EDestinationKind::Actor
+            ? TEXT("actor")
+            : TEXT("component"));
+    Fingerprint.Add(
+        Destination.ActorGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
+    FString Search;
+    Query.Operation->TryGetStringField(TEXT("text"), Search);
+    Fingerprint.Add(Search);
+    return Fingerprint.Finalize();
+}
+
+bool DecodeLevelPalettePage(
+    const FSalQuery& Query,
+    const FSalResolvedTarget& Target,
+    const LevelPalette::FDestination& Destination,
+    int32& OutOffset)
+{
+    OutOffset = 0;
+    if (Query.PageAfter.IsEmpty())
+    {
+        return true;
+    }
+    const FString Expected =
+        LevelPaletteFingerprint(Query, Target, Destination);
+    TArray<FString> Parts;
+    Query.PageAfter.ParseIntoArray(Parts, TEXT(":"), false);
+    return Parts.Num() == 3
+        && Parts[0] == TEXT("level_palette1")
+        && Parts[1].Equals(Expected, ESearchCase::IgnoreCase)
+        && ParseNonNegativeInt32(Parts[2], OutOffset);
+}
+
+TSharedPtr<FJsonValue> MakeLevelPaletteEntryValue(
+    const LevelPalette::FEntry& Entry)
+{
+    TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
+    Args->SetStringField(TEXT("palette"), Entry.Id);
+    Args->SetStringField(TEXT("name"), Entry.DisplayName);
+    Args->SetStringField(TEXT("category"), Entry.Category);
+    Args->SetStringField(TEXT("type"), Entry.NativeType);
+    if (!Entry.SourceAssetType.IsEmpty())
+    {
+        Args->SetStringField(TEXT("asset"), Entry.SourceAssetType);
+    }
+    Args->SetStringField(
+        TEXT("creation"),
+        Entry.bCreationAvailable ? TEXT("available") : TEXT("unavailable"));
+    Args->SetStringField(TEXT("reason"), Entry.UnavailableReason);
+    return Value::Call(Entry.KindName, Args);
+}
+
+TSharedPtr<FJsonObject> QueryLevelPaletteEntries(
+    const FSalQuery& Query,
+    const FSalResolvedTarget& Target)
+{
+    if (Query.Where.IsValid()
+        || !Query.With.IsEmpty()
+        || !Query.OrderBy.IsEmpty())
+    {
+        return QueryError(
+            TEXT("capability.clause_unavailable"),
+            TEXT("Level palette entries accepts only an optional text search "
+                "and a page clause."),
+            TEXT("palette_entries"));
+    }
+    LevelPalette::FDestination Destination;
+    FString ActorLabel;
+    if (const TSharedPtr<FJsonObject> Error =
+            ResolveLevelPaletteContext(
+                Query,
+                Target,
+                TEXT("palette_entries"),
+                Destination,
+                ActorLabel))
+    {
+        return Error;
+    }
+    int32 Offset = 0;
+    if (!DecodeLevelPalettePage(Query, Target, Destination, Offset))
+    {
+        return QueryError(
+            TEXT("validation.invalid_cursor"),
+            TEXT("Level Palette cursor does not belong to this destination, "
+                "target, search, or page limit."),
+            TEXT("palette_entries"),
+            Query.PageAfter);
+    }
+
+    TArray<LevelPalette::FEntry> Entries;
+    bool bPaletteSourceAvailable = true;
+    if (Destination.Kind == LevelPalette::EDestinationKind::Actor)
+    {
+        bPaletteSourceAvailable = DiscoverActorPaletteEntries(Entries);
+    }
+    else
+    {
+        DiscoverComponentPaletteEntries(Entries);
+    }
+    FString SearchText;
+    Query.Operation->TryGetStringField(TEXT("text"), SearchText);
+    TArray<LevelPalette::FEntry> Matches;
+    for (const LevelPalette::FEntry& Entry : Entries)
+    {
+        if (LevelPaletteMatchesSearch(Entry, SearchText))
+        {
+            Matches.Add(Entry);
+        }
+    }
+    SortLevelPaletteEntries(Matches);
+
+    const int32 Limit = FMath::Clamp(
+        Query.PageLimit > 0 ? Query.PageLimit : DefaultCollectionLimit,
+        1,
+        MaxCollectionLimit);
+    FSalObjectBuilder Builder;
+    FLevelPaletteUniqueNameAllocator Aliases;
+    Aliases.Reserve(Query.Alias);
+    int32 Added = 0;
+    for (int32 Index = Offset;
+        Index < Matches.Num() && Added < Limit;
+        ++Index)
+    {
+        const LevelPalette::FEntry& Entry = Matches[Index];
+        Builder.AddLocalBinding(
+            Aliases.Allocate(Entry.DisplayName, Entry.KindName),
+            MakeLevelPaletteEntryValue(Entry));
+        ++Added;
+    }
+    if (Matches.IsEmpty())
+    {
+        Builder.AddComment(
+            TEXT("no palette matches in this bounded discovery page"));
+    }
+    TSharedPtr<FJsonObject> Result = Builder.BuildResult(
+        bPaletteSourceAvailable
+            ? TArray<TSharedPtr<FJsonObject>>{}
+            : TArray<TSharedPtr<FJsonObject>>{Warning(
+                TEXT("capability.palette_source_unavailable"),
+                TEXT("The editor placeable-capability catalog is unavailable; "
+                    "Actor Palette discovery returned no entries."),
+                TEXT("palette_entries"))});
+    const int32 NextOffset = Offset + Added;
+    if (NextOffset < Matches.Num())
+    {
+        TSharedPtr<FJsonObject> PageObject = MakeShared<FJsonObject>();
+        PageObject->SetStringField(
+            TEXT("next"),
+            TEXT("level_palette1:")
+                + LevelPaletteFingerprint(Query, Target, Destination)
+                + TEXT(":") + LexToString(NextOffset));
+        Result->SetObjectField(TEXT("page"), PageObject);
+    }
+    return Result;
+}
+
+TSharedPtr<FJsonObject> QueryLevelPalette(
+    const FSalQuery& Query,
+    const FSalResolvedTarget& Target)
+{
+    if (Query.Where.IsValid()
+        || !Query.OrderBy.IsEmpty()
+        || Query.PageLimit > 0
+        || !Query.PageAfter.IsEmpty())
+    {
+        return QueryError(
+            TEXT("capability.clause_unavailable"),
+            TEXT("Exact Level Palette Query accepts only optional with "
+                "schema."),
+            TEXT("palette"));
+    }
+    for (const FString& Detail : Query.With)
+    {
+        if (Detail != TEXT("schema"))
+        {
+            return QueryError(
+                TEXT("capability.detail_unavailable"),
+                TEXT("Exact Level Palette Query supports only with schema."),
+                TEXT("palette"),
+                Detail);
+        }
+    }
+    FString PaletteId;
+    if (!Query.Operation->TryGetStringField(TEXT("id"), PaletteId)
+        || PaletteId.IsEmpty())
+    {
+        return QueryError(
+            TEXT("validation.palette_context_invalid"),
+            TEXT("Exact Level Palette Query requires a Palette identity and "
+                "one exact destination after to."),
+            TEXT("palette"),
+            PaletteId);
+    }
+    LevelPalette::FDestination Destination;
+    FString ActorLabel;
+    if (const TSharedPtr<FJsonObject> Error =
+            ResolveLevelPaletteContext(
+                Query,
+                Target,
+                TEXT("palette"),
+                Destination,
+                ActorLabel))
+    {
+        return Error;
+    }
+
+    TArray<LevelPalette::FEntry> Entries;
+    bool bPaletteSourceAvailable = true;
+    if (Destination.Kind == LevelPalette::EDestinationKind::Actor)
+    {
+        bPaletteSourceAvailable = DiscoverActorPaletteEntries(Entries);
+    }
+    else
+    {
+        DiscoverComponentPaletteEntries(Entries);
+    }
+    const LevelPalette::FEntry* Match = nullptr;
+    int32 MatchCount = 0;
+    for (const LevelPalette::FEntry& Entry : Entries)
+    {
+        if (Entry.Id == PaletteId)
+        {
+            Match = &Entry;
+            ++MatchCount;
+        }
+    }
+    if (MatchCount != 1 || Match == nullptr)
+    {
+        return QueryError(
+            MatchCount > 1
+                ? TEXT("resolution.palette_ambiguous")
+                : TEXT("resolution.palette_not_found"),
+            MatchCount > 1
+                ? TEXT("Palette identity matches multiple creation "
+                    "capabilities for this destination.")
+                : TEXT("Palette entry was not found for this exact "
+                    "destination; the capability may be stale or engine-"
+                    "specific."),
+            TEXT("palette"),
+            PaletteId,
+            {TEXT("Run palette entries again for the same destination.")});
+    }
+
+    FSalObjectBuilder Builder;
+    FLevelPaletteUniqueNameAllocator Aliases;
+    Aliases.Reserve(Query.Alias);
+    Builder.AddLocalBinding(
+        Aliases.Allocate(Match->DisplayName, Match->KindName),
+        MakeLevelPaletteEntryValue(*Match));
+    if (Query.With.Contains(TEXT("schema")))
+    {
+        Builder.AddComment(FString::Printf(
+            TEXT("palette schema:\n"
+                "  creation object: { palette: \"%s\" }\n"
+                "  destination: %s\n"
+                "  native type: %s\n"
+                "  creation: unavailable (%s)"),
+            *Match->Id,
+            Destination.Kind == LevelPalette::EDestinationKind::Actor
+                ? TEXT("arena.Actors (Level Actor creation)")
+                : *FString::Printf(
+                    TEXT("@%s.Components (instance Component creation)"),
+                    *Destination.ActorGuid.ToString(
+                        EGuidFormats::DigitsWithHyphensLower)),
+            *Match->NativeType,
+            *Match->UnavailableReason));
+    }
+    return Builder.BuildResult(
+        bPaletteSourceAvailable
+            ? TArray<TSharedPtr<FJsonObject>>{}
+            : TArray<TSharedPtr<FJsonObject>>{Warning(
+                TEXT("capability.palette_source_unavailable"),
+                TEXT("The editor placeable-capability catalog is unavailable; "
+                    "Actor Palette resolution returned no entries."),
+                TEXT("palette"))});
+}
 }
 
 TSharedPtr<FJsonObject> FSalLevelInterface::Query(
@@ -2645,7 +3363,7 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Query(
             TEXT("Level Query has no supported primary operation."),
             TEXT("query"),
             FString(),
-            {TEXT("target"), TEXT("summary"), TEXT("actors"), TEXT("components"), TEXT("actor"), TEXT("component")});
+            {TEXT("target"), TEXT("summary"), TEXT("actors"), TEXT("components"), TEXT("actor"), TEXT("component"), TEXT("palette_entries"), TEXT("palette")});
     }
     if (Operation == TEXT("target"))
     {
@@ -2671,6 +3389,14 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Query(
     {
         return Finalize(QueryExactComponent(Query, Target));
     }
+    if (Operation == TEXT("palette_entries"))
+    {
+        return Finalize(QueryLevelPaletteEntries(Query, Target));
+    }
+    if (Operation == TEXT("palette"))
+    {
+        return Finalize(QueryLevelPalette(Query, Target));
+    }
     return QueryError(
         TEXT("capability.operation_unavailable"),
         FString::Printf(
@@ -2678,7 +3404,7 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Query(
             *Operation),
         Operation,
         FString(),
-        {TEXT("target"), TEXT("summary"), TEXT("actors"), TEXT("components"), TEXT("actor"), TEXT("component")});
+        {TEXT("target"), TEXT("summary"), TEXT("actors"), TEXT("components"), TEXT("actor"), TEXT("component"), TEXT("palette_entries"), TEXT("palette")});
 }
 
 bool FSalLevelInterface::ResolveEditorContextTarget(
@@ -3186,5 +3912,4 @@ bool FSalLevelInterface::LowerStableReference(
     Ref->SetStringField(TEXT("source"), ComponentMatch->Source);
     Ref->SetStringField(TEXT("id"), ComponentMatch->Id);
     return true;
-}
 }

@@ -27,6 +27,7 @@ public class LoomleBridge : ModuleRules
                 "LevelEditor",
                 "MovieScene",
                 "PCG",
+                "PlacementMode",
                 "PropertyBindingUtils",
                 "PropertyEditor",
                 "Projects",
