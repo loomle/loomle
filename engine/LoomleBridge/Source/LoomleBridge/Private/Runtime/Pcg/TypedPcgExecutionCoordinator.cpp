@@ -234,6 +234,8 @@ FLoomleAsyncKernel::FRecordPtr FTypedPcgExecutionCoordinator::Start(
         }
         return nullptr;
     }
+    // The caller holds the execution id, so the record is exposed for poll.
+    Record->bExposed = true;
 
     // Admission holds the source/Level-intersection lease implicitly through
     // the validated ticket; the top-Graph shared lease is a later increment.
