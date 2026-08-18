@@ -4033,13 +4033,13 @@ bool LevelParseTransformVectorArg(
     {
         return false;
     }
-    const TSharedPtr<FJsonValue>* Value = Args->Values.Find(Name);
-    if (Value == nullptr || !(*Value).IsValid())
+    const TSharedPtr<FJsonValue> Value = Args->TryGetField(Name);
+    if (!Value.IsValid())
     {
         return true; // omitted; the native current value is preserved
     }
     const TArray<TSharedPtr<FJsonValue>>* Elements = nullptr;
-    if (!(*Value)->TryGetArray(Elements)
+    if (!Value->TryGetArray(Elements)
         || Elements == nullptr
         || Elements->Num() != 3)
     {
