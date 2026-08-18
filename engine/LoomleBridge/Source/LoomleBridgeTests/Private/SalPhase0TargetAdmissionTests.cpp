@@ -330,8 +330,9 @@ bool FSalTargetAdmissionModesTest::RunTest(const FString& Parameters)
     TestTrue(
         TEXT("Canonical Result admission accepts an exact PCG Target"),
         FSalJson::ValidateCanonicalTarget(CanonicalPcg, Message));
-    TestFalse(
-        TEXT("Patch admission rejects an exact Query-only PCG Target"),
+    TestTrue(
+        TEXT("Patch admission accepts an exact PCG Target after the "
+            "authored-mutation capability bump"),
         DecodePatchTarget(CanonicalPcg));
 
     const TSharedRef<FJsonObject> Component = PcgComponentTarget();
@@ -511,14 +512,11 @@ bool FSalPhase0PublicPathTest::RunTest(const FString& Parameters)
                     TEXT("pcg"),
                     TEXT("/Script/PCG.PCGGraph"))));
     TestTrue(
-        TEXT("Exact PCG Patch is rejected before adapter resolution"),
-        HasDiagnostic(
+        TEXT("Exact PCG Patch is admitted for adapter resolution after the "
+            "authored-mutation capability bump"),
+        !HasDiagnostic(
             PcgPatch,
-            TEXT("language.invalid_object_shape"),
-            TEXT("Query-only")));
-    TestTrue(
-        TEXT("Rejected PCG Patch remains unresolved"),
-        HasTargetContext(PcgPatch, TEXT("unresolved_target")));
+            TEXT("language.invalid_object_shape")));
 
     const TSharedPtr<FJsonObject> ComponentPatch =
         FSalModule::BuildPatchResult(

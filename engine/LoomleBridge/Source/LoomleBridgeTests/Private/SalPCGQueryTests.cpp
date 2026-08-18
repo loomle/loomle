@@ -1700,15 +1700,13 @@ bool FSalPcgTargetResolutionTest::RunTest(
         FSalModule::BuildPatchResult(
             PatchArguments(PcgTarget(GraphPath, GraphType)));
     TestTrue(
-        TEXT("PCG Patch is rejected by the Query-only protocol boundary"),
-        HasDiagnostic(
+        TEXT("PCG Patch is admitted for adapter resolution after the "
+            "authored-mutation capability bump"),
+        !HasDiagnostic(
             PatchResult,
             TEXT("language.invalid_object_shape")));
-    TestTrue(
-        TEXT("PCG Patch is rejected before Target resolution"),
-        HasTargetContext(PatchResult, TEXT("unresolved_target")));
     TestFalse(
-        TEXT("Target resolution and rejected Patch do not dirty the Graph package"),
+        TEXT("Admitted PCG Patch resolution does not dirty the Graph package"),
         Fixture.IsGraphPackageDirty());
     return true;
 }
@@ -2645,6 +2643,16 @@ bool FSalPcgPatchNodeCreationTest::RunTest(
                 true));
     bool bValid = false;
     bool bApplied = false;
+    if (!(PcgMutationHasField(DryRun, TEXT("valid"), bValid) && bValid))
+    {
+        FString Dump;
+        FJsonSerializer::Serialize(
+            DryRun.ToSharedRef(),
+            TJsonWriterFactory<>::Create(&Dump));
+        AddError(FString::Printf(
+            TEXT("PCG node add dry-run result: %s"),
+            *Dump));
+    }
     TestTrue(
         TEXT("PCG node add dry-run validates"),
         PcgMutationHasField(DryRun, TEXT("valid"), bValid) && bValid);
