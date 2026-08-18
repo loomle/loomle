@@ -4451,7 +4451,7 @@ TSharedPtr<FJsonObject> LevelPatchError(
     return Diagnostic.Build();
 }
 
-TSharedPtr<FJsonObject> FSalLevelInterface::Query(TSharedPtr<FJsonObject> FSalLevelInterface::Query(
+TSharedPtr<FJsonObject> FSalLevelInterface::Query(
     const FSalQuery& Query,
     const FSalResolvedTarget& Target)
 {
