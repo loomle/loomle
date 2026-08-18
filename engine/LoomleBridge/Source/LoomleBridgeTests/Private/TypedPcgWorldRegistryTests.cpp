@@ -10,6 +10,7 @@
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Editor.h"
+#include "Editor/Transactor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "HAL/FileManager.h"
