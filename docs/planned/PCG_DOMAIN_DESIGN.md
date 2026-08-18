@@ -1301,9 +1301,16 @@ Slice 2-B progress (branch, not published):
   `AddEdge`/`RemoveEdge` inside the same top-level transaction with dry-run
   planning and rollback.
 
-Remaining in Slice 2: certified graph-owned Settings set/reset lifecycle,
-absolute move, break, the external-object guard, and the detached transient
-sandbox.
+Slice 2-C progress (branch, not published):
+
+- `set`/`reset` target exact Node member fields on the graph-owned Settings
+  (`Modify` + scalar import + the public `OnSettingsChangedDelegate` broadcast
+  so the owning node rebuilds Pins and broadcasts node-changed events);
+  external Settings instances stay read-only;
+- `move` applies the absolute native position through `SetNodePosition`.
+
+Remaining in Slice 2: break, the external-object guard, and the detached
+transient sandbox.
 
 ### Slice 3: Save and packaged acceptance
 
