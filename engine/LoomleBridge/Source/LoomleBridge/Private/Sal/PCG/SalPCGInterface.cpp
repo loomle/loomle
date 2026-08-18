@@ -2545,17 +2545,17 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
             const TSharedPtr<FJsonObject>* TargetRef = nullptr;
             FString TargetKind;
             FString NodeId;
-            const TSharedPtr<FJsonValue>* To = nullptr;
             const TArray<TSharedPtr<FJsonValue>>* Position = nullptr;
+            const TSharedPtr<FJsonValue> To =
+                (*Statement)->TryGetField(TEXT("to"));
             if (!(*Statement)->TryGetObjectField(TEXT("target"), TargetRef)
                 || TargetRef == nullptr
                 || !(*TargetRef).IsValid()
                 || !(*TargetRef)->TryGetStringField(TEXT("kind"), TargetKind)
                 || TargetKind != TEXT("node")
                 || !(*TargetRef)->TryGetStringField(TEXT("id"), NodeId)
-                || !(*Statement)->TryGetField(TEXT("to"), To)
                 || !To.IsValid()
-                || !(*To)->TryGetArray(Position)
+                || !To->TryGetArray(Position)
                 || Position == nullptr
                 || Position->Num() != 2)
             {
@@ -2931,9 +2931,8 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
                 Target.AssetPath,
                 TEXT("pcg"));
         }
-        Node->OnSettingsChanged(
-            Settings,
-            EPCGChangeType::Settings);
+        Node->UpdatePins();
+        Graph->NotifyGraphChanged(EPCGChangeType::Settings);
     }
     for (const TWeakObjectPtr<UPCGNode>& RemovedNode : Removed)
     {
