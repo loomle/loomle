@@ -12270,20 +12270,20 @@ bool FSalLevelPatchValidationTest::RunTest(const FString& Parameters)
     const FString ActorId = LevelGuidText(Fixture.AlphaId);
 
     // Unsupported statement fails closed.
-    TSharedRef<FJsonObject> SaveStatement = MakeShared<FJsonObject>();
-    SaveStatement->SetStringField(TEXT("kind"), TEXT("save"));
-    const TSharedPtr<FJsonObject> SaveResult = FSalModule::BuildPatchResult(
+    TSharedRef<FJsonObject> CompileStatement = MakeShared<FJsonObject>();
+    CompileStatement->SetStringField(TEXT("kind"), TEXT("compile"));
+    const TSharedPtr<FJsonObject> CompileResult = FSalModule::BuildPatchResult(
         LevelPatchArguments(
             Target,
-            {MakeShared<FJsonValueObject>(SaveStatement)}));
+            {MakeShared<FJsonValueObject>(CompileStatement)}));
     bool bValid = false;
     TestTrue(
         TEXT("Level Patch rejects unsupported statements"),
-        LevelMutationHasField(SaveResult, TEXT("valid"), bValid) && !bValid);
+        LevelMutationHasField(CompileResult, TEXT("valid"), bValid) && !bValid);
     TestTrue(
         TEXT("Level Patch reports the unsupported statement"),
         LevelHasDiagnostic(
-            SaveResult,
+            CompileResult,
             TEXT("capability.operation_unavailable")));
 
     // Unknown field fails closed.
@@ -13087,8 +13087,6 @@ bool FSalLevelPatchSaveTest::RunTest(const FString& Parameters)
     if (TestNotNull(TEXT("Guard PCG Component is created"), GuardComponent))
     {
         Fixture.Alpha->AddInstanceComponent(GuardComponent);
-        GuardComponent->OnComponentCreated();
-        GuardComponent->RegisterComponent();
         const TSharedPtr<FJsonObject> GuardedResult =
             FSalModule::BuildPatchResult(
                 LevelPatchArguments(

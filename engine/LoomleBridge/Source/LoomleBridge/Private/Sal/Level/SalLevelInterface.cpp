@@ -4577,6 +4577,21 @@ bool LevelSaveHasPCGGuard(
                     return true;
                 }
             }
+            for (const UActorComponent* Component
+                : Actor->GetInstanceComponents())
+            {
+                if (Component != nullptr
+                    && Component->IsA(UPCGComponent::StaticClass()))
+                {
+                    OutReason = FString::Printf(
+                        TEXT("Actor %s carries a managed PCG Component whose "
+                            "generated projections cannot be inventoried "
+                            "completely; Level save fails closed until an "
+                            "explicit cleanup settles."),
+                        *Actor->GetName());
+                    return true;
+                }
+            }
         }
     }
     return false;
