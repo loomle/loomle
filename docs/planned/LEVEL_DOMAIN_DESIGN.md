@@ -1810,9 +1810,20 @@ Slice 4-A progress (branch, not published):
   WorldSettings/LevelScriptActor and PCG-managed Actors; creation and removal
   share dry-run planning, readback, and rollback.
 
-Remaining in Slice 4: Palette-backed instance Component creation and
-instance-Component removal, reconstruction/registration/attachment/root
-effects, and external-package deletion evidence for removed Actors.
+Slice 4-B progress (branch, not published):
+
+- `add <binding> to @actorGuid.Components` creates the Palette-advertised
+  instance Component on the exact loaded Actor through the native
+  instance-Component path (`NewObject` + `AddInstanceComponent` +
+  `RegisterComponent`, `CreationMethod = Instance`) inside the same top-level
+  transaction, returning the source-qualified slot id;
+- `remove` of an instance Component destroys it; native and SCS Component
+  definitions fail closed with `capability.component_not_removable` (a
+  Class/Blueprint handoff follows in a later increment).
+
+Remaining in Slice 4: reconstruction/registration/attachment/root effects,
+external-package deletion evidence for removed Actors, and the
+native/SCS-Component removal handoff.
 
 ### Slice 5: Save, handoffs, and packaged acceptance
 
