@@ -692,8 +692,7 @@ function isCanonicalTarget(target: QueryTarget): target is CanonicalTarget {
 }
 
 function isPatchTarget(target: QueryTarget): target is PatchTarget {
-  return target.domain !== "pcg"
-    && target.domain !== "pcg_component"
+  return target.domain !== "pcg_component"
     && isCanonicalTarget(target);
 }
 
@@ -948,8 +947,7 @@ function requestTarget(
       );
     }
     if (requestKind === "patch") {
-      if (explicit.target.domain === "pcg"
-        || explicit.target.domain === "pcg_component") {
+      if (explicit.target.domain === "pcg_component") {
         throw new ParseError(
           "language.invalid_patch_target",
           `${explicit.target.domain} is Query-only in this protocol version and cannot be selected by Patch.`,

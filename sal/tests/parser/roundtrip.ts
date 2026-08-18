@@ -89,6 +89,11 @@ nodes`,
 
 query forestComponent
 summary`,
+  `forest = target {domain: pcg, asset: "/Game/PCG/PCG_Forest.PCG_Forest", type: "/Script/PCG.PCGGraph"}
+
+patch forest dry run
+sample = {palette: "pcg.node.<digest>"}
+add sample`,
   `g = target {domain: graph, asset: "/Game/Doors/BP_Door.BP_Door", blueprintId: "${blueprintId}", id: "${graphId}"}
 
 query g

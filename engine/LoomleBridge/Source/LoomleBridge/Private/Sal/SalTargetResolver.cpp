@@ -398,12 +398,6 @@ bool FSalTargetResolver::ResolveTarget(
 
     if (Domain == TEXT("pcg"))
     {
-        if (bForPatch)
-        {
-            OutError = InvalidTarget(
-                TEXT("pcg is a Query-only Target and cannot be used by sal_patch."));
-            return false;
-        }
         FString Asset;
         FString ExpectedType;
         Target->TryGetStringField(TEXT("asset"), Asset);

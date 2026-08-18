@@ -620,6 +620,13 @@ bool LowerExpression(
                             Palette,
                             LegacyCreationKind);
                     break;
+                case ESalDomain::Pcg:
+                    LegacyCreationKind =
+                        Palette.StartsWith(TEXT("pcg.node."))
+                            ? TEXT("node")
+                            : FString();
+                    bMapped = !LegacyCreationKind.IsEmpty();
+                    break;
                 default:
                     bMapped = false;
                     break;
@@ -2371,6 +2378,7 @@ TSharedPtr<FJsonObject> DispatchPatch(const FSalPatch& Patch, const FSalResolved
     case ESalDomain::Level:
         return FSalLevelInterface::Patch(Patch, Target);
     case ESalDomain::Pcg:
+        return FSalPCGInterface::Patch(Patch, Target);
     case ESalDomain::PcgComponent:
         return InterfaceError(TEXT("patch"), Target);
     default:

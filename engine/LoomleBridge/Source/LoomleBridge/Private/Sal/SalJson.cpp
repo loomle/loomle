@@ -1143,13 +1143,6 @@ bool ValidateNormalizedTarget(
     }
     if (Domain == TEXT("level") || Domain == TEXT("pcg"))
     {
-        if (Admission == ETargetAdmissionMode::Patch && Domain == TEXT("pcg"))
-        {
-            OutMessage = FString::Printf(
-                TEXT("%s is Query-only in this protocol version and cannot be patched."),
-                *Domain);
-            return false;
-        }
         if (!HasOnly(Value, {TEXT("kind"), TEXT("domain"), TEXT("asset"), TEXT("type")})
             || !Required(TEXT("asset"), Asset)
             || !(bRequiresCanonicalIdentity

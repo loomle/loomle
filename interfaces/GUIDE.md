@@ -249,8 +249,8 @@ or operation parameter.
 Patch statements execute in written order. Dry run follows the same parse,
 resolve, validate, and plan path, then stops before live application.
 Only Domains whose static card defines a Patch surface are Patch Targets;
-`level` admits authored field edits, while `pcg` and `pcg_component` remain
-Query-only in this release.
+`level` admits authored field edits, `pcg` admits Palette-backed Node
+creation, and `pcg_component` remains Query-only in this release.
 
 ## Results And Handoffs
 

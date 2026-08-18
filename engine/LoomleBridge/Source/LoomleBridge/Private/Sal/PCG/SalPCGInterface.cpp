@@ -8,6 +8,7 @@
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Misc/Crc.h"
+#include "Misc/SecureHash.h"
 #include "PCGCommon.h"
 #include "PCGEdge.h"
 #include "PCGGraph.h"
@@ -15,6 +16,7 @@
 #include "PCGPin.h"
 #include "PCGSettings.h"
 #include "UObject/UnrealType.h"
+#include "UObject/UObjectHash.h"
 
 namespace Loomle::Sal
 {
@@ -1723,6 +1725,33 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Query(
     {
         return QueryExactPin(Query, Target, Graph);
     }
+    if (Operation == TEXT("palette_entries"))
+    {
+        FString Search;
+        Query.Operation->TryGetStringField(TEXT("text"), Search);
+        FSalObjectBuilder Builder;
+        FPCGPatchAliasAllocator Aliases;
+        TArray<TSharedPtr<FJsonObject>> Entries;
+        DiscoverPCGNodePaletteEntries(Entries);
+        for (const TSharedPtr<FJsonObject>& Entry : Entries)
+        {
+            if (!Entry.IsValid())
+            {
+                continue;
+            }
+            FString Name;
+            Entry->TryGetStringField(TEXT("name"), Name);
+            if (!Search.IsEmpty()
+                && !Name.Contains(Search, ESearchCase::IgnoreCase))
+            {
+                continue;
+            }
+            Builder.AddLocalBinding(
+                Aliases.Allocate(Name, TEXT("node")),
+                MakeShared<FJsonValueObject>(Entry));
+        }
+        return Builder.BuildResult();
+    }
     return QueryError(
         TEXT("capability.operation_unavailable"),
         FString::Printf(
@@ -1730,7 +1759,7 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Query(
             *Operation),
         Operation,
         FString(),
-        {TEXT("target"), TEXT("summary"), TEXT("nodes"), TEXT("node"), TEXT("pin")});
+        {TEXT("target"), TEXT("summary"), TEXT("nodes"), TEXT("node"), TEXT("pin"), TEXT("palette_entries")});
 }
 
 bool FSalPCGInterface::LowerStableReference(
@@ -1828,5 +1857,444 @@ bool FSalPCGInterface::LowerStableReference(
     OutCode.Reset();
     OutMessage.Reset();
     return true;
+}
+
+class FPCGPatchAliasAllocator
+{
+public:
+    FString Allocate(const FString& Preferred, const FString& Fallback = TEXT("item"))
+    {
+        const FString Base = FSalObjectBuilder::SanitizeIdentifier(Preferred, Fallback);
+        if (!Used.Contains(Base))
+        {
+            Used.Add(Base);
+            return Base;
+        }
+        int32& Suffix = NextSuffix.FindOrAdd(Base);
+        if (Suffix < 2)
+        {
+            Suffix = 2;
+        }
+        for (;;)
+        {
+            const FString Candidate = FString::Printf(
+                TEXT("%s_%d"), *Base, Suffix++);
+            if (!Used.Contains(Candidate))
+            {
+                Used.Add(Candidate);
+                return Candidate;
+            }
+        }
+    }
+private:
+    TSet<FString> Used;
+    TMap<FString, int32> NextSuffix;
+};
+
+// ============================================================================
+// PCG authored mutation (Slice 2-A)
+//
+// Palette-backed Node creation on one exact loaded UPCGGraph. Settings
+// set/reset, move, connection, removal, and save land in later increments and
+// fail closed here. Every creation re-enumerates native UPCGSettings classes
+// and revalidates the opaque Palette id; a raw Settings Class is never
+// accepted.
+// ============================================================================
+
+FString PCGNodePaletteId(const UClass* SettingsClass)
+{
+    return TEXT("pcg.node.")
+        + FSHA1::HashBuffer(
+            *SettingsClass->GetClassPathName().ToString(),
+            SettingsClass->GetClassPathName().ToString().Len()
+                * sizeof(TCHAR)).ToString();
+}
+
+void DiscoverPCGNodePaletteEntries(
+    TArray<TSharedPtr<FJsonObject>>& OutEntries)
+{
+    TArray<UClass*> SettingsClasses;
+    GetDerivedClasses(
+        UPCGSettings::StaticClass(),
+        SettingsClasses);
+    for (UClass* Class : SettingsClasses)
+    {
+        if (Class == nullptr
+            || Class->HasAnyClassFlags(CLASS_Abstract)
+            || Class->HasAnyClassFlags(CLASS_Deprecated))
+        {
+            continue;
+        }
+        const UPCGSettings* CDO = Class->GetDefaultObject<UPCGSettings>();
+        if (CDO == nullptr || !CDO->bExposeToLibrary)
+        {
+            continue;
+        }
+        TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+        Entry->SetStringField(
+            TEXT("palette"),
+            PCGNodePaletteId(Class));
+        Entry->SetStringField(
+            TEXT("name"),
+            Class->GetDisplayNameText().ToString());
+        Entry->SetStringField(
+            TEXT("type"),
+            Class->GetClassPathName().ToString());
+        Entry->SetStringField(TEXT("creation"), TEXT("available"));
+        OutEntries.Add(Entry);
+    }
+}
+
+bool ResolvePCGNodePaletteEntry(
+    const FString& PaletteId,
+    const UPCGSettings*& OutCDO)
+{
+    OutCDO = nullptr;
+    TArray<UClass*> SettingsClasses;
+    GetDerivedClasses(
+        UPCGSettings::StaticClass(),
+        SettingsClasses);
+    for (UClass* Class : SettingsClasses)
+    {
+        if (Class == nullptr
+            || Class->HasAnyClassFlags(CLASS_Abstract)
+            || Class->HasAnyClassFlags(CLASS_Deprecated))
+        {
+            continue;
+        }
+        const UPCGSettings* CDO = Class->GetDefaultObject<UPCGSettings>();
+        if (CDO == nullptr || !CDO->bExposeToLibrary)
+        {
+            continue;
+        }
+        if (PCGNodePaletteId(Class) == PaletteId)
+        {
+            OutCDO = CDO;
+            return true;
+        }
+    }
+    return false;
+}
+
+TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
+    const FSalPatch& Patch,
+    const FSalResolvedTarget& Target)
+{
+    const TSharedPtr<FJsonObject> NoObjects =
+        FSalObjectBuilder().BuildObject();
+
+    if (Target.Domain != ESalDomain::Pcg || !IsValid(Target.Object))
+    {
+        return MakeMutationResult(
+            NoObjects,
+            {FSalDiagnostics::Error(
+                    TEXT("validation.exact_pcg_graph_required"),
+                    TEXT("PCG Patch requires the canonical exact loaded "
+                        "PCG Graph Target."))
+                .Interface(TEXT("pcg"))
+                .Build()},
+            Patch.bDryRun,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("pcg"));
+    }
+    UPCGGraph* Graph = Cast<UPCGGraph>(Target.Object);
+    if (Graph == nullptr
+        || Graph->GetOutermost() == GetTransientPackage()
+        || Graph->GetOutermost()->HasAnyFlags(RF_Transient)
+        || FPackageName::IsTempPackage(Graph->GetOutermost()->GetName()))
+    {
+        return MakeMutationResult(
+            NoObjects,
+            {FSalDiagnostics::Error(
+                    TEXT("validation.exact_pcg_graph_required"),
+                    TEXT("PCG Patch requires a persistent authored PCG "
+                        "Graph asset."))
+                .Interface(TEXT("pcg"))
+                .Build()},
+            Patch.bDryRun,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("pcg"));
+    }
+
+    TArray<TSharedPtr<FJsonObject>> Diagnostics;
+    TMap<FString, FString> Bindings; // alias -> palette id
+    for (const TSharedPtr<FJsonValue>& StatementValue : Patch.Statements)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        if (!StatementValue.IsValid()
+            || !StatementValue->TryGetObject(Statement)
+            || Statement == nullptr
+            || !(*Statement).IsValid())
+        {
+            continue;
+        }
+        const bool bBinding = (*Statement)->HasField(TEXT("target"))
+            && (*Statement)->HasField(TEXT("value"))
+            && !(*Statement)->HasField(TEXT("kind"));
+        if (!bBinding)
+        {
+            continue;
+        }
+        const TSharedPtr<FJsonObject>* TargetRef = nullptr;
+        const TSharedPtr<FJsonObject>* Value = nullptr;
+        FString Alias;
+        FString ValueKind;
+        const TSharedPtr<FJsonObject>* Args = nullptr;
+        if ((*Statement)->TryGetObjectField(TEXT("target"), TargetRef)
+            && TargetRef != nullptr
+            && (*TargetRef)->TryGetStringField(TEXT("name"), Alias)
+            && (*Statement)->TryGetObjectField(TEXT("value"), Value)
+            && Value != nullptr
+            && (*Value)->TryGetStringField(TEXT("kind"), ValueKind)
+            && ValueKind == TEXT("call")
+            && (*Value)->TryGetObjectField(TEXT("args"), Args)
+            && Args != nullptr)
+        {
+            FString PaletteId;
+            if ((*Args)->TryGetStringField(TEXT("palette"), PaletteId)
+                && !PaletteId.IsEmpty())
+            {
+                Bindings.Add(Alias, PaletteId);
+            }
+        }
+    }
+
+    struct FCreatedNode
+    {
+        FString Alias;
+        FString PaletteId;
+        TWeakObjectPtr<UPCGNode> Node;
+    };
+    TArray<FCreatedNode> Created;
+    for (const TSharedPtr<FJsonValue>& StatementValue : Patch.Statements)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        if (!StatementValue.IsValid()
+            || !StatementValue->TryGetObject(Statement)
+            || Statement == nullptr
+            || !(*Statement).IsValid())
+        {
+            continue;
+        }
+        const bool bBinding = (*Statement)->HasField(TEXT("target"))
+            && (*Statement)->HasField(TEXT("value"))
+            && !(*Statement)->HasField(TEXT("kind"));
+        if (bBinding)
+        {
+            continue;
+        }
+        FString Kind;
+        (*Statement)->TryGetStringField(TEXT("kind"), Kind);
+        if (Kind != TEXT("add"))
+        {
+            Diagnostics.Add(
+                FSalDiagnostics::Error(
+                    TEXT("capability.operation_unavailable"),
+                    FString::Printf(
+                        TEXT("PCG Patch does not yet support the %s "
+                            "statement in this capability; supported "
+                            "statements are add."),
+                        *Kind))
+                    .Interface(TEXT("pcg"))
+                    .Operation(Kind)
+                    .Build());
+            continue;
+        }
+        const TSharedPtr<FJsonObject>* TargetRef = nullptr;
+        FString Alias;
+        if (!(*Statement)->TryGetObjectField(TEXT("target"), TargetRef)
+            || TargetRef == nullptr
+            || !(*TargetRef)->TryGetStringField(TEXT("name"), Alias))
+        {
+            Diagnostics.Add(
+                FSalDiagnostics::Error(
+                    TEXT("validation.creation_invalid"),
+                    TEXT("PCG add requires one declared creation binding "
+                        "alias."))
+                    .Interface(TEXT("pcg"))
+                    .Operation(TEXT("add"))
+                    .Build());
+            continue;
+        }
+        const FString* PaletteId = Bindings.Find(Alias);
+        if (PaletteId == nullptr)
+        {
+            Diagnostics.Add(
+                FSalDiagnostics::Error(
+                    TEXT("resolution.binding_not_found"),
+                    TEXT("PCG add references no declared Palette creation "
+                        "binding."))
+                    .Interface(TEXT("pcg"))
+                    .Operation(TEXT("add"))
+                    .Ref(Alias)
+                    .Build());
+            continue;
+        }
+        const UPCGSettings* CDO = nullptr;
+        if (!ResolvePCGNodePaletteEntry(*PaletteId, CDO))
+        {
+            Diagnostics.Add(
+                FSalDiagnostics::Error(
+                    TEXT("resolution.palette_not_found"),
+                    TEXT("PCG Palette identity was not found for this "
+                        "exact Graph; re-run palette entries."))
+                    .Interface(TEXT("pcg"))
+                    .Operation(TEXT("add"))
+                    .Ref(*PaletteId)
+                    .Build());
+            continue;
+        }
+        FCreatedNode CreatedNode;
+        CreatedNode.Alias = Alias;
+        CreatedNode.PaletteId = *PaletteId;
+        Created.Add(MoveTemp(CreatedNode));
+    }
+
+    if (!Diagnostics.IsEmpty())
+    {
+        return MakeMutationResult(
+            NoObjects,
+            Diagnostics,
+            Patch.bDryRun,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("pcg"));
+    }
+    if (Created.IsEmpty())
+    {
+        return MakeMutationResult(
+            NoObjects,
+            {FSalDiagnostics::Error(
+                    TEXT("validation.no_operations"),
+                    TEXT("PCG Patch contained no supported add "
+                        "statements."))
+                .Interface(TEXT("pcg"))
+                .Build()},
+            Patch.bDryRun,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("pcg"));
+    }
+
+    if (Patch.bDryRun)
+    {
+        TSharedPtr<FJsonObject> Planned = MakeShared<FJsonObject>();
+        TArray<TSharedPtr<FJsonValue>> Operations;
+        for (const FCreatedNode& CreatedNode : Created)
+        {
+            TSharedPtr<FJsonObject> Operation = MakeShared<FJsonObject>();
+            Operation->SetStringField(TEXT("kind"), TEXT("add"));
+            Operation->SetStringField(TEXT("alias"), CreatedNode.Alias);
+            Operation->SetStringField(
+                TEXT("palette"),
+                CreatedNode.PaletteId);
+            Operations.Add(MakeShared<FJsonValueObject>(Operation));
+        }
+        Planned->SetArrayField(TEXT("operations"), Operations);
+        return MakeMutationResult(
+            NoObjects,
+            {},
+            true,
+            true,
+            false,
+            Target.AssetPath,
+            TEXT("pcg"),
+            Planned);
+    }
+
+    FScopedTransaction Transaction(
+        FText::FromString(TEXT("SAL Edit PCG Graph")));
+    if (!Transaction.IsOutstanding())
+    {
+        return MakeMutationResult(
+            NoObjects,
+            {FSalDiagnostics::Error(
+                    TEXT("capability.transaction_unavailable"),
+                    TEXT("UE did not open the required PCG Patch "
+                        "transaction."))
+                .Interface(TEXT("pcg"))
+                .Build()},
+            false,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("pcg"));
+    }
+    Graph->Modify();
+    FSalObjectBuilder ResultBuilder;
+    FPCGPatchAliasAllocator ResultAliases;
+    for (FCreatedNode& CreatedNode : Created)
+    {
+        const UPCGSettings* CDO = nullptr;
+        if (!ResolvePCGNodePaletteEntry(
+                CreatedNode.PaletteId,
+                CDO)
+            || CDO == nullptr)
+        {
+            Transaction.Cancel();
+            return MakeMutationResult(
+                NoObjects,
+                {FSalDiagnostics::Error(
+                        TEXT("resolution.palette_not_found"),
+                        TEXT("PCG Palette identity became stale before "
+                            "apply; the transaction was rolled back."))
+                    .Interface(TEXT("pcg"))
+                    .Operation(TEXT("add"))
+                    .Build()},
+                false,
+                false,
+                false,
+                Target.AssetPath,
+                TEXT("pcg"));
+        }
+        UPCGSettings* DefaultSettings = nullptr;
+        UPCGNode* NewNode = Graph->AddNodeOfType(
+            CDO->GetClass(),
+            DefaultSettings);
+        if (NewNode == nullptr)
+        {
+            Transaction.Cancel();
+            return MakeMutationResult(
+                NoObjects,
+                {FSalDiagnostics::Error(
+                        TEXT("validation.apply_failed"),
+                        TEXT("UE failed to create the requested PCG "
+                            "Node."))
+                    .Interface(TEXT("pcg"))
+                    .Operation(TEXT("add"))
+                    .Ref(CreatedNode.PaletteId)
+                    .Build()},
+                false,
+                false,
+                false,
+                Target.AssetPath,
+                TEXT("pcg"));
+        }
+        CreatedNode.Node = NewNode;
+        TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
+        Args->SetStringField(
+            TEXT("id"),
+            NewNode->GetFName().ToString());
+        Args->SetStringField(
+            TEXT("type"),
+            NewNode->GetClass()->GetPathName());
+        ResultBuilder.AddLocalBinding(
+            ResultAliases.Allocate(CreatedNode.Alias, TEXT("node")),
+            Value::Call(TEXT("node"), Args));
+    }
+    return MakeMutationResult(
+        ResultBuilder.BuildObject(),
+        {},
+        false,
+        true,
+        true,
+        Target.AssetPath,
+        TEXT("pcg"));
 }
 }

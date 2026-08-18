@@ -93,7 +93,7 @@ assert.doesNotMatch(guide, /editor_context/);
 assert.match(guide, /## Schema Discovery/);
 assert.match(guide, /operation-less form is the shared exact-target read/);
 assert.match(guide, /nine active Domain interface cards/);
-assert.match(guide, /`pcg` and `pcg_component` remain[\s\S]*Query-only/);
+assert.match(guide, /`pcg` admits Palette-backed Node creation/);
 assert.deepEqual(
   catalog.map(({ name }) => name),
   expectedNames,

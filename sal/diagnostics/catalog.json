@@ -91,6 +91,12 @@
             "title": "Patch unavailable"
         },
         {
+            "code": "capability.pcg_async_unproven",
+            "layer": "capability",
+            "defaultSeverity": "error",
+            "title": "PCG async suppression unproven"
+        },
+        {
             "code": "capability.pcg_derived_guard",
             "layer": "capability",
             "defaultSeverity": "error",
@@ -1159,6 +1165,12 @@
             "title": "Exact Level required"
         },
         {
+            "code": "validation.exact_pcg_graph_required",
+            "layer": "validation",
+            "defaultSeverity": "error",
+            "title": "Exact PCG Graph required"
+        },
+        {
             "code": "validation.exact_widget_blueprint_required",
             "layer": "validation",
             "defaultSeverity": "error",
@@ -1343,6 +1355,12 @@
             "layer": "validation",
             "defaultSeverity": "error",
             "title": "Replacement is the target object"
+        },
+        {
+            "code": "validation.required_actor_protected",
+            "layer": "validation",
+            "defaultSeverity": "error",
+            "title": "Required actor protected"
         },
         {
             "code": "validation.reset_source_unavailable",

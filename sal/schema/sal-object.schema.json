@@ -600,7 +600,8 @@
         { "$ref": "#/$defs/CanonicalGraphTarget" },
         { "$ref": "#/$defs/CanonicalStateTreeTarget" },
         { "$ref": "#/$defs/CanonicalWidgetTarget" },
-        { "$ref": "#/$defs/CanonicalLevelTarget" }
+        { "$ref": "#/$defs/CanonicalLevelTarget" },
+        { "$ref": "#/$defs/CanonicalPcgTarget" }
       ]
     },
     "QueryTargetBinding": {

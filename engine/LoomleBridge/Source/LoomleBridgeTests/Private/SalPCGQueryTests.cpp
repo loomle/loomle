@@ -45,6 +45,29 @@ TArray<TSharedPtr<FJsonValue>> StringValues(
     return Values;
 }
 
+
+bool PcgMutationHasField(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& Field,
+    bool& OutValue)
+{
+    OutValue = false;
+    return Result.IsValid()
+        && Result->TryGetBoolField(Field, OutValue);
+}
+
+TArray<TSharedPtr<FJsonValue>> PCGStringValues(
+    const TArray<FString>& Strings)
+{
+    TArray<TSharedPtr<FJsonValue>> Values;
+    Values.Reserve(Strings.Num());
+    for (const FString& String : Strings)
+    {
+        Values.Add(MakeShared<FJsonValueString>(String));
+    }
+    return Values;
+}
+
 TSharedRef<FJsonObject> PcgTarget(
     const FString& Asset,
     const FString& Type = FString())
@@ -2485,6 +2508,211 @@ bool FSalPcgSavedIdentityRoundTripTest::RunTest(
         bCleaned);
     return true;
 }
+
+// ============================================================================
+// PCG authored mutation (Slice 2-A) tests
+// ============================================================================
+
+TSharedRef<FJsonObject> PcgPatchArguments(
+    const TSharedRef<FJsonObject>& Target,
+    const TArray<TSharedPtr<FJsonValue>>& Statements,
+    const bool bDryRun = false)
+{
+    TSharedRef<FJsonObject> Binding = MakeShared<FJsonObject>();
+    Binding->SetStringField(TEXT("alias"), TEXT("pcg_scope"));
+    Binding->SetObjectField(TEXT("target"), Target);
+    TSharedRef<FJsonObject> Patch = MakeShared<FJsonObject>();
+    Patch->SetStringField(TEXT("kind"), TEXT("patch"));
+    Patch->SetObjectField(TEXT("target"), Binding);
+    Patch->SetBoolField(TEXT("dryRun"), bDryRun);
+    Patch->SetArrayField(TEXT("statements"), Statements);
+    TSharedRef<FJsonObject> Arguments = MakeShared<FJsonObject>();
+    Arguments->SetObjectField(TEXT("object"), Patch);
+    return Arguments;
+}
+
+TArray<TSharedPtr<FJsonValue>> PcgAddNodeStatements(
+    const FString& Alias,
+    const FString& PaletteId)
+{
+    TSharedRef<FJsonObject> BindingTarget = MakeShared<FJsonObject>();
+    BindingTarget->SetStringField(TEXT("kind"), TEXT("local"));
+    BindingTarget->SetStringField(TEXT("name"), Alias);
+    TSharedRef<FJsonObject> Value = MakeShared<FJsonObject>();
+    Value->SetStringField(TEXT("kind"), TEXT("object"));
+    TSharedRef<FJsonObject> Fields = MakeShared<FJsonObject>();
+    Fields->SetStringField(TEXT("palette"), PaletteId);
+    Value->SetObjectField(TEXT("fields"), Fields);
+    TSharedRef<FJsonObject> BindingStatement = MakeShared<FJsonObject>();
+    BindingStatement->SetObjectField(TEXT("target"), BindingTarget);
+    BindingStatement->SetObjectField(TEXT("value"), Value);
+
+    TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
+    Statement->SetStringField(TEXT("kind"), TEXT("add"));
+    TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("local"));
+    Target->SetStringField(TEXT("name"), Alias);
+    Statement->SetObjectField(TEXT("target"), Target);
+    return {
+        MakeShared<FJsonValueObject>(BindingStatement),
+        MakeShared<FJsonValueObject>(Statement),
+    };
+}
+
+TArray<FString> CollectPCGNodePaletteIds(
+    const TSharedPtr<FJsonObject>& Result)
+{
+    TArray<FString> Out;
+    const TSharedPtr<FJsonObject>* Object = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* Statements = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetObjectField(TEXT("object"), Object)
+        || Object == nullptr
+        || !(*Object).IsValid()
+        || !(*Object)->TryGetArrayField(TEXT("statements"), Statements)
+        || Statements == nullptr)
+    {
+        return Out;
+    }
+    for (const TSharedPtr<FJsonValue>& StatementValue : *Statements)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        const TSharedPtr<FJsonObject>* Value = nullptr;
+        const TSharedPtr<FJsonObject>* Args = nullptr;
+        FString ValueKind;
+        if (StatementValue.IsValid()
+            && StatementValue->TryGetObject(Statement)
+            && Statement != nullptr
+            && (*Statement).IsValid()
+            && (*Statement)->TryGetObjectField(TEXT("value"), Value)
+            && Value != nullptr
+            && (*Value).IsValid()
+            && (*Value)->TryGetStringField(TEXT("kind"), ValueKind)
+            && ValueKind == TEXT("object")
+            && (*Value)->TryGetObjectField(TEXT("fields"), Args)
+            && Args != nullptr)
+        {
+            FString PaletteId;
+            if ((*Args)->TryGetStringField(TEXT("palette"), PaletteId)
+                && !PaletteId.IsEmpty())
+            {
+                Out.Add(PaletteId);
+            }
+        }
+    }
+    return Out;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalPcgPatchNodeCreationTest,
+    "Loomle.Sal.PCG.Patch.NodeCreation",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalPcgPatchNodeCreationTest::RunTest(
+    const FString& Parameters)
+{
+    FScopedPersistentPcgQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("PCG Patch fixture creates and saves"), Fixture.CreateAndSave(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const FString GraphPath = Fixture.ObjectPath;
+    const int32 NodeCountBefore = Fixture.Graph->GetNodes().Num();
+    const TSharedRef<FJsonObject> Target = PcgTarget(GraphPath);
+
+    // Discover one node Palette entry.
+    const TSharedPtr<FJsonObject> PaletteResult =
+        FSalModule::BuildQueryResult(
+            QueryArguments(Target, Operation(TEXT("palette_entries"))));
+    const TArray<FString> PaletteIds =
+        CollectPCGNodePaletteIds(PaletteResult);
+    if (!TestTrue(
+            TEXT("PCG node Palette exposes at least one entry"),
+            !PaletteIds.IsEmpty()))
+    {
+        return false;
+    }
+
+    // Dry run plans without creating.
+    const TSharedPtr<FJsonObject> DryRun =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                PcgAddNodeStatements(TEXT("sample"), PaletteIds[0]),
+                true));
+    bool bValid = false;
+    bool bApplied = false;
+    TestTrue(
+        TEXT("PCG node add dry-run validates"),
+        PcgMutationHasField(DryRun, TEXT("valid"), bValid) && bValid);
+    TestTrue(
+        TEXT("PCG node add dry-run does not apply"),
+        PcgMutationHasField(DryRun, TEXT("applied"), bApplied) && !bApplied);
+    TestEqual(
+        TEXT("PCG node add dry-run creates nothing"),
+        Fixture.Graph->GetNodes().Num(),
+        NodeCountBefore);
+
+    // Live add creates the Node.
+    const TSharedPtr<FJsonObject> AddResult =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                PcgAddNodeStatements(TEXT("sample"), PaletteIds[0])));
+    TestTrue(
+        TEXT("PCG node add applies"),
+        PcgMutationHasField(AddResult, TEXT("applied"), bApplied) && bApplied);
+    TestTrue(
+        TEXT("PCG node add is valid"),
+        PcgMutationHasField(AddResult, TEXT("valid"), bValid) && bValid);
+    TestEqual(
+        TEXT("PCG node add created one Node"),
+        Fixture.Graph->GetNodes().Num(),
+        NodeCountBefore + 1);
+
+    // Unsupported statements fail closed.
+    TSharedRef<FJsonObject> SetStatement = MakeShared<FJsonObject>();
+    SetStatement->SetStringField(TEXT("kind"), TEXT("set"));
+    TSharedRef<FJsonObject> SetTarget = MakeShared<FJsonObject>();
+    SetTarget->SetStringField(TEXT("kind"), TEXT("member"));
+    TSharedRef<FJsonObject> SetOwner = MakeShared<FJsonObject>();
+    SetOwner->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    SetOwner->SetArrayField(
+        TEXT("identityPath"),
+        PCGStringValues({TEXT("SomeNode")}));
+    SetTarget->SetObjectField(TEXT("object"), SetOwner);
+    SetTarget->SetArrayField(
+        TEXT("path"),
+        PCGStringValues({TEXT("SomeField")}));
+    SetStatement->SetObjectField(TEXT("target"), SetTarget);
+    SetStatement->SetStringField(TEXT("value"), TEXT("1"));
+    const TSharedPtr<FJsonObject> SetResult =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                {MakeShared<FJsonValueObject>(SetStatement)}));
+    TestTrue(
+        TEXT("PCG Patch rejects unsupported statements"),
+        PcgMutationHasField(SetResult, TEXT("valid"), bValid) && !bValid);
+
+    if (GEditor != nullptr && GEditor->Trans != nullptr)
+    {
+        GEditor->Trans->Reset(FText::FromString(TEXT("SAL test cleanup")));
+    }
+    if (Fixture.Graph->GetOutermost() != nullptr)
+    {
+        Fixture.Graph->GetOutermost()->SetDirtyFlag(false);
+    }
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
 }
 
 #endif
