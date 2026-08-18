@@ -548,11 +548,25 @@ bool FLoomleBridgePythonSalObjectProjectionTest::RunTest(const FString& Paramete
 
     TestFalse(TEXT("A sal.object() script is not a dispatch error"), DispatchResult.bIsError);
     FString Status;
+    const bool bSucceeded = Payload.IsValid()
+        && Payload->TryGetStringField(TEXT("status"), Status)
+        && Status == TEXT("succeeded");
+    if (!bSucceeded)
+    {
+        FString Dump = TEXT("(null)");
+        if (Payload.IsValid())
+        {
+            FJsonSerializer::Serialize(
+                Payload.ToSharedRef(),
+                TJsonWriterFactory<>::Create(&Dump));
+        }
+        AddError(FString::Printf(
+            TEXT("sal.object() script payload: %s"),
+            *Dump));
+    }
     TestTrue(
         TEXT("The sal.object() script succeeds"),
-        Payload.IsValid()
-            && Payload->TryGetStringField(TEXT("status"), Status)
-            && Status == TEXT("succeeded"));
+        bSucceeded);
 
     const TSharedPtr<FJsonObject>* Annex = nullptr;
     TestTrue(

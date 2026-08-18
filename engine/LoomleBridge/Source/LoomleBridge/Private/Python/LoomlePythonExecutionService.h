@@ -12,6 +12,7 @@ struct FLoomleBridgeRpcTestAccess;
 namespace Loomle::Runtime
 {
 class FGameThreadAdmission;
+class FLoomleAsyncKernel;
 }
 
 namespace Loomle::Python
@@ -45,19 +46,13 @@ private:
     bool TickExecution(float DeltaTime);
     void Execute(const FExecutionPtr& Execution);
     void RemoveExecutionLocked(const FExecutionPtr& Execution);
-    void CleanupExpiredLocked(double NowSeconds);
-    TSharedPtr<FJsonObject> BuildSnapshotLocked(
-        const FExecutionPtr& Execution,
-        bool bIncludeExecutionId,
-        bool bExposeIfRunning);
 
 private:
     mutable FCriticalSection Mutex;
     TMap<FString, FExecutionPtr> Executions;
-    TMap<FString, double> ExpiredExecutionIds;
-    FString ActiveExecutionId;
     FExecutionPtr PendingExecution;
     TSharedPtr<Loomle::Runtime::FGameThreadAdmission, ESPMode::ThreadSafe> PendingAdmission;
+    TSharedPtr<Loomle::Runtime::FLoomleAsyncKernel> Kernel;
     TFunction<void()> GameThreadProgress;
     FTSTicker::FDelegateHandle ExecutionTickerHandle;
     bool bShuttingDown = false;

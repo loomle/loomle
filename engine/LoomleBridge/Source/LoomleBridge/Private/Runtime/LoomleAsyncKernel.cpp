@@ -41,18 +41,33 @@ TSharedPtr<FJsonObject> ParseObject(const FString& Text)
         : nullptr;
 }
 
-TSharedPtr<FJsonObject> MakeKernelError(
+TSharedPtr<FJsonObject> MakeKernelDispatchError(
     const FString& Code,
     const FString& Message)
 {
     TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
+    Error->SetBoolField(TEXT("isError"), true);
     Error->SetStringField(TEXT("code"), Code);
     Error->SetStringField(TEXT("message"), Message.IsEmpty() ? Code : Message);
     return Error;
 }
 
+TSharedPtr<FJsonObject> MakeKernelTerminalError(
+    const FString& Code,
+    const FString& Phase,
+    const FString& Message)
+{
+    TSharedPtr<FJsonObject> Error = MakeShared<FJsonObject>();
+    Error->SetStringField(TEXT("code"), Code);
+    Error->SetStringField(TEXT("phase"), Phase);
+    Error->SetStringField(TEXT("message"), Message.IsEmpty() ? Code : Message);
+    Error->SetBoolField(TEXT("retryable"), false);
+    return Error;
+}
+
 TSharedPtr<FJsonObject> MakeTerminalFailure(
     const FString& Code,
+    const FString& Phase,
     const FString& Message,
     const bool bStateMayHaveChanged)
 {
@@ -61,7 +76,7 @@ TSharedPtr<FJsonObject> MakeTerminalFailure(
     Result->SetBoolField(TEXT("stateMayHaveChanged"), bStateMayHaveChanged);
     Result->SetObjectField(
         TEXT("error"),
-        MakeKernelError(Code, Message));
+        MakeKernelTerminalError(Code, Phase, Message));
     return Result;
 }
 
@@ -104,10 +119,11 @@ void FLoomleAsyncKernel::Shutdown()
             Record->State == EState::Running);
         Lost->SetObjectField(
             TEXT("error"),
-            MakeKernelError(
+            MakeKernelTerminalError(
                 Profile != nullptr
                     ? Profile->LostCode
                     : TEXT("runtime.execution_lost"),
+                TEXT("runtime"),
                 Profile != nullptr
                     ? Profile->LostMessage
                     : TEXT("The Editor runtime that owned this execution is "
@@ -136,7 +152,7 @@ FLoomleAsyncKernel::FRecordPtr FLoomleAsyncKernel::Allocate(
     CleanupExpiredLocked(FPlatformTime::Seconds());
     if (bShuttingDown)
     {
-        OutError = MakeKernelError(
+        OutError = MakeKernelDispatchError(
             TEXT("runtime.editor_shutting_down"),
             TEXT("Unreal Editor is shutting down."));
         return nullptr;
@@ -144,7 +160,7 @@ FLoomleAsyncKernel::FRecordPtr FLoomleAsyncKernel::Allocate(
     const FProfile* Profile = ProfileLocked(Namespace);
     if (Profile == nullptr)
     {
-        OutError = MakeKernelError(
+        OutError = MakeKernelDispatchError(
             TEXT("runtime.kernel_unavailable"),
             TEXT("The requested execution frontend is not registered."));
         return nullptr;
@@ -152,7 +168,9 @@ FLoomleAsyncKernel::FRecordPtr FLoomleAsyncKernel::Allocate(
     const FString* Active = ActiveIds.Find(Namespace);
     if (Active != nullptr && !Active->IsEmpty())
     {
-        OutError = MakeKernelError(Profile->BusyCode, Profile->BusyMessage);
+        OutError = MakeKernelDispatchError(
+            Profile->BusyCode,
+            Profile->BusyMessage);
         const FRecordPtr* ActiveRecord = Records.Find(*Active);
         if (ActiveRecord != nullptr
             && (*ActiveRecord).IsValid()
@@ -256,6 +274,7 @@ TSharedPtr<FJsonObject> FLoomleAsyncKernel::SnapshotLocked(
     {
         return MakeTerminalFailure(
             TEXT("runtime.execution_lost"),
+            TEXT("runtime"),
             TEXT("The execution record is unavailable."),
             true);
     }
@@ -266,6 +285,7 @@ TSharedPtr<FJsonObject> FLoomleAsyncKernel::SnapshotLocked(
         {
             Terminal = MakeTerminalFailure(
                 TEXT("runtime.execution_failed"),
+                TEXT("result"),
                 TEXT("The retained execution result is invalid."),
                 true);
         }
@@ -326,7 +346,7 @@ TSharedPtr<FJsonObject> FLoomleAsyncKernel::Poll(
     {
         if (ExpiredIds.Contains(ExecutionId))
         {
-            OutError = MakeKernelError(
+            OutError = MakeKernelDispatchError(
                 Profile != nullptr
                     ? Profile->ExpiredCode
                     : TEXT("runtime.execution_expired"),
@@ -335,7 +355,7 @@ TSharedPtr<FJsonObject> FLoomleAsyncKernel::Poll(
                     : TEXT("The retained execution result has expired."));
             return nullptr;
         }
-        OutError = MakeKernelError(
+        OutError = MakeKernelDispatchError(
             Profile != nullptr
                 ? Profile->NotFoundCode
                 : TEXT("runtime.execution_not_found"),

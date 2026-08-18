@@ -2,6 +2,7 @@
 
 #include "Python/LoomlePythonExecutionService.h"
 
+#include "../Runtime/LoomleAsyncKernel.h"
 #include "../Sal/SalProjectionService.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
@@ -31,17 +32,9 @@ constexpr int64 MaxResultUtf8Bytes = 1024 * 1024;
 constexpr int64 MaxRunnerDocumentUtf8Bytes = 16 * 1024 * 1024;
 constexpr int32 MaxLogEntries = 1000;
 constexpr int64 MaxLogUtf8Bytes = 256 * 1024;
-constexpr double TerminalRetentionSeconds = 30.0 * 60.0;
 constexpr int32 PollAfterMs = 1000;
 
 using FCondensedJsonWriter = TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>;
-
-enum class EExecutionState : uint8
-{
-    Prepared,
-    Running,
-    Terminal,
-};
 
 TSharedPtr<FJsonObject> MakeDispatchError(const FString& Code, const FString& Message)
 {
@@ -337,15 +330,10 @@ void DeleteExecutionFiles(const FString& SourcePath, const FString& RunnerPath, 
 
 struct FPythonExecutionService::FExecution
 {
-    FString Id;
     FString SourcePath;
     FString RunnerPath;
     FString ResultPath;
-    EExecutionState State = EExecutionState::Prepared;
-    bool bExposed = false;
-    double StartedAtSeconds = 0.0;
-    double TerminalAtSeconds = 0.0;
-    FString TerminalJson;
+    Loomle::Runtime::FLoomleAsyncKernel::FRecordPtr KernelRecord;
 };
 
 void FPythonExecutionService::Startup(TFunction<void()> InGameThreadProgress)
@@ -354,8 +342,41 @@ void FPythonExecutionService::Startup(TFunction<void()> InGameThreadProgress)
     {
         FScopeLock Lock(&Mutex);
         bShuttingDown = false;
-        ExpiredExecutionIds.Reset();
+        if (!Kernel.IsValid())
+        {
+            Kernel = MakeShared<Loomle::Runtime::FLoomleAsyncKernel>();
+        }
         GameThreadProgress = MoveTemp(InGameThreadProgress);
+    }
+    Loomle::Runtime::FLoomleAsyncKernel::FProfile Profile;
+    Profile.Namespace = TEXT("python");
+    Profile.BusyCode = TEXT("runtime.python_busy");
+    Profile.BusyMessage = TEXT(
+        "Another Python fallback execution is already active.");
+    Profile.NotFoundCode = TEXT("runtime.python_execution_not_found");
+    Profile.NotFoundMessage = TEXT(
+        "The Python execution id is not available in this Editor runtime.");
+    Profile.ExpiredCode = TEXT("runtime.python_execution_expired");
+    Profile.ExpiredMessage = TEXT(
+        "The retained Python execution result has expired.");
+    Profile.LostCode = TEXT("runtime.python_execution_lost");
+    Profile.LostMessage = TEXT(
+        "The Editor runtime that owned this Python execution is shutting "
+        "down.");
+    Profile.PollToolName = TEXT("python");
+    Profile.PollAfterMs = PollAfterMs;
+    Profile.BuildPollArguments =
+        [](const FString& ExecutionId)
+        {
+            TSharedPtr<FJsonObject> PollArguments = MakeShared<FJsonObject>();
+            PollArguments->SetStringField(TEXT("operation"), TEXT("poll"));
+            PollArguments->SetStringField(TEXT("executionId"), ExecutionId);
+            return PollArguments;
+        };
+    if (Kernel.IsValid())
+    {
+        Kernel->RegisterProfile(Profile);
+        Kernel->Startup();
     }
     if (IPythonScriptPlugin* Python = FModuleManager::LoadModulePtr<IPythonScriptPlugin>(TEXT("PythonScriptPlugin")))
     {
@@ -384,29 +405,24 @@ void FPythonExecutionService::Shutdown()
     bShuttingDown = true;
     Admission = MoveTemp(PendingAdmission);
     PendingExecution.Reset();
-    const double Now = FPlatformTime::Seconds();
+    // The kernel marks every non-terminal record lost through the python
+    // profile; the frontend only deletes its staged files and drops its map.
+    if (Kernel.IsValid())
+    {
+        Kernel->Shutdown();
+    }
     for (const TPair<FString, FExecutionPtr>& Pair : Executions)
     {
         const FExecutionPtr& Execution = Pair.Value;
-        if (Execution->State == EExecutionState::Terminal)
+        if (Execution.IsValid())
         {
-            continue;
+            DeleteExecutionFiles(
+                Execution->SourcePath,
+                Execution->RunnerPath,
+                Execution->ResultPath);
         }
-        TSharedPtr<FJsonObject> Lost = MakeShared<FJsonObject>();
-        Lost->SetStringField(TEXT("status"), TEXT("lost"));
-        Lost->SetBoolField(TEXT("stateMayHaveChanged"), Execution->State == EExecutionState::Running);
-        Lost->SetObjectField(
-            TEXT("error"),
-            MakeExecutionError(
-                TEXT("runtime.python_execution_lost"),
-                TEXT("runtime"),
-                TEXT("The Editor runtime that owned this Python execution is shutting down.")));
-        Execution->TerminalJson = SerializeObject(Lost);
-        Execution->TerminalAtSeconds = Now;
-        Execution->State = EExecutionState::Terminal;
-        DeleteExecutionFiles(Execution->SourcePath, Execution->RunnerPath, Execution->ResultPath);
     }
-    ActiveExecutionId.Reset();
+    Executions.Reset();
     GameThreadProgress = TFunction<void()>();
     Lock.Unlock();
     if (Admission.IsValid())
@@ -434,9 +450,9 @@ FPythonExecutionService::FExecutionPtr FPythonExecutionService::PrepareRun(
     }
 
     FExecutionPtr Execution;
+    FString BusyExecutionId;
     {
         FScopeLock Lock(&Mutex);
-        CleanupExpiredLocked(FPlatformTime::Seconds());
         if (bShuttingDown)
         {
             OutError = MakeDispatchError(
@@ -444,28 +460,39 @@ FPythonExecutionService::FExecutionPtr FPythonExecutionService::PrepareRun(
                 TEXT("Unreal Editor is shutting down."));
             return nullptr;
         }
-        if (!ActiveExecutionId.IsEmpty())
+        Loomle::Runtime::FLoomleAsyncKernel::FRecordPtr Record;
+        if (Kernel.IsValid())
         {
-            OutError = MakeDispatchError(
-                TEXT("runtime.python_busy"),
-                TEXT("Another Python fallback execution is already active."));
-            const FExecutionPtr* Active = Executions.Find(ActiveExecutionId);
-            if (Active != nullptr && (*Active)->bExposed)
+            Record = Kernel->Allocate(
+                TEXT("python"),
+                OutError,
+                BusyExecutionId);
+        }
+        if (!Record.IsValid())
+        {
+            if (!OutError.IsValid())
             {
-                OutError->SetStringField(TEXT("executionId"), ActiveExecutionId);
+                OutError = MakeDispatchError(
+                    TEXT("runtime.python_unavailable"),
+                    TEXT("The Loomle Python execution kernel is unavailable."));
+            }
+            if (!BusyExecutionId.IsEmpty())
+            {
+                OutError->SetStringField(
+                    TEXT("executionId"),
+                    BusyExecutionId);
             }
             return nullptr;
         }
 
         Execution = MakeShared<FExecution, ESPMode::ThreadSafe>();
-        Execution->Id = TEXT("py_") + FGuid::NewGuid().ToString(EGuidFormats::Digits).ToLower();
+        Execution->KernelRecord = Record;
         const FString Directory = FPaths::ConvertRelativePathToFull(
             FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Loomle"), TEXT("Python")));
-        Execution->SourcePath = FPaths::Combine(Directory, Execution->Id + TEXT(".source.py"));
-        Execution->RunnerPath = FPaths::Combine(Directory, Execution->Id + TEXT(".runner.py"));
-        Execution->ResultPath = FPaths::Combine(Directory, Execution->Id + TEXT(".result.json"));
-        Executions.Add(Execution->Id, Execution);
-        ActiveExecutionId = Execution->Id;
+        Execution->SourcePath = FPaths::Combine(Directory, Record->Id + TEXT(".source.py"));
+        Execution->RunnerPath = FPaths::Combine(Directory, Record->Id + TEXT(".runner.py"));
+        Execution->ResultPath = FPaths::Combine(Directory, Record->Id + TEXT(".result.json"));
+        Executions.Add(Record->Id, Execution);
     }
 
     const FString Directory = FPaths::GetPath(Execution->SourcePath);
@@ -493,7 +520,9 @@ FPythonExecutionService::FExecutionPtr FPythonExecutionService::PrepareRun(
     {
         FScopeLock Lock(&Mutex);
         bInvalidatedDuringStaging = bShuttingDown
-            || Execution->State != EExecutionState::Prepared;
+            || !Execution->KernelRecord.IsValid()
+            || Execution->KernelRecord->State
+                != Loomle::Runtime::FLoomleAsyncKernel::EState::Pending;
         if (bInvalidatedDuringStaging)
         {
             RemoveExecutionLocked(Execution);
@@ -518,7 +547,9 @@ bool FPythonExecutionService::EnqueueForExecution(
     FScopeLock Lock(&Mutex);
     if (bShuttingDown
         || !Execution.IsValid()
-        || Execution->State != EExecutionState::Prepared
+        || !Execution->KernelRecord.IsValid()
+        || Execution->KernelRecord->State
+            != Loomle::Runtime::FLoomleAsyncKernel::EState::Pending
         || PendingExecution.IsValid())
     {
         return false;
@@ -549,11 +580,19 @@ bool FPythonExecutionService::TickExecution(float DeltaTime)
         FScopeLock Lock(&Mutex);
         if (bShuttingDown || !PendingExecution.IsValid())
         {
+            if (Kernel.IsValid())
+            {
+                Kernel->Tick();
+            }
             return true;
         }
         Execution = MoveTemp(PendingExecution);
         Admission = MoveTemp(PendingAdmission);
         Progress = GameThreadProgress;
+    }
+    if (Kernel.IsValid())
+    {
+        Kernel->Tick();
     }
 
     if (!Admission.IsValid() || !Admission->TryStart())
@@ -579,8 +618,12 @@ void FPythonExecutionService::AbandonBeforeStart(const FExecutionPtr& Execution)
     }
     {
         FScopeLock Lock(&Mutex);
-        const FExecutionPtr* Found = Executions.Find(Execution->Id);
-        if (Execution->State != EExecutionState::Prepared
+        const FExecutionPtr* Found = Execution->KernelRecord.IsValid()
+            ? Executions.Find(Execution->KernelRecord->Id)
+            : nullptr;
+        if (!Execution->KernelRecord.IsValid()
+            || Execution->KernelRecord->State
+                != Loomle::Runtime::FLoomleAsyncKernel::EState::Pending
             || Found == nullptr
             || *Found != Execution)
         {
@@ -606,12 +649,16 @@ void FPythonExecutionService::Execute(const FExecutionPtr& Execution)
 
     {
         FScopeLock Lock(&Mutex);
-        if (Execution->State != EExecutionState::Prepared)
+        if (!Execution->KernelRecord.IsValid()
+            || Execution->KernelRecord->State
+                != Loomle::Runtime::FLoomleAsyncKernel::EState::Pending)
         {
             return;
         }
-        Execution->State = EExecutionState::Running;
-        Execution->StartedAtSeconds = FPlatformTime::Seconds();
+        if (Kernel.IsValid())
+        {
+            Kernel->Begin(Execution->KernelRecord);
+        }
     }
 
     const double StartSeconds = FPlatformTime::Seconds();
@@ -762,21 +809,19 @@ void FPythonExecutionService::Execute(const FExecutionPtr& Execution)
 
     DeleteExecutionFiles(Execution->SourcePath, Execution->RunnerPath, Execution->ResultPath);
     const FString TerminalJson = SerializeObject(Terminal);
+    const FString FallbackJson = SerializeObject(MakeTerminalFailure(
+        TEXT("runtime.python_execution_failed"),
+        TEXT("result"),
+        TEXT("Loomle could not serialize the Python execution result."),
+        true,
+        0));
     {
         FScopeLock Lock(&Mutex);
-        Execution->TerminalJson = TerminalJson.IsEmpty()
-            ? SerializeObject(MakeTerminalFailure(
-                TEXT("runtime.python_execution_failed"),
-                TEXT("result"),
-                TEXT("Loomle could not serialize the Python execution result."),
-                true,
-                0))
-            : TerminalJson;
-        Execution->TerminalAtSeconds = FPlatformTime::Seconds();
-        Execution->State = EExecutionState::Terminal;
-        if (ActiveExecutionId == Execution->Id)
+        if (Kernel.IsValid())
         {
-            ActiveExecutionId.Reset();
+            Kernel->Complete(
+                Execution->KernelRecord,
+                TerminalJson.IsEmpty() ? FallbackJson : TerminalJson);
         }
     }
 }
@@ -784,16 +829,32 @@ void FPythonExecutionService::Execute(const FExecutionPtr& Execution)
 bool FPythonExecutionService::IsTerminal(const FExecutionPtr& Execution) const
 {
     FScopeLock Lock(&Mutex);
-    return !Execution.IsValid() || Execution->State == EExecutionState::Terminal;
+    return !Execution.IsValid()
+        || !Execution->KernelRecord.IsValid()
+        || Execution->KernelRecord->State
+            == Loomle::Runtime::FLoomleAsyncKernel::EState::Terminal;
 }
 
 TSharedPtr<FJsonObject> FPythonExecutionService::BuildInitialResponse(const FExecutionPtr& Execution)
 {
     FScopeLock Lock(&Mutex);
-    TSharedPtr<FJsonObject> Response = BuildSnapshotLocked(Execution, false, true);
+    TSharedPtr<FJsonObject> Response = Kernel.IsValid()
+        ? Kernel->Snapshot(Execution->KernelRecord, false, true)
+        : nullptr;
+    if (Response == nullptr)
+    {
+        Response = MakeTerminalFailure(
+            TEXT("runtime.python_execution_lost"),
+            TEXT("runtime"),
+            TEXT("The Python execution record is unavailable."),
+            true,
+            0);
+    }
     if (Execution.IsValid()
-        && Execution->State == EExecutionState::Terminal
-        && !Execution->bExposed)
+        && Execution->KernelRecord.IsValid()
+        && Execution->KernelRecord->State
+            == Loomle::Runtime::FLoomleAsyncKernel::EState::Terminal
+        && !Execution->KernelRecord->bExposed)
     {
         RemoveExecutionLocked(Execution);
     }
@@ -819,23 +880,14 @@ TSharedPtr<FJsonObject> FPythonExecutionService::Poll(
     }
 
     FScopeLock Lock(&Mutex);
-    CleanupExpiredLocked(FPlatformTime::Seconds());
-    const FExecutionPtr* Found = Executions.Find(ExecutionId);
-    if (Found == nullptr || !Found->IsValid() || !(*Found)->bExposed)
+    if (Kernel.IsValid())
     {
-        if (ExpiredExecutionIds.Contains(ExecutionId))
-        {
-            OutError = MakeDispatchError(
-                TEXT("runtime.python_execution_expired"),
-                TEXT("The retained Python execution result has expired."));
-            return nullptr;
-        }
-        OutError = MakeDispatchError(
-            TEXT("runtime.python_execution_not_found"),
-            TEXT("The Python execution id is not available in this Editor runtime."));
-        return nullptr;
+        return Kernel->Poll(TEXT("python"), ExecutionId, OutError);
     }
-    return BuildSnapshotLocked(*Found, true, false);
+    OutError = MakeDispatchError(
+        TEXT("runtime.python_unavailable"),
+        TEXT("The Loomle Python execution kernel is unavailable."));
+    return nullptr;
 }
 
 void FPythonExecutionService::RemoveExecutionLocked(const FExecutionPtr& Execution)
@@ -844,106 +896,14 @@ void FPythonExecutionService::RemoveExecutionLocked(const FExecutionPtr& Executi
     {
         return;
     }
-    Executions.Remove(Execution->Id);
-    if (ActiveExecutionId == Execution->Id)
+    if (Execution->KernelRecord.IsValid())
     {
-        ActiveExecutionId.Reset();
-    }
-}
-
-void FPythonExecutionService::CleanupExpiredLocked(double NowSeconds)
-{
-    TArray<FString> OldTombstones;
-    for (const TPair<FString, double>& Pair : ExpiredExecutionIds)
-    {
-        if (NowSeconds - Pair.Value > TerminalRetentionSeconds)
+        Executions.Remove(Execution->KernelRecord->Id);
+        if (Kernel.IsValid())
         {
-            OldTombstones.Add(Pair.Key);
+            Kernel->Remove(Execution->KernelRecord);
         }
     }
-    for (const FString& Id : OldTombstones)
-    {
-        ExpiredExecutionIds.Remove(Id);
-    }
-
-    TArray<FString> Expired;
-    for (const TPair<FString, FExecutionPtr>& Pair : Executions)
-    {
-        const FExecutionPtr& Execution = Pair.Value;
-        if (Execution->State == EExecutionState::Terminal
-            && Execution->bExposed
-            && Execution->TerminalAtSeconds > 0.0
-            && NowSeconds - Execution->TerminalAtSeconds > TerminalRetentionSeconds)
-        {
-            Expired.Add(Pair.Key);
-        }
-    }
-    for (const FString& Id : Expired)
-    {
-        Executions.Remove(Id);
-        ExpiredExecutionIds.Add(Id, NowSeconds);
-    }
-}
-
-TSharedPtr<FJsonObject> FPythonExecutionService::BuildSnapshotLocked(
-    const FExecutionPtr& Execution,
-    bool bIncludeExecutionId,
-    bool bExposeIfRunning)
-{
-    if (!Execution.IsValid())
-    {
-        return MakeTerminalFailure(
-            TEXT("runtime.python_execution_lost"),
-            TEXT("runtime"),
-            TEXT("The Python execution record is unavailable."),
-            true,
-            0);
-    }
-    if (Execution->State == EExecutionState::Terminal)
-    {
-        TSharedPtr<FJsonObject> Terminal = ParseObject(Execution->TerminalJson);
-        if (!Terminal.IsValid())
-        {
-            Terminal = MakeTerminalFailure(
-                TEXT("runtime.python_execution_failed"),
-                TEXT("result"),
-                TEXT("The retained Python result is invalid."),
-                true,
-                0);
-        }
-        if (bIncludeExecutionId)
-        {
-            Terminal->SetStringField(TEXT("executionId"), Execution->Id);
-        }
-        return Terminal;
-    }
-
-    if (bExposeIfRunning)
-    {
-        Execution->bExposed = true;
-    }
-    TSharedPtr<FJsonObject> Running = MakeShared<FJsonObject>();
-    Running->SetStringField(TEXT("status"), TEXT("running"));
-    Running->SetStringField(TEXT("executionId"), Execution->Id);
-    Running->SetBoolField(TEXT("stateMayHaveChanged"), Execution->State == EExecutionState::Running);
-    const double Start = Execution->StartedAtSeconds > 0.0
-        ? Execution->StartedAtSeconds
-        : FPlatformTime::Seconds();
-    Running->SetNumberField(
-        TEXT("elapsedMs"),
-        static_cast<double>(FMath::Max<int64>(
-            0,
-            FMath::RoundToInt64((FPlatformTime::Seconds() - Start) * 1000.0))));
-
-    TSharedPtr<FJsonObject> Continuation = MakeShared<FJsonObject>();
-    Continuation->SetStringField(TEXT("tool"), TEXT("python"));
-    TSharedPtr<FJsonObject> ContinuationArguments = MakeShared<FJsonObject>();
-    ContinuationArguments->SetStringField(TEXT("operation"), TEXT("poll"));
-    ContinuationArguments->SetStringField(TEXT("executionId"), Execution->Id);
-    Continuation->SetObjectField(TEXT("arguments"), ContinuationArguments);
-    Continuation->SetNumberField(TEXT("pollAfterMs"), PollAfterMs);
-    Running->SetObjectField(TEXT("continuation"), Continuation);
-    return Running;
 }
 
 } // namespace Loomle::Python
