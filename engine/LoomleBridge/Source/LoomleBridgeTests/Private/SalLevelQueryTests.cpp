@@ -8783,16 +8783,11 @@ bool FSalPCGComponentAuthoredQueryTest::RunTest(
                     TEXT("native"),
                     ComponentFixture.NativePCGId)));
     TestTrue(
-        TEXT("PCG Component Patch is rejected before native target resolution"),
-        LevelHasDiagnostic(
+        TEXT("PCG Component Patch is admitted through the protocol after the "
+            "edit-guard capability bump"),
+        !LevelHasDiagnostic(
             PatchResult,
-            TEXT("language.invalid_object_shape"))
-            && !LevelHasDiagnostic(
-                PatchResult,
-                TEXT("capability.component_owner_not_loaded"))
-            && !LevelHasDiagnostic(
-                PatchResult,
-                TEXT("resolution.object_not_found")));
+            TEXT("language.invalid_object_shape")));
 
     TestTrue(
         TEXT("All specialized PCG Component reads preserve Level and Editor state"),

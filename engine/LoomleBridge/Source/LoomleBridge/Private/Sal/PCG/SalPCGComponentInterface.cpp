@@ -1817,8 +1817,20 @@ bool FSalPCGComponentInterface::LowerStableReference(
     if (IdentityPath.Num() != 1 || IdentityPath[0].IsEmpty())
     {
         OutCode = TEXT("validation.invalid_reference");
-        OutMessage = TEXT("PCG Component StableRef identity must be exactly one canonical non-zero Parameter descriptor Guid.");
+        OutMessage = TEXT("PCG Component StableRef identity must be exactly one canonical non-zero Parameter descriptor Guid or the exact Component slot.");
         return false;
+    }
+    // The exact Component itself is addressable by its serialized slot for
+    // authored member edits (for example `set @PCGComponent.Seed = 100`).
+    const FString ComponentSlot = Component->GetFName().ToString();
+    if (IdentityPath[0] == ComponentSlot)
+    {
+        Ref->Values.Reset();
+        Ref->SetStringField(TEXT("kind"), TEXT("component"));
+        Ref->SetStringField(TEXT("id"), ComponentSlot);
+        OutCode.Reset();
+        OutMessage.Reset();
+        return true;
     }
     FGuid Parsed;
     if (!ParseCanonicalParameterGuid(IdentityPath[0], Parsed))
@@ -1977,6 +1989,7 @@ TSharedPtr<FJsonObject> FSalPCGComponentInterface::Patch(
         const TSharedPtr<FJsonObject>* TargetRef = nullptr;
         const TSharedPtr<FJsonObject>* ObjectRef = nullptr;
         FString RefKind;
+        FString RefId;
         FString Path;
         if (!(*Statement)->TryGetObjectField(TEXT("target"), TargetRef)
             || TargetRef == nullptr
@@ -1985,7 +1998,9 @@ TSharedPtr<FJsonObject> FSalPCGComponentInterface::Patch(
             || ObjectRef == nullptr
             || !(*ObjectRef).IsValid()
             || !(*ObjectRef)->TryGetStringField(TEXT("kind"), RefKind)
-            || RefKind != TEXT("stable_ref")
+            || RefKind != TEXT("component")
+            || !(*ObjectRef)->TryGetStringField(TEXT("id"), RefId)
+            || RefId != ComponentSlot
             || !(*Statement)->TryGetStringField(TEXT("path"), Path))
         {
             Diagnostics.Add(
@@ -1995,28 +2010,6 @@ TSharedPtr<FJsonObject> FSalPCGComponentInterface::Patch(
                         "on the exact Component."))
                     .Interface(TEXT("pcg_component"))
                     .Operation(Kind)
-                    .Build());
-            continue;
-        }
-        const TArray<TSharedPtr<FJsonValue>>* IdentityPath = nullptr;
-        FString RefSlot;
-        if (!(*ObjectRef)->TryGetArrayField(
-                TEXT("identityPath"),
-                IdentityPath)
-            || IdentityPath == nullptr
-            || IdentityPath->Num() != 1
-            || !(*IdentityPath)[0].IsValid()
-            || !(*IdentityPath)[0]->TryGetString(RefSlot)
-            || RefSlot != ComponentSlot)
-        {
-            Diagnostics.Add(
-                FSalDiagnostics::Error(
-                    TEXT("resolution.object_not_found"),
-                    TEXT("pcg_component set/reset must address the exact "
-                        "resolved Component slot."))
-                    .Interface(TEXT("pcg_component"))
-                    .Operation(Kind)
-                    .Ref(ComponentSlot)
                     .Build());
             continue;
         }

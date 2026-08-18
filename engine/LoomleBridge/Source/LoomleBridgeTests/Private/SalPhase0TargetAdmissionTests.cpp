@@ -522,16 +522,11 @@ bool FSalPhase0PublicPathTest::RunTest(const FString& Parameters)
         FSalModule::BuildPatchResult(
             PatchArguments(PcgComponentTarget()));
     TestTrue(
-        TEXT("pcg_component Patch is rejected before adapter resolution"),
-        HasDiagnostic(
+        TEXT("Exact pcg_component Patch is admitted for adapter resolution "
+            "after the edit-guard capability bump"),
+        !HasDiagnostic(
             ComponentPatch,
-            TEXT("language.invalid_object_shape"),
-            TEXT("Query-only")));
-    TestFalse(
-        TEXT("pcg_component Patch never reaches the adapter stub"),
-        HasDiagnostic(
-            ComponentPatch,
-            TEXT("capability.interface_unavailable")));
+            TEXT("language.invalid_object_shape")));
     return true;
 }
 }
