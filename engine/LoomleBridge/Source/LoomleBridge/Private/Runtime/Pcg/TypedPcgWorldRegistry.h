@@ -16,7 +16,7 @@ namespace Loomle::Runtime
  * `playMode: simulate`. Preview, inactive, transition, Standalone, and
  * New Process Worlds are unavailable.
  */
-struct FTypedPcgWorldSelector
+struct LOOMLEBRIDGE_API FTypedPcgWorldSelector
 {
     FString WorldKind; // "editor" | "pie"
     FString PlayMode;  // "play" | "simulate" (pie only)
@@ -34,7 +34,7 @@ struct FTypedPcgWorldSelector
  * select or control a generic World and never survives World/Component
  * replacement or epoch invalidation.
  */
-struct FTypedPcgTicket
+struct LOOMLEBRIDGE_API FTypedPcgTicket
 {
     FString Id;            // opaque "pcg_<guid>"
     FString SelectorText;  // normalized selector token

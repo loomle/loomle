@@ -68,6 +68,30 @@ python({ operation: "poll", executionId: "<returned-id>" })
 Never replay the original script. A runtime restart can make an outstanding
 execution `lost`.
 
+## Project Back to Structured Views
+
+A script may mark individual UObjects with `sal.object(value)` anywhere in its
+returned dictionary. At terminalization the Bridge replaces each marker in
+place with an independent canonical projection record and reports the
+projection annex:
+
+```text
+python({
+  operation: "run",
+  script: "def run():\n    import unreal\n    return {\"marked\": sal.object(unreal.Actor)}"
+})
+```
+
+The replacement record carries `status` (`projected`, `unsupported`, `stale`,
+`ambiguous`, or `failed`), `relation` (`exact` or `authored_source`), and for
+`projected` views a canonical SAL exact Query result produced by the same
+Domain adapters as `sal_query`. The `projection` annex reports `complete`,
+`marked`, and `projected` counts; `complete` is false when a projector or
+Bridge integrity fault occurred. Projection is read-only: it never loads a map
+or asset, changes selection, dirties state, or retains the UObject after the
+result is formed. A PIE/SIE duplicate projects `relation: authored_source`
+only when its persistent source is uniquely proven.
+
 ## Debug Play In Editor
 
 Python remains available while PIE is active. Loomle does not manage PIE or
