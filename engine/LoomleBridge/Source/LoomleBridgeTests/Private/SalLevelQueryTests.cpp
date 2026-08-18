@@ -12156,9 +12156,6 @@ bool FSalLevelPatchSetResetTest::RunTest(const FString& Parameters)
         return false;
     }
     const bool bOriginalHidden = Actor->IsHidden();
-    const int32 UndoCountBefore = GEditor != nullptr
-        ? GEditor->Trans->GetUndoCount()
-        : 0;
 
     // Dry run plans without applying.
     const TSharedPtr<FJsonObject> DryRun = FSalModule::BuildPatchResult(
@@ -12198,10 +12195,14 @@ bool FSalLevelPatchSetResetTest::RunTest(const FString& Parameters)
         Actor->IsHidden() == !bOriginalHidden);
     if (GEditor != nullptr)
     {
-        TestEqual(
-            TEXT("Level Patch creates one Undo entry"),
-            GEditor->Trans->GetUndoCount(),
-            UndoCountBefore + 1);
+        GEditor->Undo();
+        TestTrue(
+            TEXT("Level Patch changes are recorded and undoable"),
+            Actor->IsHidden() == bOriginalHidden);
+        GEditor->Redo();
+        TestTrue(
+            TEXT("Level Patch changes are redoable"),
+            Actor->IsHidden() == !bOriginalHidden);
     }
 
     // Reset restores the exact archetype value.
