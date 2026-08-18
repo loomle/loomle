@@ -108,6 +108,7 @@ test("exposes the unified editor tool", () => {
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: true,
+    openWorldHint: false,
   });
   assert.deepEqual(
     (editor?.inputSchema.properties as Record<string, { enum?: string[] }>).operation.enum,
@@ -122,6 +123,8 @@ test("exposes the unified editor tool", () => {
   });
   assert.equal(Array.isArray(python?.inputSchema.oneOf), true);
   assert.equal((python?.outputSchema?.properties as Record<string, unknown>).status !== undefined, true);
+  assert.ok(toolDefinitions.every((tool) => tool.title.length > 0));
+  assert.ok(toolDefinitions.every((tool) => typeof tool.annotations.openWorldHint === "boolean"));
 });
 
 test("python run returns the agent-defined structured result without an execution id", async () => {
@@ -248,6 +251,7 @@ test("status reports identity, binding, Bridge health, and Windows update guidan
       return {
         client: {
           version: "0.7.0-rc.1",
+          distribution: "github",
           pid: 1234,
           platform: "win32",
           target: "win32-x64",
@@ -255,6 +259,7 @@ test("status reports identity, binding, Bridge health, and Windows update guidan
         },
         update: {
           status: "available",
+          authority: "github",
           version: "0.7.0-rc.2",
           releaseUrl: "https://example.test/release",
           assetUrl: "https://example.test/asset.zip",
@@ -281,6 +286,7 @@ test("status reports identity, binding, Bridge health, and Windows update guidan
 
   assert.equal(result.isError, undefined);
   assert.match(result.content[0].text, /^client:\n  version: 0\.7\.0-rc\.1$/m);
+  assert.match(result.content[0].text, /^  distribution: github$/m);
   assert.match(result.content[0].text, /^session:\n  project: alpha$/m);
   assert.match(result.content[0].text, /^bridge:\n  version: 0\.7\.0-rc\.1$/m);
   assert.match(result.content[0].text, /normal PowerShell/);
@@ -293,12 +299,13 @@ test("status omits Client-stop guidance on macOS", async () => {
       return {
         client: {
           version: "0.7.0-rc.1",
+          distribution: "github",
           pid: 1234,
           platform: "darwin",
           target: "darwin-arm64",
           executable: "/Loomle/loomle",
         },
-        update: { status: "available", version: "0.7.0-rc.2" },
+        update: { status: "available", authority: "github", version: "0.7.0-rc.2" },
         session: { status: "unbound" },
       };
     },
@@ -308,6 +315,79 @@ test("status omits Client-stop guidance on macOS", async () => {
 
   assert.match(result.content[0].text, /ensure affected Unreal Editors are closed/);
   assert.doesNotMatch(result.content[0].text, /Stop-Process/);
+});
+
+test("status directs Fab updates only through the Fab Library", async () => {
+  const status: StatusProvider = {
+    async report() {
+      return {
+        client: {
+          version: "0.7.0",
+          distribution: "fab",
+          pid: 1234,
+          platform: "darwin",
+          target: "darwin-arm64",
+          executable: "/Loomle/loomle",
+        },
+        update: {
+          status: "available",
+          authority: "fab",
+          version: "0.7.1",
+          listing: "https://www.fab.com/listings/f0fb545c-b1d9-4525-8642-3f170134c428",
+        },
+        session: { status: "unbound" },
+      };
+    },
+  };
+  const result = await new SalToolService(new MockRpc(emptyObjectResult), status)
+    .call("status", {});
+
+  assert.match(result.content[0].text, /^  distribution: fab$/m);
+  assert.match(result.content[0].text, /^  authority: fab$/m);
+  assert.match(result.content[0].text, /Fab Library entry in the Epic Games Launcher/);
+  assert.match(result.content[0].text, /do not replace this Fab installation with the GitHub package/);
+  assert.doesNotMatch(result.content[0].text, /replace the complete plugin/);
+});
+
+test("status keeps Claude Client updates separate from the recommended Bridge", async () => {
+  const status: StatusProvider = {
+    async report() {
+      return {
+        client: {
+          version: "0.7.0",
+          distribution: "claude",
+          pid: 1234,
+          platform: "darwin",
+          target: "darwin-arm64",
+          engineVersion: "5.8",
+          executable: "/plugin/mcp/loomle.cjs",
+        },
+        update: {
+          status: "available",
+          authority: "claude",
+          version: "0.7.1",
+          listing: "https://claude.ai/directory/connectors/loomle",
+          bridge: {
+            version: "0.7.1",
+            releaseUrl: "https://github.com/loomle/loomle/releases/tag/v0.7.1",
+            assetUrl: "https://github.com/loomle/loomle/releases/download/v0.7.1/loomle-bridge-0.7.1-ue5.8.zip",
+            sha256: "a".repeat(64),
+          },
+        },
+        session: {
+          status: "ready",
+          bridge: { version: "0.7.0", protocolVersion: 3 },
+        },
+      };
+    },
+  };
+  const result = await new SalToolService(new MockRpc(emptyObjectResult), status)
+    .call("status", {});
+
+  assert.match(result.content[0].text, /^recommendedBridge:\n  version: 0\.7\.1$/m);
+  assert.match(result.content[0].text, /update the Loomle extension through Claude Desktop/);
+  assert.match(result.content[0].text, /matching Unreal Bridge is a separate user-approved installation/);
+  assert.doesNotMatch(result.content[0].text, /normal PowerShell/);
 });
 
 test("keeps the resident guide only on sal_schema", () => {

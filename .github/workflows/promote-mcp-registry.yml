@@ -1,0 +1,169 @@
+name: Promote Loomle to MCP Registry
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing final GitHub Release tag, for example v0.7.10
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: promote-loomle-mcp-registry
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Promotion Code
+        uses: actions/checkout@v6
+
+      - name: Set Up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Download Exact Release Candidate
+        id: candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Tag must be v<stable-semantic-version>." >&2
+            exit 1
+          }
+          version="${TAG#v}"
+          candidate="$RUNNER_TEMP/registry-candidate"
+          mkdir -p "$candidate"
+          release_json="$candidate/release.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > "$release_json"
+          node -e '
+            const fs = require("node:fs");
+            const release = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const tag = process.argv[2];
+            const version = tag.slice(1);
+            if (release.tag_name !== tag || release.draft !== false || release.prerelease !== false) {
+              throw new Error("Registry promotion requires the exact published final GitHub Release");
+            }
+            const required = [
+              `loomle-mcp-registry-${version}.mcpb`,
+              `loomle-mcp-registry-${version}.mcpb.sha256`,
+              "server.json",
+            ];
+            for (const name of required) {
+              const matches = release.assets.filter((asset) => asset.name === name);
+              if (matches.length !== 1 || matches[0].state !== "uploaded" || matches[0].size <= 0) {
+                throw new Error(`Release does not contain one uploaded ${name}`);
+              }
+            }
+          ' "$release_json" "$TAG"
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$candidate" \
+            --pattern "loomle-mcp-registry-$version.mcpb" \
+            --pattern "loomle-mcp-registry-$version.mcpb.sha256" \
+            --pattern "server.json"
+          echo "directory=$candidate" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Registry Candidate
+        shell: bash
+        env:
+          CANDIDATE: ${{ steps.candidate.outputs.directory }}
+          TAG: ${{ inputs.tag }}
+          VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          set -euo pipefail
+          node packaging/agent/verify-registry-candidate.mjs \
+            --mcpb "$CANDIDATE/loomle-mcp-registry-$VERSION.mcpb" \
+            --sha-file "$CANDIDATE/loomle-mcp-registry-$VERSION.mcpb.sha256" \
+            --server-json "$CANDIDATE/server.json" \
+            --repository "$GITHUB_REPOSITORY" \
+            --tag "$TAG"
+
+      - name: Require New Registry Version
+        shell: bash
+        env:
+          VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          set -euo pipefail
+          endpoint="https://registry.modelcontextprotocol.io/v0.1/servers/io.github.loomle%2Floomle/versions/$VERSION"
+          status="$(curl --silent --show-error --output "$RUNNER_TEMP/existing-registry-version.json" --write-out '%{http_code}' "$endpoint")"
+          if [[ "$status" == "200" ]]; then
+            echo "MCP Registry version $VERSION already exists and is immutable." >&2
+            exit 1
+          fi
+          [[ "$status" == "404" ]] || {
+            echo "Unexpected MCP Registry response before publication: HTTP $status" >&2
+            exit 1
+          }
+
+      - name: Install Pinned MCP Publisher
+        shell: bash
+        run: |
+          set -euo pipefail
+          publisher_version="v1.8.1"
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          expected_sha256="a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc"
+          curl --fail --location --silent --show-error \
+            "https://github.com/modelcontextprotocol/registry/releases/download/$publisher_version/$archive" \
+            --output "$RUNNER_TEMP/$archive"
+          echo "$expected_sha256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" mcp-publisher
+          "$RUNNER_TEMP/mcp-publisher" --help >/dev/null
+
+      - name: Authenticate to MCP Registry
+        shell: bash
+        run: "$RUNNER_TEMP/mcp-publisher login github-oidc"
+
+      - name: Publish Exact Registry Candidate
+        shell: bash
+        env:
+          CANDIDATE: ${{ steps.candidate.outputs.directory }}
+        run: "$RUNNER_TEMP/mcp-publisher publish $CANDIDATE/server.json"
+
+      - name: Verify Published Registry Version
+        shell: bash
+        env:
+          CANDIDATE: ${{ steps.candidate.outputs.directory }}
+          VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          set -euo pipefail
+          endpoint="https://registry.modelcontextprotocol.io/v0.1/servers/io.github.loomle%2Floomle/versions/$VERSION"
+          response="$RUNNER_TEMP/published-registry-version.json"
+          for attempt in $(seq 1 10); do
+            status="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' "$endpoint")"
+            if [[ "$status" == "200" ]]; then
+              node -e '
+                const fs = require("node:fs");
+                const assert = require("node:assert/strict");
+                const expected = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+                const actual = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+                assert.deepEqual(actual.server, expected, "Published Registry metadata differs from the verified candidate");
+                const official = actual._meta?.["io.modelcontextprotocol.registry/official"];
+                if (!official || official.status !== "active") {
+                  throw new Error("Published Registry version is not active");
+                }
+              ' "$CANDIDATE/server.json" "$response"
+              exit 0
+            fi
+            [[ "$status" == "404" ]] || {
+              echo "Unexpected MCP Registry verification response: HTTP $status" >&2
+              exit 1
+            }
+            sleep 5
+          done
+          echo "Published MCP Registry version did not become readable in time." >&2
+          exit 1

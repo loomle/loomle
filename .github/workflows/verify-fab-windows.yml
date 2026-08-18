@@ -201,6 +201,7 @@ jobs:
             "LoomleBridge/LoomleBridge.uplugin",
             "LoomleBridge/Source/LoomleBridge/LoomleBridge.Build.cs",
             "LoomleBridge/Resources/Loomle/win32-x64/loomle.exe",
+            "LoomleBridge/Resources/Loomle/win32-x64/distribution.json",
             "LoomleBridge/Content/",
             "LoomleBridge/LICENSE",
             "LoomleBridge/THIRD_PARTY_NOTICES.txt"
@@ -213,6 +214,14 @@ jobs:
             if ($entry -match '^LoomleBridge/(Binaries|Intermediate|Saved)(/|$)') {
               throw "Fab source archive contains UE-generated output: $entry"
             }
+          }
+
+          $distributionEntry = tar.exe -xOf $archive "LoomleBridge/Resources/Loomle/win32-x64/distribution.json" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or
+              $distributionEntry.schemaVersion -ne 1 -or
+              $distributionEntry.channel -ne "fab" -or
+              @($distributionEntry.PSObject.Properties).Count -ne 2) {
+            throw "Fab source archive has invalid distribution metadata."
           }
 
           $archiveSha = "$archive.sha256"
@@ -491,6 +500,7 @@ jobs:
           }
           foreach ($required in @(
             "LoomleBridge/Resources/Loomle/win32-x64/loomle.exe",
+            "LoomleBridge/Resources/Loomle/win32-x64/distribution.json",
             "LoomleBridge/Content/",
             "LoomleBridge/LICENSE",
             "LoomleBridge/THIRD_PARTY_NOTICES.txt"

@@ -920,6 +920,30 @@ bool FLoomleBridgePythonAssetImportTaskTest::RunTest(const FString& Parameters)
         && DispatchPythonFromWorker(*this, Module, Arguments, DispatchResult);
     IFileManager::Get().Delete(*FixturePath, false, true);
 
+    FString InitialStatus;
+    if (DispatchResult.Payload.IsValid()
+        && DispatchResult.Payload->TryGetStringField(TEXT("status"), InitialStatus)
+        && InitialStatus == TEXT("running"))
+    {
+        FString ExecutionId;
+        const bool bHasExecutionId =
+            DispatchResult.Payload->TryGetStringField(TEXT("executionId"), ExecutionId)
+            && !ExecutionId.IsEmpty();
+        TestTrue(
+            TEXT("A continued asset import exposes its exact execution id"),
+            bHasExecutionId);
+        if (bHasExecutionId)
+        {
+            TSharedPtr<FJsonObject> PollArguments = MakeShared<FJsonObject>();
+            PollArguments->SetStringField(TEXT("executionId"), ExecutionId);
+            DispatchResult.Payload = FLoomleBridgeRpcTestAccess::DispatchTool(
+                Module,
+                TEXT("python.poll"),
+                PollArguments,
+                DispatchResult.bIsError);
+        }
+    }
+
     TestTrue(TEXT("Asset import Python is dispatched through the safe ticker entry"), bDispatched);
     TestFalse(TEXT("Asset import is not a dispatch error"), DispatchResult.bIsError);
     FString Status;

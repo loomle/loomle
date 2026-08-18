@@ -47,6 +47,7 @@
 #include "K2Node_EditablePinBase.h"
 #include "K2Node_ExecutionSequence.h"
 #include "K2Node_Event.h"
+#include "K2Node_GetSubsystem.h"
 #include "K2Node_FunctionEntry.h"
 #include "K2Node_FunctionResult.h"
 #include "K2Node_MakeArray.h"
@@ -111,6 +112,10 @@ TSharedPtr<FEdGraphSchemaAction> RetargetPaletteAction(
     const TSharedPtr<FEdGraphSchemaAction>& Action,
     const FSalResolvedTarget& CapabilityTarget,
     const FSalResolvedTarget& MutationTarget);
+bool ValidatePaletteActionForTarget(
+    const FBlueprintActionMenuItem& Item,
+    const FSalResolvedTarget& Target,
+    FString& OutMessage);
 UEdGraphNode* TemplateForAction(
     const TSharedPtr<FEdGraphSchemaAction>& Action,
     UEdGraph* Graph,
@@ -149,6 +154,9 @@ struct FNodeDefinition
     FString Alias;
     FString Palette;
     TSharedPtr<FEdGraphSchemaAction> Action;
+    // Roots the UE spawner this definition resolves to for the complete Patch
+    // lifetime (see RegisterDefinition); a bare shared pointer is not a GC root.
+    TStrongObjectPtr<UBlueprintNodeSpawner> ActionRoot;
     UEdGraphNode* Template = nullptr;
     TSharedPtr<FJsonObject> ConstructorArgs;
     bool bConsumed = false;
@@ -655,11 +663,31 @@ bool RegisterDefinition(FPatchState& State, const TSharedPtr<FJsonObject>& Bindi
             CapabilityAction,
             State.CapabilityTarget,
             State.Target);
+    FString SpawnMessage;
+    if (!Action.IsValid()
+        || Action->GetTypeId()
+            != FBlueprintActionMenuItem::StaticGetTypeId()
+        || !ValidatePaletteActionForTarget(
+            *static_cast<const FBlueprintActionMenuItem*>(
+                Action.Get()),
+            State.Target,
+            SpawnMessage))
+    {
+        AddPatchError(
+            State,
+            TEXT("resolution.palette_not_spawnable"),
+            SpawnMessage.IsEmpty()
+                ? TEXT("Palette entry is available but cannot create a Node in the current Graph context.")
+                : SpawnMessage,
+            TEXT("binding"),
+            Palette);
+        return false;
+    }
     UEdGraphNode* Template = TemplateForPaletteAction(
         Action,
         State.Target,
         Palette);
-    if (!Action.IsValid() || Template == nullptr)
+    if (Template == nullptr)
     {
         AddPatchError(
             State,
@@ -675,6 +703,16 @@ bool RegisterDefinition(FPatchState& State, const TSharedPtr<FJsonObject>& Bindi
     Definition.Action = Action;
     Definition.Template = Template;
     Definition.ConstructorArgs = *Args;
+    // The resolved spawner is a UObject held only by a shared pointer; root it
+    // for the complete Patch so a synchronous editor GC pass between binding
+    // and materialization cannot collect the action UE would invoke.
+    const FBlueprintActionMenuItem* MenuItem =
+        static_cast<const FBlueprintActionMenuItem*>(
+            Action.Get());
+    Definition.ActionRoot =
+        TStrongObjectPtr<UBlueprintNodeSpawner>(
+            const_cast<UBlueprintNodeSpawner*>(
+                MenuItem->GetRawAction()));
     if (Cast<UK2Node_Timeline>(Template) != nullptr)
     {
         FString TimelineName;
@@ -756,6 +794,19 @@ UEdGraphNode* MaterializeDefinition(FPatchState& State, const FString& Alias, co
         return nullptr;
     }
     FBlueprintActionMenuItem* Item = static_cast<FBlueprintActionMenuItem*>(Definition->Action.Get());
+    FString SpawnMessage;
+    if (!ValidatePaletteActionForTarget(*Item, State.Target, SpawnMessage))
+    {
+        AddPatchError(
+            State,
+            TEXT("validation.spawn_failed"),
+            SpawnMessage.IsEmpty()
+                ? TEXT("UE Palette action cannot materialize in the current Graph context.")
+                : SpawnMessage,
+            Operation,
+            Definition->Palette);
+        return nullptr;
+    }
     UEdGraphNode* NewNode = Item->PerformAction(State.Target.Graph, nullptr, NextNodeLocation(State.Target.Graph), false);
     if (NewNode == nullptr)
     {
@@ -6185,6 +6236,51 @@ const FObjectProperty* FindFunctionActionBinding(
         : nullptr;
 }
 
+// UK2Node_GetSubsystem and its subclasses register one generic
+// UBlueprintNodeSpawner per subsystem class, carrying the class only in each
+// spawner's CustomizeNodeDelegate. UE's GetSpawnerSignature() therefore
+// collapses every subsystem action to the same Node-class signature and SAL
+// Palette identities collide (Issue #196). Disambiguate by reading the
+// template Node's CustomClass from its result Pin type and adding it to the
+// signature.
+void AddSubsystemClassIdentity(
+    FBlueprintNodeSignature& Signature,
+    const UBlueprintNodeSpawner* Spawner)
+{
+    if (Spawner == nullptr
+        || Spawner->NodeClass == nullptr
+        || !Spawner->NodeClass->IsChildOf(
+            UK2Node_GetSubsystem::StaticClass()))
+    {
+        return;
+    }
+    UEdGraphNode* Template = Spawner->GetTemplateNode();
+    UK2Node_GetSubsystem* SubsystemNode =
+        Cast<UK2Node_GetSubsystem>(Template);
+    if (SubsystemNode == nullptr)
+    {
+        return;
+    }
+    if (Template->Pins.IsEmpty())
+    {
+        Template->AllocateDefaultPins();
+    }
+    const UEdGraphPin* ResultPin = SubsystemNode->GetResultPin();
+    const UClass* CustomClass =
+        ResultPin != nullptr
+            ? Cast<UClass>(
+                ResultPin->PinType.PinSubCategoryObject.Get())
+            : nullptr;
+    if (CustomClass != nullptr)
+    {
+        static const FName SubsystemKey(
+            TEXT("LoomleSubsystemClass"));
+        Signature.AddNamedValue(
+            SubsystemKey,
+            CustomClass->GetPathName());
+    }
+}
+
 void AddFunctionBindingIdentity(
     FBlueprintNodeSignature& Signature,
     const FObjectProperty* Property,
@@ -6288,21 +6384,24 @@ FString PaletteActionToken(
         return VariablePaletteActionToken(VariableSpawner);
     }
     FBlueprintNodeSignature Signature = Spawner->GetSpawnerSignature();
-    if (Signature.IsValid()
-        && Target != nullptr
-        && PaletteContext != nullptr)
+    if (Signature.IsValid())
     {
-        if (const UBlueprintFunctionNodeSpawner* FunctionSpawner =
-                Cast<UBlueprintFunctionNodeSpawner>(Spawner))
+        AddSubsystemClassIdentity(Signature, Spawner);
+        if (Target != nullptr
+            && PaletteContext != nullptr)
         {
-            AddFunctionBindingIdentity(
-                Signature,
-                FindFunctionActionBinding(
-                    Action,
-                    FunctionSpawner,
-                    *Target,
-                    *PaletteContext),
-                *Target);
+            if (const UBlueprintFunctionNodeSpawner* FunctionSpawner =
+                    Cast<UBlueprintFunctionNodeSpawner>(Spawner))
+            {
+                AddFunctionBindingIdentity(
+                    Signature,
+                    FindFunctionActionBinding(
+                        Action,
+                        FunctionSpawner,
+                        *Target,
+                        *PaletteContext),
+                    *Target);
+            }
         }
     }
     if (Signature.IsValid()) return GuidText(Signature.AsGuid());
@@ -6551,6 +6650,111 @@ bool IsBlueprintOwnedClass(
         && (Class == Blueprint->GeneratedClass
             || Class == Blueprint->SkeletonGeneratedClass
             || Class->ClassGeneratedBy == Blueprint);
+}
+
+// A Blueprint-owned class from a different Blueprint is acceptable only when
+// it is an ancestor of the Target Blueprint's own classes: inherited members
+// remain callable in the child Blueprint, matching UE's own self-context
+// resolution (FMemberReference::SetGivenSelfScope).
+bool TargetClassIsChildOf(
+    const UClass* OwnerClass,
+    const UBlueprint* Blueprint)
+{
+    const UClass* TargetClass =
+        Blueprint != nullptr && Blueprint->GeneratedClass.Get() != nullptr
+            ? Blueprint->GeneratedClass.Get()
+            : (Blueprint != nullptr
+                    ? Blueprint->SkeletonGeneratedClass.Get()
+                    : nullptr);
+    return TargetClass != nullptr
+        && TargetClass->IsChildOf(OwnerClass);
+}
+
+// Fail-closed guard for UE spawner invocation. UE's spawner machinery reaches
+// FMemberReference::SetGivenSelfScope through UK2Node_CallFunction::SetFromFunction
+// and dereferences the function's owner class and the Node's self scope; a stale
+// or foreign owner class crashes inside UE (Issue #195). Validate that the action
+// can materialize against the resolved target context and return a structured
+// error instead of invoking the spawner when it cannot.
+bool ValidatePaletteActionForTarget(
+    const FBlueprintActionMenuItem& Item,
+    const FSalResolvedTarget& Target,
+    FString& OutMessage)
+{
+    OutMessage.Reset();
+    const UBlueprint* Blueprint = Target.Blueprint;
+    const UEdGraph* Graph = Target.Graph;
+    if (Blueprint == nullptr || Graph == nullptr)
+    {
+        OutMessage =
+            TEXT("Palette action target Blueprint or Graph is unavailable.");
+        return false;
+    }
+    if (FBlueprintEditorUtils::FindBlueprintForGraph(Graph) != Blueprint)
+    {
+        OutMessage =
+            TEXT("Target Graph is not owned by the resolved Blueprint.");
+        return false;
+    }
+    if (Blueprint->SkeletonGeneratedClass.Get() == nullptr
+        && Blueprint->GeneratedClass.Get() == nullptr)
+    {
+        OutMessage =
+            TEXT("Target Blueprint provides no generated or skeleton class for Node materialization.");
+        return false;
+    }
+    const UBlueprintNodeSpawner* Spawner = Item.GetRawAction();
+    if (Spawner == nullptr)
+    {
+        OutMessage =
+            TEXT("Palette action carries no Node spawner.");
+        return false;
+    }
+    if (const UBlueprintFunctionNodeSpawner* FunctionSpawner =
+            Cast<UBlueprintFunctionNodeSpawner>(Spawner))
+    {
+        const UFunction* Function = FunctionSpawner->GetFunction();
+        const UClass* OwnerClass =
+            Function != nullptr ? Function->GetOwnerClass() : nullptr;
+        if (Function == nullptr || OwnerClass == nullptr)
+        {
+            OutMessage =
+                TEXT("Function Palette action carries an invalid or stale function.");
+            return false;
+        }
+        if (!IsBlueprintOwnedClass(OwnerClass, Blueprint)
+            && OwnerClass->ClassGeneratedBy != nullptr
+            && !TargetClassIsChildOf(OwnerClass, Blueprint))
+        {
+            OutMessage = FString::Printf(
+                TEXT("Function Palette action belongs to a different Blueprint (%s)."),
+                *OwnerClass->GetName());
+            return false;
+        }
+    }
+    else if (const UBlueprintVariableNodeSpawner* VariableSpawner =
+                 Cast<UBlueprintVariableNodeSpawner>(Spawner))
+    {
+        const FProperty* Property = VariableSpawner->GetVarProperty();
+        const UClass* OwnerClass =
+            Property != nullptr ? Property->GetOwnerClass() : nullptr;
+        if (Property == nullptr || OwnerClass == nullptr)
+        {
+            OutMessage =
+                TEXT("Variable Palette action carries an invalid or stale member.");
+            return false;
+        }
+        if (!IsBlueprintOwnedClass(OwnerClass, Blueprint)
+            && OwnerClass->ClassGeneratedBy != nullptr
+            && !TargetClassIsChildOf(OwnerClass, Blueprint))
+        {
+            OutMessage = FString::Printf(
+                TEXT("Variable Palette action belongs to a different Blueprint (%s)."),
+                *OwnerClass->GetName());
+            return false;
+        }
+    }
+    return true;
 }
 
 TArray<UClass*, TInlineAllocator<2>> CorrespondingBlueprintClasses(

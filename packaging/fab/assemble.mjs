@@ -26,6 +26,11 @@ import {
 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkProductVersion } from "../tools/product-version.mjs";
+import {
+  DISTRIBUTION_FILE_NAME,
+  requireDistributionFile,
+  writeDistributionFile,
+} from "../tools/distribution.mjs";
 import { renderThirdPartyNotices } from "../release/third-party-notices.mjs";
 
 const DEFAULT_REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -89,6 +94,7 @@ export async function assembleFabPlugin({ repoRoot, outputDir, target }) {
   const loomleLicense = join(resolvedRepoRoot, "LICENSE");
   const pluginRoot = join(resolvedOutputDir, "LoomleBridge");
   const stagedClient = join(pluginRoot, "Resources", "Loomle", target, executableName);
+  const stagedDistribution = join(dirname(stagedClient), DISTRIBUTION_FILE_NAME);
 
   const assemblyInputs = [
     clientSource,
@@ -135,6 +141,7 @@ export async function assembleFabPlugin({ repoRoot, outputDir, target }) {
   await rm(join(pluginRoot, "Resources", "Loomle"), { recursive: true, force: true });
   await rm(join(pluginRoot, "Resources", "MCP"), { recursive: true, force: true });
   await copyRequiredFile(clientSource, stagedClient);
+  await writeDistributionFile(stagedDistribution, "fab");
   if (!target.startsWith("win32-")) await chmod(stagedClient, 0o755);
 
   await rm(join(pluginRoot, "Content"), { recursive: true, force: true });
@@ -145,6 +152,7 @@ export async function assembleFabPlugin({ repoRoot, outputDir, target }) {
     repoRoot: resolvedRepoRoot,
     pluginRoot,
     stagedClient,
+    stagedDistribution,
     target,
     targetSpec,
     expectedClientSha256: clientBuild.sha256,
@@ -156,6 +164,7 @@ export async function assembleFabPlugin({ repoRoot, outputDir, target }) {
     clientSha256: await sha256(stagedClient),
     target,
     packageKind: "fab-plugin",
+    distribution: "fab",
   };
 }
 
@@ -393,6 +402,7 @@ async function validateFabPlugin({
   repoRoot,
   pluginRoot,
   stagedClient,
+  stagedDistribution,
   target,
   targetSpec,
   expectedClientSha256,
@@ -414,6 +424,7 @@ async function validateFabPlugin({
     join(pluginRoot, "Source", "LoomleBridge", "LoomleBridge.Build.cs"),
     filterPath,
     stagedClient,
+    stagedDistribution,
     join(
       pluginRoot,
       "Resources",
@@ -450,6 +461,7 @@ async function validateFabPlugin({
   await validateAgentSkills(join(pluginRoot, "Resources", "AgentSkills"));
   await validateOnlyClientTarget(pluginRoot, target);
   await validateClientExecutable(stagedClient, target);
+  await requireDistributionFile(stagedDistribution, "fab");
   const stagedClientSha256 = await sha256(stagedClient);
   if (stagedClientSha256 !== expectedClientSha256) {
     fail(

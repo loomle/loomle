@@ -39,17 +39,23 @@
 #include "K2Node_IfThenElse.h"
 #include "K2Node_MacroInstance.h"
 #include "K2Node_MakeArray.h"
+#include "K2Node_GetSubsystem.h"
 #include "K2Node_VariableGet.h"
 #include "K2Node_VariableSet.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
+#include "Subsystems/AudioEngineSubsystem.h"
+#include "Subsystems/GameInstanceSubsystem.h"
+#include "Subsystems/LocalPlayerSubsystem.h"
+#include "Subsystems/WorldSubsystem.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "PackageTools.h"
 #include "UObject/Package.h"
 #include "UObject/UObjectGlobals.h"
+#include "UObject/UObjectHash.h"
 #include "WidgetBlueprint.h"
 
 namespace
@@ -3729,6 +3735,548 @@ bool FSalRobustGraphTopologyPersistenceTest::RunTest(
             TEXT("Persistent topology fixture is removed: %s"),
             *Error),
         bCleaned);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Issue #195: SAL Graph dry-run crashed Unreal inside
+// FMemberReference::SetGivenSelfScope (reached through
+// UK2Node_CallFunction::SetFromFunction) while materializing function call
+// Nodes against the isolated preflight Blueprint. Dry run must either resolve
+// against a coherent sandbox context or fail closed with a structured
+// diagnostic - it must never invoke UE's spawner with an inconsistent member
+// owner or self scope.
+// ---------------------------------------------------------------------------
+
+class FDryRunFunctionFixture
+{
+public:
+    FDryRunFunctionFixture()
+    {
+        const FString Token =
+            FGuid::NewGuid().ToString(EGuidFormats::Digits);
+        const FString AssetName =
+            FString::Printf(TEXT("BP_DryRunFunction_%s"), *Token);
+        PackageName = FString::Printf(
+            TEXT("/Game/LoomleTests/RobustGraph_%s"),
+            *Token);
+        Package = CreatePackage(*PackageName);
+        Blueprint = Package != nullptr
+            ? FKismetEditorUtilities::CreateBlueprint(
+                AActor::StaticClass(),
+                Package,
+                FName(*AssetName),
+                BPTYPE_Normal,
+                UBlueprint::StaticClass(),
+                UBlueprintGeneratedClass::StaticClass(),
+                NAME_None)
+            : nullptr;
+        if (Blueprint == nullptr)
+        {
+            return;
+        }
+        EventGraph =
+            FBlueprintEditorUtils::FindEventGraph(Blueprint);
+        FunctionGraph =
+            FBlueprintEditorUtils::CreateNewGraph(
+                Blueprint,
+                SelfFunctionName,
+                UEdGraph::StaticClass(),
+                UEdGraphSchema_K2::StaticClass());
+        if (FunctionGraph != nullptr)
+        {
+            FBlueprintEditorUtils::AddFunctionGraph(
+                Blueprint,
+                FunctionGraph,
+                true,
+                static_cast<UClass*>(nullptr));
+        }
+        if (EventGraph == nullptr || FunctionGraph == nullptr)
+        {
+            return;
+        }
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(
+            Blueprint);
+        FKismetEditorUtilities::CompileBlueprint(Blueprint);
+        FBlueprintActionDatabase::Get().RefreshAssetActions(
+            Blueprint);
+        Package->SetDirtyFlag(false);
+    }
+
+    ~FDryRunFunctionFixture()
+    {
+        FString Ignored;
+        Cleanup(Ignored);
+    }
+
+    FDryRunFunctionFixture(
+        const FDryRunFunctionFixture&) = delete;
+    FDryRunFunctionFixture& operator=(
+        const FDryRunFunctionFixture&) = delete;
+
+    bool IsValid() const
+    {
+        const UClass* Skeleton =
+            Blueprint != nullptr
+                ? Blueprint->SkeletonGeneratedClass.Get()
+                : nullptr;
+        return Package != nullptr
+            && Blueprint != nullptr
+            && EventGraph != nullptr
+            && FunctionGraph != nullptr
+            && Skeleton != nullptr
+            && Skeleton->FindFunctionByName(
+                SelfFunctionName) != nullptr;
+    }
+
+    bool Cleanup(FString& OutError)
+    {
+        if (bCleaned)
+        {
+            OutError.Reset();
+            return true;
+        }
+        bCleaned = true;
+        if (Blueprint != nullptr)
+        {
+            FBlueprintActionDatabase::Get().ClearAssetActions(
+                Blueprint);
+        }
+        UPackage* PackageToUnload = Package;
+        FunctionGraph = nullptr;
+        EventGraph = nullptr;
+        Blueprint = nullptr;
+        Package = nullptr;
+        return RobustGraphUnloadPackage(
+            PackageToUnload,
+            OutError);
+    }
+
+    UPackage* Package = nullptr;
+    UBlueprint* Blueprint = nullptr;
+    UEdGraph* EventGraph = nullptr;
+    UEdGraph* FunctionGraph = nullptr;
+    const FName SelfFunctionName = TEXT("RobustDryRunSelfFunction");
+
+private:
+    FString PackageName;
+    bool bCleaned = false;
+};
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphDryRunFunctionCallTest,
+    "Loomle.Sal.Robustness.Graph.DryRunFunctionCall",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphDryRunFunctionCallTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(
+            *this,
+            TEXT("function call dry run coverage")))
+    {
+        return false;
+    }
+    FDryRunFunctionFixture Fixture;
+    if (!TestTrue(
+            TEXT("function call dry run fixture is valid"),
+            Fixture.IsValid()))
+    {
+        return false;
+    }
+    const FString CallType =
+        TEXT("/Script/BlueprintGraph.K2Node_CallFunction");
+    const FSalResolvedTarget EventTarget =
+        RobustGraphTarget(Fixture.Blueprint, Fixture.EventGraph);
+    const FSalResolvedTarget FunctionTarget =
+        RobustGraphTarget(
+            Fixture.Blueprint,
+            Fixture.FunctionGraph);
+
+    auto FindFunctionPalette =
+        [&EventTarget, &CallType](const FString& Text)
+        {
+            FSalQuery Query =
+                RobustGraphQuery(TEXT("palette_entries"));
+            Query.Operation->SetStringField(TEXT("text"), Text);
+            Query.PageLimit = 20;
+            return RobustGraphFindPaletteId(
+                FSalGraphInterface::Query(Query, EventTarget),
+                CallType);
+        };
+    // UKismetSystemLibrary::PrintString is a plain BlueprintCallable static
+    // function whose Palette action materializes as K2Node_CallFunction.
+    // (Add_IntInt is deliberately not used: its CompactNodeTitle /
+    // CommutativeAssociativeBinaryOperator meta registers a different spawner
+    // type and a DisplayName of "int + int", which would not match a plain
+    // function-name search.)
+    const FString NativePalette =
+        FindFunctionPalette(TEXT("PrintString"));
+    const FString SelfPalette =
+        FindFunctionPalette(
+            Fixture.SelfFunctionName.ToString());
+    TestFalse(
+        TEXT("native static function call is discoverable"),
+        NativePalette.IsEmpty());
+    TestFalse(
+        TEXT("Blueprint self-context function is discoverable"),
+        SelfPalette.IsEmpty());
+    if (NativePalette.IsEmpty() || SelfPalette.IsEmpty())
+    {
+        return false;
+    }
+
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(
+            TEXT("function call dry run test isolates Undo history"),
+            Transactions.Initialize()))
+    {
+        return false;
+    }
+
+    // Event Graph dry run: a native static function call, a Blueprint-defined
+    // self-context function call, and repeated calls from the same
+    // self-context palette action (Issue #195 reproduction shape).
+    FSalPatch EventDryRun;
+    EventDryRun.Alias = TEXT("graph");
+    EventDryRun.bDryRun = true;
+    EventDryRun.Statements = {
+        RobustGraphBinding(
+            TEXT("Native"), NativePalette, CallType),
+        RobustGraphUnary(
+            TEXT("add"), RobustGraphLocal(TEXT("Native"))),
+        RobustGraphBinding(
+            TEXT("SelfA"), SelfPalette, CallType),
+        RobustGraphUnary(
+            TEXT("add"), RobustGraphLocal(TEXT("SelfA"))),
+        RobustGraphBinding(
+            TEXT("SelfB"), SelfPalette, CallType),
+        RobustGraphUnary(
+            TEXT("add"), RobustGraphLocal(TEXT("SelfB"))),
+        RobustGraphBinding(
+            TEXT("SelfC"), SelfPalette, CallType),
+        RobustGraphUnary(
+            TEXT("add"), RobustGraphLocal(TEXT("SelfC")))};
+
+    const int32 OriginalEventNodes = Fixture.EventGraph->Nodes.Num();
+    const TSharedPtr<FJsonObject> EventResult =
+        FSalGraphInterface::Patch(EventDryRun, EventTarget);
+    const bool bEventValid =
+        RobustGraphResultBool(EventResult, TEXT("valid"));
+    TestTrue(
+        *FString::Printf(
+            TEXT("Event Graph function dry run resolves through sandbox [%s]"),
+            *RobustGraphDiagnosticsText(EventResult)),
+        bEventValid);
+    TestEqual(
+        TEXT("Event Graph function dry run leaves live Graph unchanged"),
+        Fixture.EventGraph->Nodes.Num(),
+        OriginalEventNodes);
+    TestFalse(
+        TEXT("Event Graph dry run does not fail with spawn_failed"),
+        RobustGraphHasDiagnosticCode(
+            EventResult,
+            TEXT("validation.spawn_failed")));
+    TestFalse(
+        TEXT("Event Graph dry run does not reject a spawnable Palette action"),
+        RobustGraphHasDiagnosticCode(
+            EventResult,
+            TEXT("resolution.palette_not_spawnable")));
+    if (!bEventValid)
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    // Newly-created Function Graph dry run: the same self-context function.
+    FSalPatch FunctionDryRun;
+    FunctionDryRun.Alias = TEXT("graph");
+    FunctionDryRun.bDryRun = true;
+    FunctionDryRun.Statements = {
+        RobustGraphBinding(
+            TEXT("Self"), SelfPalette, CallType),
+        RobustGraphUnary(
+            TEXT("add"), RobustGraphLocal(TEXT("Self")))};
+    const int32 OriginalFunctionNodes =
+        Fixture.FunctionGraph->Nodes.Num();
+    const TSharedPtr<FJsonObject> FunctionResult =
+        FSalGraphInterface::Patch(
+            FunctionDryRun,
+            FunctionTarget);
+    const bool bFunctionValid =
+        RobustGraphResultBool(FunctionResult, TEXT("valid"));
+    TestTrue(
+        *FString::Printf(
+            TEXT("Function Graph self-context dry run resolves through sandbox [%s]"),
+            *RobustGraphDiagnosticsText(FunctionResult)),
+        bFunctionValid);
+    TestEqual(
+        TEXT("Function Graph dry run leaves live Graph unchanged"),
+        Fixture.FunctionGraph->Nodes.Num(),
+        OriginalFunctionNodes);
+    if (!bFunctionValid)
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    Transactions.Restore();
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphSandboxClassIdentityTest,
+    "Loomle.Sal.Robustness.Graph.SandboxClassIdentity",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphSandboxClassIdentityTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(
+            *this,
+            TEXT("sandbox class identity coverage")))
+    {
+        return false;
+    }
+    FRobustGraphFixture Fixture;
+    if (!TestTrue(
+            TEXT("sandbox class identity fixture is valid"),
+            Fixture.IsValid()))
+    {
+        return false;
+    }
+    const FSalResolvedTarget Target =
+        RobustGraphTarget(Fixture.Blueprint, Fixture.Graph);
+
+    TStrongObjectPtr<UBlueprint> SandboxOwner;
+    FSalResolvedTarget SandboxTarget;
+    FString SandboxError;
+    if (!TestTrue(
+            *FString::Printf(
+                TEXT("sandbox builds for class identity: %s"),
+                *SandboxError),
+            FSalGraphInterface::BuildSandboxTargetForTesting(
+                Target,
+                SandboxOwner,
+                SandboxTarget,
+                SandboxError)))
+    {
+        return false;
+    }
+    UBlueprint* Sandbox = SandboxOwner.Get();
+    if (!TestNotNull(
+            TEXT("sandbox class identity owner"),
+            Sandbox))
+    {
+        return false;
+    }
+    UBlueprintGeneratedClass* SandboxGenerated =
+        Cast<UBlueprintGeneratedClass>(
+            Sandbox->GeneratedClass.Get());
+    UBlueprintGeneratedClass* SandboxSkeleton =
+        Cast<UBlueprintGeneratedClass>(
+            Sandbox->SkeletonGeneratedClass.Get());
+    TestNotNull(
+        TEXT("sandbox Generated Class exists"),
+        SandboxGenerated);
+    TestNotNull(
+        TEXT("sandbox Skeleton Class exists"),
+        SandboxSkeleton);
+    if (SandboxGenerated == nullptr
+        || SandboxSkeleton == nullptr)
+    {
+        return false;
+    }
+    TestTrue(
+        TEXT("sandbox Generated Class reports the sandbox Blueprint as owner"),
+        SandboxGenerated->ClassGeneratedBy == Sandbox);
+    TestTrue(
+        TEXT("sandbox Skeleton Class reports the sandbox Blueprint as owner"),
+        SandboxSkeleton->ClassGeneratedBy == Sandbox);
+    TestTrue(
+        TEXT("sandbox classes remain isolated in the transient package"),
+        SandboxGenerated->IsIn(GetTransientPackage())
+            && SandboxSkeleton->IsIn(GetTransientPackage()));
+    TestTrue(
+        TEXT("sandbox classes are distinct from the live Blueprint classes"),
+        SandboxGenerated != Fixture.Blueprint->GeneratedClass
+            && SandboxSkeleton
+                != Fixture.Blueprint->SkeletonGeneratedClass);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Issue #196: distinct K2Node_GetSubsystem creation actions shared one SAL
+// palette identity because UE's FBlueprintNodeSpawner::GetSpawnerSignature
+// contains only the Node class, while each subsystem action's CustomClass
+// lives in its CustomizeNodeDelegate. Every subsystem-specific creation
+// action must expose a stable unique palette identity and materialize through
+// exact Palette schema and dry run.
+// ---------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphSubsystemPaletteIdentityTest,
+    "Loomle.Sal.Robustness.Graph.SubsystemPaletteIdentity",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphSubsystemPaletteIdentityTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(
+            *this,
+            TEXT("subsystem Palette identity coverage")))
+    {
+        return false;
+    }
+    // Collect the same Blueprint-allowable subsystem classes that
+    // UK2Node_GetSubsystem::GetMenuActions registers spawners for.
+    TArray<UClass*> SubsystemClasses;
+    {
+        TArray<UClass*> Derived;
+        GetDerivedClasses(
+            UGameInstanceSubsystem::StaticClass(),
+            Derived);
+        SubsystemClasses.Append(Derived);
+        Derived.Reset();
+        GetDerivedClasses(
+            UWorldSubsystem::StaticClass(),
+            Derived);
+        SubsystemClasses.Append(Derived);
+        Derived.Reset();
+        GetDerivedClasses(
+            ULocalPlayerSubsystem::StaticClass(),
+            Derived);
+        SubsystemClasses.Append(Derived);
+        Derived.Reset();
+        GetDerivedClasses(
+            UAudioEngineSubsystem::StaticClass(),
+            Derived);
+        SubsystemClasses.Append(Derived);
+        SubsystemClasses.RemoveAll(
+            [](const UClass* Class)
+            {
+                return Class == nullptr
+                    || !UEdGraphSchema_K2::
+                        IsAllowableBlueprintVariableType(
+                            Class,
+                            true);
+            });
+        SubsystemClasses.Sort(
+            [](const UClass& A, const UClass& B)
+            {
+                return A.GetName() < B.GetName();
+            });
+        if (SubsystemClasses.Num() > 4)
+        {
+            SubsystemClasses.SetNum(4);
+        }
+    }
+    TestTrue(
+        TEXT("Editor exposes at least two subsystem classes"),
+        SubsystemClasses.Num() >= 2);
+    if (SubsystemClasses.Num() < 2)
+    {
+        return false;
+    }
+
+    FRobustGraphFixture Fixture;
+    if (!TestTrue(
+            TEXT("subsystem Palette identity fixture is valid"),
+            Fixture.IsValid()))
+    {
+        return false;
+    }
+    const FSalResolvedTarget Target =
+        RobustGraphTarget(Fixture.Blueprint, Fixture.Graph);
+    const FString GetSubsystemType =
+        TEXT("/Script/BlueprintGraph.K2Node_GetSubsystem");
+
+    TArray<FString> PaletteIds;
+    TArray<FString> Labels;
+    for (const UClass* SubsystemClass : SubsystemClasses)
+    {
+        FSalQuery Query =
+            RobustGraphQuery(TEXT("palette_entries"));
+        Query.Operation->SetStringField(
+            TEXT("text"),
+            TEXT("Get ") + SubsystemClass->GetName());
+        Query.PageLimit = 20;
+        const TSharedPtr<FJsonObject> Result =
+            FSalGraphInterface::Query(Query, Target);
+        if (RobustGraphHasError(Result))
+        {
+            continue;
+        }
+        const FString Id = RobustGraphFindPaletteId(
+            Result,
+            GetSubsystemType);
+        if (Id.IsEmpty())
+        {
+            continue;
+        }
+        PaletteIds.Add(Id);
+        Labels.Add(SubsystemClass->GetName());
+    }
+    TestTrue(
+        TEXT("subsystem Palette discovers at least two distinct actions"),
+        PaletteIds.Num() >= 2);
+    if (PaletteIds.Num() < 2)
+    {
+        return false;
+    }
+
+    TSet<FString> UniqueIds;
+    for (const FString& Id : PaletteIds)
+    {
+        UniqueIds.Add(Id);
+    }
+    TestEqual(
+        TEXT("each subsystem action has a unique Palette identity"),
+        UniqueIds.Num(),
+        PaletteIds.Num());
+
+    for (int32 Index = 0; Index < 2; ++Index)
+    {
+        FSalQuery Exact =
+            RobustGraphQuery(TEXT("palette"));
+        Exact.Operation->SetStringField(
+            TEXT("id"),
+            PaletteIds[Index]);
+        Exact.With.Add(TEXT("schema"));
+        const TSharedPtr<FJsonObject> ExactResult =
+            FSalGraphInterface::Query(Exact, Target);
+        TestFalse(
+            *FString::Printf(
+                TEXT("exact subsystem Palette resolves [%s]"),
+                *RobustGraphDiagnosticsText(ExactResult)),
+            RobustGraphHasError(ExactResult));
+
+        const FString Alias =
+            FString::Printf(TEXT("Subsystem%d"), Index);
+        FSalPatch Patch;
+        Patch.Alias = TEXT("graph");
+        Patch.bDryRun = true;
+        Patch.Statements = {
+            RobustGraphBinding(
+                Alias,
+                PaletteIds[Index],
+                GetSubsystemType),
+            RobustGraphUnary(
+                TEXT("add"),
+                RobustGraphLocal(Alias))};
+        const TSharedPtr<FJsonObject> DryRun =
+            FSalGraphInterface::Patch(Patch, Target);
+        TestTrue(
+            *FString::Printf(
+                TEXT("subsystem action %d (%s) dry run resolves through sandbox [%s]"),
+                Index,
+                *Labels[Index],
+                *RobustGraphDiagnosticsText(DryRun)),
+            RobustGraphResultBool(DryRun, TEXT("valid")));
+    }
     return true;
 }
 

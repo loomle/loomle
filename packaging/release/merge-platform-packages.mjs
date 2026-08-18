@@ -17,6 +17,11 @@ import { pathToFileURL } from "node:url";
 
 import { verifyPackageDerivation } from "../fab/verify-derivation.mjs";
 import {
+  DISTRIBUTION_FILE_NAME,
+  requireDistributionFile,
+  writeDistributionFile,
+} from "../tools/distribution.mjs";
+import {
   descriptorEngineVersion,
   requireSupportedUnrealVersion,
   SOURCE_UNREAL_VERSION,
@@ -28,12 +33,14 @@ const PLATFORMS = [
     target: "darwin-arm64",
     unrealPlatform: "Mac",
     client: "Resources/Loomle/darwin-arm64/loomle",
+    distribution: `Resources/Loomle/darwin-arm64/${DISTRIBUTION_FILE_NAME}`,
     binaries: "Binaries/Mac",
   },
   {
     target: "win32-x64",
     unrealPlatform: "Win64",
     client: "Resources/Loomle/win32-x64/loomle.exe",
+    distribution: `Resources/Loomle/win32-x64/${DISTRIBUTION_FILE_NAME}`,
     binaries: "Binaries/Win64",
   },
 ];
@@ -49,7 +56,11 @@ export async function mergePlatformPackages({
   outputSourcePluginRoot,
   outputPluginRoot,
   engineVersion,
+  distribution = "github",
 }) {
+  if (distribution !== "github" && distribution !== "fab") {
+    fail(`merged package distribution must be github or fab, got ${JSON.stringify(distribution)}.`);
+  }
   const resolvedEngineVersion = requireSupportedUnrealVersion(engineVersion);
   const inputs = {
     "darwin-arm64": {
@@ -90,6 +101,8 @@ export async function mergePlatformPackages({
       resolvedEngineVersion,
     );
     await requireNonEmptyFile(join(pair.source, platform.client), platform.client);
+    await requireDistributionFile(join(pair.source, platform.distribution), "fab");
+    await requireDistributionFile(join(pair.plugin, platform.distribution), "fab");
     await requireDirectory(join(pair.plugin, platform.binaries), platform.binaries);
   }
 
@@ -119,6 +132,13 @@ export async function mergePlatformPackages({
     join(inputs["win32-x64"].source, PLATFORMS[1].client),
     join(outputSource, PLATFORMS[1].client),
   );
+  await cp(
+    join(inputs["win32-x64"].source, PLATFORMS[1].distribution),
+    join(outputSource, PLATFORMS[1].distribution),
+  );
+  for (const platform of PLATFORMS) {
+    await writeDistributionFile(join(outputSource, platform.distribution), distribution);
+  }
   await normalizeSharedTextFiles(outputSource, sharedSourceFiles);
   await writeDescriptor(outputSource, mergedSourceDescriptor);
   if (process.platform !== "win32") {
@@ -146,6 +166,7 @@ export async function mergePlatformPackages({
     outputSourcePluginRoot: outputSource,
     engineVersion: resolvedEngineVersion,
     targets: PLATFORMS.map(({ target }) => target),
+    distribution,
   };
 }
 
@@ -498,6 +519,7 @@ function parseArgs(argv) {
     outputSourcePluginRoot: options["output-source-plugin"],
     outputPluginRoot: options["output-plugin"],
     engineVersion: options["engine-version"],
+    distribution: options.distribution ?? "github",
   };
 }
 

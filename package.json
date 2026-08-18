@@ -1,6 +1,6 @@
 {
   "name": "loomle",
-  "version": "0.7.10",
+  "version": "0.7.13",
   "loomle": {
     "protocolVersion": 6
   },
@@ -22,15 +22,19 @@
     "build:executable": "node packaging/client/build.mjs",
     "test:executable": "node packaging/client/test.mjs",
     "assemble:fab": "node packaging/fab/assemble.mjs",
+    "assemble:agents": "node packaging/agent/assemble.mjs",
+    "test:agents": "node --test packaging/agent/assemble.test.mjs packaging/agent/verify-registry-candidate.test.mjs",
+    "check:channels": "node packaging/tools/channel-document.mjs --directory site/channels",
     "test:fab": "node --test packaging/fab/assemble.test.mjs packaging/fab/tested-plugin.test.mjs packaging/fab/verify-derivation.test.mjs",
-    "test:release": "node --test packaging/release/merge-platform-packages.test.mjs packaging/release/validate-promotion.test.mjs packaging/release/promotion-workflow.test.mjs",
+    "test:release": "node --test packaging/release/merge-platform-packages.test.mjs packaging/release/validate-promotion.test.mjs packaging/release/promotion-workflow.test.mjs packaging/release/registry-promotion-workflow.test.mjs",
     "test:ue-runner": "node --test tests/runner/ue-test-runner.test.mjs",
     "test:packaged-smoke-unit": "npm run build --workspace @loomle/client && node --test tests/integration/packaged-mcp-smoke.test.mjs tests/integration/packaged-runtime-lifecycle.test.mjs",
     "test:ue-automation": "node tests/runner/ue-test-runner.mjs --profile automation",
     "test:packaged-e2e": "node tests/runner/ue-test-runner.mjs --profile packaged_e2e",
-    "test": "npm run check:version && node --test packaging/tools/product-version.test.mjs packaging/tools/pe-machine.test.mjs packaging/client/runtime-cache.test.mjs && npm run test:fab && npm run test:release && npm run test:ue-runner && npm run test:packaged-smoke-unit && npm run test --workspace @loomle/sal && npm run test --workspace @loomle/interfaces && npm run test --workspace @loomle/client"
+    "test": "npm run check:version && npm run check:channels && node --test packaging/tools/product-version.test.mjs packaging/tools/pe-machine.test.mjs packaging/tools/distribution.test.mjs packaging/tools/channel-document.test.mjs packaging/client/runtime-cache.test.mjs && npm run test:fab && npm run test:release && npm run test:agents && npm run test:ue-runner && npm run test:packaged-smoke-unit && npm run test --workspace @loomle/sal && npm run test --workspace @loomle/interfaces && npm run test --workspace @loomle/client"
   },
   "devDependencies": {
+    "fflate": "0.8.2",
     "postject": "1.0.0-alpha.6"
   }
 }

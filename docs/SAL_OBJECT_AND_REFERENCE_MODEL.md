@@ -1356,6 +1356,35 @@ present but cannot materialize a Node reports
 `resolution.palette_not_spawnable`. Exact Palette schema advertises `bind` and
 `add` only for an action that can materialize in the current Graph context.
 
+Before any UE spawner invocation, Graph Patch validates the resolved action
+against the mutation Target and fails closed (Issue #195). UE's spawner
+machinery reaches `FMemberReference::SetGivenSelfScope` through
+`UK2Node_CallFunction::SetFromFunction` and dereferences the function's owner
+class and the Node's self scope; a stale or foreign owner class crashes the
+Editor inside UE. Validation therefore requires the action's member owner to be
+either a native class or a class owned by the Target Blueprint, requires the
+Target Graph to be owned by the Target Blueprint, and requires a generated or
+skeleton class to resolve the Node's self scope. A binding that fails these
+checks reports `resolution.palette_not_spawnable`; an `add` or `insert` that
+fails the same checks at materialization time reports
+`validation.spawn_failed`. Resolved spawners are also rooted as GC roots for
+the complete Patch lifetime so a synchronous Editor GC pass between binding and
+materialization cannot invalidate the action. The dry-run sandbox restores
+`UClass::ClassGeneratedBy` on the duplicated Generated and Skeleton classes
+exactly as the compiler does, so UE's self-context and Blueprint-ownership
+decisions see a coherent sandbox context rather than the null owner that
+plain duplication leaves behind.
+
+Graph Palette identity must uniquely name the exact UE creation action, not
+just its Node class. UE's `FBlueprintNodeSpawner::GetSpawnerSignature()`
+collapses every `UK2Node_GetSubsystem` action to the same Node-class signature
+because each subsystem class lives only in that spawner's
+`CustomizeNodeDelegate` (Issue #196). Graph Patch reads the spawner template
+Node's `CustomClass` from its result Pin type and folds it into the signature,
+so every subsystem-specific creation action receives a stable unique Palette
+identity that exact Palette schema and dry run can replay without
+`resolution.palette_ambiguous`.
+
 One UE Node spawner may produce several native menu actions by binding the same
 callable to different Blueprint object properties. Graph Palette identity
 includes that native bound-property identity in addition to the spawner

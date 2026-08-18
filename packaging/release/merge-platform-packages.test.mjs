@@ -19,12 +19,14 @@ const PLATFORMS = [
     target: "darwin-arm64",
     unrealPlatform: "Mac",
     client: "Resources/Loomle/darwin-arm64/loomle",
+    distribution: "Resources/Loomle/darwin-arm64/distribution.json",
     binary: "Binaries/Mac/UnrealEditor-LoomleBridge.dylib",
   },
   {
     target: "win32-x64",
     unrealPlatform: "Win64",
     client: "Resources/Loomle/win32-x64/loomle.exe",
+    distribution: "Resources/Loomle/win32-x64/distribution.json",
     binary: "Binaries/Win64/UnrealEditor-LoomleBridge.dll",
   },
 ];
@@ -49,6 +51,7 @@ test("merges verified native fragments into one source and one complete package"
     const result = await mergePlatformPackages(fixture.input);
     assert.deepEqual(result.targets, ["darwin-arm64", "win32-x64"]);
     assert.equal(result.engineVersion, "5.7");
+    assert.equal(result.distribution, "github");
 
     for (const platform of PLATFORMS) {
       assert.equal(
@@ -58,6 +61,10 @@ test("merges verified native fragments into one source and one complete package"
       assert.equal(
         await readFile(join(fixture.outputPlugin, platform.binary), "utf8"),
         `${platform.target} bridge`,
+      );
+      assert.deepEqual(
+        await readJson(join(fixture.outputPlugin, platform.distribution)),
+        { schemaVersion: 1, channel: "github" },
       );
     }
     await assert.rejects(
@@ -123,6 +130,25 @@ test("merges UE 5.8 fragments with the manifest-named Mac binary", async () => {
       join(fixture.outputPlugin, "LoomleBridge.uplugin"),
     );
     assert.equal(descriptor.EngineVersion, "5.8.0");
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("can retain the Fab channel while producing a public Fab source candidate", async () => {
+  const fixture = await createFixture();
+  try {
+    const result = await mergePlatformPackages({
+      ...fixture.input,
+      distribution: "fab",
+    });
+    assert.equal(result.distribution, "fab");
+    for (const platform of PLATFORMS) {
+      assert.deepEqual(
+        await readJson(join(fixture.outputSource, platform.distribution)),
+        { schemaVersion: 1, channel: "fab" },
+      );
+    }
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -214,6 +240,10 @@ async function createFixture({ engineVersion = "5.7" } = {}) {
     );
     await writeFile(join(source, "Source", "LoomleBridge", "Bridge.cpp"), "shared source");
     await writeFile(join(source, platform.client), `${platform.target} client`);
+    await writeFile(
+      join(source, platform.distribution),
+      JSON.stringify({ schemaVersion: 1, channel: "fab" }),
+    );
     await writeFile(
       join(source, "LoomleBridge.uplugin"),
       JSON.stringify(descriptor(platform.unrealPlatform, false, engineVersion)),

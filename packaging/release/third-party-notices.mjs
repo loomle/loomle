@@ -8,7 +8,12 @@ export async function renderThirdPartyNotices({
   nodeLicensePath,
   nodeVersion,
 }) {
-  const nodeLicense = await readRequiredText(nodeLicensePath, "Node.js license");
+  if ((nodeLicensePath === undefined) !== (nodeVersion === undefined)) {
+    throw new Error("Node.js notice requires both nodeLicensePath and nodeVersion.");
+  }
+  const nodeLicense = nodeLicensePath === undefined
+    ? undefined
+    : await readRequiredText(nodeLicensePath, "Node.js license");
   const lock = JSON.parse(await readFile(join(repoRoot, "package-lock.json"), "utf8"));
   const packages = [];
 
@@ -64,12 +69,12 @@ export async function renderThirdPartyNotices({
     [
       "LOOMLE THIRD-PARTY NOTICES",
       "",
-      "This file contains license texts for the runtime and production",
-      "dependencies distributed inside the standalone Loomle Client.",
+      "This file contains license texts for production dependencies",
+      "distributed inside the Loomle Client.",
     ].join("\n"),
-    renderSection(`Node.js ${nodeVersion}`, undefined, [
+    ...(nodeLicense === undefined ? [] : [renderSection(`Node.js ${nodeVersion}`, undefined, [
       { name: "LICENSE", text: nodeLicense },
-    ]),
+    ])]),
     ...uniquePackages.map((entry) => renderSection(
       `${entry.name} ${entry.version}`,
       entry.declaredLicense,

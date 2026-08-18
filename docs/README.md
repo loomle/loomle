@@ -46,6 +46,9 @@ owners rather than under `docs/`:
 Files under `planned/` are not current public interfaces. They preserve useful
 UE research and explicitly identify the SAL/interface work still required:
 
+- `planned/AGENT_DISTRIBUTION_CHANNELS_DESIGN.md`: independently promoted
+  GitHub, Fab, MCP Registry, and Claude channel versions, update authorities,
+  Bridge pairing, packaging, and verification design. Codex follows GitHub.
 - `planned/BLUEPRINT_USER_DEFINED_STRUCT_DESIGN.md`: UserDefinedStruct UE
   semantics and the open SAL design questions.
 - `planned/blueprint/graph-layout.md`: automatic Blueprint graph formatting

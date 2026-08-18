@@ -177,6 +177,10 @@ jobs:
               echo "Fab source archive is missing Source for $target." >&2
               exit 1
             }
+            grep -Fxq "LoomleBridge/Resources/Loomle/$target/distribution.json" "$entries" || {
+              echo "Fab source archive is missing distribution metadata for $target." >&2
+              exit 1
+            }
             if grep -Eq '^LoomleBridge/(Binaries|Intermediate|Saved)(/|$)' "$entries"; then
               echo "Fab source archive contains generated UE output for $target." >&2
               exit 1
@@ -218,6 +222,63 @@ jobs:
           echo "notes=$notes" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build Agent Channel Candidates
+        id: agents
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/agent-packages"
+          npm ci
+          npm run build --workspace @loomle/client
+          npm run test:agents
+          npm run assemble:agents -- --output-dir "$output"
+
+          node -e '
+            const fs = require("node:fs");
+            const receipt = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            if (receipt.productVersion !== process.argv[2]) {
+              throw new Error(`agent package version ${receipt.productVersion} does not match ${process.argv[2]}`);
+            }
+            const hashes = new Set([
+              receipt.clientBundleSha256,
+              receipt.packages.mcpRegistry.clientSha256,
+              receipt.packages.claude.clientSha256,
+              receipt.packages.codex.clientSha256,
+            ]);
+            if (hashes.size !== 1) throw new Error("agent package Client hashes differ");
+          ' "$output/build.json" "$VERSION"
+
+          registry_mcpb="$output/registry/loomle-mcp-registry-$VERSION.mcpb"
+          registry_server="$output/registry/server.json"
+          claude_mcpb="$output/claude/loomle-claude-$VERSION.mcpb"
+          codex_archive="$output/codex/loomle-codex-marketplace-$VERSION.zip"
+          for asset in "$registry_mcpb" "$claude_mcpb"; do
+            [[ -s "$asset" ]] || {
+              echo "Agent channel candidate is missing: $asset" >&2
+              exit 1
+            }
+            (
+              cd "$(dirname "$asset")"
+              sha256sum "$(basename "$asset")" > "$(basename "$asset").sha256"
+            )
+          done
+          [[ -s "$codex_archive" ]] || {
+            echo "Internal Codex compatibility package is missing: $codex_archive" >&2
+            exit 1
+          }
+          [[ -s "$registry_server" ]] || {
+            echo "Registry server.json is missing." >&2
+            exit 1
+          }
+
+          echo "registry_mcpb=$registry_mcpb" >> "$GITHUB_OUTPUT"
+          echo "registry_mcpb_sha_file=$registry_mcpb.sha256" >> "$GITHUB_OUTPUT"
+          echo "registry_server=$registry_server" >> "$GITHUB_OUTPUT"
+          echo "claude_mcpb=$claude_mcpb" >> "$GITHUB_OUTPUT"
+          echo "claude_mcpb_sha_file=$claude_mcpb.sha256" >> "$GITHUB_OUTPUT"
 
       - name: Build Cross-Platform Release Packages
         id: packages
@@ -280,7 +341,9 @@ jobs:
             unzip -Z1 "$plugin_archive" > "$plugin_entries"
             for required in \
               LoomleBridge/Resources/Loomle/darwin-arm64/loomle \
+              LoomleBridge/Resources/Loomle/darwin-arm64/distribution.json \
               LoomleBridge/Resources/Loomle/win32-x64/loomle.exe \
+              LoomleBridge/Resources/Loomle/win32-x64/distribution.json \
               LoomleBridge/Source/ \
               LoomleBridge/Binaries/Mac/UnrealEditor.modules \
               LoomleBridge/Binaries/Win64/UnrealEditor.modules \
@@ -290,12 +353,59 @@ jobs:
                 exit 1
               }
             done
+            for target in darwin-arm64 win32-x64; do
+              channel_file="$release_root/plugin-$ue/LoomleBridge/Resources/Loomle/$target/distribution.json"
+              node -e '
+                const value = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+                if (value.schemaVersion !== 1 || value.channel !== "github" || Object.keys(value).length !== 2) {
+                  throw new Error(`invalid GitHub distribution metadata: ${process.argv[1]}`);
+                }
+              ' "$channel_file"
+            done
             mac_bridge="$(node -e '
               const manifest = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
               process.stdout.write(manifest.Modules.LoomleBridge);
             ' "$release_root/plugin-$ue/LoomleBridge/Binaries/Mac/UnrealEditor.modules")"
             grep -Fxq "LoomleBridge/Binaries/Mac/$mac_bridge" "$plugin_entries"
           done
+
+          mkdir -p \
+            "$release_root/fab-source" \
+            "$release_root/fab-plugin"
+          node packaging/release/merge-platform-packages.mjs \
+            --mac-source-plugin "$fragments/mac-source/LoomleBridge" \
+            --mac-plugin "$fragments/ue5.7/mac-plugin/LoomleBridge" \
+            --windows-source-plugin "$fragments/windows-source/LoomleBridge" \
+            --windows-plugin "$fragments/ue5.7/windows-plugin/LoomleBridge" \
+            --output-source-plugin "$release_root/fab-source/LoomleBridge" \
+            --output-plugin "$release_root/fab-plugin/LoomleBridge" \
+            --engine-version 5.7 \
+            --distribution fab
+
+          fab_source_archive="$release_root/assets/loomle-bridge-$VERSION-fab-source.zip"
+          (
+            cd "$release_root/fab-source"
+            zip -qry "$fab_source_archive" LoomleBridge
+          )
+          (
+            cd "$release_root/assets"
+            sha256sum "$(basename "$fab_source_archive")" > "$(basename "$fab_source_archive").sha256"
+          )
+          for target in darwin-arm64 win32-x64; do
+            channel_file="$release_root/fab-source/LoomleBridge/Resources/Loomle/$target/distribution.json"
+            node -e '
+              const value = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+              if (value.schemaVersion !== 1 || value.channel !== "fab" || Object.keys(value).length !== 2) {
+                throw new Error(`invalid Fab distribution metadata: ${process.argv[1]}`);
+              }
+            ' "$channel_file"
+          done
+          cmp -s \
+            "$release_root/fab-source/LoomleBridge/Resources/Loomle/darwin-arm64/loomle" \
+            "$release_root/source-ue5.7/LoomleBridge/Resources/Loomle/darwin-arm64/loomle"
+          cmp -s \
+            "$release_root/fab-source/LoomleBridge/Resources/Loomle/win32-x64/loomle.exe" \
+            "$release_root/source-ue5.7/LoomleBridge/Resources/Loomle/win32-x64/loomle.exe"
 
           cmp -s \
             "$release_root/source-ue5.7/LoomleBridge/LoomleBridge.uplugin" \
@@ -324,6 +434,8 @@ jobs:
           echo "source_sha_file=$source_archive.sha256" >> "$GITHUB_OUTPUT"
           echo "source_alias=$source_alias" >> "$GITHUB_OUTPUT"
           echo "source_alias_sha_file=$source_alias.sha256" >> "$GITHUB_OUTPUT"
+          echo "fab_source_archive=$fab_source_archive" >> "$GITHUB_OUTPUT"
+          echo "fab_source_sha_file=$fab_source_archive.sha256" >> "$GITHUB_OUTPUT"
           for engine in 5.7 5.8; do
             key="ue${engine//./_}"
             ue="ue$engine"
@@ -373,6 +485,13 @@ jobs:
           SOURCE_SHA_FILE: ${{ steps.packages.outputs.source_sha_file }}
           SOURCE_ALIAS: ${{ steps.packages.outputs.source_alias }}
           SOURCE_ALIAS_SHA_FILE: ${{ steps.packages.outputs.source_alias_sha_file }}
+          FAB_SOURCE_ARCHIVE: ${{ steps.packages.outputs.fab_source_archive }}
+          FAB_SOURCE_SHA_FILE: ${{ steps.packages.outputs.fab_source_sha_file }}
+          REGISTRY_MCPB: ${{ steps.agents.outputs.registry_mcpb }}
+          REGISTRY_MCPB_SHA_FILE: ${{ steps.agents.outputs.registry_mcpb_sha_file }}
+          REGISTRY_SERVER: ${{ steps.agents.outputs.registry_server }}
+          CLAUDE_MCPB: ${{ steps.agents.outputs.claude_mcpb }}
+          CLAUDE_MCPB_SHA_FILE: ${{ steps.agents.outputs.claude_mcpb_sha_file }}
           TAG: ${{ steps.release.outputs.tag }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
@@ -387,10 +506,17 @@ jobs:
             "$UE_5_8_SHA_FILE"
             "$SOURCE_ALIAS"
             "$SOURCE_ALIAS_SHA_FILE"
+            "$FAB_SOURCE_ARCHIVE"
+            "$FAB_SOURCE_SHA_FILE"
             "$UE_5_7_ALIAS"
             "$UE_5_7_ALIAS_SHA_FILE"
             "$UE_5_8_ALIAS"
             "$UE_5_8_ALIAS_SHA_FILE"
+            "$REGISTRY_MCPB"
+            "$REGISTRY_MCPB_SHA_FILE"
+            "$REGISTRY_SERVER"
+            "$CLAUDE_MCPB"
+            "$CLAUDE_MCPB_SHA_FILE"
           )
           if [[ "$CHANNEL" == "prerelease" ]]; then
             channel_args=(--prerelease)
@@ -401,6 +527,13 @@ jobs:
               "$UE_5_7_SHA_FILE"
               "$UE_5_8_ARCHIVE"
               "$UE_5_8_SHA_FILE"
+              "$FAB_SOURCE_ARCHIVE"
+              "$FAB_SOURCE_SHA_FILE"
+              "$REGISTRY_MCPB"
+              "$REGISTRY_MCPB_SHA_FILE"
+              "$REGISTRY_SERVER"
+              "$CLAUDE_MCPB"
+              "$CLAUDE_MCPB_SHA_FILE"
             )
           fi
           gh release create "$TAG" \

@@ -1010,6 +1010,23 @@ bool RestoreTransientBlueprintIdentity(
             }
         }
     }
+
+    // StaticDuplicateObject never serializes UClass::ClassGeneratedBy
+    // (SkipSerialization), so the duplicated classes would otherwise report no
+    // owning Blueprint. UE's member-reference machinery
+    // (FMemberReference::SetGivenSelfScope) and Blueprint-ownership checks use
+    // ClassGeneratedBy to decide self-context and class ownership; restore the
+    // sandbox link exactly as the compiler does for authored classes so Nodes
+    // materialized against the sandbox resolve a coherent self scope.
+    for (UClass* Class : {
+             Copy->GeneratedClass.Get(),
+             Copy->SkeletonGeneratedClass.Get()})
+    {
+        if (Class != nullptr)
+        {
+            Class->ClassGeneratedBy = Copy;
+        }
+    }
     return true;
 }
 

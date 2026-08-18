@@ -44,11 +44,12 @@ belong to the same exact commit, checks out that commit, and verifies both sets
 of result files, target descriptors, and archive hashes. It then rejects shared
 source drift, except for a strictly verified historical CRLF/LF-only text
 difference that is emitted as LF, and mechanically merges the fragments into one
-cross-platform source archive plus separate UE 5.7 and UE 5.8 complete plugin
-archives.
+cross-platform Fab and GitHub source archives plus separate UE 5.7 and UE 5.8
+complete GitHub plugin archives. The archives share exact Client executable
+bytes; only their adjacent distribution metadata differs.
 No executable bytes are rebuilt or rewritten. It derives `v<product-version>`,
 requires an existing lightweight tag at the exact verified commit, and
-publishes those three merged ZIPs and their SHA-256 sidecars. Final releases
+publishes those four merged ZIPs and their SHA-256 sidecars. Final releases
 also publish byte-identical stable aliases (`loomle-bridge-ue5.7.zip`,
 `loomle-bridge-ue5.8.zip`, and `loomle-bridge-source.zip`, with matching
 sidecars) so the website can use one
@@ -87,6 +88,26 @@ quality improvement, not a promotion prerequisite for the agent-invoked
 standalone Client. Every published binary must still pass the exact packaged
 end-to-end and checksum gates. Fab submission remains a separate human action.
 
+The same promotion builds the platform-neutral Client once from the exact
+verified commit and publishes immutable agent-channel candidates:
+
+- `loomle-mcp-registry-<version>.mcpb`, its checksum, and `server.json`;
+- `loomle-claude-<version>.mcpb` and its checksum.
+
+Their embedded `loomle.cjs` hashes must match one another and the internally
+validated Codex compatibility copy. Publishing these files to the GitHub
+Release does not publish or advance MCP Registry or Claude. Each channel keeps
+its own later promotion or review gate, and no agent candidate receives an
+unversioned stable alias. Codex users follow the GitHub distribution; no Codex
+marketplace ZIP is published.
+
+`.github/workflows/promote-mcp-registry.yml` is a separate manual promotion
+step. It accepts an existing final GitHub Release tag, downloads the exact
+Registry MCPB, checksum, and `server.json`, verifies their version, manifest,
+URL, and SHA-256 binding, rejects an already published immutable version,
+authenticates with GitHub OIDC, and publishes with a checksum-pinned
+`mcp-publisher`. It then verifies the exact Registry API response.
+
 For each accepted target, the verification workflow uploads internal QA
 fragments:
 
@@ -98,12 +119,15 @@ from the first, and `packaging/fab/verify-derivation.mjs` rejects source drift,
 omitted source, or non-build additions. Promotion merges the two native pairs
 and publishes:
 
-- `loomle-bridge-<version>-source.zip` for the single Fab Project File Link;
+- `loomle-bridge-<version>-fab-source.zip` for the single Fab Project File Link;
+- `loomle-bridge-<version>-source.zip` for GitHub source installation;
 - `loomle-bridge-<version>-ue5.7.zip` for UE 5.7 installations;
 - `loomle-bridge-<version>-ue5.8.zip` for UE 5.8 installations.
 
-Fab always receives the immutable versioned source URL. The stable aliases are
-GitHub download names for the same bytes, not separately built packages.
+Fab always receives the immutable versioned Fab-source URL. GitHub stable
+aliases remain byte-identical to the versioned GitHub artifacts. The Fab and
+GitHub source archives are mechanically derived from the same verified inputs;
+their Client executables are identical and only `distribution.json` differs.
 
 Release notes are checked in under `packaging/release/notes/` and named by the
 exact product version.
@@ -113,8 +137,8 @@ exact product version.
 - `0.6` is the maintenance line rooted at `v0.6.24`. It accepts only
   compatible fixes and produces any future `v0.6.x` releases.
 - `main` is the `0.7` development line. Development builds use a prerelease
-  product version; the current release commit uses `0.7.10` and is tagged
-  `v0.7.10`.
+  product version; the current release commit uses `0.7.13` and is tagged
+  `v0.7.13`.
 
 Product versions and RPC protocol compatibility remain independent. Change the
 protocol version only when compatibility actually changes.

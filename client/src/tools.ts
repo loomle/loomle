@@ -37,6 +37,7 @@ export type PublicToolName =
 
 export interface ToolDefinition {
   name: PublicToolName;
+  title: string;
   description: string;
   inputSchema: Record<string, unknown>;
   outputSchema?: Record<string, unknown>;
@@ -44,7 +45,7 @@ export interface ToolDefinition {
     readOnlyHint: boolean;
     destructiveHint: boolean;
     idempotentHint: boolean;
-    openWorldHint?: boolean;
+    openWorldHint: boolean;
   };
 }
 
@@ -170,12 +171,14 @@ const agentSkillDescription = [
 export const toolDefinitions: readonly ToolDefinition[] = [
   {
     name: "status",
+    title: "Inspect Loomle Status",
     description: "Inspect Loomle Client and update status plus the bound session and Bridge health. Call once before the first Loomle operation in a task.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
   {
     name: "project",
+    title: "Select Loomle Project",
     description: "Inspect Loomle projects or bind this MCP session to one project. Call with no arguments to see the binding and candidates; pass projectId or projectRoot to bind. Binding is sticky, survives Editor restarts, and never falls through to another project while offline.",
     inputSchema: {
       type: "object",
@@ -194,22 +197,25 @@ export const toolDefinitions: readonly ToolDefinition[] = [
       maxProperties: 1,
       additionalProperties: false,
     },
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
     name: "sal_query",
+    title: "Query Unreal with SAL",
     description: "Read Unreal Engine objects with one self-contained SAL Query Text. The first text block is canonical SAL Result Text; diagnostics use later text blocks.",
     inputSchema: textInputSchema("Self-contained SAL Query Text."),
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
     name: "sal_patch",
+    title: "Edit Unreal with SAL",
     description: "Validate or modify Unreal Engine objects with one ordered SAL Patch Text. The first result block is canonical SAL Result Text; metadata and diagnostics use later blocks. Use 'dry run' before risky edits.",
     inputSchema: textInputSchema("Self-contained SAL Patch Text."),
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
   {
     name: "sal_schema",
+    title: "Discover SAL Schema",
     description: guide,
     inputSchema: {
       type: "object",
@@ -222,10 +228,11 @@ export const toolDefinitions: readonly ToolDefinition[] = [
       },
       additionalProperties: false,
     },
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
     name: "agent_skill",
+    title: "Load Agent Skill",
     description: agentSkillDescription,
     inputSchema: {
       type: "object",
@@ -238,10 +245,11 @@ export const toolDefinitions: readonly ToolDefinition[] = [
       },
       additionalProperties: false,
     },
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
     name: "editor",
+    title: "Control Unreal Editor",
     description: "Observe or control the Unreal Blueprint Editor. Call with no arguments for current context, or use open/close with one bare canonical SAL Blueprint or Graph Target expression.",
     inputSchema: {
       type: "object",
@@ -259,10 +267,11 @@ export const toolDefinitions: readonly ToolDefinition[] = [
       },
       additionalProperties: false,
     },
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
     name: "python",
+    title: "Run Unreal Python",
     description: "Run full Python in the bound Unreal Editor when no structured Loomle interface covers the capability. Before run, load use-unreal-python; for PIE also load debug-unreal-pie-with-python. Follow a returned poll exactly; never replay. No built-in dry run, rollback, safe cancellation, or idempotency.",
     inputSchema: pythonInputSchema,
     outputSchema: pythonOutputSchema,
@@ -509,17 +518,28 @@ function statusResult(report: ClientStatusReport): McpToolResult {
   const lines = [
     "client:",
     `  version: ${report.client.version}`,
+    `  distribution: ${report.client.distribution}`,
     `  pid: ${report.client.pid}`,
     `  target: ${report.client.target ?? "unsupported"}`,
     `  executable: ${JSON.stringify(report.client.executable)}`,
     "update:",
     `  status: ${report.update.status}`,
   ];
+  if (report.update.authority) lines.push(`  authority: ${report.update.authority}`);
   if (report.update.version) lines.push(`  version: ${report.update.version}`);
+  if (report.update.listing) lines.push(`  listing: ${JSON.stringify(report.update.listing)}`);
   if (report.update.releaseUrl) lines.push(`  release: ${JSON.stringify(report.update.releaseUrl)}`);
   if (report.update.assetUrl) lines.push(`  asset: ${JSON.stringify(report.update.assetUrl)}`);
   if (report.update.sha256) lines.push(`  sha256: ${report.update.sha256}`);
   if (report.update.reason) lines.push(`  reason: ${report.update.reason}`);
+
+  if (report.update.bridge) {
+    lines.push("recommendedBridge:");
+    lines.push(`  version: ${report.update.bridge.version}`);
+    lines.push(`  release: ${JSON.stringify(report.update.bridge.releaseUrl)}`);
+    lines.push(`  asset: ${JSON.stringify(report.update.bridge.assetUrl)}`);
+    lines.push(`  sha256: ${report.update.bridge.sha256}`);
+  }
 
   lines.push("session:");
   lines.push(`  project: ${report.session.project?.projectId ?? "none"}`);
@@ -550,10 +570,24 @@ function statusResult(report: ClientStatusReport): McpToolResult {
   }
 
   if (report.update.status === "available") {
-    const shared = "Ask the user before updating. After approval, ensure affected Unreal Editors are closed, ";
-    lines.push(report.client.platform === "win32"
-      ? `next: ${shared}use a normal PowerShell to find Loomle Client processes with the executable path above and stop each with Stop-Process -Id <pid>, replace the complete plugin, then restart the MCP Server.`
-      : `next: ${shared}replace the complete plugin, then restart the MCP Server.`);
+    if (report.update.authority === "fab") {
+      lines.push("next: update Loomle from its Fab Library entry in the Epic Games Launcher; do not replace this Fab installation with the GitHub package.");
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+    if (report.update.authority === "mcp_registry") {
+      lines.push("next: update Loomle through the MCP Registry support in the current MCP host; do not replace this Registry Client with another channel's Client package.");
+    } else if (report.update.authority === "claude") {
+      lines.push("next: update the Loomle extension through Claude Desktop; do not replace this Claude Client with another channel's Client package.");
+    } else {
+      const shared = "Ask the user before updating. After approval, ensure affected Unreal Editors are closed, ";
+      lines.push(report.client.platform === "win32"
+        ? `next: ${shared}use a normal PowerShell to find Loomle Client processes with the executable path above and stop each with Stop-Process -Id <pid>, replace the complete plugin, then restart the MCP Server.`
+        : `next: ${shared}replace the complete plugin, then restart the MCP Server.`);
+    }
+  }
+  if (report.update.bridge
+    && report.session.bridge?.version !== report.update.bridge.version) {
+    lines.push("bridgeNext: the matching Unreal Bridge is a separate user-approved installation. Close affected Unreal Editors, download the exact recommendedBridge asset, verify its SHA-256, and replace the complete plugin; never install it silently.");
   }
   return { content: [{ type: "text", text: lines.join("\n") }] };
 }

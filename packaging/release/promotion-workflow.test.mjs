@@ -35,6 +35,14 @@ test("promotion publishes versioned archives and final-only stable aliases", asy
 
   assert.ok(workflow.indexOf(mergeCommand) < workflow.indexOf(releaseCommand));
   assert.match(workflow, /loomle-bridge-\$VERSION-source\.zip/);
+  assert.match(workflow, /loomle-bridge-\$VERSION-fab-source\.zip/);
+  assert.match(workflow, /--distribution fab/);
+  assert.match(workflow, /value\.channel !== "fab"/);
+  assert.match(workflow, /value\.channel !== "github"/);
+  assert.match(workflow, /darwin-arm64\/distribution\.json/);
+  assert.match(workflow, /win32-x64\/distribution\.json/);
+  assert.match(workflow, /fab-source\/LoomleBridge\/Resources\/Loomle\/darwin-arm64\/loomle/);
+  assert.match(workflow, /fab-source\/LoomleBridge\/Resources\/Loomle\/win32-x64\/loomle\.exe/);
   assert.match(workflow, /loomle-bridge-\$VERSION-\$ue\.zip/);
   assert.match(workflow, /source_alias="\$release_root\/assets\/loomle-bridge-source\.zip"/);
   assert.match(workflow, /plugin_alias="\$release_root\/assets\/loomle-bridge-\$ue\.zip"/);
@@ -59,6 +67,27 @@ test("promotion publishes versioned archives and final-only stable aliases", asy
   assert.doesNotMatch(publishStep, /\$WINDOWS_(FAB_SOURCE|ARCHIVE)/);
   assert.doesNotMatch(workflow, /loomle-bridge-\$VERSION\.zip/);
   assert.doesNotMatch(workflow, /loomle-bridge\.zip/);
+});
+
+test("promotion publishes immutable Registry and Claude candidates without promoting stores", async () => {
+  const workflow = await readFile(workflowUrl, "utf8");
+  const assembleIndex = workflow.indexOf("npm run assemble:agents");
+  const releaseIndex = workflow.indexOf('gh release create "$TAG"');
+
+  assert.notEqual(assembleIndex, -1);
+  assert.ok(assembleIndex < releaseIndex);
+  assert.match(workflow, /loomle-mcp-registry-\$VERSION\.mcpb/);
+  assert.match(workflow, /loomle-claude-\$VERSION\.mcpb/);
+  assert.match(workflow, /Internal Codex compatibility package is missing/);
+  assert.match(workflow, /receipt\.packages\.mcpRegistry\.clientSha256/);
+  assert.match(workflow, /receipt\.packages\.claude\.clientSha256/);
+  assert.match(workflow, /receipt\.packages\.codex\.clientSha256/);
+  assert.match(workflow, /"\$REGISTRY_SERVER"/);
+  const publishStep = workflow.slice(workflow.indexOf('gh release create "$TAG"'));
+  assert.doesNotMatch(publishStep, /CODEX_ARCHIVE|loomle-codex-marketplace/);
+  assert.doesNotMatch(workflow, /mcp-publisher publish/);
+  assert.doesNotMatch(workflow, /codex plugin marketplace/);
+  assert.doesNotMatch(workflow, /claude.*submit/i);
 });
 
 test("promotion requires both UE versions from each native verification run", async () => {

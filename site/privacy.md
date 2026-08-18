@@ -42,6 +42,20 @@ project content, MCP requests, Blueprint data, or other information entered in
 Loomle products. Google Analytics and Cloudflare process analytics data under
 their own published privacy and data-processing terms.
 
+## Loomle Client and Bridge
+
+The Loomle Client and Unreal Bridge run locally on the user's computer. Loomle
+does not operate a cloud service that receives Unreal project content, MCP
+requests, Blueprint data, generated code, or editor activity, and the product
+does not include product-usage telemetry.
+
+Published Clients may make small HTTPS requests to check the version available
+from their own distribution channel and to locate the matching public GitHub
+Bridge release. These requests contain the Loomle version and ordinary HTTP
+metadata, but not Unreal project content or MCP request contents. The relevant
+website, GitHub, Fab, MCP Registry, or Anthropic service may process connection
+metadata under its own privacy terms.
+
 - [Cloudflare Web Analytics privacy information](https://developers.cloudflare.com/web-analytics/data-metrics/data-origin-and-collection/)
 - [Google Analytics data safeguards](https://support.google.com/analytics/answer/6004245)
 - [Google Privacy Policy](https://policies.google.com/privacy)
