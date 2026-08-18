@@ -10,7 +10,7 @@ interface DiagnosticCatalog {
 
 interface DiagnosticDefinition {
   code: string;
-  layer: "language" | "capability" | "resolution" | "validation" | "project" | "runtime" | "tool";
+  layer: "language" | "capability" | "resolution" | "validation" | "project" | "projection" | "runtime" | "tool";
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
