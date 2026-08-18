@@ -3700,6 +3700,48 @@ bool LevelImportScalarValue(
     return true;
 }
 
+// Validate that UE can import the requested scalar without mutating the
+// live object. Planning must never write the instance, including in dry runs.
+bool LevelValidateScalarImport(
+    FProperty* Property,
+    const FString& Text,
+    FString& OutError)
+{
+    if (Property == nullptr)
+    {
+        OutError = TEXT("Level Patch edit target is invalid.");
+        return false;
+    }
+    void* Scratch = FMemory::Malloc(
+        Property->GetSize(),
+        Property->GetMinAlignment());
+    Property->InitializeValue(Scratch);
+    const TCHAR* End = Property->ImportText_Direct(
+        *Text,
+        Scratch,
+        nullptr,
+        PPF_None,
+        GLog);
+    bool bValid = End != nullptr;
+    if (bValid)
+    {
+        while (*End != TEXT('\0') && FChar::IsWhitespace(*End))
+        {
+            ++End;
+        }
+        bValid = *End == TEXT('\0');
+    }
+    if (!bValid && OutError.IsEmpty())
+    {
+        OutError = FString::Printf(
+            TEXT("UE could not import the requested value for %s."),
+            *Property->GetName());
+    }
+    Property->DestroyValue(Scratch);
+    FMemory::Free(Scratch);
+    return bValid;
+}
+
 FString LevelExportScalarValue(
     const FProperty* Property,
     const UObject* Object)
@@ -4185,9 +4227,8 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
             FString Text;
             if (!Value.IsValid()
                 || !LevelValueImportText(Value, Text)
-                || !LevelImportScalarValue(
+                || !LevelValidateScalarImport(
                     Property,
-                    Object,
                     Text,
                     Error))
             {
