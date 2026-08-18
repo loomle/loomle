@@ -12547,7 +12547,9 @@ bool FSalLevelPatchTransformTest::RunTest(const FString& Parameters)
 }
 
 
-TSharedRef<FJsonObject> LevelAddStatement(
+// Returns the ordered statements for one Palette-backed Actor creation:
+// the declaration binding followed by the add operation.
+TArray<TSharedPtr<FJsonValue>> LevelAddStatements(
     const FString& Alias,
     const FString& PaletteId,
     const FString& DestinationAlias)
@@ -12580,7 +12582,10 @@ TSharedRef<FJsonObject> LevelAddStatement(
         TEXT("path"),
         LevelStringValues({TEXT("Actors")}));
     Statement->SetObjectField(TEXT("to"), To);
-    return Statement;
+    return {
+        MakeShared<FJsonValueObject>(BindingStatement),
+        MakeShared<FJsonValueObject>(Statement),
+    };
 }
 
 TSharedRef<FJsonObject> LevelRemoveStatement(const FString& ActorId)
@@ -12656,10 +12661,7 @@ bool FSalLevelPatchLifecycleTest::RunTest(const FString& Parameters)
     const TSharedPtr<FJsonObject> DryRun = FSalModule::BuildPatchResult(
         LevelPatchArguments(
             Target,
-            {
-                MakeShared<FJsonValueObject>(
-                    LevelAddStatement(TEXT("created"), PaletteId, TEXT("level_scope"))),
-            },
+            LevelAddStatements(TEXT("created"), PaletteId, TEXT("level_scope")),
             true));
     bool bValid = false;
     bool bApplied = false;
@@ -12678,10 +12680,7 @@ bool FSalLevelPatchLifecycleTest::RunTest(const FString& Parameters)
     const TSharedPtr<FJsonObject> AddResult = FSalModule::BuildPatchResult(
         LevelPatchArguments(
             Target,
-            {
-                MakeShared<FJsonValueObject>(
-                    LevelAddStatement(TEXT("created"), PaletteId, TEXT("level_scope"))),
-            }));
+            LevelAddStatements(TEXT("created"), PaletteId, TEXT("level_scope"))));
     TestTrue(
         TEXT("Level Actor add applies"),
         LevelMutationHasField(AddResult, TEXT("applied"), bApplied) && bApplied);
