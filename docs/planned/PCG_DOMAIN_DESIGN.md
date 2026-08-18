@@ -1293,9 +1293,17 @@ Slice 2-A progress (branch, not published):
   `palette_entries` discovery;
 - settings set/reset, move, connection, removal, and save fail closed here.
 
-Remaining in Slice 2: Node removal, certified graph-owned Settings set/reset,
-absolute move, connection/disconnect/break, the external-object guard, and
-the detached transient sandbox.
+Slice 2-B progress (branch, not published):
+
+- `remove <node>` deletes one exact Node through `UPCGGraph::RemoveNode`,
+  guarding the default input/output Nodes;
+- `connect`/`disconnect` resolve exact output/input Pin refs and apply
+  `AddEdge`/`RemoveEdge` inside the same top-level transaction with dry-run
+  planning and rollback.
+
+Remaining in Slice 2: certified graph-owned Settings set/reset lifecycle,
+absolute move, break, the external-object guard, and the detached transient
+sandbox.
 
 ### Slice 3: Save and packaged acceptance
 
