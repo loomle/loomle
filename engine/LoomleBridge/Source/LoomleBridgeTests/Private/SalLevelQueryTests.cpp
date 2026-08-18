@@ -12217,8 +12217,14 @@ bool FSalLevelPatchSetResetTest::RunTest(const FString& Parameters)
         TEXT("Level reset restores the archetype value"),
         Actor->IsHidden() == bOriginalHidden);
 
-    // The mutation dirtied the fixture map package; clear the flag so the
-    // shared fixture cleanup can unload it (dirty packages are retained by GC).
+    // The mutation created Undo records that root the fixture Actor and its
+    // map package; reset the transaction buffer and clear the dirty flag so
+    // the shared fixture cleanup can unload the map (dirty and undo-rooted
+    // packages are retained by GC).
+    if (GEditor != nullptr && GEditor->Trans != nullptr)
+    {
+        GEditor->Trans->Reset(FText::FromString(TEXT("SAL test cleanup")));
+    }
     if (Actor->GetOutermost() != nullptr)
     {
         Actor->GetOutermost()->SetDirtyFlag(false);
