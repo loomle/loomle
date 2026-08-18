@@ -91,6 +91,12 @@
             "title": "Patch unavailable"
         },
         {
+            "code": "capability.pcg_derived_guard",
+            "layer": "capability",
+            "defaultSeverity": "error",
+            "title": "PCG derived-state save guard"
+        },
+        {
             "code": "capability.preflight_unavailable",
             "layer": "capability",
             "defaultSeverity": "error",
@@ -1279,6 +1285,12 @@
             "title": "Operation arguments invalid"
         },
         {
+            "code": "validation.package_read_only",
+            "layer": "validation",
+            "defaultSeverity": "error",
+            "title": "Package read only"
+        },
+        {
             "code": "validation.palette_context_invalid",
             "layer": "validation",
             "defaultSeverity": "error",
@@ -1355,6 +1367,12 @@
             "layer": "validation",
             "defaultSeverity": "error",
             "title": "Save failed"
+        },
+        {
+            "code": "validation.save_plan_unavailable",
+            "layer": "validation",
+            "defaultSeverity": "error",
+            "title": "Save plan unavailable"
         },
         {
             "code": "validation.signature_edit_failed",

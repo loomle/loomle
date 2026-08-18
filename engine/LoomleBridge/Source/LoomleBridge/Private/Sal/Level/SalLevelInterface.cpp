@@ -23,6 +23,7 @@
 #include "Engine/Level.h"
 #include "Engine/LevelScriptActor.h"
 #include "Engine/World.h"
+#include "FileHelpers.h"
 #include "GameFramework/WorldSettings.h"
 #include "GameFramework/Actor.h"
 #include "Helpers/PCGHelpers.h"
@@ -4520,7 +4521,130 @@ bool FSalLevelInterface::ResolveCreationKind(
     return false;
 }
 
-TSharedPtr<FJsonObject> FSalLevelInterface::Query(
+// ============================================================================
+// Level terminal save (Slice 5)
+//
+// `save` persists the exact Level-owned dirty closure: the map package plus
+// (in a later gate) the exact World Partition external Actor packages. The
+// plan is disclosed before I/O, dirty packages outside the closure are never
+// saved, and the derived-state guard fails closed while PCG-managed
+// projections cannot be inventoried completely.
+// ============================================================================
+
+struct FLevelSavePackage
+{
+    FString PackageName;
+    FString Role; // "map" | "external_actor"
+    bool bDirty = false;
+    bool bPersistentPath = false;
+};
+
+// Inventory PCG-managed projections in the loaded source world. Without a
+// registered provider that can prove the absence or completeness of managed
+// generated projections, any managed PCG Component fails the save closed.
+bool LevelSaveHasPCGGuard(
+    const UWorld* SourceWorld,
+    FString& OutReason)
+{
+    if (SourceWorld == nullptr)
+    {
+        return false;
+    }
+    for (const ULevel* Level : SourceWorld->GetLevels())
+    {
+        if (Level == nullptr)
+        {
+            continue;
+        }
+        for (const AActor* Actor : Level->Actors)
+        {
+            if (Actor == nullptr || !IsValid(Actor))
+            {
+                continue;
+            }
+            for (const UActorComponent* Component
+                : Actor->GetComponents())
+            {
+                if (Component != nullptr
+                    && Component->IsA(UPCGComponent::StaticClass()))
+                {
+                    OutReason = FString::Printf(
+                        TEXT("Actor %s carries a managed PCG Component whose "
+                            "generated projections cannot be inventoried "
+                            "completely; Level save fails closed until an "
+                            "explicit cleanup settles."),
+                        *Actor->GetName());
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+bool LevelSaveBuildClosure(
+    const FSalResolvedTarget& Target,
+    UWorld* SourceWorld,
+    TArray<FLevelSavePackage>& OutPackages,
+    FString& OutReason)
+{
+    OutPackages.Reset();
+    OutReason.Reset();
+    UPackage* MapPackage = SourceWorld != nullptr
+        ? SourceWorld->GetOutermost()
+        : nullptr;
+    if (MapPackage == nullptr
+        || MapPackage == GetTransientPackage()
+        || MapPackage->HasAnyFlags(RF_Transient)
+        || FPackageName::IsTempPackage(MapPackage->GetName()))
+    {
+        OutReason = TEXT("The exact Level Target has no persistent map "
+            "package to save.");
+        return false;
+    }
+    if (SourceWorld->IsPartitionedWorld())
+    {
+        OutReason = TEXT("The exact Level save closure for World Partition "
+            "external Actor packages is not yet available; Level save fails "
+            "closed for partitioned worlds.");
+        return false;
+    }
+    FLevelSavePackage Map;
+    Map.PackageName = MapPackage->GetName();
+    Map.Role = TEXT("map");
+    Map.bDirty = MapPackage->IsDirty();
+    Map.bPersistentPath = !FPackageName::IsTempPackage(
+        MapPackage->GetName());
+    OutPackages.Add(MoveTemp(Map));
+    return true;
+}
+
+TSharedPtr<FJsonObject> LevelSavePlanObject(
+    const FSalResolvedTarget& Target,
+    const TArray<FLevelSavePackage>& Packages,
+    const FString& Status)
+{
+    TSharedPtr<FJsonObject> Plan = MakeShared<FJsonObject>();
+    Plan->SetStringField(TEXT("operation"), TEXT("save"));
+    Plan->SetStringField(TEXT("assetPath"), Target.AssetPath);
+    Plan->SetStringField(TEXT("status"), Status);
+    TArray<TSharedPtr<FJsonValue>> Closure;
+    for (const FLevelSavePackage& Package : Packages)
+    {
+        TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+        Entry->SetStringField(TEXT("package"), Package.PackageName);
+        Entry->SetStringField(TEXT("role"), Package.Role);
+        Entry->SetBoolField(TEXT("dirty"), Package.bDirty);
+        Entry->SetBoolField(
+            TEXT("persistentPath"),
+            Package.bPersistentPath);
+        Closure.Add(MakeShared<FJsonValueObject>(Entry));
+    }
+    Plan->SetArrayField(TEXT("closure"), Closure);
+    return Plan;
+}
+
+TSharedPtr<FJsonObject> FSalLevelInterface::Query(TSharedPtr<FJsonObject> FSalLevelInterface::Query(
     const FSalQuery& Query,
     const FSalResolvedTarget& Target)
 {
@@ -4666,6 +4790,152 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
             false,
             Target.AssetPath,
             TEXT("level"));
+    }
+
+    if (Patch.Statements.Num() == 1)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        FString StatementKind;
+        if (Patch.Statements[0].IsValid()
+            && Patch.Statements[0]->TryGetObject(Statement)
+            && Statement != nullptr
+            && (*Statement).IsValid()
+            && (*Statement)->TryGetStringField(
+                TEXT("kind"),
+                StatementKind)
+            && StatementKind == TEXT("save"))
+        {
+            FString GuardReason;
+            if (LevelSaveHasPCGGuard(World, GuardReason))
+            {
+                return MakeMutationResult(
+                    NoObjects,
+                    {FSalDiagnostics::Error(
+                            TEXT("capability.pcg_derived_guard"),
+                            GuardReason)
+                        .Interface(TEXT("level"))
+                        .Operation(TEXT("save"))
+                        .Build()},
+                    Patch.bDryRun,
+                    false,
+                    false,
+                    Target.AssetPath,
+                    TEXT("save"));
+            }
+            TArray<FLevelSavePackage> Packages;
+            FString ClosureReason;
+            if (!LevelSaveBuildClosure(
+                    Target,
+                    World,
+                    Packages,
+                    ClosureReason))
+            {
+                return MakeMutationResult(
+                    NoObjects,
+                    {FSalDiagnostics::Error(
+                            TEXT("validation.save_plan_unavailable"),
+                            ClosureReason)
+                        .Interface(TEXT("level"))
+                        .Operation(TEXT("save"))
+                        .Build()},
+                    Patch.bDryRun,
+                    false,
+                    false,
+                    Target.AssetPath,
+                    TEXT("save"));
+            }
+            bool bAnyDirty = false;
+            for (const FLevelSavePackage& Package : Packages)
+            {
+                bAnyDirty = bAnyDirty || Package.bDirty;
+            }
+            const TSharedPtr<FJsonObject> Plan =
+                LevelSavePlanObject(
+                    Target,
+                    Packages,
+                    bAnyDirty ? TEXT("dirty") : TEXT("clean"));
+            if (Patch.bDryRun || !bAnyDirty)
+            {
+                return MakeMutationResult(
+                    NoObjects,
+                    {},
+                    Patch.bDryRun,
+                    true,
+                    false,
+                    Target.AssetPath,
+                    TEXT("save"),
+                    Plan);
+            }
+            // Source-control and read-only preflight on the exact closure.
+            for (const FLevelSavePackage& Package : Packages)
+            {
+                const FString FileName = FPackageName::LongPackageNameToFilename(
+                    Package.PackageName,
+                    FPackageName::GetMapPackageExtension());
+                if (IFileManager::Get().IsReadOnly(*FileName))
+                {
+                    return MakeMutationResult(
+                        NoObjects,
+                        {FSalDiagnostics::Error(
+                                TEXT("validation.package_read_only"),
+                                FString::Printf(
+                                    TEXT("The Level-owned package %s is "
+                                        "read-only on disk."),
+                                    *Package.PackageName))
+                            .Interface(TEXT("level"))
+                            .Operation(TEXT("save"))
+                            .Build()},
+                        false,
+                        false,
+                        false,
+                        Target.AssetPath,
+                        TEXT("save"),
+                        Plan);
+                }
+            }
+            TArray<UPackage*> SaveTargets;
+            SaveTargets.Reserve(Packages.Num());
+            for (const FLevelSavePackage& Package : Packages)
+            {
+                UPackage* Pkg = FindPackage(
+                    nullptr,
+                    *Package.PackageName);
+                if (Pkg != nullptr)
+                {
+                    SaveTargets.Add(Pkg);
+                }
+            }
+            if (SaveTargets.IsEmpty()
+                || !UEditorLoadingAndSavingUtils::SavePackages(
+                    SaveTargets,
+                    true))
+            {
+                return MakeMutationResult(
+                    NoObjects,
+                    {FSalDiagnostics::Error(
+                            TEXT("validation.save_failed"),
+                            TEXT("UE failed to save the Level-owned dirty "
+                                "closure."))
+                        .Interface(TEXT("level"))
+                        .Operation(TEXT("save"))
+                        .Build()},
+                    false,
+                    false,
+                    false,
+                    Target.AssetPath,
+                    TEXT("save"),
+                    Plan);
+            }
+            return MakeMutationResult(
+                NoObjects,
+                {},
+                false,
+                true,
+                true,
+                Target.AssetPath,
+                TEXT("save"),
+                Plan);
+        }
     }
 
     TArray<TSharedPtr<FJsonObject>> Diagnostics;

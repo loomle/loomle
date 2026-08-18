@@ -12982,6 +12982,140 @@ bool FSalLevelPatchComponentLifecycleTest::RunTest(const FString& Parameters)
     return true;
 }
 
+
+TSharedRef<FJsonObject> LevelSaveStatement()
+{
+    TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
+    Statement->SetStringField(TEXT("kind"), TEXT("save"));
+    return Statement;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelPatchSaveTest,
+    "Loomle.Sal.Level.Patch.Save",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelPatchSaveTest::RunTest(const FString& Parameters)
+{
+    FScopedLevelQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("Level save fixture builds"), Fixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Level save fixture activates the loaded source"),
+            Fixture.Activate(Fixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const TSharedRef<FJsonObject> Target =
+        LevelTarget(
+            Fixture.Loaded.ObjectPath,
+            UWorld::StaticClass()->GetPathName());
+    const FString ActorId = LevelGuidText(Fixture.AlphaId);
+    UPackage* MapPackage = Fixture.Loaded.World->GetOutermost();
+    if (!TestNotNull(TEXT("Level save map package is available"), MapPackage))
+    {
+        return false;
+    }
+
+    // Dry run discloses the plan without writing.
+    const TSharedPtr<FJsonObject> DryRun = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {MakeShared<FJsonValueObject>(LevelSaveStatement())},
+            true));
+    bool bValid = false;
+    bool bApplied = false;
+    TestTrue(
+        TEXT("Level save dry-run validates"),
+        LevelMutationHasField(DryRun, TEXT("valid"), bValid) && bValid);
+    TestTrue(
+        TEXT("Level save dry-run does not write"),
+        LevelMutationHasField(DryRun, TEXT("applied"), bApplied) && !bApplied);
+
+    // Dirty the map through an authored edit, then save it.
+    const TSharedPtr<FJsonObject> SetResult = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {MakeShared<FJsonValueObject>(LevelSetStatement(
+                ActorId,
+                TEXT("bHidden"),
+                MakeShared<FJsonValueBoolean>(true)))}));
+    TestTrue(
+        TEXT("Level save pre-edit applies"),
+        LevelMutationHasField(SetResult, TEXT("applied"), bApplied) && bApplied);
+    TestTrue(
+        TEXT("Level save pre-edit dirties the map package"),
+        MapPackage->IsDirty());
+
+    const TSharedPtr<FJsonObject> SaveResult = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {MakeShared<FJsonValueObject>(LevelSaveStatement())}));
+    TestTrue(
+        TEXT("Level save applies"),
+        LevelMutationHasField(SaveResult, TEXT("applied"), bApplied) && bApplied);
+    TestTrue(
+        TEXT("Level save is valid"),
+        LevelMutationHasField(SaveResult, TEXT("valid"), bValid) && bValid);
+    TestTrue(
+        TEXT("Level save clears the map dirty flag"),
+        !MapPackage->IsDirty());
+
+    // A clean closure saves as a no-op.
+    const TSharedPtr<FJsonObject> CleanResult = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {MakeShared<FJsonValueObject>(LevelSaveStatement())}));
+    TestTrue(
+        TEXT("Level save of a clean closure is a valid no-op"),
+        LevelMutationHasField(CleanResult, TEXT("valid"), bValid) && bValid);
+    TestTrue(
+        TEXT("Level save of a clean closure does not write"),
+        LevelMutationHasField(CleanResult, TEXT("applied"), bApplied) && !bApplied);
+
+    // The PCG derived-state guard fails closed.
+    UActorComponent* GuardComponent = NewObject<UPCGComponent>(
+        Fixture.Alpha,
+        UPCGComponent::StaticClass(),
+        FName(TEXT("LoomleSaveGuardPCG")),
+        RF_Transactional);
+    if (TestNotNull(TEXT("Guard PCG Component is created"), GuardComponent))
+    {
+        Fixture.Alpha->AddInstanceComponent(GuardComponent);
+        GuardComponent->OnComponentCreated();
+        GuardComponent->RegisterComponent();
+        const TSharedPtr<FJsonObject> GuardedResult =
+            FSalModule::BuildPatchResult(
+                LevelPatchArguments(
+                    Target,
+                    {MakeShared<FJsonValueObject>(LevelSaveStatement())}));
+        TestTrue(
+            TEXT("Level save fails closed on un-inventoried PCG projections"),
+            LevelHasDiagnostic(
+                GuardedResult,
+                TEXT("capability.pcg_derived_guard")));
+    }
+
+    if (GEditor != nullptr && GEditor->Trans != nullptr)
+    {
+        GEditor->Trans->Reset(FText::FromString(TEXT("SAL test cleanup")));
+    }
+    if (MapPackage != nullptr)
+    {
+        MapPackage->SetDirtyFlag(false);
+    }
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
 }
 
 #endif
