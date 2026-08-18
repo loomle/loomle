@@ -19,6 +19,12 @@
             "title": "Compile unavailable"
         },
         {
+            "code": "capability.component_not_removable",
+            "layer": "capability",
+            "defaultSeverity": "error",
+            "title": "Component not removable"
+        },
+        {
             "code": "capability.component_owner_not_loaded",
             "layer": "capability",
             "defaultSeverity": "error",

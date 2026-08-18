@@ -12588,6 +12588,22 @@ TArray<TSharedPtr<FJsonValue>> LevelAddStatements(
     };
 }
 
+TSharedRef<FJsonObject> LevelRemoveComponentStatement(
+    const FString& ActorId,
+    const FString& Source,
+    const FString& Id)
+{
+    TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
+    Statement->SetStringField(TEXT("kind"), TEXT("remove"));
+    TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    Target->SetArrayField(
+        TEXT("identityPath"),
+        LevelStringValues({ActorId, Source, Id}));
+    Statement->SetObjectField(TEXT("target"), Target);
+    return Statement;
+}
+
 TSharedRef<FJsonObject> LevelRemoveStatement(const FString& ActorId)
 {
     TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
@@ -12751,6 +12767,204 @@ bool FSalLevelPatchLifecycleTest::RunTest(const FString& Parameters)
     TestTrue(
         TEXT("Level Actor remove destroyed the Actor"),
         !IsValid(CreatedActor));
+
+    if (GEditor != nullptr && GEditor->Trans != nullptr)
+    {
+        GEditor->Trans->Reset(FText::FromString(TEXT("SAL test cleanup")));
+    }
+    if (Fixture.Loaded.World != nullptr
+        && Fixture.Loaded.World->GetOutermost() != nullptr)
+    {
+        Fixture.Loaded.World->GetOutermost()->SetDirtyFlag(false);
+    }
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+
+// Returns the ordered statements for one Palette-backed instance Component
+// creation on an exact Actor: the declaration binding then the add.
+TArray<TSharedPtr<FJsonValue>> LevelAddComponentStatements(
+    const FString& Alias,
+    const FString& PaletteId,
+    const FString& ActorId)
+{
+    TSharedRef<FJsonObject> Binding = MakeShared<FJsonObject>();
+    Binding->SetStringField(TEXT("kind"), TEXT("local"));
+    Binding->SetStringField(TEXT("name"), Alias);
+    TSharedRef<FJsonObject> Value = MakeShared<FJsonObject>();
+    Value->SetStringField(TEXT("kind"), TEXT("object"));
+    TSharedRef<FJsonObject> Fields = MakeShared<FJsonObject>();
+    Fields->SetStringField(TEXT("palette"), PaletteId);
+    Value->SetObjectField(TEXT("fields"), Fields);
+    TSharedRef<FJsonObject> BindingStatement = MakeShared<FJsonObject>();
+    BindingStatement->SetObjectField(TEXT("target"), Binding);
+    BindingStatement->SetObjectField(TEXT("value"), Value);
+
+    TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
+    Statement->SetStringField(TEXT("kind"), TEXT("add"));
+    TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("local"));
+    Target->SetStringField(TEXT("name"), Alias);
+    Statement->SetObjectField(TEXT("target"), Target);
+    TSharedRef<FJsonObject> To = MakeShared<FJsonObject>();
+    To->SetStringField(TEXT("kind"), TEXT("member"));
+    TSharedRef<FJsonObject> Owner = MakeShared<FJsonObject>();
+    Owner->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    Owner->SetArrayField(
+        TEXT("identityPath"),
+        LevelStringValues({ActorId}));
+    To->SetObjectField(TEXT("object"), Owner);
+    To->SetArrayField(
+        TEXT("path"),
+        LevelStringValues({TEXT("Components")}));
+    Statement->SetObjectField(TEXT("to"), To);
+    return {
+        MakeShared<FJsonValueObject>(BindingStatement),
+        MakeShared<FJsonValueObject>(Statement),
+    };
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelPatchComponentLifecycleTest,
+    "Loomle.Sal.Level.Patch.ComponentLifecycle",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelPatchComponentLifecycleTest::RunTest(const FString& Parameters)
+{
+    FScopedLevelQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("Level Component lifecycle fixture builds"), Fixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Level Component lifecycle fixture activates the loaded source"),
+            Fixture.Activate(Fixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const TSharedRef<FJsonObject> Target =
+        LevelTarget(
+            Fixture.Loaded.ObjectPath,
+            UWorld::StaticClass()->GetPathName());
+    const FString ActorId = LevelGuidText(Fixture.AlphaId);
+
+    // Discover one creation-available Component Palette entry.
+    const TSharedRef<FJsonObject> Destination = LevelPaletteMemberRef(
+        LevelStableRef(ActorId),
+        TEXT("Components"));
+    const TSharedPtr<FJsonObject> EntriesResult = FSalModule::BuildQueryResult(
+        LevelQueryArguments(
+            Target,
+            LevelPaletteEntriesOperation(Destination)));
+    const TArray<FLevelPaletteEntryView> Entries =
+        CollectLevelPaletteEntries(EntriesResult);
+    FString PaletteId;
+    for (const FLevelPaletteEntryView& Entry : Entries)
+    {
+        if (Entry.Creation == TEXT("available"))
+        {
+            PaletteId = Entry.PaletteId;
+            break;
+        }
+    }
+    if (!TestTrue(
+            TEXT("Component Palette exposes at least one creation-available entry"),
+            !PaletteId.IsEmpty()))
+    {
+        return false;
+    }
+
+    const int32 ComponentCountBefore =
+        Fixture.Alpha->GetComponents().Num();
+
+    // Dry run plans without creating.
+    const TSharedPtr<FJsonObject> DryRun = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            LevelAddComponentStatements(
+                TEXT("createdComponent"),
+                PaletteId,
+                ActorId),
+            true));
+    bool bValid = false;
+    bool bApplied = false;
+    TestTrue(
+        TEXT("Level Component add dry-run validates"),
+        LevelMutationHasField(DryRun, TEXT("valid"), bValid) && bValid);
+    TestTrue(
+        TEXT("Level Component add dry-run does not apply"),
+        LevelMutationHasField(DryRun, TEXT("applied"), bApplied) && !bApplied);
+    TestEqual(
+        TEXT("Level Component add dry-run creates nothing"),
+        Fixture.Alpha->GetComponents().Num(),
+        ComponentCountBefore);
+
+    // Live add creates the instance Component.
+    const TSharedPtr<FJsonObject> AddResult = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            LevelAddComponentStatements(
+                TEXT("createdComponent"),
+                PaletteId,
+                ActorId)));
+    TestTrue(
+        TEXT("Level Component add applies"),
+        LevelMutationHasField(AddResult, TEXT("applied"), bApplied) && bApplied);
+    TestTrue(
+        TEXT("Level Component add created one instance Component"),
+        Fixture.Alpha->GetComponents().Num() == ComponentCountBefore + 1);
+    UActorComponent* CreatedComponent = nullptr;
+    for (UActorComponent* Candidate : Fixture.Alpha->GetComponents())
+    {
+        if (Candidate != nullptr
+            && Candidate->CreationMethod
+                == EComponentCreationMethod::Instance)
+        {
+            CreatedComponent = Candidate;
+        }
+    }
+    if (!TestNotNull(TEXT("Level Component add created an instance Component"), CreatedComponent))
+    {
+        return false;
+    }
+    const FString ComponentSlotId = CreatedComponent->GetFName().ToString();
+    TestTrue(
+        TEXT("Level Component add result returns the source-qualified slot"),
+        !ComponentSlotId.IsEmpty());
+
+    // Remove the created instance Component.
+    const TSharedPtr<FJsonObject> RemoveResult = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {MakeShared<FJsonValueObject>(LevelRemoveComponentStatement(
+                ActorId,
+                TEXT("instance"),
+                ComponentSlotId))}));
+    TestTrue(
+        TEXT("Level Component remove applies"),
+        LevelMutationHasField(RemoveResult, TEXT("applied"), bApplied) && bApplied);
+    TestTrue(
+        TEXT("Level Component remove destroyed the instance Component"),
+        !IsValid(CreatedComponent));
+
+    // Removing a native Component fails closed.
+    const TSharedPtr<FJsonObject> NativeRemove = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {MakeShared<FJsonValueObject>(LevelRemoveComponentStatement(
+                ActorId,
+                TEXT("native"),
+                TEXT("NonexistentNativeSlot")))}));
+    TestTrue(
+        TEXT("Level Component remove of an absent native slot fails closed"),
+        LevelMutationHasField(NativeRemove, TEXT("valid"), bValid) && !bValid);
 
     if (GEditor != nullptr && GEditor->Trans != nullptr)
     {

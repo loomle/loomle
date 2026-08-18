@@ -13,6 +13,7 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
 #include "ComponentTypeRegistry.h"
+#include "Components/ActorComponent.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Editor.h"
@@ -3685,6 +3686,9 @@ struct FLevelPlannedLifecycle
     LevelPalette::FEntry Entry;   // add: resolved creation capability
     FString CreatedId;            // add: final ActorGuid after apply
     FString CreatedType;
+    // Component creation and removal evidence.
+    FGuid ComponentOwnerGuid;     // component add/remove: owning Actor
+    FString ComponentSlotId;      // component add: created slot id
 };
 
 bool LevelValueImportText(
@@ -4434,6 +4438,53 @@ bool ResolveLevelAddDestination(
         OutError);
 }
 
+// Resolve the exact loaded owner Actor for a Component creation/removal.
+bool ResolveLevelComponentOwner(
+    const LevelPalette::FDestination& Destination,
+    FLevelSnapshot& Snapshot,
+    AActor*& OutActor,
+    FString& OutIdentity,
+    FString& OutError)
+{
+    OutActor = nullptr;
+    OutError.Reset();
+    if (Destination.Kind != LevelPalette::EDestinationKind::Component)
+    {
+        OutError = TEXT("Component lifecycle requires a Component "
+            "destination.");
+        return false;
+    }
+    FLevelActorEntry* Match = nullptr;
+    int32 MatchCount = 0;
+    for (FLevelActorEntry& Entry : Snapshot.Actors)
+    {
+        if (Entry.Guid == Destination.ActorGuid)
+        {
+            Match = &Entry;
+            ++MatchCount;
+        }
+    }
+    if (MatchCount != 1 || Match == nullptr || !Match->bLoaded)
+    {
+        OutError = MatchCount > 1
+            ? TEXT("Multiple persisted Level Actor records share this "
+                "ActorGuid; the Component lifecycle is ambiguous.")
+            : TEXT("The Component owner Actor is not loaded or not present; "
+                "Level Patch will not load an unloaded descriptor.");
+        return false;
+    }
+    AActor* Actor = Match->Actor.Get();
+    if (!IsValid(Actor))
+    {
+        OutError = TEXT("The Component owner Actor UObject is invalid.");
+        return false;
+    }
+    OutIdentity = Destination.ActorGuid.ToString(
+        EGuidFormats::DigitsWithHyphensLower);
+    OutActor = Actor;
+    return true;
+}
+
 TSharedPtr<FJsonObject> LevelPatchError(
     const FString& Code,
     const FString& Message,
@@ -4690,17 +4741,6 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
                         Alias));
                 continue;
             }
-            if (Binding->Kind != TEXT("actor"))
-            {
-                Diagnostics.Add(
-                    LevelPatchError(
-                        TEXT("capability.operation_unavailable"),
-                        TEXT("Level Component creation Patch is not yet "
-                            "active in this capability."),
-                        TEXT("add"),
-                        Alias));
-                continue;
-            }
             LevelPalette::FDestination Destination;
             FString Error;
             if (!ResolveLevelAddDestination(
@@ -4717,39 +4757,104 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
                         Alias));
                 continue;
             }
-            if (Destination.Kind != LevelPalette::EDestinationKind::Actor)
-            {
-                Diagnostics.Add(
-                    LevelPatchError(
-                        TEXT("validation.palette_context_invalid"),
-                        TEXT("Actor creation requires the Level Actor "
-                            "destination arena.Actors."),
-                        TEXT("add"),
-                        Alias));
-                continue;
-            }
-            LevelPalette::FEntry Entry;
-            if (!ResolveLevelPaletteEntryForCreate(
-                    Target,
-                    Destination,
-                    Binding->PaletteId,
-                    Entry,
-                    Error))
-            {
-                Diagnostics.Add(
-                    LevelPatchError(
-                        TEXT("resolution.palette_not_found"),
-                        Error,
-                        TEXT("add"),
-                        Alias));
-                continue;
-            }
             TSharedPtr<FLevelPlannedLifecycle> Plan =
                 MakeShared<FLevelPlannedLifecycle>();
             Plan->Kind = TEXT("add");
             Plan->Alias = Alias;
             Plan->PaletteId = Binding->PaletteId;
-            Plan->Entry = Entry;
+            if (Destination.Kind == LevelPalette::EDestinationKind::Actor)
+            {
+                if (Binding->Kind != TEXT("actor"))
+                {
+                    Diagnostics.Add(
+                        LevelPatchError(
+                            TEXT("validation.creation_invalid"),
+                            TEXT("An Actor destination requires an Actor "
+                                "Palette entry."),
+                            TEXT("add"),
+                            Alias));
+                    continue;
+                }
+                LevelPalette::FEntry Entry;
+                if (!ResolveLevelPaletteEntryForCreate(
+                        Target,
+                        Destination,
+                        Binding->PaletteId,
+                        Entry,
+                        Error))
+                {
+                    Diagnostics.Add(
+                        LevelPatchError(
+                            TEXT("resolution.palette_not_found"),
+                            Error,
+                            TEXT("add"),
+                            Alias));
+                    continue;
+                }
+                Plan->Entry = Entry;
+            }
+            else if (Destination.Kind
+                == LevelPalette::EDestinationKind::Component)
+            {
+                if (Binding->Kind != TEXT("component"))
+                {
+                    Diagnostics.Add(
+                        LevelPatchError(
+                            TEXT("validation.creation_invalid"),
+                            TEXT("A Component destination requires a "
+                                "Component Palette entry."),
+                            TEXT("add"),
+                            Alias));
+                    continue;
+                }
+                AActor* OwnerActor = nullptr;
+                FString OwnerIdentity;
+                if (!ResolveLevelComponentOwner(
+                        Destination,
+                        Snapshot,
+                        OwnerActor,
+                        OwnerIdentity,
+                        Error))
+                {
+                    Diagnostics.Add(
+                        LevelPatchError(
+                            TEXT("resolution.object_not_found"),
+                            Error,
+                            TEXT("add"),
+                            Alias));
+                    continue;
+                }
+                LevelPalette::FEntry Entry;
+                if (!ResolveLevelPaletteEntryForCreate(
+                        Target,
+                        Destination,
+                        Binding->PaletteId,
+                        Entry,
+                        Error))
+                {
+                    Diagnostics.Add(
+                        LevelPatchError(
+                            TEXT("resolution.palette_not_found"),
+                            Error,
+                            TEXT("add"),
+                            Alias));
+                    continue;
+                }
+                Plan->Entry = Entry;
+                Plan->ComponentOwnerGuid = Destination.ActorGuid;
+                Plan->Actor = OwnerActor;
+            }
+            else
+            {
+                Diagnostics.Add(
+                    LevelPatchError(
+                        TEXT("validation.palette_context_invalid"),
+                        TEXT("Level add destination must be arena.Actors "
+                            "or @actorGuid.Components."),
+                        TEXT("add"),
+                        Alias));
+                continue;
+            }
             Lifecycle.Add(Plan);
             continue;
         }
@@ -4760,14 +4865,142 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
             if (!(*Statement)->TryGetObjectField(TEXT("target"), TargetRef)
                 || TargetRef == nullptr
                 || !(*TargetRef).IsValid()
-                || !(*TargetRef)->TryGetStringField(TEXT("kind"), TargetKind)
-                || TargetKind != TEXT("actor"))
+                || !(*TargetRef)->TryGetStringField(TEXT("kind"), TargetKind))
             {
                 Diagnostics.Add(
                     LevelPatchError(
                         TEXT("validation.edit_target_invalid"),
                         TEXT("Level remove requires one exact persisted "
-                            "Actor."),
+                            "Actor or instance Component."),
+                        TEXT("remove")));
+                continue;
+            }
+            if (TargetKind == TEXT("component"))
+            {
+                FString ActorId;
+                FString Source;
+                FString Id;
+                FGuid ActorGuid;
+                if (!(*TargetRef)->TryGetStringField(TEXT("actorId"), ActorId)
+                    || !(*TargetRef)->TryGetStringField(TEXT("source"), Source)
+                    || !(*TargetRef)->TryGetStringField(TEXT("id"), Id)
+                    || !ParseActorGuid(ActorId, ActorGuid))
+                {
+                    Diagnostics.Add(
+                        LevelPatchError(
+                            TEXT("validation.edit_target_invalid"),
+                            TEXT("Level Component remove identity is "
+                                "invalid."),
+                            TEXT("remove")));
+                    continue;
+                }
+                AActor* OwnerActor = nullptr;
+                FString OwnerIdentity;
+                FString Error;
+                LevelPalette::FDestination Dest;
+                Dest.Kind = LevelPalette::EDestinationKind::Component;
+                Dest.ActorGuid = ActorGuid;
+                if (!ResolveLevelComponentOwner(
+                        Dest,
+                        Snapshot,
+                        OwnerActor,
+                        OwnerIdentity,
+                        Error))
+                {
+                    Diagnostics.Add(
+                        LevelPatchError(
+                            TEXT("resolution.object_not_found"),
+                            Error,
+                            TEXT("remove")));
+                    continue;
+                }
+                FSalLevelComponentSnapshot ComponentSnapshot;
+                FString ComponentReason;
+                if (!BuildLevelComponentSnapshot(
+                        TArray<AActor*>{OwnerActor},
+                        TEXT("patch"),
+                        ComponentSnapshot,
+                        ComponentReason)
+                    || !ComponentSnapshot.bIdentityComplete)
+                {
+                    Diagnostics.Add(
+                        LevelPatchError(
+                            TEXT("validation.reference_scan_incomplete"),
+                            ComponentReason.IsEmpty()
+                                ? TEXT("The Component source identity scan "
+                                    "is incomplete; the removal is "
+                                    "fail-closed.")
+                                : ComponentReason,
+                            TEXT("remove")));
+                    continue;
+                }
+                const FSalLevelComponentEntry* Match = nullptr;
+                int32 MatchCount = 0;
+                for (const FSalLevelComponentEntry& Entry
+                    : ComponentSnapshot.Entries)
+                {
+                    if (Entry.ActorGuid == ActorGuid
+                        && Entry.Source == Source
+                        && Entry.Id == Id)
+                    {
+                        Match = &Entry;
+                        ++MatchCount;
+                    }
+                }
+                if (MatchCount != 1 || Match == nullptr)
+                {
+                    Diagnostics.Add(
+                        LevelPatchError(
+                            TEXT("resolution.object_not_found"),
+                            TEXT("No unique persisted Component matches "
+                                "the requested source-qualified identity."),
+                            TEXT("remove"),
+                            Id));
+                    continue;
+                }
+                UActorComponent* Component = Match->Component.Get();
+                if (!IsValid(Component))
+                {
+                    Diagnostics.Add(
+                        LevelPatchError(
+                            TEXT("validation.object_invalidated"),
+                            TEXT("The exact persisted Component UObject is "
+                                "invalid."),
+                            TEXT("remove"),
+                            Id));
+                    continue;
+                }
+                if (Component->CreationMethod
+                    != EComponentCreationMethod::Instance)
+                {
+                    Diagnostics.Add(
+                        LevelPatchError(
+                            TEXT("capability.component_not_removable"),
+                            TEXT("Only instance-owned Components can be "
+                                "removed; native and SCS Component "
+                                "definitions return a Class or Blueprint "
+                                "handoff instead."),
+                            TEXT("remove"),
+                            Id));
+                    continue;
+                }
+                TSharedPtr<FLevelPlannedLifecycle> Plan =
+                    MakeShared<FLevelPlannedLifecycle>();
+                Plan->Kind = TEXT("remove");
+                Plan->RefText = ActorId + TEXT("/") + Source + TEXT("/") + Id;
+                Plan->ComponentOwnerGuid = ActorGuid;
+                Plan->ComponentSlotId = Id;
+                Plan->Actor = OwnerActor;
+                Lifecycle.Add(Plan);
+                continue;
+            }
+            if (TargetKind != TEXT("actor"))
+            {
+                Diagnostics.Add(
+                    LevelPatchError(
+                        TEXT("validation.edit_target_invalid"),
+                        TEXT("Level remove requires one exact persisted "
+                            "Actor or instance Component."),
                         TEXT("remove")));
                 continue;
             }
@@ -5157,6 +5390,62 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
     {
         if (Op->Kind == TEXT("add"))
         {
+            if (Op->Entry.ComponentClass != nullptr)
+            {
+                AActor* OwnerActor = Op->Actor.Get();
+                if (!IsValid(OwnerActor))
+                {
+                    Transaction.Cancel();
+                    return MakeMutationResult(
+                        NoObjects,
+                        {FSalDiagnostics::Error(
+                                TEXT("validation.object_invalidated"),
+                                TEXT("Level Component creation owner Actor "
+                                    "was invalidated before apply."))
+                            .Interface(TEXT("level"))
+                            .Operation(TEXT("add"))
+                            .Build()},
+                        false,
+                        false,
+                        false,
+                        Target.AssetPath,
+                        TEXT("level"),
+                        LevelPlannedObject(Edits, Lifecycle));
+                }
+                UActorComponent* NewComponent = NewObject<UActorComponent>(
+                    OwnerActor,
+                    Op->Entry.ComponentClass,
+                    NAME_None,
+                    RF_Transactional);
+                if (!IsValid(NewComponent))
+                {
+                    Transaction.Cancel();
+                    return MakeMutationResult(
+                        NoObjects,
+                        {FSalDiagnostics::Error(
+                                TEXT("validation.apply_failed"),
+                                TEXT("UE failed to create the requested "
+                                    "instance Component."))
+                            .Interface(TEXT("level"))
+                            .Operation(TEXT("add"))
+                            .Ref(Op->PaletteId)
+                            .Build()},
+                        false,
+                        false,
+                        false,
+                        Target.AssetPath,
+                        TEXT("level"),
+                        LevelPlannedObject(Edits, Lifecycle));
+                }
+                NewComponent->CreationMethod =
+                    EComponentCreationMethod::Instance;
+                OwnerActor->AddInstanceComponent(NewComponent);
+                NewComponent->OnComponentCreated();
+                NewComponent->RegisterComponent();
+                Op->ComponentSlotId = NewComponent->GetFName().ToString();
+                Op->CreatedType = Op->Entry.NativeType;
+                continue;
+            }
             UWorld* SourceWorld = World;
             ULevel* SourceLevel = SourceWorld != nullptr
                 ? SourceWorld->PersistentLevel
@@ -5237,6 +5526,66 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
         }
         if (Op->Kind == TEXT("remove"))
         {
+            if (!Op->ComponentSlotId.IsEmpty())
+            {
+                AActor* OwnerActor = Op->Actor.Get();
+                if (!IsValid(OwnerActor))
+                {
+                    Transaction.Cancel();
+                    return MakeMutationResult(
+                        NoObjects,
+                        {FSalDiagnostics::Error(
+                                TEXT("validation.object_invalidated"),
+                                TEXT("Level Component removal owner Actor "
+                                    "was invalidated before apply; the "
+                                    "transaction was rolled back."))
+                            .Interface(TEXT("level"))
+                            .Operation(TEXT("remove"))
+                            .Build()},
+                        false,
+                        false,
+                        false,
+                        Target.AssetPath,
+                        TEXT("level"),
+                        LevelPlannedObject(Edits, Lifecycle));
+                }
+                UActorComponent* Component = nullptr;
+                for (UActorComponent* Candidate
+                    : OwnerActor->GetComponents())
+                {
+                    if (Candidate != nullptr
+                        && Candidate->GetFName()
+                            == FName(*Op->ComponentSlotId))
+                    {
+                        Component = Candidate;
+                        break;
+                    }
+                }
+                if (!IsValid(Component))
+                {
+                    Transaction.Cancel();
+                    return MakeMutationResult(
+                        NoObjects,
+                        {FSalDiagnostics::Error(
+                                TEXT("validation.object_invalidated"),
+                                TEXT("The exact instance Component was "
+                                    "invalidated before apply; the "
+                                    "transaction was rolled back."))
+                            .Interface(TEXT("level"))
+                            .Operation(TEXT("remove"))
+                            .Ref(Op->RefText)
+                            .Build()},
+                        false,
+                        false,
+                        false,
+                        Target.AssetPath,
+                        TEXT("level"),
+                        LevelPlannedObject(Edits, Lifecycle));
+                }
+                OwnerActor->Modify();
+                Component->DestroyComponent();
+                continue;
+            }
             AActor* Actor = Op->Actor.Get();
             if (!IsValid(Actor))
             {
@@ -5319,6 +5668,23 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
             ResultBuilder.AddLocalBinding(
                 ResultAliases.Allocate(Op->Alias, TEXT("actor")),
                 Value::Call(TEXT("actor"), Args));
+        }
+        else if (Op->Kind == TEXT("add")
+            && !Op->ComponentSlotId.IsEmpty())
+        {
+            TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
+            Args->SetStringField(
+                TEXT("actor"),
+                Value::Stable(
+                    TEXT("actor"),
+                    Op->ComponentOwnerGuid.ToString(
+                        EGuidFormats::DigitsWithHyphensLower)));
+            Args->SetStringField(TEXT("id"), Op->ComponentSlotId);
+            Args->SetStringField(TEXT("source"), TEXT("instance"));
+            Args->SetStringField(TEXT("type"), Op->CreatedType);
+            ResultBuilder.AddLocalBinding(
+                ResultAliases.Allocate(Op->Alias, TEXT("component")),
+                Value::Call(TEXT("component"), Args));
         }
         else if (Op->Kind == TEXT("remove"))
         {
