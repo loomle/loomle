@@ -1681,6 +1681,124 @@ TSharedPtr<FJsonObject> QueryExactPin(
 }
 }
 
+class FPCGPatchAliasAllocator
+{
+public:
+    FString Allocate(const FString& Preferred, const FString& Fallback = TEXT("item"))
+    {
+        const FString Base = FSalObjectBuilder::SanitizeIdentifier(Preferred, Fallback);
+        if (!Used.Contains(Base))
+        {
+            Used.Add(Base);
+            return Base;
+        }
+        int32& Suffix = NextSuffix.FindOrAdd(Base);
+        if (Suffix < 2)
+        {
+            Suffix = 2;
+        }
+        for (;;)
+        {
+            const FString Candidate = FString::Printf(
+                TEXT("%s_%d"), *Base, Suffix++);
+            if (!Used.Contains(Candidate))
+            {
+                Used.Add(Candidate);
+                return Candidate;
+            }
+        }
+    }
+private:
+    TSet<FString> Used;
+    TMap<FString, int32> NextSuffix;
+};
+
+// ============================================================================
+// PCG authored mutation (Slice 2-A)
+//
+// Palette-backed Node creation on one exact loaded UPCGGraph. Settings
+// set/reset, move, connection, removal, and save land in later increments and
+// fail closed here. Every creation re-enumerates native UPCGSettings classes
+// and revalidates the opaque Palette id; a raw Settings Class is never
+// accepted.
+// ============================================================================
+
+FString PCGNodePaletteId(const UClass* SettingsClass)
+{
+    return TEXT("pcg.node.")
+        + FSHA1::HashBuffer(
+            *SettingsClass->GetClassPathName().ToString(),
+            SettingsClass->GetClassPathName().ToString().Len()
+                * sizeof(TCHAR)).ToString();
+}
+
+void DiscoverPCGNodePaletteEntries(
+    TArray<TSharedPtr<FJsonObject>>& OutEntries)
+{
+    TArray<UClass*> SettingsClasses;
+    GetDerivedClasses(
+        UPCGSettings::StaticClass(),
+        SettingsClasses);
+    for (UClass* Class : SettingsClasses)
+    {
+        if (Class == nullptr
+            || Class->HasAnyClassFlags(CLASS_Abstract)
+            || Class->HasAnyClassFlags(CLASS_Deprecated))
+        {
+            continue;
+        }
+        const UPCGSettings* CDO = Class->GetDefaultObject<UPCGSettings>();
+        if (CDO == nullptr || !CDO->bExposeToLibrary)
+        {
+            continue;
+        }
+        TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+        Entry->SetStringField(
+            TEXT("palette"),
+            PCGNodePaletteId(Class));
+        Entry->SetStringField(
+            TEXT("name"),
+            Class->GetDisplayNameText().ToString());
+        Entry->SetStringField(
+            TEXT("type"),
+            Class->GetClassPathName().ToString());
+        Entry->SetStringField(TEXT("creation"), TEXT("available"));
+        OutEntries.Add(Entry);
+    }
+}
+
+bool ResolvePCGNodePaletteEntry(
+    const FString& PaletteId,
+    const UPCGSettings*& OutCDO)
+{
+    OutCDO = nullptr;
+    TArray<UClass*> SettingsClasses;
+    GetDerivedClasses(
+        UPCGSettings::StaticClass(),
+        SettingsClasses);
+    for (UClass* Class : SettingsClasses)
+    {
+        if (Class == nullptr
+            || Class->HasAnyClassFlags(CLASS_Abstract)
+            || Class->HasAnyClassFlags(CLASS_Deprecated))
+        {
+            continue;
+        }
+        const UPCGSettings* CDO = Class->GetDefaultObject<UPCGSettings>();
+        if (CDO == nullptr || !CDO->bExposeToLibrary)
+        {
+            continue;
+        }
+        if (PCGNodePaletteId(Class) == PaletteId)
+        {
+            OutCDO = CDO;
+            return true;
+        }
+    }
+    return false;
+}
+
+
 TSharedPtr<FJsonObject> FSalPCGInterface::Query(
     const FSalQuery& Query,
     const FSalResolvedTarget& Target)
@@ -1857,123 +1975,6 @@ bool FSalPCGInterface::LowerStableReference(
     OutCode.Reset();
     OutMessage.Reset();
     return true;
-}
-
-class FPCGPatchAliasAllocator
-{
-public:
-    FString Allocate(const FString& Preferred, const FString& Fallback = TEXT("item"))
-    {
-        const FString Base = FSalObjectBuilder::SanitizeIdentifier(Preferred, Fallback);
-        if (!Used.Contains(Base))
-        {
-            Used.Add(Base);
-            return Base;
-        }
-        int32& Suffix = NextSuffix.FindOrAdd(Base);
-        if (Suffix < 2)
-        {
-            Suffix = 2;
-        }
-        for (;;)
-        {
-            const FString Candidate = FString::Printf(
-                TEXT("%s_%d"), *Base, Suffix++);
-            if (!Used.Contains(Candidate))
-            {
-                Used.Add(Candidate);
-                return Candidate;
-            }
-        }
-    }
-private:
-    TSet<FString> Used;
-    TMap<FString, int32> NextSuffix;
-};
-
-// ============================================================================
-// PCG authored mutation (Slice 2-A)
-//
-// Palette-backed Node creation on one exact loaded UPCGGraph. Settings
-// set/reset, move, connection, removal, and save land in later increments and
-// fail closed here. Every creation re-enumerates native UPCGSettings classes
-// and revalidates the opaque Palette id; a raw Settings Class is never
-// accepted.
-// ============================================================================
-
-FString PCGNodePaletteId(const UClass* SettingsClass)
-{
-    return TEXT("pcg.node.")
-        + FSHA1::HashBuffer(
-            *SettingsClass->GetClassPathName().ToString(),
-            SettingsClass->GetClassPathName().ToString().Len()
-                * sizeof(TCHAR)).ToString();
-}
-
-void DiscoverPCGNodePaletteEntries(
-    TArray<TSharedPtr<FJsonObject>>& OutEntries)
-{
-    TArray<UClass*> SettingsClasses;
-    GetDerivedClasses(
-        UPCGSettings::StaticClass(),
-        SettingsClasses);
-    for (UClass* Class : SettingsClasses)
-    {
-        if (Class == nullptr
-            || Class->HasAnyClassFlags(CLASS_Abstract)
-            || Class->HasAnyClassFlags(CLASS_Deprecated))
-        {
-            continue;
-        }
-        const UPCGSettings* CDO = Class->GetDefaultObject<UPCGSettings>();
-        if (CDO == nullptr || !CDO->bExposeToLibrary)
-        {
-            continue;
-        }
-        TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
-        Entry->SetStringField(
-            TEXT("palette"),
-            PCGNodePaletteId(Class));
-        Entry->SetStringField(
-            TEXT("name"),
-            Class->GetDisplayNameText().ToString());
-        Entry->SetStringField(
-            TEXT("type"),
-            Class->GetClassPathName().ToString());
-        Entry->SetStringField(TEXT("creation"), TEXT("available"));
-        OutEntries.Add(Entry);
-    }
-}
-
-bool ResolvePCGNodePaletteEntry(
-    const FString& PaletteId,
-    const UPCGSettings*& OutCDO)
-{
-    OutCDO = nullptr;
-    TArray<UClass*> SettingsClasses;
-    GetDerivedClasses(
-        UPCGSettings::StaticClass(),
-        SettingsClasses);
-    for (UClass* Class : SettingsClasses)
-    {
-        if (Class == nullptr
-            || Class->HasAnyClassFlags(CLASS_Abstract)
-            || Class->HasAnyClassFlags(CLASS_Deprecated))
-        {
-            continue;
-        }
-        const UPCGSettings* CDO = Class->GetDefaultObject<UPCGSettings>();
-        if (CDO == nullptr || !CDO->bExposeToLibrary)
-        {
-            continue;
-        }
-        if (PCGNodePaletteId(Class) == PaletteId)
-        {
-            OutCDO = CDO;
-            return true;
-        }
-    }
-    return false;
 }
 
 TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
