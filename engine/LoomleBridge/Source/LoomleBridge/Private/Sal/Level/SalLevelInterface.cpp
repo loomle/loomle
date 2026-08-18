@@ -4180,9 +4180,10 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
         Edit->Before = LevelExportScalarValue(Property, Object);
         if (Kind == TEXT("set"))
         {
-            const TSharedPtr<FJsonValue>* Value = nullptr;
+            const TSharedPtr<FJsonValue> Value =
+                (*Statement)->TryGetField(TEXT("value"));
             FString Text;
-            if (!(*Statement)->TryGetField(TEXT("value"), Value)
+            if (!Value.IsValid()
                 || !LevelValueImportText(Value, Text)
                 || !LevelImportScalarValue(
                     Property,
@@ -4338,7 +4339,6 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
         FPropertyChangedEvent ChangedEvent(Edit->Property);
         Object->PostEditChangeProperty(ChangedEvent);
     }
-    Transaction.Commit();
 
     for (const TSharedPtr<FLevelPlannedEdit>& Edit : Edits)
     {
