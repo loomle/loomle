@@ -17,7 +17,7 @@ with `Target.domain`.
 ## Protocol Domain Set
 
 The resident public catalog has nine active Domain adapters. The final three
-are deliberately Query-only in protocol v6:
+form the Scene/PCG family; `pcg_component` is Query-only in protocol v6:
 
 | Domain | Target identity | Primary scope |
 | --- | --- | --- |
@@ -27,14 +27,15 @@ are deliberately Query-only in protocol v6:
 | `graph` | Blueprint asset, `BlueprintGuid`, `GraphGuid` | one Graph, Nodes, Pins, Edges, Graph Palette |
 | `state_tree` | Asset Path plus verified StateTree Class | authored StateTree hierarchy and bindings |
 | `widget` | WidgetBlueprint asset plus `BlueprintGuid` | WidgetTree, Widgets, Slots, Widget Palette |
-| `level` | source-map Asset Path plus verified native Class | read-only authored Actor and Component inspection |
-| `pcg` | PCG Graph Asset Path plus verified native Class | read-only PCG Graph, Node, Pin, and Edge inspection |
+| `level` | source-map Asset Path plus verified native Class | authored Actor and Component inspection, edits, lifecycle, and terminal save |
+| `pcg` | PCG Graph Asset Path plus verified native Class | authored PCG Graph, Node, Pin, Edge, Settings, and layout inspection and edits with terminal save |
 | `pcg_component` | Level asset, Actor Guid, source-aware Component locator, and verified native Class | read-only Graph binding and effective Parameter inspection |
 
 All nine Domain names are structural keywords. They cannot be semantic tags,
-local aliases, or unquoted SAL Names. `level`, `pcg`, and `pcg_component` are
-public Query surfaces but are absent from `PatchTarget`; their mutation and
-save contracts require a later protocol/capability release.
+local aliases, or unquoted SAL Names. `level` and `pcg` are admitted to
+`PatchTarget`; `pcg_component` remains a public Query surface absent from
+`PatchTarget`, and its mutation contract requires a later capability
+release.
 
 ## Target Grammar
 

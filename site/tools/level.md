@@ -8,9 +8,9 @@ description: Inspect persistent source-map Actors and serialized Components thro
 
 # Level
 
-The Level interface reads the authored contents of one saved source map. It is
-Query-only in this release and does not represent the current Editor World,
-PIE/SIE World, a streamed composition, or a temporary Level Instance World.
+The Level interface reads and edits the authored contents of one saved source
+map. It does not represent the current Editor World, PIE/SIE World, a
+streamed composition, or a temporary Level Instance World.
 
 ## Target
 

@@ -1319,6 +1319,30 @@ transient sandbox.
 - save/unload/reload identity and value readback;
 - save-capability packaged acceptance against both supported engines.
 
+Slice 3 progress (branch, not published):
+
+- terminal `save` persists only the outermost package that owns the exact
+  PCG Graph Target through `UEditorLoadingAndSavingUtils::SavePackages`
+  (source-control-aware), never a related subgraph or external Settings
+  asset;
+- a save dry run is advisory: it validates the Target, package, and read-only
+  preflight facts and discloses the dirty/clean closure plan without
+  executing native `PreSave` or writing disk;
+- `save` is terminal-only: a lone `save` statement, never mixed with authored
+  edits; mixing reports `capability.operation_unavailable`;
+- a clean closure is a valid no-op; failure before I/O returns
+  `validation.save_plan_unavailable` or `validation.package_read_only`,
+  failure during I/O returns `validation.save_failed` with the exact Target
+  retained;
+- automation `Loomle.Sal.PCG.Patch.Save` verifies dry-run advisory semantics,
+  authored-edit dirtying followed by a persistent save, clean-closure no-op,
+  terminal-only validation, and save/unload/reload identity, value, position,
+  and topology readback against the same Node/Pin/Settings fixtures used by
+  Query persistence coverage.
+
+Remaining in Slice 3: packaged acceptance against both supported engines
+(the branch's dual-engine verification pipeline).
+
 ### Slice 4: Capability-gated authored extensions
 
 - external wrapper-owned enable state with a detached Settings shadow;

@@ -101,15 +101,16 @@ Query and Patch Target sets are deliberately separate:
 | `graph` | `asset + id` or `asset + name`; optional `blueprintId` | `asset + blueprintId + id` | `asset + blueprintId + id` |
 | `state_tree` | `asset`, optional `type` | `asset + type` | `asset + type` |
 | `widget` | `asset`, optional `id` | `asset + id` | `asset + id` |
-| `level` | `asset`, optional `type` | `asset + type` | unavailable |
-| `pcg` | `asset`, optional `type` | `asset + type` | unavailable |
+| `level` | `asset`, optional `type` | `asset + type` | `asset + type` |
+| `pcg` | `asset`, optional `type` | `asset + type` | `asset + type` |
 | `pcg_component` | `asset + actorId + source + id + type` | same exact fields | unavailable |
 
-The three Scene/PCG cards are public read-only Query interfaces. A Domain's
-presence in the catalog does not grant Patch admission: request parsing rejects
-a `level`, `pcg`, or `pcg_component` Patch before Bridge dispatch. A later
-authored-mutation release can expand `PatchTarget` without changing these
-canonical Query and Result identities.
+The `level` and `pcg` cards are public Query plus authored Patch interfaces;
+`pcg_component` remains a public read-only Query interface in this release. A
+Domain's presence in the catalog does not grant Patch admission: request
+parsing rejects a `pcg_component` Patch before Bridge dispatch, and every
+other Domain's Patch surface is exactly what its static card defines. These
+canonical Query and Result identities are stable across Patch expansions.
 
 `type` is a native-Class assertion inside a selected Domain. It never selects
 or adds a Domain. The same `UWidgetBlueprint`, for example, has separate
@@ -249,8 +250,10 @@ or operation parameter.
 Patch statements execute in written order. Dry run follows the same parse,
 resolve, validate, and plan path, then stops before live application.
 Only Domains whose static card defines a Patch surface are Patch Targets;
-`level` admits authored field edits, `pcg` admits Palette-backed Node
-creation, and `pcg_component` remains Query-only in this release.
+`level` admits authored Actor and Component field edits, `pcg` admits
+Palette-backed Node creation, Settings edits, movement, connection edits,
+removal, and a terminal `save`, and `pcg_component` remains Query-only in
+this release.
 
 ## Results And Handoffs
 

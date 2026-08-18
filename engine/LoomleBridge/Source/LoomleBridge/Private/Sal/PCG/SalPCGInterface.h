@@ -17,9 +17,10 @@ public:
         const FSalResolvedTarget& Target);
 
     /**
-     * Authored PCG Graph mutation (Slice 2). Supports Palette-backed Node
-     * creation in this increment; settings set/reset, move, connection,
-     * removal, and save land in later increments and fail closed here.
+     * Authored PCG Graph mutation (Slice 2 + Slice 3). Supports Palette-backed
+     * Node creation, settings set/reset, move, connection, removal, and a
+     * terminal source-control-aware package save; remaining capabilities
+     * fail closed here.
      */
     static TSharedPtr<FJsonObject> Patch(
         const FSalPatch& Patch,

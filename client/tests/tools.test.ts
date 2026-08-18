@@ -828,7 +828,7 @@ test("sal_schema is local and does not call Bridge", async () => {
   assert.match(level.content[0].text, /Patch Target for authored/);
   assert.equal(pcg.isError, undefined);
   assert.match(pcg.content[0].text, /^# pcg$/m);
-  assert.match(pcg.content[0].text, /accepts no Patch Target/);
+  assert.match(pcg.content[0].text, /Patch Target for authored PCG Graph edits/);
   assert.equal(pcgComponent.isError, undefined);
   assert.match(pcgComponent.content[0].text, /^# pcg_component$/m);
   assert.match(pcgComponent.content[0].text, /accepts no Patch Target/);

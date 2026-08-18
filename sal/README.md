@@ -31,8 +31,9 @@ SAL Text
   `domain`, and the nine Domain values are structural SAL keywords.
 - The current Domains are `asset`, `blueprint`, `class`, `graph`,
   `state_tree`, `widget`, `level`, `pcg`, and `pcg_component`; each owns its
-  closed Target schema and Target-relative identity environment. The three
-  Scene/PCG Domains are Query-only in protocol v6 and are not Patch Targets.
+  closed Target schema and Target-relative identity environment. `level` and
+  `pcg` are Patch Targets with authored edits and a terminal `save`;
+  `pcg_component` is Query-only in protocol v6 and is not a Patch Target.
 - Query has one primary `operation` plus optional `where`, `with`, `orderBy`,
   and `page`.
 - Patch contains one ordered `statements` array. Bindings and operations are

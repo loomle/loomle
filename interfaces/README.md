@@ -9,8 +9,8 @@ by Loomle Bridge.
   session-level `project` binding that selects which UE project SAL operates on.
 - `asset.md`, `blueprint.md`, `class.md`, `graph.md`, `state_tree.md`,
   `widget.md`, `level.md`, `pcg.md`, and `pcg_component.md` define the nine
-  static Domain interfaces. The three Scene/PCG cards are Query-only in this
-  release.
+  static Domain interfaces. `level` and `pcg` are Query plus authored Patch
+  cards; `pcg_component` remains Query-only in this release.
 - `src/generated/catalog.ts` embeds those documents for the standalone Client.
 
 The documents describe Loomle's UE-facing capabilities. Core grammar is owned

@@ -23,15 +23,15 @@ Loomle 0.7 has nine active interface modules:
 | [Graph](blueprint/graph.html) | Nodes, Pins, Edges, flow, Palette-backed creation, and layout | Asset Path + Blueprint Guid + Graph Guid | Query + Patch |
 | [StateTree](state-tree.html) | Authored hierarchy, Nodes, Transitions, Parameters, Bindings, compile, and save | exact StateTree Asset Path and Class Path | Query + Patch |
 | [Widget](widget/) | Authored Widget tree, Slot state, and structural edits | Asset Path + WidgetBlueprint Guid | Query + Patch |
-| [Level](level.html) | Persistent source-map Actors and serialized Components | map Asset Path plus verified native World Class | Query only; no `PatchTarget` |
-| [PCG](pcg.html) | Asset-backed PCG Graph Nodes, Pins, Settings evidence, Edges, and persisted layout | PCG Graph Asset Path plus verified native Class | Query only; no `PatchTarget` |
+| [Level](level.html) | Persistent source-map Actors and serialized Components, authored field and transform edits, lifecycle, and terminal save | map Asset Path plus verified native World Class | Query + Patch |
+| [PCG](pcg.html) | Asset-backed PCG Graph Nodes, Pins, Settings evidence, Edges, persisted layout, authored edits, and terminal save | PCG Graph Asset Path plus verified native Class | Query + Patch |
 | [PCG Component](pcg-component.html) | Persistent PCG configuration and Graph Parameters on one authored Level Component | map + ActorGuid + Component source and slot + native Class | Query only; no `PatchTarget` |
 
 These nine names are the closed values of structural `Target.domain`. They are
 not semantic tags, object kinds, or StableRef prefixes. All nine are valid
-Query Targets and canonical Result Targets. `level`, `pcg`, and
-`pcg_component` are not admitted to `PatchTarget` in this release; the SAL
-parser rejects a Patch for them before Bridge dispatch.
+Query Targets and canonical Result Targets. `level` and `pcg` are admitted to
+`PatchTarget`; `pcg_component` is not admitted in this release, and the SAL
+parser rejects a Patch for it before Bridge dispatch.
 
 ## Use the Installed Contract
 
@@ -114,9 +114,9 @@ or composes another Target. Cross-Domain work uses independent related Targets,
 explicit handoffs, and following requests.
 
 Graph and Widget authored changes finalize through their owning Blueprint.
-StateTree compiles and saves through its asset target. The Query-only Level,
-PCG, and PCG Component interfaces expose only the related Targets and handoffs
-stated on their pages. Each interface page states its own handoff and
-finalization boundary.
+StateTree compiles and saves through its asset target. Level and PCG finalize
+through their terminal `save`; the Query-only PCG Component interface exposes
+only the related Targets and handoffs stated on its page. Each interface page
+states its own handoff and finalization boundary.
 
 See [Diagnostics](diagnostics.html) for result health and compiler information.

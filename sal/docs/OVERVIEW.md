@@ -84,8 +84,8 @@ The nine Domains are:
 - `graph`
 - `state_tree`
 - `widget`
-- `level` (Query-only)
-- `pcg` (Query-only)
+- `level`
+- `pcg`
 - `pcg_component` (Query-only)
 
 Every request has exactly one Target and exactly one Domain. Targets are flat,

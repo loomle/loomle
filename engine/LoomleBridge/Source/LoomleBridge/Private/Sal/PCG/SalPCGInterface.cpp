@@ -7,7 +7,10 @@
 #include "../SalRuntime.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
+#include "FileHelpers.h"
+#include "HAL/FileManager.h"
 #include "Misc/Crc.h"
+#include "Misc/PackageName.h"
 #include "Misc/SecureHash.h"
 #include "PCGCommon.h"
 #include "PCGEdge.h"
@@ -15,7 +18,9 @@
 #include "PCGNode.h"
 #include "PCGPin.h"
 #include "PCGSettings.h"
+#include "UObject/Package.h"
 #include "UObject/UnrealType.h"
+#include "UObject/UObjectGlobals.h"
 #include "UObject/UObjectHash.h"
 
 namespace Loomle::Sal
@@ -2118,6 +2123,59 @@ bool ReadPcgPinRef(
     return !OutNode.IsEmpty() && !OutLabel.IsEmpty();
 }
 
+// PCG save persists only the outermost package that owns the exact PCG Graph
+// Target. Related subgraph assets and external Settings assets are never
+// included in the closure.
+bool PCGSaveBuildClosure(
+    const FSalResolvedTarget& Target,
+    UPCGGraph* Graph,
+    FString& OutPackageName,
+    bool& OutDirty,
+    bool& OutPersistentPath,
+    FString& OutReason)
+{
+    OutPackageName.Reset();
+    OutDirty = false;
+    OutPersistentPath = false;
+    OutReason.Reset();
+    UPackage* Package = Graph != nullptr ? Graph->GetOutermost() : nullptr;
+    if (Package == nullptr
+        || Package == GetTransientPackage()
+        || Package->HasAnyFlags(RF_Transient)
+        || FPackageName::IsTempPackage(Package->GetName()))
+    {
+        OutReason = TEXT(
+            "The exact PCG Graph Target has no persistent package to save.");
+        return false;
+    }
+    OutPackageName = Package->GetName();
+    OutDirty = Package->IsDirty();
+    OutPersistentPath = !FPackageName::IsTempPackage(Package->GetName());
+    return true;
+}
+
+TSharedPtr<FJsonObject> PCGSavePlanObject(
+    const FSalResolvedTarget& Target,
+    const FString& PackageName,
+    const bool bDirty,
+    const bool bPersistentPath,
+    const FString& Status)
+{
+    TSharedPtr<FJsonObject> Plan = MakeShared<FJsonObject>();
+    Plan->SetStringField(TEXT("operation"), TEXT("save"));
+    Plan->SetStringField(TEXT("assetPath"), Target.AssetPath);
+    Plan->SetStringField(TEXT("status"), Status);
+    TArray<TSharedPtr<FJsonValue>> Closure;
+    TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+    Entry->SetStringField(TEXT("package"), PackageName);
+    Entry->SetStringField(TEXT("role"), TEXT("graph"));
+    Entry->SetBoolField(TEXT("dirty"), bDirty);
+    Entry->SetBoolField(TEXT("persistentPath"), bPersistentPath);
+    Closure.Add(MakeShared<FJsonValueObject>(Entry));
+    Plan->SetArrayField(TEXT("closure"), Closure);
+    return Plan;
+}
+
 TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
     const FSalPatch& Patch,
     const FSalResolvedTarget& Target)
@@ -2160,6 +2218,128 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
             false,
             Target.AssetPath,
             TEXT("pcg"));
+    }
+
+    // Terminal save: exactly one `save` statement, never mixed with authored
+    // edits. Persists only the outermost package owning the exact Graph
+    // Target; a dry run is advisory and never executes native PreSave.
+    if (Patch.Statements.Num() == 1)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        FString StatementKind;
+        if (Patch.Statements[0].IsValid()
+            && Patch.Statements[0]->TryGetObject(Statement)
+            && Statement != nullptr
+            && (*Statement).IsValid()
+            && (*Statement)->TryGetStringField(
+                TEXT("kind"),
+                StatementKind)
+            && StatementKind == TEXT("save"))
+        {
+            FString PackageName;
+            bool bDirty = false;
+            bool bPersistentPath = false;
+            FString ClosureReason;
+            if (!PCGSaveBuildClosure(
+                    Target,
+                    Graph,
+                    PackageName,
+                    bDirty,
+                    bPersistentPath,
+                    ClosureReason))
+            {
+                return MakeMutationResult(
+                    NoObjects,
+                    {FSalDiagnostics::Error(
+                            TEXT("validation.save_plan_unavailable"),
+                            ClosureReason)
+                        .Interface(TEXT("pcg"))
+                        .Operation(TEXT("save"))
+                        .Build()},
+                    Patch.bDryRun,
+                    false,
+                    false,
+                    Target.AssetPath,
+                    TEXT("save"));
+            }
+            const TSharedPtr<FJsonObject> Plan =
+                PCGSavePlanObject(
+                    Target,
+                    PackageName,
+                    bDirty,
+                    bPersistentPath,
+                    bDirty ? TEXT("dirty") : TEXT("clean"));
+            if (Patch.bDryRun || !bDirty)
+            {
+                return MakeMutationResult(
+                    NoObjects,
+                    {},
+                    Patch.bDryRun,
+                    true,
+                    false,
+                    Target.AssetPath,
+                    TEXT("save"),
+                    Plan);
+            }
+            // Source-control and read-only preflight on the exact closure.
+            const FString FileName =
+                FPackageName::LongPackageNameToFilename(
+                    PackageName,
+                    FPackageName::GetAssetPackageExtension());
+            if (IFileManager::Get().IsReadOnly(*FileName))
+            {
+                return MakeMutationResult(
+                    NoObjects,
+                    {FSalDiagnostics::Error(
+                            TEXT("validation.package_read_only"),
+                            FString::Printf(
+                                TEXT("The PCG-owned package %s is "
+                                    "read-only on disk."),
+                                *PackageName))
+                        .Interface(TEXT("pcg"))
+                        .Operation(TEXT("save"))
+                        .Build()},
+                    false,
+                    false,
+                    false,
+                    Target.AssetPath,
+                    TEXT("save"),
+                    Plan);
+            }
+            UPackage* Package = FindPackage(
+                nullptr,
+                *PackageName);
+            if (Package == nullptr
+                || !UEditorLoadingAndSavingUtils::SavePackages(
+                    {Package},
+                    true))
+            {
+                return MakeMutationResult(
+                    NoObjects,
+                    {FSalDiagnostics::Error(
+                            TEXT("validation.save_failed"),
+                            TEXT("UE failed to save the PCG-owned dirty "
+                                "closure."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(TEXT("save"))
+                        .Build()},
+                    false,
+                    false,
+                    false,
+                    Target.AssetPath,
+                    TEXT("save"),
+                    Plan);
+            }
+            return MakeMutationResult(
+                NoObjects,
+                {},
+                false,
+                true,
+                true,
+                Target.AssetPath,
+                TEXT("save"),
+                Plan);
+        }
     }
 
     TArray<TSharedPtr<FJsonObject>> Diagnostics;
@@ -2620,15 +2800,27 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
         }
         if (Kind != TEXT("add"))
         {
+            FString Reason;
+            if (Kind == TEXT("save"))
+            {
+                Reason = TEXT(
+                    "PCG save is a terminal statement: it must be the only "
+                    "statement in the Patch and cannot be mixed with "
+                    "authored edits.");
+            }
+            else
+            {
+                Reason = FString::Printf(
+                    TEXT("PCG Patch does not yet support the %s "
+                        "statement in this capability; supported "
+                        "statements are add, remove, connect, "
+                        "disconnect, set, reset, and move."),
+                    *Kind);
+            }
             Diagnostics.Add(
                 FSalDiagnostics::Error(
                     TEXT("capability.operation_unavailable"),
-                    FString::Printf(
-                        TEXT("PCG Patch does not yet support the %s "
-                            "statement in this capability; supported "
-                            "statements are add, remove, connect, "
-                            "disconnect, set, reset, and move."),
-                        *Kind))
+                    Reason)
                     .Interface(TEXT("pcg"))
                     .Operation(Kind)
                     .Build());

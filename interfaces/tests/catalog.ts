@@ -93,7 +93,7 @@ assert.doesNotMatch(guide, /editor_context/);
 assert.match(guide, /## Schema Discovery/);
 assert.match(guide, /operation-less form is the shared exact-target read/);
 assert.match(guide, /nine active Domain interface cards/);
-assert.match(guide, /`pcg` admits Palette-backed Node creation/);
+assert.match(guide, /`pcg` admits\s+Palette-backed Node creation/);
 assert.deepEqual(
   catalog.map(({ name }) => name),
   expectedNames,
@@ -139,11 +139,14 @@ assert.match(levelInterface.text, /Patch Target for authored/);
 
 const pcgInterface = catalog.find(({ name }) => name === "pcg");
 assert.ok(pcgInterface, "PCG interface must be present.");
-assert.match(pcgInterface.text, /This interface is\s+read-only\./);
+assert.match(pcgInterface.text, /Query reads are\s+read-only/);
 assert.match(pcgInterface.text, /@SurfaceSampler_0\/in\/"Bounding Shape"/);
 assert.match(pcgInterface.text, /persisted integer Node position as `at: \[x, y\]`/);
-assert.match(pcgInterface.text, /accepts no Patch Target/);
-assert.doesNotMatch(pcgInterface.text, /^## Patch$/m);
+assert.match(pcgInterface.text, /^## Patch$/m);
+assert.match(pcgInterface.text, /Palette-backed/);
+assert.match(pcgInterface.text, /source-control-aware package save/);
+assert.match(pcgInterface.text, /^## Unavailable$/m);
+assert.doesNotMatch(pcgInterface.text, /accepts no Patch Target/);
 
 const pcgComponentInterface = catalog.find(({ name }) => name === "pcg_component");
 assert.ok(pcgComponentInterface, "PCG Component interface must be present.");

@@ -8,7 +8,7 @@ const modules = [
   ["state_tree", "Inspect and edit authored StateTree hierarchy, bindings, and compile state."],
   ["widget", "Inspect and edit WidgetBlueprint trees, Widgets, placement, and events."],
   ["level", "Inspect persistent source-map Actors and serialized Components without changing Editor or World state."],
-  ["pcg", "Inspect authored PCG Graph Nodes, Pins, Settings evidence, layout, and incident Edges."],
+  ["pcg", "Inspect authored PCG Graph Nodes, Pins, Settings evidence, layout, and incident Edges, and edit authored Graph structure, Settings values, layout, connectivity, and persistence."],
   ["pcg_component", "Inspect one authored PCG Component binding and effective Graph Parameter values."],
 ];
 

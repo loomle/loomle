@@ -2529,6 +2529,13 @@ TSharedRef<FJsonObject> PcgPatchArguments(
     return Arguments;
 }
 
+TSharedRef<FJsonObject> PcgSaveStatement()
+{
+    TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
+    Statement->SetStringField(TEXT("kind"), TEXT("save"));
+    return Statement;
+}
+
 TArray<TSharedPtr<FJsonValue>> PcgAddNodeStatements(
     const FString& Alias,
     const FString& PaletteId)
@@ -3110,6 +3117,320 @@ bool FSalPcgPatchSettingsAndMoveTest::RunTest(
     if (Fixture.Graph->GetOutermost() != nullptr)
     {
         Fixture.Graph->GetOutermost()->SetDirtyFlag(false);
+    }
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalPcgPatchSaveTest,
+    "Loomle.Sal.PCG.Patch.Save",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalPcgPatchSaveTest::RunTest(const FString& Parameters)
+{
+    if (GEditor == nullptr
+        || GEditor->IsTransactionActive()
+        || GEditor->IsPlaySessionInProgress())
+    {
+        AddError(TEXT(
+            "PCG Patch save coverage requires an idle Editor outside PIE "
+            "and transactions."));
+        return false;
+    }
+
+    FScopedPersistentPcgQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(
+            TEXT("PCG save fixture creates and saves"),
+            Fixture.CreateAndSave(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const FString GraphPath = Fixture.ObjectPath;
+    const FString GraphType =
+        Fixture.Graph->GetClass()->GetPathName();
+    const FString AuthoredNodeId =
+        Fixture.AuthoredNode->GetFName().ToString();
+    const TSharedRef<FJsonObject> Target =
+        PcgTarget(GraphPath, GraphType);
+
+    // Dry run discloses the plan without writing.
+    const TSharedPtr<FJsonObject> DryRun =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                {MakeShared<FJsonValueObject>(PcgSaveStatement())},
+                true));
+    bool bValid = false;
+    bool bApplied = false;
+    TestTrue(
+        TEXT("PCG save dry-run validates"),
+        PcgMutationHasField(DryRun, TEXT("valid"), bValid) && bValid);
+    TestTrue(
+        TEXT("PCG save dry-run does not write"),
+        PcgMutationHasField(DryRun, TEXT("applied"), bApplied)
+            && !bApplied);
+
+    // Authored edits dirty the package, then a terminal save persists it.
+    const TSharedPtr<FJsonObject> MoveResult =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                {MakeShared<FJsonValueObject>(PcgMoveStatement(
+                    AuthoredNodeId, 512, 256))}));
+    TestTrue(
+        TEXT("PCG save pre-edit applies"),
+        PcgMutationHasField(MoveResult, TEXT("applied"), bApplied)
+            && bApplied);
+    TestTrue(
+        TEXT("PCG save pre-edit dirties the Graph package"),
+        Fixture.Package->IsDirty());
+
+    const TSharedPtr<FJsonObject> SaveResult =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                {MakeShared<FJsonValueObject>(PcgSaveStatement())}));
+    TestTrue(
+        TEXT("PCG save applies"),
+        PcgMutationHasField(SaveResult, TEXT("applied"), bApplied)
+            && bApplied);
+    TestTrue(
+        TEXT("PCG save is valid"),
+        PcgMutationHasField(SaveResult, TEXT("valid"), bValid) && bValid);
+    TestTrue(
+        TEXT("PCG save clears the Graph package dirty flag"),
+        !Fixture.Package->IsDirty());
+
+    // A clean closure saves as a no-op.
+    const TSharedPtr<FJsonObject> CleanResult =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                {MakeShared<FJsonValueObject>(PcgSaveStatement())}));
+    TestTrue(
+        TEXT("PCG save of a clean closure is a valid no-op"),
+        PcgMutationHasField(CleanResult, TEXT("valid"), bValid)
+            && bValid);
+    TestTrue(
+        TEXT("PCG save of a clean closure does not write"),
+        PcgMutationHasField(CleanResult, TEXT("applied"), bApplied)
+            && !bApplied);
+
+    // save is terminal-only: it cannot share a Patch with authored edits.
+    const TSharedPtr<FJsonObject> MixedResult =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                {MakeShared<FJsonValueObject>(PcgMoveStatement(
+                    AuthoredNodeId, 64, 64)),
+                 MakeShared<FJsonValueObject>(PcgSaveStatement())}));
+    TestTrue(
+        TEXT("PCG save mixed with edits fails closed"),
+        PcgMutationHasField(MixedResult, TEXT("valid"), bValid)
+            && !bValid);
+    TestTrue(
+        TEXT("PCG save mixed with edits reports the terminal-only diagnostic"),
+        HasDiagnostic(
+            MixedResult,
+            TEXT("capability.operation_unavailable")));
+
+    // A Palette node with one certified scalar field round-trips through
+    // save/unload/reload.
+    const TSharedPtr<FJsonObject> PaletteResult =
+        FSalModule::BuildQueryResult(
+            QueryArguments(Target, Operation(TEXT("palette_entries"))));
+    const TArray<FString> PaletteIds =
+        CollectPCGNodePaletteIds(PaletteResult);
+    if (!TestTrue(
+            TEXT("PCG save Palette exposes entries"),
+            !PaletteIds.IsEmpty()))
+    {
+        return false;
+    }
+    const TSharedPtr<FJsonObject> AddResult =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                PcgAddNodeStatements(TEXT("saved"), PaletteIds[0])));
+    if (!(PcgMutationHasField(AddResult, TEXT("applied"), bApplied)
+          && bApplied))
+    {
+        AddError(TEXT("PCG save fixture add failed to apply."));
+        return false;
+    }
+    UPCGNode* SavedNode = nullptr;
+    for (UPCGNode* Node : Fixture.Graph->GetNodes())
+    {
+        if (Node != nullptr
+            && Node != Fixture.Graph->GetInputNode()
+            && Node != Fixture.Graph->GetOutputNode()
+            && Node != Fixture.AuthoredNode)
+        {
+            SavedNode = Node;
+        }
+    }
+    if (!TestNotNull(
+            TEXT("PCG save fixture found the created Node"),
+            SavedNode))
+    {
+        return false;
+    }
+    UPCGSettings* SavedSettings = SavedNode->GetSettings();
+    if (!TestNotNull(
+            TEXT("PCG save fixture Node owns graph Settings"),
+            SavedSettings))
+    {
+        return false;
+    }
+    FProperty* SavedField = nullptr;
+    for (TFieldIterator<FProperty> It(SavedSettings->GetClass()); It; ++It)
+    {
+        if (PCGTestScalarEditable(*It))
+        {
+            SavedField = *It;
+            break;
+        }
+    }
+    if (!TestNotNull(
+            TEXT("PCG save fixture Settings expose a certified scalar field"),
+            SavedField))
+    {
+        return false;
+    }
+    const FString SavedNodeId = SavedNode->GetFName().ToString();
+    const FString SavedFieldName = SavedField->GetName();
+    const TSharedPtr<FJsonObject> SetResult =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                {MakeShared<FJsonValueObject>(PcgSetSettingsStatement(
+                    SavedNodeId, SavedFieldName, TEXT("1"))),
+                 MakeShared<FJsonValueObject>(PcgMoveStatement(
+                    SavedNodeId, 768, -64))}));
+    TestTrue(
+        TEXT("PCG save pre-save settings and move edit applies"),
+        PcgMutationHasField(SetResult, TEXT("applied"), bApplied)
+            && bApplied);
+    FString SavedValueBefore;
+    SavedField->ExportText_Direct(
+        SavedValueBefore,
+        SavedField->ContainerPtrToValuePtr<void>(SavedSettings),
+        SavedField->ContainerPtrToValuePtr<void>(SavedSettings),
+        SavedSettings,
+        PPF_None);
+    int32 SavedPositionX = 0;
+    int32 SavedPositionY = 0;
+    SavedNode->GetNodePosition(SavedPositionX, SavedPositionY);
+
+    const TSharedPtr<FJsonObject> FinalSaveResult =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                {MakeShared<FJsonValueObject>(PcgSaveStatement())}));
+    TestTrue(
+        TEXT("PCG save with authored edits applies"),
+        PcgMutationHasField(FinalSaveResult, TEXT("applied"), bApplied)
+            && bApplied);
+    TestTrue(
+        TEXT("PCG save with authored edits clears the dirty flag"),
+        !Fixture.Package->IsDirty());
+
+    // Save/unload/reload preserves identity, values, positions, and topology.
+    Error.Reset();
+    const bool bUnloaded = Fixture.Unload(Error);
+    TestTrue(
+        *FString::Printf(
+            TEXT("PCG save fixture unloads completely: %s"),
+            *Error),
+        bUnloaded);
+    if (!bUnloaded)
+    {
+        return false;
+    }
+    Error.Reset();
+    const bool bReloaded = Fixture.Reload(Error);
+    TestTrue(
+        *FString::Printf(
+            TEXT("PCG save fixture reloads from disk: %s"),
+            *Error),
+        bReloaded);
+    if (!bReloaded)
+    {
+        return false;
+    }
+    TestEqual(
+        TEXT("Save/reload preserves the authored Node FName"),
+        Fixture.AuthoredNode->GetFName().ToString(),
+        AuthoredNodeId);
+    int32 AuthoredPositionX = 0;
+    int32 AuthoredPositionY = 0;
+    Fixture.AuthoredNode->GetNodePosition(
+        AuthoredPositionX,
+        AuthoredPositionY);
+    TestTrue(
+        TEXT("Save/reload preserves the authored Node position"),
+        AuthoredPositionX == 512 && AuthoredPositionY == 256);
+    TestTrue(
+        TEXT("Save/reload preserves same-label input and output Pin identity"),
+        Fixture.InputNode->GetInputPin(Fixture.ExoticLabel) != nullptr
+            && Fixture.InputNode->GetOutputPin(Fixture.ExoticLabel) != nullptr
+            && Fixture.OutputNode->GetInputPin(Fixture.ExoticLabel) != nullptr);
+    UPCGNode* ReloadedSavedNode = nullptr;
+    for (UPCGNode* Node : Fixture.Graph->GetNodes())
+    {
+        if (Node != nullptr
+            && Node->GetFName().ToString() == SavedNodeId)
+        {
+            ReloadedSavedNode = Node;
+        }
+    }
+    TestTrue(
+        TEXT("Save/reload preserves the created Node FName"),
+        ReloadedSavedNode != nullptr);
+    if (ReloadedSavedNode != nullptr)
+    {
+        int32 ReloadedPositionX = 0;
+        int32 ReloadedPositionY = 0;
+        ReloadedSavedNode->GetNodePosition(
+            ReloadedPositionX,
+            ReloadedPositionY);
+        TestTrue(
+            TEXT("Save/reload preserves the created Node position"),
+            ReloadedPositionX == SavedPositionX
+                && ReloadedPositionY == SavedPositionY);
+        UPCGSettings* ReloadedSettings =
+            ReloadedSavedNode->GetSettings();
+        FProperty* ReloadedField = ReloadedSettings != nullptr
+            ? ReloadedSettings->GetClass()->FindPropertyByName(
+                FName(*SavedFieldName))
+            : nullptr;
+        FString SavedValueAfter;
+        TestTrue(
+            TEXT("Save/reload preserves the certified Settings scalar"),
+            ReloadedField != nullptr
+                && ReloadedField->ExportText_Direct(
+                    SavedValueAfter,
+                    ReloadedField->ContainerPtrToValuePtr<void>(
+                        ReloadedSettings),
+                    ReloadedField->ContainerPtrToValuePtr<void>(
+                        ReloadedSettings),
+                    ReloadedSettings,
+                    PPF_None) != nullptr
+                && SavedValueAfter == SavedValueBefore);
+    }
+    TestFalse(
+        TEXT("Reloaded PCG package is clean after save"),
+        Fixture.Package->IsDirty());
+
+    if (GEditor != nullptr && GEditor->Trans != nullptr)
+    {
+        GEditor->Trans->Reset(FText::FromString(TEXT("SAL test cleanup")));
     }
     if (!Fixture.Cleanup(Error))
     {
