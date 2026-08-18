@@ -1700,6 +1700,33 @@ Query-only slice.
 - opaque replay and stale capability rejection;
 - explicit reporting when preview or lifecycle support is unavailable.
 
+Palette discovery progress (branch Slice 2-A, not published):
+
+- `palette entries ["text"] to arena.Actors` and `to @actorGuid.Components`
+  are accepted by the parser and normalized schema as destination-bound
+  operations (shared `Destination*` wire variants with `state_tree`), with
+  roundtrip and invalid fixtures;
+- the Level adapter enumerates Actor creation capabilities from the editor
+  placement catalog and instance Component capabilities from the editor
+  component registry, excluding session state (Favorites/Recently Placed)
+  and non-direct-creation actions;
+- every entry reports its opaque digest id, exact native Class, category,
+  required source Asset type when factory-driven, and
+  `creation: unavailable` with the capability reason: creation Patch remains
+  inactive until the preview-World execution path lands;
+- destination resolution is fail-closed: Actor destinations must name the
+  bound Level Target alias with path `Actors`; Component destinations must be
+  one exact persisted loaded Actor with path `Components`; other shapes,
+  malformed Guids, unknown Actors, and unloaded source maps are rejected;
+- ordering is canonical (category, then display name) and results are
+  cursor-paginated (`level_palette1:<fingerprint>:<offset>`);
+- the exact `palette @id to <destination>` replay re-enumerates and
+  revalidates the digest against the same destination before returning one
+  entry, so stale or cross-destination ids fail closed.
+
+Remaining in Slice 2: conservative exact editable schema on loaded Actors and
+Components, read-only unloaded descriptor schema, and reset-source proof.
+
 ### Slice 3: Existing-object authored mutation
 
 - preview-World kernel for supported exact operations;

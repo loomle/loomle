@@ -479,6 +479,18 @@ palette entries ["text"]
 palette @id
 ```
 
+`state_tree` and `level` use destination-bound Palette operations where `to`
+names an exact destination inside the active Target:
+
+```sal
+palette entries ["text"] to <destination>
+palette @id to <same-destination>
+```
+
+The destination is a member reference such as `behavior.States`,
+`arena.Actors`, or `@actorGuid.Components`; each Domain card closes the exact
+destination paths and replay rules.
+
 Domains add operations such as `summary`, collections, `tree`, `context`,
 `exec flow`, and `data flow`. Each static Domain card closes the valid
 operation and clause matrix. In particular, accepting the structural
