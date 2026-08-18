@@ -295,6 +295,33 @@ TSharedRef<FJsonObject> PCGComponentPatchArguments(
     return Arguments;
 }
 
+bool FirstLevelDiagnostic(
+    const TSharedPtr<FJsonObject>& Result,
+    FString& OutCode,
+    FString& OutMessage)
+{
+    OutCode.Reset();
+    OutMessage.Reset();
+    const TArray<TSharedPtr<FJsonValue>>* Diagnostics = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetArrayField(TEXT("diagnostics"), Diagnostics)
+        || Diagnostics == nullptr
+        || Diagnostics->IsEmpty())
+    {
+        return false;
+    }
+    const TSharedPtr<FJsonObject>* Diagnostic = nullptr;
+    if ((*Diagnostics)[0].IsValid()
+        && (*Diagnostics)[0]->TryGetObject(Diagnostic)
+        && Diagnostic != nullptr
+        && (*Diagnostic).IsValid())
+    {
+        (*Diagnostic)->TryGetStringField(TEXT("code"), OutCode);
+        (*Diagnostic)->TryGetStringField(TEXT("message"), OutMessage);
+    }
+    return true;
+}
+
 bool LevelHasDiagnostic(
     const TSharedPtr<FJsonObject>& Result,
     const FString& ExpectedCode)
@@ -11623,8 +11650,15 @@ bool FSalLevelPaletteActorEntriesTest::RunTest(const FString& Parameters)
         LevelQueryArguments(
             Target,
             LevelPaletteOperation(FirstId, Destination)));
-    if (!TestFalse(TEXT("Exact Actor Palette replay has no error"), LevelHasError(ExactResult)))
+    if (LevelHasError(ExactResult))
     {
+        FString Code;
+        FString Message;
+        FirstLevelDiagnostic(ExactResult, Code, Message);
+        AddError(FString::Printf(
+            TEXT("Exact Actor Palette replay error: %s (%s)"),
+            *Code,
+            *Message));
         return false;
     }
     const TArray<FLevelPaletteEntryView> ExactEntries =
@@ -11723,8 +11757,15 @@ bool FSalLevelPaletteComponentEntriesTest::RunTest(const FString& Parameters)
         LevelQueryArguments(
             Target,
             LevelPaletteOperation(Entries[0].PaletteId, Destination)));
-    if (!TestFalse(TEXT("Exact Component Palette replay has no error"), LevelHasError(ExactResult)))
+    if (LevelHasError(ExactResult))
     {
+        FString Code;
+        FString Message;
+        FirstLevelDiagnostic(ExactResult, Code, Message);
+        AddError(FString::Printf(
+            TEXT("Exact Component Palette replay error: %s (%s)"),
+            *Code,
+            *Message));
         return false;
     }
     const TArray<FLevelPaletteEntryView> ExactEntries =
