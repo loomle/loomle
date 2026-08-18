@@ -11431,20 +11431,20 @@ TArray<FLevelPaletteEntryView> CollectLevelPaletteEntries(
             && (*Value).IsValid())
         {
             FString ValueKind;
-            const TSharedPtr<FJsonObject>* Args = nullptr;
+            const TSharedPtr<FJsonObject>* Fields = nullptr;
             if ((*Value)->TryGetStringField(TEXT("kind"), ValueKind)
-                && ValueKind == TEXT("call")
-                && (*Value)->TryGetObjectField(TEXT("args"), Args)
-                && Args != nullptr)
+                && ValueKind == TEXT("object")
+                && (*Value)->TryGetObjectField(TEXT("fields"), Fields)
+                && Fields != nullptr)
             {
                 FLevelPaletteEntryView Entry;
                 Entry.Alias = Alias;
-                (*Args)->TryGetStringField(TEXT("palette"), Entry.PaletteId);
-                (*Args)->TryGetStringField(TEXT("name"), Entry.Name);
-                (*Args)->TryGetStringField(TEXT("category"), Entry.Category);
-                (*Args)->TryGetStringField(TEXT("type"), Entry.Type);
-                (*Args)->TryGetStringField(TEXT("creation"), Entry.Creation);
-                (*Args)->TryGetStringField(TEXT("reason"), Entry.Reason);
+                (*Fields)->TryGetStringField(TEXT("palette"), Entry.PaletteId);
+                (*Fields)->TryGetStringField(TEXT("name"), Entry.Name);
+                (*Fields)->TryGetStringField(TEXT("category"), Entry.Category);
+                (*Fields)->TryGetStringField(TEXT("type"), Entry.Type);
+                (*Fields)->TryGetStringField(TEXT("creation"), Entry.Creation);
+                (*Fields)->TryGetStringField(TEXT("reason"), Entry.Reason);
                 Out.Add(MoveTemp(Entry));
             }
         }
