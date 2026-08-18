@@ -525,6 +525,156 @@ bool FLoomleBridgePythonStructuredResultTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FLoomleBridgePythonSalObjectProjectionTest,
+    "Loomle.Runtime.Rpc.Python.SalObjectProjection",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLoomleBridgePythonSalObjectProjectionTest::RunTest(const FString& Parameters)
+{
+    FLoomleBridgeModule Module;
+    FLoomleBridgeRpcTestAccess::InitializePythonExecutionService(Module);
+    FLoomleBridgeRpcTestAccess::SetBridgeLifecycle(Module, ELoomleBridgeLifecycle::Ready);
+
+    TSharedPtr<FJsonObject> Arguments = MakeShared<FJsonObject>();
+    Arguments->SetStringField(
+        TEXT("script"),
+        TEXT(
+            "import unreal\n"
+            "def run():\n"
+            "    return {'marked': sal.object(unreal.Actor)}\n"));
+    FPythonDispatchResult DispatchResult;
+    DispatchPythonFromWorker(*this, Module, Arguments, DispatchResult);
+    const TSharedPtr<FJsonObject>& Payload = DispatchResult.Payload;
+
+    TestFalse(TEXT("A sal.object() script is not a dispatch error"), DispatchResult.bIsError);
+    FString Status;
+    TestTrue(
+        TEXT("The sal.object() script succeeds"),
+        Payload.IsValid()
+            && Payload->TryGetStringField(TEXT("status"), Status)
+            && Status == TEXT("succeeded"));
+
+    const TSharedPtr<FJsonObject>* Annex = nullptr;
+    TestTrue(
+        TEXT("The projection annex is reported on the Python result"),
+        Payload.IsValid()
+            && Payload->TryGetObjectField(TEXT("projection"), Annex)
+            && Annex != nullptr
+            && (*Annex).IsValid());
+    bool bComplete = false;
+    double Marked = 0.0;
+    double Projected = 0.0;
+    TestTrue(
+        TEXT("The projection annex is complete with one projected view"),
+        Annex != nullptr
+            && (*Annex).IsValid()
+            && (*Annex)->TryGetBoolField(TEXT("complete"), bComplete)
+            && bComplete
+            && (*Annex)->TryGetNumberField(TEXT("marked"), Marked)
+            && Marked == 1.0
+            && (*Annex)->TryGetNumberField(TEXT("projected"), Projected)
+            && Projected == 1.0);
+
+    const TSharedPtr<FJsonObject>* Result = nullptr;
+    const TSharedPtr<FJsonObject>* Record = nullptr;
+    TestTrue(
+        TEXT("The marker is replaced in place by a projection record"),
+        Payload.IsValid()
+            && Payload->TryGetObjectField(TEXT("result"), Result)
+            && Result != nullptr
+            && (*Result).IsValid()
+            && (*Result)->TryGetObjectField(TEXT("marked"), Record)
+            && Record != nullptr
+            && (*Record).IsValid());
+    FString RecordStatus;
+    FString Relation;
+    TestTrue(
+        TEXT("The marked Class record is projected with relation exact"),
+        Record != nullptr
+            && (*Record)->TryGetStringField(TEXT("status"), RecordStatus)
+            && RecordStatus == TEXT("projected")
+            && (*Record)->TryGetStringField(TEXT("relation"), Relation)
+            && Relation == TEXT("exact"));
+    const TSharedPtr<FJsonObject>* View = nullptr;
+    const TSharedPtr<FJsonObject>* Binding = nullptr;
+    const TSharedPtr<FJsonObject>* Target = nullptr;
+    FString Domain;
+    TestTrue(
+        TEXT("The Class projection carries a canonical class view"),
+        Record != nullptr
+            && (*Record)->TryGetObjectField(TEXT("view"), View)
+            && View != nullptr
+            && (*View).IsValid()
+            && (*View)->TryGetObjectField(TEXT("target"), Binding)
+            && Binding != nullptr
+            && (*Binding).IsValid()
+            && (*Binding)->TryGetObjectField(TEXT("target"), Target)
+            && Target != nullptr
+            && (*Target).IsValid()
+            && (*Target)->TryGetStringField(TEXT("domain"), Domain)
+            && Domain == TEXT("class"));
+
+    FLoomleBridgeRpcTestAccess::ShutdownPythonExecutionService(Module);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FLoomleBridgePythonSalObjectValidationTest,
+    "Loomle.Runtime.Rpc.Python.SalObjectValidation",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLoomleBridgePythonSalObjectValidationTest::RunTest(const FString& Parameters)
+{
+    FLoomleBridgeModule Module;
+    FLoomleBridgeRpcTestAccess::InitializePythonExecutionService(Module);
+    FLoomleBridgeRpcTestAccess::SetBridgeLifecycle(Module, ELoomleBridgeLifecycle::Ready);
+
+    // A user dict that fabricates the reserved marker key is rejected.
+    TSharedPtr<FJsonObject> ReservedArguments = MakeShared<FJsonObject>();
+    ReservedArguments->SetStringField(
+        TEXT("script"),
+        TEXT(
+            "def run():\n"
+            "    return {'__loomle_sal_object__': '/Script/Engine.Actor'}\n"));
+    FPythonDispatchResult ReservedDispatch;
+    DispatchPythonFromWorker(*this, Module, ReservedArguments, ReservedDispatch);
+    FString ReservedStatus;
+    TestTrue(
+        TEXT("The reserved marker key fails the runner validation"),
+        ReservedDispatch.Payload.IsValid()
+            && ReservedDispatch.Payload->TryGetStringField(
+                TEXT("status"),
+                ReservedStatus)
+            && ReservedStatus == TEXT("failed"));
+    TestTrue(
+        TEXT("The reserved marker key reports runtime.python_invalid_result"),
+        ReservedDispatch.Payload.IsValid()
+            && ReservedDispatch.Payload->HasField(TEXT("error"))
+            && !ReservedDispatch.Payload->HasField(TEXT("projection")));
+
+    // sal.object() with a non-object is rejected.
+    TSharedPtr<FJsonObject> NonObjectArguments = MakeShared<FJsonObject>();
+    NonObjectArguments->SetStringField(
+        TEXT("script"),
+        TEXT(
+            "def run():\n"
+            "    return {'bad': sal.object(42)}\n"));
+    FPythonDispatchResult NonObjectDispatch;
+    DispatchPythonFromWorker(*this, Module, NonObjectArguments, NonObjectDispatch);
+    FString NonObjectStatus;
+    TestTrue(
+        TEXT("sal.object() on a non-object fails the runner validation"),
+        NonObjectDispatch.Payload.IsValid()
+            && NonObjectDispatch.Payload->TryGetStringField(
+                TEXT("status"),
+                NonObjectStatus)
+            && NonObjectStatus == TEXT("failed"));
+
+    FLoomleBridgeRpcTestAccess::ShutdownPythonExecutionService(Module);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FLoomleBridgePythonPlaySessionAdmissionTest,
     "Loomle.Runtime.Rpc.Python.PlaySessionAdmission",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

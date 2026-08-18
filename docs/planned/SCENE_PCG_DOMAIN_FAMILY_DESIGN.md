@@ -478,6 +478,64 @@ tasks, and generated resources do not acquire SAL identity merely because a
 script passes them to `sal.object()`. No SAL Domain silently invokes Python on
 the caller's behalf.
 
+#### `sal.object()` projection slice plan (branch, not published)
+
+The runner script injects a `sal` namespace into the execution. `sal.object(v)`
+requires a Unreal Engine object (an object with `get_path_name`); it returns
+the reserved marker
+
+```python
+{"__loomle_sal_object__": "<native object path>"}
+```
+
+which is JSON-safe and survives the runner result document. The reserved key
+is closed; a user dict containing it is rejected by the runner validator.
+
+At terminalization the Bridge walks the result JSON on the Game Thread,
+replaces every marker in place with an independent normalized projection
+record, and reports the projection set annex:
+
+```json
+{"projection": {"complete": true, "marked": 2, "projected": 2}}
+```
+
+`complete` is false when any projector or Bridge integrity fault occurred.
+The annex never fabricates Object Text and is omitted when the script marked
+nothing. A projection record is one of:
+
+- `{"status": "projected", "relation": "exact", "view": <canonical SAL exact
+  Query result>}` — the observed UObject itself is a persistent SAL subject;
+- `{"status": "projected", "relation": "authored_source", "view": <canonical
+  SAL exact Query result>}` — the observed UObject is a uniquely proven live
+  duplicate whose view is of the authored source;
+- `{"status": "unsupported", "diagnostics": [...]}` — a transient-only object
+  with no proven authored source reports `projection.transient_only`;
+- `{"status": "stale", "diagnostics": [...]}` — the marked object no longer
+  resolves at terminalization;
+- `{"status": "ambiguous", "diagnostics": [...]}` — no unique authored source
+  or SAL subject can be proven;
+- `{"status": "failed", "diagnostics": [...]}` — projector or Bridge
+  integrity fault; the annex `complete` flag is false.
+
+The `view` is produced by the same Domain adapters as ordinary SAL Queries
+(one canonical exact Query result per Domain view), so projection reuses the
+tested Target/schema/read paths and never invents a new serialization. A
+single UObject may produce several independent Domain views (for example an
+`asset` view and a `pcg` view for a Graph asset); the Bridge does not pick one
+merely from native Class. Projection never loads a map or asset, changes
+selection, dirties state, or retains the UObject after the terminal result is
+formed.
+
+Certified Domain views in this increment: `level` exact Actor and exact
+serialized Component for persistent source-map subjects; `asset` exact for
+asset-backed subjects; `class` exact for native Classes; `blueprint` exact for
+Blueprint assets; `pcg` exact Target for top-level Graph assets;
+`pcg_component` exact for original serialized Components on a persistent
+source map. A PIE/SIE Actor or Component duplicate projects
+`relation: authored_source` only when its ActorGuid matches a persistent
+source-map Actor; otherwise it is `unsupported` with
+`projection.transient_only`.
+
 ### `pcg_execution`
 
 `pcg_execution` owns typed PCG facts on the shared asynchronous execution

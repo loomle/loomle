@@ -613,6 +613,36 @@
             "title": "Project selection required"
         },
         {
+            "code": "projection.ambiguous",
+            "layer": "projection",
+            "defaultSeverity": "error",
+            "title": "Projection ambiguous"
+        },
+        {
+            "code": "projection.failed",
+            "layer": "projection",
+            "defaultSeverity": "error",
+            "title": "Projection failed"
+        },
+        {
+            "code": "projection.stale",
+            "layer": "projection",
+            "defaultSeverity": "error",
+            "title": "Projection stale"
+        },
+        {
+            "code": "projection.transient_only",
+            "layer": "projection",
+            "defaultSeverity": "error",
+            "title": "Projection transient only"
+        },
+        {
+            "code": "projection.unsupported",
+            "layer": "projection",
+            "defaultSeverity": "error",
+            "title": "Projection unsupported"
+        },
+        {
             "code": "resolution.ambiguous_selector",
             "layer": "resolution",
             "defaultSeverity": "error",

@@ -2,6 +2,7 @@
 
 #include "Python/LoomlePythonExecutionService.h"
 
+#include "../Sal/SalProjectionService.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Editor.h"
@@ -244,6 +245,14 @@ FString BuildRunnerSource(const FString& SourcePath, const FString& ResultPath)
             "_LOOMLE_SAFE_INTEGER = 9007199254740991\n"
             "class _LoomleResultError(Exception):\n"
             "    pass\n"
+            "_LOOMLE_SAL_OBJECT_KEY = '__loomle_sal_object__'\n"
+            "class _LoomleSal:\n"
+            "    def object(self, value):\n"
+            "        get_path = getattr(value, 'get_path_name', None)\n"
+            "        if not callable(get_path):\n"
+            "            raise _LoomleResultError('sal.object() requires a Unreal Engine object')\n"
+            "        return {_LOOMLE_SAL_OBJECT_KEY: get_path()}\n"
+            "_loomle_sal = _LoomleSal()\n"
             "def _loomle_validate(value, seen, path):\n"
             "    value_type = type(value)\n"
             "    if value is None or value_type is bool or value_type is str:\n"
@@ -268,6 +277,8 @@ FString BuildRunnerSource(const FString& SourcePath, const FString& ResultPath)
             "            seen.remove(value_id)\n"
             "        return\n"
             "    if value_type is dict:\n"
+            "        if _LOOMLE_SAL_OBJECT_KEY in value:\n"
+            "            raise _LoomleResultError(f'{path} uses the reserved sal.object() marker key')\n"
             "        if value_id in seen:\n"
             "            raise _LoomleResultError(f'{path} contains a cycle')\n"
             "        seen.add(value_id)\n"
@@ -284,7 +295,7 @@ FString BuildRunnerSource(const FString& SourcePath, const FString& ResultPath)
             "    with open(_LOOMLE_RESULT, 'w', encoding='utf-8', newline='\\n') as output:\n"
             "        _loomle_json.dump(document, output, ensure_ascii=False, allow_nan=False, separators=(',', ':'))\n"
             "try:\n"
-            "    _loomle_namespace = {'__name__': '__loomle_execution__', '__file__': _LOOMLE_SOURCE}\n"
+            "    _loomle_namespace = {'__name__': '__loomle_execution__', '__file__': _LOOMLE_SOURCE, 'sal': _loomle_sal}\n"
             "    with open(_LOOMLE_SOURCE, 'r', encoding='utf-8') as source_file:\n"
             "        _loomle_code = compile(source_file.read(), _LOOMLE_SOURCE, 'exec')\n"
             "    exec(_loomle_code, _loomle_namespace, _loomle_namespace)\n"
@@ -712,6 +723,11 @@ void FPythonExecutionService::Execute(const FExecutionPtr& Execution)
                         Terminal->SetStringField(TEXT("status"), TEXT("succeeded"));
                         Terminal->SetBoolField(TEXT("stateMayHaveChanged"), true);
                         Terminal->SetObjectField(TEXT("result"), *ResultObject);
+                        // Read-only Python sal.object() projection: markers in
+                        // the result are replaced in place with canonical views
+                        // and the projection annex is reported.
+                        Loomle::Sal::FSalProjectionService::ProjectResult(
+                            Terminal);
                         bool bLogsTruncated = false;
                         Terminal->SetArrayField(TEXT("logs"), BuildLogs(NativeLogs, bLogsTruncated));
                         Terminal->SetBoolField(TEXT("logsTruncated"), bLogsTruncated);
