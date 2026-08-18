@@ -11496,7 +11496,7 @@ bool FSalLevelPaletteDestinationValidationTest::RunTest(const FString& Parameter
         TEXT("Level Actor Palette destination must name the bound alias"),
         LevelHasDiagnostic(
             WrongAliasResult,
-            TEXT("validation.palette_context_invalid")));
+            TEXT("language.invalid_object_shape")));
 
     const TSharedPtr<FJsonObject> BadPathResult =
         FSalModule::BuildQueryResult(
@@ -11538,7 +11538,7 @@ bool FSalLevelPaletteDestinationValidationTest::RunTest(const FString& Parameter
         TEXT("Level Component Palette destination rejects a malformed ActorGuid"),
         LevelHasDiagnostic(
             InvalidGuidResult,
-            TEXT("validation.palette_context_invalid")));
+            TEXT("validation.invalid_reference")));
 
     const TSharedPtr<FJsonObject> MissingActorResult =
         FSalModule::BuildQueryResult(

@@ -2799,32 +2799,52 @@ bool ResolveLevelPaletteDestination(
     }
     if (Member == TEXT("Components"))
     {
-        if (ObjectKind != TEXT("stable_ref"))
+        FGuid ActorId;
+        if (ObjectKind == TEXT("stable_ref"))
+        {
+            const TArray<TSharedPtr<FJsonValue>>* IdentityPath = nullptr;
+            if (!(*ObjectRef)->TryGetArrayField(TEXT("identityPath"), IdentityPath)
+                || IdentityPath == nullptr
+                || IdentityPath->Num() != 1)
+            {
+                OutMessage = TEXT(
+                    "A Level Component Palette destination Actor identity "
+                    "must be exactly one ActorGuid.");
+                return false;
+            }
+            FString GuidText;
+            if (!(*IdentityPath)[0]->TryGetString(GuidText)
+                || !ParseActorGuid(GuidText, ActorId))
+            {
+                OutMessage = TEXT(
+                    "A Level Component Palette destination ActorGuid is "
+                    "invalid or not a persisted Actor identity.");
+                return false;
+            }
+        }
+        else if (ObjectKind == TEXT("actor"))
+        {
+            // LowerQueryForDomain lowers a stable-ref owner through
+            // FSalLevelInterface::LowerStableReference, which rewrites it to
+            // the exact actor shape {kind: actor, id: ActorGuid}.
+            FString ActorIdText;
+            if (!(*ObjectRef)->TryGetStringField(TEXT("id"), ActorIdText)
+                || !ParseActorGuid(ActorIdText, ActorId))
+            {
+                OutMessage = TEXT(
+                    "A Level Component Palette destination Actor identity "
+                    "is invalid or not a persisted Actor identity.");
+                return false;
+            }
+        }
+        else
         {
             OutMessage = TEXT(
                 "A Level Component Palette destination must be one exact "
                 "persisted Actor StableRef, such as @actorGuid.Components.");
             return false;
         }
-        const TArray<TSharedPtr<FJsonValue>>* IdentityPath = nullptr;
-        if (!(*ObjectRef)->TryGetArrayField(TEXT("identityPath"), IdentityPath)
-            || IdentityPath == nullptr
-            || IdentityPath->Num() != 1)
-        {
-            OutMessage = TEXT(
-                "A Level Component Palette destination Actor identity must "
-                "be exactly one ActorGuid.");
-            return false;
-        }
-        FString GuidText;
-        if (!(*IdentityPath)[0]->TryGetString(GuidText)
-            || !ParseActorGuid(GuidText, Out.ActorGuid))
-        {
-            OutMessage = TEXT(
-                "A Level Component Palette destination ActorGuid is invalid "
-                "or not a persisted Actor identity.");
-            return false;
-        }
+        Out.ActorGuid = ActorId;
         Out.Kind = LevelPalette::EDestinationKind::Component;
         return true;
     }
@@ -2906,10 +2926,8 @@ TSharedPtr<FJsonObject> ResolveLevelPaletteContext(
 
 bool DiscoverActorPaletteEntries(TArray<LevelPalette::FEntry>& Out)
 {
-    if (!IPlacementModeModule::IsAvailable())
-    {
-        return false;
-    }
+    // The placement catalog module is an editor module loaded on demand; in
+    // headless automation it is not resident until requested.
     IPlacementModeModule& Placement = IPlacementModeModule::Get();
     TArray<FPlacementCategoryInfo> Categories;
     Placement.GetSortedCategories(Categories);
@@ -3158,10 +3176,9 @@ TSharedPtr<FJsonObject> QueryLevelPaletteEntries(
     }
 
     TArray<LevelPalette::FEntry> Entries;
-    bool bPaletteSourceAvailable = true;
     if (Destination.Kind == LevelPalette::EDestinationKind::Actor)
     {
-        bPaletteSourceAvailable = DiscoverActorPaletteEntries(Entries);
+        DiscoverActorPaletteEntries(Entries);
     }
     else
     {
@@ -3202,14 +3219,7 @@ TSharedPtr<FJsonObject> QueryLevelPaletteEntries(
         Builder.AddComment(
             TEXT("no palette matches in this bounded discovery page"));
     }
-    TSharedPtr<FJsonObject> Result = Builder.BuildResult(
-        bPaletteSourceAvailable
-            ? TArray<TSharedPtr<FJsonObject>>{}
-            : TArray<TSharedPtr<FJsonObject>>{Warning(
-                TEXT("capability.palette_source_unavailable"),
-                TEXT("The editor placeable-capability catalog is unavailable; "
-                    "Actor Palette discovery returned no entries."),
-                TEXT("palette_entries"))});
+    TSharedPtr<FJsonObject> Result = Builder.BuildResult();
     const int32 NextOffset = Offset + Added;
     if (NextOffset < Matches.Num())
     {
@@ -3275,10 +3285,9 @@ TSharedPtr<FJsonObject> QueryLevelPalette(
     }
 
     TArray<LevelPalette::FEntry> Entries;
-    bool bPaletteSourceAvailable = true;
     if (Destination.Kind == LevelPalette::EDestinationKind::Actor)
     {
-        bPaletteSourceAvailable = DiscoverActorPaletteEntries(Entries);
+        DiscoverActorPaletteEntries(Entries);
     }
     else
     {
@@ -3335,14 +3344,7 @@ TSharedPtr<FJsonObject> QueryLevelPalette(
             *Match->NativeType,
             *Match->UnavailableReason));
     }
-    return Builder.BuildResult(
-        bPaletteSourceAvailable
-            ? TArray<TSharedPtr<FJsonObject>>{}
-            : TArray<TSharedPtr<FJsonObject>>{Warning(
-                TEXT("capability.palette_source_unavailable"),
-                TEXT("The editor placeable-capability catalog is unavailable; "
-                    "Actor Palette resolution returned no entries."),
-                TEXT("palette"))});
+    return Builder.BuildResult();
 }
 }
 
