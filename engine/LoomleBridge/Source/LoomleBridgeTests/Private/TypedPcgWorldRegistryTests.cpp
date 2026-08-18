@@ -2,6 +2,7 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+#include "Runtime/Pcg/TypedPcgExecutionCoordinator.h"
 #include "Runtime/Pcg/TypedPcgWorldRegistry.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -413,6 +414,121 @@ bool FTypedPcgWorldTicketTest::RunTest(const FString& Parameters)
         }());
 
     Registry.Shutdown();
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FTypedPcgExecutionAdmissionTest,
+    "Loomle.Runtime.Pcg.Execution.AdmissionGenerate",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FTypedPcgExecutionAdmissionTest::RunTest(const FString& Parameters)
+{
+    if (GEditor == nullptr
+        || GEditor->IsPlaySessionInProgress())
+    {
+        AddError(TEXT(
+            "Typed-PCG execution coverage requires an idle Editor outside "
+            "PIE."));
+        return false;
+    }
+    FTypedPcgFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("Typed-PCG execution fixture builds"), Fixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    FTypedPcgExecutionCoordinator Coordinator;
+    Coordinator.Startup();
+    FTypedPcgWorldSelector EditorSelector;
+    TestTrue(
+        TEXT("The execution editor selector parses"),
+        EditorSelector.Parse(Selector(TEXT("editor")), Error));
+    const FString SourceText = Fixture.SourceTargetText();
+
+    // The fixture Component is not bound to a graph, so native admission
+    // refuses a task; the coordinator must complete honestly as failed with
+    // the kernel lifecycle and typed result.
+    FTypedPcgTicketPtr Ticket = Coordinator.Prepare(
+        EditorSelector,
+        SourceText,
+        Error);
+    TestTrue(
+        TEXT("Execution prepare issues a source-bound ticket"),
+        Ticket.IsValid());
+
+    FLoomleAsyncKernel::FRecordPtr Record = nullptr;
+    TSharedPtr<FJsonObject> StartError;
+    {
+        FTypedPcgExecutionCoordinator::FStartOptions Options;
+        Options.Selector = EditorSelector;
+        Options.SourceTarget = SourceText;
+        Options.Ticket = Ticket;
+        Record = Coordinator.Start(Options, StartError);
+    }
+    TestTrue(
+        TEXT("The generate admission returns a kernel record"),
+        Record.IsValid() && StartError == nullptr);
+    if (!Record.IsValid())
+    {
+        Coordinator.Shutdown();
+        if (!Fixture.Cleanup(Error))
+        {
+            AddError(Error);
+        }
+        return false;
+    }
+    TestTrue(
+        TEXT("The no-task generate reaches terminal"),
+        Record->State
+            == FLoomleAsyncKernel::EState::Terminal);
+
+    TSharedPtr<FJsonObject> PollError;
+    const TSharedPtr<FJsonObject> Polled = Coordinator.Poll(
+        Record->Id,
+        PollError);
+    FString Status;
+    TestTrue(
+        TEXT("The typed result reports failed with the exact diagnostic"),
+        Polled.IsValid()
+            && PollError == nullptr
+            && Polled->TryGetStringField(TEXT("status"), Status)
+            && Status == TEXT("failed")
+            && Polled->HasField(TEXT("error"))
+            && Polled->HasField(TEXT("result")));
+    const TSharedPtr<FJsonObject>* Result = nullptr;
+    FString Operation;
+    TestTrue(
+        TEXT("The typed result carries the generate operation and component"),
+        Polled.IsValid()
+            && Polled->TryGetObjectField(TEXT("result"), Result)
+            && Result != nullptr
+            && (*Result).IsValid()
+            && (*Result)->TryGetStringField(TEXT("operation"), Operation)
+            && Operation == TEXT("generate"));
+
+    // A second admission is immediately available after the terminal slot
+    // frees.
+    TSharedPtr<FJsonObject> SecondError;
+    {
+        FTypedPcgExecutionCoordinator::FStartOptions Options;
+        Options.Selector = EditorSelector;
+        Options.SourceTarget = SourceText;
+        Options.Ticket = Ticket;
+        const FLoomleAsyncKernel::FRecordPtr Second = Coordinator.Start(
+            Options,
+            SecondError);
+        TestTrue(
+            TEXT("A later admission is not busy after terminal"),
+            Second.IsValid() && SecondError == nullptr);
+    }
+
+    Coordinator.Shutdown();
     if (!Fixture.Cleanup(Error))
     {
         AddError(Error);

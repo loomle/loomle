@@ -213,6 +213,13 @@ void FLoomleAsyncKernel::Complete(
     Record->TerminalJson = TerminalJson;
     Record->TerminalAtSeconds = FPlatformTime::Seconds();
     Record->State = EState::Terminal;
+    // The record remains retained for poll, but the frontend slot frees so a
+    // later execution may be admitted immediately.
+    const FString* Active = ActiveIds.Find(Record->Namespace);
+    if (Active != nullptr && *Active == Record->Id)
+    {
+        ActiveIds.Remove(Record->Namespace);
+    }
 }
 
 void FLoomleAsyncKernel::Remove(const FRecordPtr& Record)
