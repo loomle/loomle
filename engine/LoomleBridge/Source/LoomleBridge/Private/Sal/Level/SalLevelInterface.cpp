@@ -4644,7 +4644,7 @@ TSharedPtr<FJsonObject> LevelSavePlanObject(
     return Plan;
 }
 
-TSharedPtr<FJsonObject> FSalLevelInterface::Query(TSharedPtr<FJsonObject> FSalLevelInterface::Query(
+TSharedPtr<FJsonObject> FSalLevelInterface::Query(
     const FSalQuery& Query,
     const FSalResolvedTarget& Target)
 {
