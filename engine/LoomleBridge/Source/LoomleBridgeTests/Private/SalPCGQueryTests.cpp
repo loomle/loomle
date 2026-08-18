@@ -2912,6 +2912,212 @@ bool FSalPcgPatchEdgeAndRemoveTest::RunTest(
     return true;
 }
 
+
+TSharedRef<FJsonObject> PcgSetSettingsStatement(
+    const FString& NodeId,
+    const FString& Field,
+    const FString& Value)
+{
+    TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
+    Statement->SetStringField(TEXT("kind"), TEXT("set"));
+    TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("member"));
+    TSharedRef<FJsonObject> Owner = MakeShared<FJsonObject>();
+    Owner->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    Owner->SetArrayField(
+        TEXT("identityPath"),
+        PCGStringValues({NodeId}));
+    Target->SetObjectField(TEXT("object"), Owner);
+    Target->SetArrayField(
+        TEXT("path"),
+        PCGStringValues({Field}));
+    Statement->SetObjectField(TEXT("target"), Target);
+    Statement->SetStringField(TEXT("value"), Value);
+    return Statement;
+}
+
+TSharedRef<FJsonObject> PcgMoveStatement(
+    const FString& NodeId,
+    int32 X,
+    int32 Y)
+{
+    TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
+    Statement->SetStringField(TEXT("kind"), TEXT("move"));
+    TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    Target->SetArrayField(
+        TEXT("identityPath"),
+        PCGStringValues({NodeId}));
+    Statement->SetObjectField(TEXT("target"), Target);
+    Statement->SetArrayField(
+        TEXT("to"),
+        {
+            MakeShared<FJsonValueNumber>(X),
+            MakeShared<FJsonValueNumber>(Y),
+        });
+    return Statement;
+}
+
+bool PCGTestScalarEditable(const FProperty* Property)
+{
+    return Property != nullptr
+        && !Property->HasAnyPropertyFlags(
+            CPF_Transient | CPF_DuplicateTransient | CPF_Deprecated)
+        && Property->HasAnyPropertyFlags(CPF_Edit)
+        && !Property->HasAnyPropertyFlags(CPF_EditorOnly)
+        && (Property->IsA(FBoolProperty::StaticClass())
+            || Property->IsA(FIntProperty::StaticClass())
+            || Property->IsA(FFloatProperty::StaticClass())
+            || Property->IsA(FDoubleProperty::StaticClass())
+            || Property->IsA(FStrProperty::StaticClass())
+            || Property->IsA(FNameProperty::StaticClass()));
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalPcgPatchSettingsAndMoveTest,
+    "Loomle.Sal.PCG.Patch.SettingsAndMove",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalPcgPatchSettingsAndMoveTest::RunTest(
+    const FString& Parameters)
+{
+    FScopedPersistentPcgQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("PCG settings fixture creates and saves"), Fixture.CreateAndSave(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const FString GraphPath = Fixture.ObjectPath;
+    const FString GraphType = Fixture.Graph->GetClass()->GetPathName();
+    const TSharedRef<FJsonObject> Target =
+        PcgTarget(GraphPath, GraphType);
+
+    // Add one Node via the Palette.
+    const TSharedPtr<FJsonObject> PaletteResult =
+        FSalModule::BuildQueryResult(
+            QueryArguments(Target, Operation(TEXT("palette_entries"))));
+    const TArray<FString> PaletteIds =
+        CollectPCGNodePaletteIds(PaletteResult);
+    if (!TestTrue(TEXT("PCG settings Palette exposes entries"), !PaletteIds.IsEmpty()))
+    {
+        return false;
+    }
+    const TSharedPtr<FJsonObject> AddResult =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                PcgAddNodeStatements(TEXT("sample"), PaletteIds[0])));
+    bool bApplied = false;
+    bool bValid = false;
+    if (!(PcgMutationHasField(AddResult, TEXT("applied"), bApplied) && bApplied))
+    {
+        AddError(TEXT("PCG settings fixture add failed to apply."));
+        return false;
+    }
+    UPCGNode* NewNode = nullptr;
+    for (UPCGNode* Node : Fixture.Graph->GetNodes())
+    {
+        if (Node != nullptr && Node != Fixture.Graph->GetInputNode()
+            && Node != Fixture.Graph->GetOutputNode()
+            && Node != Fixture.AuthoredNode)
+        {
+            NewNode = Node;
+        }
+    }
+    if (!TestNotNull(TEXT("PCG settings fixture found the created Node"), NewNode))
+    {
+        return false;
+    }
+    UPCGSettings* Settings = NewNode->GetSettings();
+    if (!TestNotNull(TEXT("Created Node owns graph Settings"), Settings))
+    {
+        return false;
+    }
+    FProperty* Field = nullptr;
+    for (TFieldIterator<FProperty> It(Settings->GetClass()); It; ++It)
+    {
+        if (PCGTestScalarEditable(*It))
+        {
+            Field = *It;
+            break;
+        }
+    }
+    if (!TestNotNull(
+            TEXT("Created Node Settings expose a certified scalar field"),
+            Field))
+    {
+        return false;
+    }
+    const FString NodeId = NewNode->GetFName().ToString();
+    const FString FieldName = Field->GetName();
+
+    // Dry run plans without editing.
+    const TSharedPtr<FJsonObject> DryRun =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                {MakeShared<FJsonValueObject>(PcgSetSettingsStatement(
+                    NodeId, FieldName, TEXT("1"))),
+                 MakeShared<FJsonValueObject>(PcgMoveStatement(
+                    NodeId, 512, 256))},
+                true));
+    TestTrue(
+        TEXT("PCG settings dry-run validates"),
+        PcgMutationHasField(DryRun, TEXT("valid"), bValid) && bValid);
+    TestTrue(
+        TEXT("PCG settings dry-run does not apply"),
+        PcgMutationHasField(DryRun, TEXT("applied"), bApplied) && !bApplied);
+
+    // Live set + move.
+    const TSharedPtr<FJsonObject> EditResult =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                {MakeShared<FJsonValueObject>(PcgSetSettingsStatement(
+                    NodeId, FieldName, TEXT("1"))),
+                 MakeShared<FJsonValueObject>(PcgMoveStatement(
+                    NodeId, 512, 256))}));
+    TestTrue(
+        TEXT("PCG settings edit applies"),
+        PcgMutationHasField(EditResult, TEXT("applied"), bApplied) && bApplied);
+    TestTrue(
+        TEXT("PCG settings edit is valid"),
+        PcgMutationHasField(EditResult, TEXT("valid"), bValid) && bValid);
+    int32 PositionX = 0;
+    int32 PositionY = 0;
+    NewNode->GetNodePosition(PositionX, PositionY);
+    TestTrue(
+        TEXT("PCG move readback matches the requested position"),
+        PositionX == 512 && PositionY == 256);
+
+    // Unsupported member on the node settings fails closed.
+    const TSharedPtr<FJsonObject> BadField =
+        FSalModule::BuildPatchResult(
+            PcgPatchArguments(
+                Target,
+                {MakeShared<FJsonValueObject>(PcgSetSettingsStatement(
+                    NodeId, TEXT("NotAField"), TEXT("1")))}));
+    TestTrue(
+        TEXT("PCG Settings set of an unknown field fails closed"),
+        PcgMutationHasField(BadField, TEXT("valid"), bValid) && !bValid);
+
+    if (GEditor != nullptr && GEditor->Trans != nullptr)
+    {
+        GEditor->Trans->Reset(FText::FromString(TEXT("SAL test cleanup")));
+    }
+    if (Fixture.Graph->GetOutermost() != nullptr)
+    {
+        Fixture.Graph->GetOutermost()->SetDirtyFlag(false);
+    }
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
 }
 
 #endif

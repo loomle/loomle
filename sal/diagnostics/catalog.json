@@ -1405,6 +1405,12 @@
             "title": "Save plan unavailable"
         },
         {
+            "code": "validation.settings_unavailable",
+            "layer": "validation",
+            "defaultSeverity": "error",
+            "title": "Settings unavailable"
+        },
+        {
             "code": "validation.signature_edit_failed",
             "layer": "validation",
             "defaultSeverity": "error",

@@ -1977,6 +1977,125 @@ bool FSalPCGInterface::LowerStableReference(
     return true;
 }
 
+bool PCGValueImportText(
+    const TSharedPtr<FJsonValue>& Expression,
+    FString& OutText)
+{
+    OutText.Reset();
+    if (!Expression.IsValid())
+    {
+        return false;
+    }
+    bool Boolean = false;
+    double Number = 0.0;
+    FString String;
+    if (Expression->TryGetBool(Boolean))
+    {
+        OutText = Boolean ? TEXT("true") : TEXT("false");
+        return true;
+    }
+    if (Expression->TryGetNumber(Number))
+    {
+        OutText = LexToString(Number);
+        return true;
+    }
+    if (Expression->TryGetString(String))
+    {
+        OutText = String;
+        return true;
+    }
+    return false;
+}
+
+bool PCGImportScalarValue(
+    FProperty* Property,
+    UObject* Object,
+    const FString& Text,
+    FString& OutError)
+{
+    if (Property == nullptr || Object == nullptr)
+    {
+        OutError = TEXT("PCG Patch edit target is invalid.");
+        return false;
+    }
+    void* Value = Property->ContainerPtrToValuePtr<void>(Object);
+    const TCHAR* End = Property->ImportText_Direct(
+        *Text,
+        Value,
+        Object,
+        PPF_None,
+        GLog);
+    if (End == nullptr)
+    {
+        OutError = FString::Printf(
+            TEXT("UE could not import the requested value for %s."),
+            *Property->GetName());
+        return false;
+    }
+    while (*End != TEXT('\0') && FChar::IsWhitespace(*End))
+    {
+        ++End;
+    }
+    if (*End != TEXT('\0'))
+    {
+        OutError = FString::Printf(
+            TEXT("The requested value for %s contains unconsumed text."),
+            *Property->GetName());
+        return false;
+    }
+    return true;
+}
+
+FString PCGExportScalarValue(
+    const FProperty* Property,
+    const UObject* Object)
+{
+    if (Property == nullptr || Object == nullptr)
+    {
+        return FString();
+    }
+    const void* Value = Property->ContainerPtrToValuePtr<void>(Object);
+    FString Exported;
+    Property->ExportText_Direct(
+        Exported,
+        Value,
+        Value,
+        const_cast<UObject*>(Object),
+        PPF_None);
+    return Exported;
+}
+
+bool PCGIsScalarSettingsField(const FProperty* Property)
+{
+    if (Property == nullptr
+        || Property->HasAnyPropertyFlags(
+            CPF_Transient | CPF_DuplicateTransient | CPF_Deprecated)
+        || !Property->HasAnyPropertyFlags(CPF_Edit)
+        || Property->HasAnyPropertyFlags(CPF_EditorOnly))
+    {
+        return false;
+    }
+    return Property->IsA(FBoolProperty::StaticClass())
+        || Property->IsA(FIntProperty::StaticClass())
+        || Property->IsA(FInt64Property::StaticClass())
+        || Property->IsA(FFloatProperty::StaticClass())
+        || Property->IsA(FDoubleProperty::StaticClass())
+        || Property->IsA(FStrProperty::StaticClass())
+        || Property->IsA(FNameProperty::StaticClass());
+}
+
+struct FPcgPlannedEdit
+{
+    FString Kind; // "set" | "reset" | "move"
+    FString RefText;
+    TWeakObjectPtr<UPCGNode> Node;
+    FProperty* Property = nullptr;
+    FString Before;
+    FString After;
+    int32 MoveX = 0;
+    int32 MoveY = 0;
+};
+
 bool ReadPcgPinRef(
     const TSharedPtr<FJsonObject>& Ref,
     FString& OutNode,
@@ -2103,6 +2222,7 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
     TArray<FCreatedNode> Created;
     TArray<TWeakObjectPtr<UPCGNode>> Removed;
     TArray<FPendingEdge> PendingEdges;
+    TArray<TSharedPtr<FPcgPlannedEdit>> Edits;
     for (const TSharedPtr<FJsonValue>& StatementValue : Patch.Statements)
     {
         const TSharedPtr<FJsonObject>* Statement = nullptr;
@@ -2278,6 +2398,226 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
             });
             continue;
         }
+        if (Kind == TEXT("set") || Kind == TEXT("reset"))
+        {
+            const TSharedPtr<FJsonObject>* TargetRef = nullptr;
+            const TSharedPtr<FJsonObject>* Owner = nullptr;
+            const TArray<TSharedPtr<FJsonValue>>* Path = nullptr;
+            FString TargetKind;
+            FString OwnerKind;
+            FString NodeId;
+            FString FieldName;
+            if (!(*Statement)->TryGetObjectField(TEXT("target"), TargetRef)
+                || TargetRef == nullptr
+                || !(*TargetRef).IsValid()
+                || !(*TargetRef)->TryGetStringField(TEXT("kind"), TargetKind)
+                || TargetKind != TEXT("member")
+                || !(*TargetRef)->TryGetObjectField(TEXT("object"), Owner)
+                || Owner == nullptr
+                || !(*Owner).IsValid()
+                || !(*Owner)->TryGetStringField(TEXT("kind"), OwnerKind)
+                || OwnerKind != TEXT("node")
+                || !(*Owner)->TryGetStringField(TEXT("id"), NodeId)
+                || !(*TargetRef)->TryGetArrayField(TEXT("path"), Path)
+                || Path == nullptr
+                || Path->Num() != 1
+                || !(*Path)[0]->TryGetString(FieldName))
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("validation.edit_target_invalid"),
+                        TEXT("PCG set/reset requires one exact Node member "
+                            "field on the graph-owned Settings."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(Kind)
+                        .Build());
+                continue;
+            }
+            bool bAmbiguous = false;
+            UPCGNode* Node = FindNode(Graph, NodeId, bAmbiguous);
+            if (Node == nullptr)
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        bAmbiguous
+                            ? TEXT("resolution.identity_conflict")
+                            : TEXT("resolution.node_not_found"),
+                        TEXT("PCG set/reset Node was not found."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(Kind)
+                        .Ref(NodeId)
+                        .Build());
+                continue;
+            }
+            UPCGSettings* Settings = Node->GetSettings();
+            if (Settings == nullptr)
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("validation.settings_unavailable"),
+                        TEXT("PCG set/reset requires graph-owned Settings; "
+                            "external Settings instances are read-only "
+                            "here."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(Kind)
+                        .Ref(NodeId)
+                        .Build());
+                continue;
+            }
+            FProperty* Property = FindFProperty<FProperty>(
+                Settings->GetClass(),
+                FName(*FieldName));
+            if (Property == nullptr
+                || !PCGIsScalarSettingsField(Property))
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("validation.edit_target_invalid"),
+                        TEXT("PCG Settings field is not a certified scalar "
+                            "set/reset field on this exact node."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(Kind)
+                        .Ref(NodeId + TEXT(".") + FieldName)
+                        .Build());
+                continue;
+            }
+            TSharedPtr<FPcgPlannedEdit> Edit =
+                MakeShared<FPcgPlannedEdit>();
+            Edit->Kind = Kind;
+            Edit->RefText = NodeId + TEXT(".") + FieldName;
+            Edit->Node = Node;
+            Edit->Property = Property;
+            Edit->Before = PCGExportScalarValue(Property, Settings);
+            if (Kind == TEXT("set"))
+            {
+                const TSharedPtr<FJsonValue> Value =
+                    (*Statement)->TryGetField(TEXT("value"));
+                FString Text;
+                FString Error;
+                if (!Value.IsValid()
+                    || !PCGValueImportText(Value, Text)
+                    || !PCGImportScalarValue(
+                        Property,
+                        Settings,
+                        Text,
+                        Error))
+                {
+                    Diagnostics.Add(
+                        FSalDiagnostics::Error(
+                            TEXT("validation.value_invalid"),
+                            Error.IsEmpty()
+                                ? TEXT("PCG set value must be a scalar "
+                                    "string, number, or Boolean.")
+                                : Error)
+                            .Interface(TEXT("pcg"))
+                            .Operation(Kind)
+                            .Ref(Edit->RefText)
+                            .Build());
+                    continue;
+                }
+                Edit->After = Text;
+            }
+            else
+            {
+                const UObject* Archetype = Settings->GetArchetype();
+                if (Archetype == nullptr)
+                {
+                    Diagnostics.Add(
+                        FSalDiagnostics::Error(
+                            TEXT("validation.reset_source_unavailable"),
+                            TEXT("PCG reset could not resolve one exact "
+                                "native archetype value."))
+                            .Interface(TEXT("pcg"))
+                            .Operation(Kind)
+                            .Ref(Edit->RefText)
+                            .Build());
+                    continue;
+                }
+                Edit->After = PCGExportScalarValue(
+                    Property,
+                    Archetype);
+            }
+            Edits.Add(Edit);
+            continue;
+        }
+        if (Kind == TEXT("move"))
+        {
+            const TSharedPtr<FJsonObject>* TargetRef = nullptr;
+            FString TargetKind;
+            FString NodeId;
+            const TSharedPtr<FJsonValue>* To = nullptr;
+            const TArray<TSharedPtr<FJsonValue>>* Position = nullptr;
+            if (!(*Statement)->TryGetObjectField(TEXT("target"), TargetRef)
+                || TargetRef == nullptr
+                || !(*TargetRef).IsValid()
+                || !(*TargetRef)->TryGetStringField(TEXT("kind"), TargetKind)
+                || TargetKind != TEXT("node")
+                || !(*TargetRef)->TryGetStringField(TEXT("id"), NodeId)
+                || !(*Statement)->TryGetField(TEXT("to"), To)
+                || !To.IsValid()
+                || !(*To)->TryGetArray(Position)
+                || Position == nullptr
+                || Position->Num() != 2)
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("validation.edit_target_invalid"),
+                        TEXT("PCG move requires one exact Node and an "
+                            "absolute to (x, y) position."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(TEXT("move"))
+                        .Build());
+                continue;
+            }
+            double X = 0.0;
+            double Y = 0.0;
+            if (!(*Position)[0].IsValid()
+                || !(*Position)[0]->TryGetNumber(X)
+                || !(*Position)[1].IsValid()
+                || !(*Position)[1]->TryGetNumber(Y))
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("validation.edit_target_invalid"),
+                        TEXT("PCG move position must be two numbers."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(TEXT("move"))
+                        .Build());
+                continue;
+            }
+            bool bAmbiguous = false;
+            UPCGNode* Node = FindNode(Graph, NodeId, bAmbiguous);
+            if (Node == nullptr)
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        bAmbiguous
+                            ? TEXT("resolution.identity_conflict")
+                            : TEXT("resolution.node_not_found"),
+                        TEXT("PCG move Node was not found."))
+                        .Interface(TEXT("pcg"))
+                        .Operation(TEXT("move"))
+                        .Ref(NodeId)
+                        .Build());
+                continue;
+            }
+            TSharedPtr<FPcgPlannedEdit> Edit =
+                MakeShared<FPcgPlannedEdit>();
+            Edit->Kind = TEXT("move");
+            Edit->RefText = NodeId;
+            Edit->Node = Node;
+            Edit->MoveX = FMath::RoundToInt(X);
+            Edit->MoveY = FMath::RoundToInt(Y);
+            int32 PositionX = 0;
+            int32 PositionY = 0;
+            Node->GetNodePosition(PositionX, PositionY);
+            Edit->Before = FString::Printf(
+                TEXT("(%d, %d)"), PositionX, PositionY);
+            Edit->After = FString::Printf(
+                TEXT("(%d, %d)"), Edit->MoveX, Edit->MoveY);
+            Edits.Add(Edit);
+            continue;
+        }
         if (Kind != TEXT("add"))
         {
             Diagnostics.Add(
@@ -2286,8 +2626,8 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
                     FString::Printf(
                         TEXT("PCG Patch does not yet support the %s "
                             "statement in this capability; supported "
-                            "statements are add, remove, connect, and "
-                            "disconnect."),
+                            "statements are add, remove, connect, "
+                            "disconnect, set, reset, and move."),
                         *Kind))
                     .Interface(TEXT("pcg"))
                     .Operation(Kind)
@@ -2355,7 +2695,8 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
             Target.AssetPath,
             TEXT("pcg"));
     }
-    if (Created.IsEmpty() && Removed.IsEmpty() && PendingEdges.IsEmpty())
+    if (Created.IsEmpty() && Removed.IsEmpty() && PendingEdges.IsEmpty()
+        && Edits.IsEmpty())
     {
         return MakeMutationResult(
             NoObjects,
@@ -2415,6 +2756,15 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
                     To->GetFName().ToString() + TEXT("/in/")
                         + Edge.ToLabel);
             }
+            Operations.Add(MakeShared<FJsonValueObject>(Operation));
+        }
+        for (const TSharedPtr<FPcgPlannedEdit>& Edit : Edits)
+        {
+            TSharedPtr<FJsonObject> Operation = MakeShared<FJsonObject>();
+            Operation->SetStringField(TEXT("kind"), Edit->Kind);
+            Operation->SetStringField(TEXT("ref"), Edit->RefText);
+            Operation->SetStringField(TEXT("before"), Edit->Before);
+            Operation->SetStringField(TEXT("after"), Edit->After);
             Operations.Add(MakeShared<FJsonValueObject>(Operation));
         }
         Planned->SetArrayField(TEXT("operations"), Operations);
@@ -2508,6 +2858,82 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
         ResultBuilder.AddLocalBinding(
             ResultAliases.Allocate(CreatedNode.Alias, TEXT("node")),
             Value::Call(TEXT("node"), Args));
+    }
+    for (const TSharedPtr<FPcgPlannedEdit>& Edit : Edits)
+    {
+        UPCGNode* Node = Edit->Node.Get();
+        if (!IsValid(Node))
+        {
+            Transaction.Cancel();
+            return MakeMutationResult(
+                NoObjects,
+                {FSalDiagnostics::Error(
+                        TEXT("validation.object_invalidated"),
+                        TEXT("A PCG edit target was invalidated before "
+                            "apply; the transaction was rolled back."))
+                    .Interface(TEXT("pcg"))
+                    .Operation(Edit->Kind)
+                    .Ref(Edit->RefText)
+                    .Build()},
+                false,
+                false,
+                false,
+                Target.AssetPath,
+                TEXT("pcg"));
+        }
+        if (Edit->Kind == TEXT("move"))
+        {
+            Node->Modify();
+            Node->SetNodePosition(Edit->MoveX, Edit->MoveY);
+            continue;
+        }
+        UPCGSettings* Settings = Node->GetSettings();
+        if (Settings == nullptr)
+        {
+            Transaction.Cancel();
+            return MakeMutationResult(
+                NoObjects,
+                {FSalDiagnostics::Error(
+                        TEXT("validation.settings_unavailable"),
+                        TEXT("PCG Settings became unavailable before "
+                            "apply; the transaction was rolled back."))
+                    .Interface(TEXT("pcg"))
+                    .Operation(Edit->Kind)
+                    .Ref(Edit->RefText)
+                    .Build()},
+                false,
+                false,
+                false,
+                Target.AssetPath,
+                TEXT("pcg"));
+        }
+        Settings->Modify();
+        FString Error;
+        if (!PCGImportScalarValue(
+                Edit->Property,
+                Settings,
+                Edit->After,
+                Error))
+        {
+            Transaction.Cancel();
+            return MakeMutationResult(
+                NoObjects,
+                {FSalDiagnostics::Error(
+                        TEXT("validation.apply_failed"),
+                        Error)
+                    .Interface(TEXT("pcg"))
+                    .Operation(Edit->Kind)
+                    .Ref(Edit->RefText)
+                    .Build()},
+                false,
+                false,
+                false,
+                Target.AssetPath,
+                TEXT("pcg"));
+        }
+        Node->OnSettingsChanged(
+            Settings,
+            EPCGChangeType::Settings);
     }
     for (const TWeakObjectPtr<UPCGNode>& RemovedNode : Removed)
     {
