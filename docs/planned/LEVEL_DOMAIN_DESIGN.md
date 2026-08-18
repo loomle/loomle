@@ -1835,6 +1835,21 @@ native/SCS-Component removal handoff.
 - mutation/save-specific persistence-owner handoffs;
 - save-capability packaged acceptance on UE 5.7 and UE 5.8.
 
+Slice 5-A progress (branch, not published):
+
+- a lone `save` statement persists the exact Level-owned closure: the map
+  package plan (role, dirty, persistent path) is disclosed before I/O, clean
+  closures save as valid no-ops, read-only preflight runs on the exact plan,
+  and the derived-state guard fails closed while PCG-managed projections
+  cannot be inventoried completely (managed `UPCGComponent` instances on any
+  loaded Actor, registered or instance-owned);
+- World Partition external-Actor closure enumeration remains a release gate
+  and partitioned worlds fail closed with `validation.save_plan_unavailable`.
+
+Remaining in Slice 5: World Partition external-Actor package closure, partial
+multi-package failure semantics, Source Control preflight, save/unload/reload
+identity verification, and persistence-owner handoffs.
+
 ## Test Requirements
 
 ### Protocol and static schema
