@@ -4451,6 +4451,24 @@ TSharedPtr<FJsonObject> LevelPatchError(
     return Diagnostic.Build();
 }
 
+bool FSalLevelInterface::ResolveCreationKind(
+    const FString& PaletteId,
+    FString& OutKind)
+{
+    OutKind.Reset();
+    if (PaletteId.StartsWith(TEXT("level.actor.")))
+    {
+        OutKind = TEXT("actor");
+        return true;
+    }
+    if (PaletteId.StartsWith(TEXT("level.component.")))
+    {
+        OutKind = TEXT("component");
+        return true;
+    }
+    return false;
+}
+
 TSharedPtr<FJsonObject> FSalLevelInterface::Query(
     const FSalQuery& Query,
     const FSalResolvedTarget& Target)
