@@ -12309,7 +12309,9 @@ bool FSalLevelPatchValidationTest::RunTest(const FString& Parameters)
 
     // Unloaded map fails closed.
     const TSharedRef<FJsonObject> UnloadedTarget =
-        LevelTarget(Fixture.Unloaded.ObjectPath);
+        LevelTarget(
+            Fixture.Unloaded.ObjectPath,
+            UWorld::StaticClass()->GetPathName());
     const TSharedPtr<FJsonObject> UnloadedResult =
         FSalModule::BuildPatchResult(
             LevelPatchArguments(
