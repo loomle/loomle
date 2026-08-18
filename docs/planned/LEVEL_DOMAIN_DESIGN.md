@@ -1754,6 +1754,26 @@ that lands with authored mutation.
 - complete readback, rollback, and dirty ledger;
 - no-op and late-failure behavior.
 
+Slice 3-A progress (branch, not published):
+
+- the coordinated protocol bump admits the canonical Level Target into
+  `PatchTarget` (parser, normalized schema, resolver, SalJson, and Bridge
+  dispatch together); `pcg` and `pcg_component` remain Query-only;
+- `FSalLevelInterface::Patch` implements exact-schema `set` and `reset` on
+  loaded persisted Actor and Component scalar fields: one shared identity
+  snapshot, schema-advertised field gates, exact archetype/template reset
+  sources, dry-run planning with before/after values, one top-level
+  `FScopedTransaction` with `Modify` and `PostEditChangeProperty`
+  notifications, readback, and rollback on invalidation or import failure;
+- unsupported statements (`save`, lifecycle, transform invoke, attachment)
+  fail closed with `capability.operation_unavailable`; unloaded source maps,
+  unknown or non-schema fields, missing values, and malformed owners fail
+  closed before planning.
+
+Remaining in Slice 3: the Actor transform compound operation, native
+observer/construction effect coverage, the shared execution-source lease, and
+the preview-World kernel for lifecycle operations.
+
 ### Slice 4: Actor and Component lifecycle
 
 - Palette-backed Actor creation;
