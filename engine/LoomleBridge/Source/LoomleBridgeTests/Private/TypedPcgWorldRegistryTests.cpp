@@ -642,6 +642,19 @@ bool FSalPcgComponentPatchEditGuardTest::RunTest(const FString& Parameters)
                 true));
     bool bValid = false;
     bool bApplied = false;
+    if (!(PcgComponentMutationHasField(DryRun, TEXT("valid"), bValid) && bValid))
+    {
+        FString Dump = TEXT("(null)");
+        if (DryRun.IsValid())
+        {
+            FJsonSerializer::Serialize(
+                DryRun.ToSharedRef(),
+                TJsonWriterFactory<>::Create(&Dump));
+        }
+        AddError(FString::Printf(
+            TEXT("pcg_component Patch dry-run result: %s"),
+            *Dump));
+    }
     TestTrue(
         TEXT("pcg_component Patch dry-run validates"),
         PcgComponentMutationHasField(DryRun, TEXT("valid"), bValid) && bValid);
