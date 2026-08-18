@@ -198,13 +198,19 @@ FLoomleAsyncKernel::FRecordPtr FTypedPcgExecutionCoordinator::Start(
     }
 
     UPCGComponent* Component = nullptr;
+    FString RegistryError;
     if (!Registry_.Validate(
             Options.Selector,
             Options.Ticket,
             Options.SourceTarget,
             Component,
-            OutError))
+            RegistryError))
     {
+        OutError = MakeDispatchError(
+            TEXT("validation.preflight_failed"),
+            RegistryError.IsEmpty()
+                ? TEXT("The typed-PCG preflight admission failed.")
+                : RegistryError);
         return nullptr;
     }
     if (Component == nullptr || !IsValid(Component))
