@@ -2931,8 +2931,9 @@ TSharedPtr<FJsonObject> FSalPCGInterface::Patch(
                 Target.AssetPath,
                 TEXT("pcg"));
         }
-        FPropertyChangedEvent ChangedEvent(Edit->Property);
-        Settings->PostEditChangeProperty(ChangedEvent);
+        Settings->OnSettingsChangedDelegate.Broadcast(
+            Settings,
+            EPCGChangeType::Settings | EPCGChangeType::Cosmetic);
     }
     for (const TWeakObjectPtr<UPCGNode>& RemovedNode : Removed)
     {
