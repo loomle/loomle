@@ -17,7 +17,6 @@
 #include "ComponentInstanceDataCache.h"
 #include "Dom/JsonValue.h"
 #include "Dom/JsonObject.h"
-#include "Dom/JsonValue.h"
 #include "Editor.h"
 #include "EditorWorldUtils.h"
 #include "Editor/Transactor.h"
@@ -12165,7 +12164,7 @@ bool FSalLevelPatchSetResetTest::RunTest(const FString& Parameters)
     const TSharedPtr<FJsonObject> DryRun = FSalModule::BuildPatchResult(
         LevelPatchArguments(
             Target,
-            {MakeShared<FJsonValueObject>(LevelSetStatement(ActorId, TEXT("bHidden"), MakeShared<FJsonValueBool>(!bOriginalHidden)))},
+            {MakeShared<FJsonValueObject>(LevelSetStatement(ActorId, TEXT("bHidden"), MakeShared<FJsonValueBoolean>(!bOriginalHidden)))},
             true));
     bool bValid = false;
     bool bApplied = false;
@@ -12187,7 +12186,7 @@ bool FSalLevelPatchSetResetTest::RunTest(const FString& Parameters)
     const TSharedPtr<FJsonObject> SetResult = FSalModule::BuildPatchResult(
         LevelPatchArguments(
             Target,
-            {MakeShared<FJsonValueObject>(LevelSetStatement(ActorId, TEXT("bHidden"), MakeShared<FJsonValueBool>(!bOriginalHidden)))}));
+            {MakeShared<FJsonValueObject>(LevelSetStatement(ActorId, TEXT("bHidden"), MakeShared<FJsonValueBoolean>(!bOriginalHidden)))}));
     TestTrue(
         TEXT("Level live Patch applies"),
         LevelMutationHasField(SetResult, TEXT("applied"), bApplied) && bApplied);
@@ -12273,7 +12272,7 @@ bool FSalLevelPatchValidationTest::RunTest(const FString& Parameters)
             {MakeShared<FJsonValueObject>(LevelSetStatement(
                 ActorId,
                 TEXT("NotARealField"),
-                MakeShared<FJsonValueBool>(true)))}));
+                MakeShared<FJsonValueBoolean>(true)))}));
     TestTrue(
         TEXT("Level Patch rejects unknown fields"),
         LevelMutationHasField(UnknownField, TEXT("valid"), bValid) && !bValid);
@@ -12318,7 +12317,7 @@ bool FSalLevelPatchValidationTest::RunTest(const FString& Parameters)
                 {MakeShared<FJsonValueObject>(LevelSetStatement(
                     ActorId,
                     TEXT("bHidden"),
-                    MakeShared<FJsonValueBool>(true)))}));
+                    MakeShared<FJsonValueBoolean>(true)))}));
     TestTrue(
         TEXT("Level Patch fails closed on an unloaded source map"),
         LevelHasDiagnostic(
