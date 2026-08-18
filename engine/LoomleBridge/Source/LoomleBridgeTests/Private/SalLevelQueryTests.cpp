@@ -12254,7 +12254,9 @@ bool FSalLevelPatchValidationTest::RunTest(const FString& Parameters)
     TSharedRef<FJsonObject> SaveStatement = MakeShared<FJsonObject>();
     SaveStatement->SetStringField(TEXT("kind"), TEXT("save"));
     const TSharedPtr<FJsonObject> SaveResult = FSalModule::BuildPatchResult(
-        LevelPatchArguments(Target, {SaveStatement}));
+        LevelPatchArguments(
+            Target,
+            {MakeShared<FJsonValueObject>(SaveStatement)}));
     bool bValid = false;
     TestTrue(
         TEXT("Level Patch rejects unsupported statements"),
@@ -12299,7 +12301,9 @@ bool FSalLevelPatchValidationTest::RunTest(const FString& Parameters)
     MissingValue->SetObjectField(TEXT("target"), MemberTarget);
     const TSharedPtr<FJsonObject> MissingValueResult =
         FSalModule::BuildPatchResult(
-            LevelPatchArguments(Target, {MissingValue}));
+            LevelPatchArguments(
+                Target,
+                {MakeShared<FJsonValueObject>(MissingValue)}));
     TestTrue(
         TEXT("Level Patch rejects a set without a value"),
         LevelMutationHasField(
