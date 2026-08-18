@@ -12195,11 +12195,11 @@ bool FSalLevelPatchSetResetTest::RunTest(const FString& Parameters)
         Actor->IsHidden() == !bOriginalHidden);
     if (GEditor != nullptr)
     {
-        GEditor->Undo();
+        GEditor->Trans->Undo();
         TestTrue(
             TEXT("Level Patch changes are recorded and undoable"),
             Actor->IsHidden() == bOriginalHidden);
-        GEditor->Redo();
+        GEditor->Trans->Redo();
         TestTrue(
             TEXT("Level Patch changes are redoable"),
             Actor->IsHidden() == !bOriginalHidden);
