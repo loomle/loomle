@@ -12665,6 +12665,16 @@ bool FSalLevelPatchLifecycleTest::RunTest(const FString& Parameters)
             true));
     bool bValid = false;
     bool bApplied = false;
+    if (!(LevelMutationHasField(DryRun, TEXT("valid"), bValid) && bValid))
+    {
+        FString Code;
+        FString Message;
+        FirstLevelDiagnostic(DryRun, Code, Message);
+        AddError(FString::Printf(
+            TEXT("Level Actor add dry-run error: %s (%s)"),
+            *Code,
+            *Message));
+    }
     TestTrue(
         TEXT("Level Actor add dry-run validates"),
         LevelMutationHasField(DryRun, TEXT("valid"), bValid) && bValid);
