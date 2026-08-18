@@ -267,12 +267,17 @@ if (pcgComponentQuery.object && "kind" in pcgComponentQuery.object && pcgCompone
   );
 }
 
-const rejectedPcgComponentPatch = parseSalObject(
+const admittedPcgComponentPatch = parseSalObject(
   pcgComponentQueryText.replace("query forestComponent\nsummary", "patch forestComponent\nsave"),
 );
-assert.equal(rejectedPcgComponentPatch.object, undefined);
-assert.equal(rejectedPcgComponentPatch.diagnostics[0]?.code, "language.invalid_patch_target");
-const forgedPcgComponentPatch = {
+assert.equal(admittedPcgComponentPatch.diagnostics.length, 0);
+assert.ok(admittedPcgComponentPatch.object && "kind" in admittedPcgComponentPatch.object && admittedPcgComponentPatch.object.kind === "patch");
+if (admittedPcgComponentPatch.object && "kind" in admittedPcgComponentPatch.object && admittedPcgComponentPatch.object.kind === "patch") {
+  assert.equal(await validateSalObject(admittedPcgComponentPatch.object), undefined);
+  const statements = admittedPcgComponentPatch.object.statements as Array<{ kind: string }>;
+  assert.equal(statements[0]?.kind, "save");
+}
+const canonicalPcgComponentPatch = {
   kind: "patch",
   target: {
     alias: "forestComponent",
@@ -289,7 +294,7 @@ const forgedPcgComponentPatch = {
   dryRun: true,
   statements: [{ kind: "save" }],
 } as unknown as SalObject;
-assert.equal((await validateSalObject(forgedPcgComponentPatch))?.code, "language.invalid_object_shape");
+assert.equal(await validateSalObject(canonicalPcgComponentPatch), undefined);
 
 const pcgComponentResult: ObjectResult = {
   targetContext: "exact_target",

@@ -86,7 +86,7 @@ The nine Domains are:
 - `widget`
 - `level`
 - `pcg`
-- `pcg_component` (Query-only)
+- `pcg_component`
 
 Every request has exactly one Target and exactly one Domain. Targets are flat,
 closed records whose non-`domain` values are non-empty JSON strings. They do

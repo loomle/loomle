@@ -22,5 +22,19 @@ public:
         const TSharedPtr<FJsonObject>& Ref,
         FString& OutCode,
         FString& OutMessage);
+
+    /**
+     * Authored pcg_component Patch (edit-guard increment). Admission requires
+     * one exact original authored Component and the async edit guard: the
+     * Component must be idle (no generation, cleanup, or refresh task) before
+     * and after the transaction, or the Patch fails closed with
+     * capability.pcg_async_unproven. Certified operations are set/reset of the
+     * exact scalar Seed on the Component itself; every other statement fails
+     * closed. The Component is never saved here; a terminal save returns the
+     * owning level handoff.
+     */
+    static TSharedPtr<FJsonObject> Patch(
+        const FSalPatch& Patch,
+        const FSalResolvedTarget& Target);
 };
 }

@@ -25,13 +25,13 @@ Loomle 0.7 has nine active interface modules:
 | [Widget](widget/) | Authored Widget tree, Slot state, and structural edits | Asset Path + WidgetBlueprint Guid | Query + Patch |
 | [Level](level.html) | Persistent source-map Actors and serialized Components, authored field and transform edits, lifecycle, and terminal save | map Asset Path plus verified native World Class | Query + Patch |
 | [PCG](pcg.html) | Asset-backed PCG Graph Nodes, Pins, Settings evidence, Edges, persisted layout, authored edits, and terminal save | PCG Graph Asset Path plus verified native Class | Query + Patch |
-| [PCG Component](pcg-component.html) | Persistent PCG configuration and Graph Parameters on one authored Level Component | map + ActorGuid + Component source and slot + native Class | Query only; no `PatchTarget` |
+| [PCG Component](pcg-component.html) | Persistent PCG configuration and Graph Parameters on one authored Level Component, plus certified scalar edits under the async edit guard | map + ActorGuid + Component source and slot + native Class | Query + Patch |
 
 These nine names are the closed values of structural `Target.domain`. They are
 not semantic tags, object kinds, or StableRef prefixes. All nine are valid
-Query Targets and canonical Result Targets. `level` and `pcg` are admitted to
-`PatchTarget`; `pcg_component` is not admitted in this release, and the SAL
-parser rejects a Patch for it before Bridge dispatch.
+Query Targets and canonical Result Targets. `level`, `pcg`, and
+`pcg_component` are admitted to `PatchTarget`; `pcg_component` edits are
+gated by its fail-closed async edit guard.
 
 ## Use the Installed Contract
 
@@ -115,8 +115,8 @@ explicit handoffs, and following requests.
 
 Graph and Widget authored changes finalize through their owning Blueprint.
 StateTree compiles and saves through its asset target. Level and PCG finalize
-through their terminal `save`; the Query-only PCG Component interface exposes
-only the related Targets and handoffs stated on its page. Each interface page
-states its own handoff and finalization boundary.
+through their terminal `save`; PCG Component edits finalize through the
+owning Level and never save directly. Each interface page states its own
+handoff and finalization boundary.
 
 See [Diagnostics](diagnostics.html) for result health and compiler information.

@@ -1,8 +1,10 @@
 # pcg_component
 
 Inspect persistent PCG configuration on one exact authored `UPCGComponent`
-owned by a saved source Level. This interface is read-only and does not expose
-live execution or generated resources.
+owned by a saved source Level, and edit certified scalar configuration under
+the async edit guard. Query reads are read-only; Patch edits apply inside one
+top-level transaction only while the Component is idle. The interface does not
+expose live execution or generated resources.
 
 ## Target
 
@@ -118,7 +120,7 @@ aggregate. The snapshot accepts at most 4,096 Parameters and 32 loaded
 Graph-interface links. Invalid, ambiguous, misaligned, stale, unsafe, or
 over-budget evidence fails atomically; it is never truncated or guessed.
 
-## Handoffs And Read-only Boundary
+## Handoffs
 
 Every successful result retains the owning `level` Target through
 `handoff inspect_level`.
@@ -126,8 +128,28 @@ Every successful result retains the owning `level` Target through
 independently canonical asset-backed `pcg` Target. These are navigation for
 later independent Queries, not shared authority.
 
-`pcg_component` accepts no Patch Target. Graph assignment, Parameter override
-mutation, schema mutation, save, generation, cleanup, cancellation, task
-state, managed resources, messages, and inspection are unavailable. Level
-owns Component containment and persistence; `pcg` owns Graph-authored state;
-live PCG execution remains a separate typed frontend.
+## Patch
+
+`pcg_component` is a Patch Target under the async edit guard:
+
+```sal
+patch forestComponent [dry run]
+set @PCGComponent.Seed = 100
+reset @PCGComponent.Seed
+```
+
+The edit guard is fail-closed: the exact Component must be idle (no
+generation, cleanup, or refresh task) before and after the transaction, and a
+native notification that starts an asynchronous PCG task inside the
+transaction rolls the change back and reports
+`capability.pcg_async_unproven`. Exact schema advertises the certified scalar
+`Seed`; any other field or statement fails closed. A dry run shares the plan
+without touching the Component; live apply runs inside one top-level
+transaction with `Modify`, readback, and rollback on failure.
+
+`pcg_component` never saves. A lone terminal `save` is a valid no-op that
+reports the owning `level` persistence owner; Level owns Component
+containment and persistence, `pcg` owns Graph-authored state, and live PCG
+execution remains a separate typed frontend. Graph assignment, Parameter
+override mutation, schema mutation, generation, cleanup, cancellation, task
+state, managed resources, messages, and inspection are unavailable.

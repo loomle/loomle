@@ -9,7 +9,7 @@ description: Inspect persistent PCG configuration and Graph Parameters on one ex
 # PCG Component
 
 The PCG Component interface reads one persistent authored `UPCGComponent`
-owned by a saved source Level. It is Query-only and does not expose live
+owned by a saved source Level. It reads and edits certified scalar configuration under the async edit guard; it does not expose live
 execution or generated resources.
 
 ## Exact Target and Identity
@@ -79,9 +79,27 @@ Every successful result returns the owning Level Target with
 independently canonical asset-backed PCG Target. These handoffs are navigation
 for later independent Queries, not shared authority.
 
-## Read-only Boundary
+## Patch
 
-`pcg_component` is not a `PatchTarget`. Graph assignment, Parameter override
-or schema mutation, save, generation, cleanup, cancellation, task state,
+`pcg_component` is a Patch Target under the async edit guard:
+
+```text
+patch forestComponent [dry run]
+set @PCGComponent.Seed = 100
+reset @PCGComponent.Seed
+```
+
+The edit guard is fail-closed: the exact Component must be idle (no
+generation, cleanup, or refresh task) before and after the transaction, and a
+native notification that starts an asynchronous PCG task inside the
+transaction rolls the change back and reports `capability.pcg_async_unproven`.
+Exact schema advertises the certified scalar `Seed`; any other field or
+statement fails closed. A dry run shares the plan without touching the
+Component; live apply runs inside one top-level transaction with `Modify`,
+readback, and rollback on failure.
+
+`pcg_component` never saves. A lone terminal `save` is a valid no-op that
+reports the owning Level persistence owner. Graph assignment, Parameter
+override or schema mutation, generation, cleanup, cancellation, task state,
 managed resources, messages, and inspection remain unavailable. Level owns
 Component containment and persistence; PCG owns authored Graph state.

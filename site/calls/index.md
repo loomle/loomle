@@ -37,8 +37,8 @@ The eight MCP calls describe transport, session, resident workflow, and
 fallback boundaries. The nine active interface modules—Asset, Blueprint,
 Class, Graph, StateTree, Widget, Level, PCG, and PCG Component—describe the UE
 objects and operations carried through SAL. Level and PCG accept authored
-`sal_patch` statements with a terminal `save`; PCG Component is Query-only and
-is not accepted by `sal_patch` in this release.
+`sal_patch` statements with a terminal `save`; PCG Component accepts certified
+scalar edits under its fail-closed async edit guard.
 
 `sal_schema` connects the call and interface layers by exposing the active
 interface catalog. `agent_skill` supplies workflow policy for composing the

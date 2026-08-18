@@ -155,8 +155,10 @@ assert.match(
   pcgComponentInterface.text,
   /component_override[\s\S]*parent_instance[\s\S]*graph_default/,
 );
-assert.match(pcgComponentInterface.text, /accepts no Patch Target/);
-assert.doesNotMatch(pcgComponentInterface.text, /^## Patch$/m);
+assert.match(pcgComponentInterface.text, /^## Patch$/m);
+assert.match(pcgComponentInterface.text, /async edit guard/);
+assert.match(pcgComponentInterface.text, /never saves/);
+assert.doesNotMatch(pcgComponentInterface.text, /accepts no Patch Target/);
 
 const formalDocumentationFiles = [
   ...markdownFiles(resolve(repositoryRoot, "sal/docs")),

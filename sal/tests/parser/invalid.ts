@@ -65,11 +65,6 @@ const cases: Array<{ name: string; text: string; code: string }> = [
     code: "language.incomplete_patch_target",
   },
   {
-    name: "pcg component is Query-only",
-    text: "c = target {domain: pcg_component, asset: \"/Game/Maps/Arena.Arena\", actorId: \"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\", source: \"native\", id: \"PCGComponent\", type: \"/Script/PCG.PCGComponent\"}\npatch c\nsave",
-    code: "language.invalid_patch_target",
-  },
-  {
     name: "pcg component source is closed",
     text: "c = target {domain: pcg_component, asset: \"/Game/Maps/Arena.Arena\", actorId: \"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\", source: \"runtime\", id: \"PCGComponent\", type: \"/Script/PCG.PCGComponent\"}\nquery c",
     code: "language.invalid_target_value",

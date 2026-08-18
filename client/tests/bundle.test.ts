@@ -135,7 +135,10 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
     });
     assert.notEqual(pcgComponentSchema.isError, true);
     assert.match(JSON.stringify(pcgComponentSchema), /# pcg_component/);
-    assert.match(JSON.stringify(pcgComponentSchema), /accepts no Patch Target/);
+    assert.match(
+      JSON.stringify(pcgComponentSchema),
+      /Patch Target under the async edit guard/,
+    );
 
     const pythonSkill = await client.callTool({
       name: "agent_skill",

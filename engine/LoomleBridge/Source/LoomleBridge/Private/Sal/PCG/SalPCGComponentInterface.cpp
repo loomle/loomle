@@ -5,6 +5,7 @@
 #include "../SalDiagnostics.h"
 #include "../SalObjectBuilder.h"
 #include "../SalResultTargets.h"
+#include "../SalRuntime.h"
 #include "AssetRegistry/AssetData.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
@@ -21,6 +22,7 @@
 #include "StructUtils/PropertyBag.h"
 #include "UObject/EnumProperty.h"
 #include "UObject/Package.h"
+#include "UObject/UObjectGlobals.h"
 #include "UObject/UnrealType.h"
 
 namespace Loomle::Sal
@@ -1851,5 +1853,396 @@ bool FSalPCGComponentInterface::LowerStableReference(
     Ref->SetStringField(TEXT("kind"), TEXT("parameter"));
     Ref->SetStringField(TEXT("id"), GuidText(Parsed));
     return true;
+}
+
+bool PCGComponentIsBusy(const UPCGComponent* Component)
+{
+    return Component != nullptr
+        && (Component->IsGenerating()
+            || Component->IsCleaningUp()
+            || Component->IsRefreshInProgress());
+}
+
+TSharedPtr<FJsonObject> FSalPCGComponentInterface::Patch(
+    const FSalPatch& Patch,
+    const FSalResolvedTarget& Target)
+{
+    const TSharedPtr<FJsonObject> NoObjects =
+        FSalObjectBuilder().BuildObject();
+    UPCGComponent* Component = ResolvedComponent(Target);
+    if (Component == nullptr)
+    {
+        return MakeMutationResult(
+            NoObjects,
+            {FSalDiagnostics::Error(
+                    TEXT("validation.exact_component_required"),
+                    TEXT("pcg_component Patch requires the canonical exact "
+                        "loaded original authored PCG Component Target."))
+                .Interface(TEXT("pcg_component"))
+                .Build()},
+            Patch.bDryRun,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("pcg_component"));
+    }
+
+    // The async edit guard: the Component must be idle before any authored
+    // edit so the transaction cannot entangle an in-flight generation,
+    // cleanup, or refresh task.
+    if (PCGComponentIsBusy(Component))
+    {
+        return MakeMutationResult(
+            NoObjects,
+            {FSalDiagnostics::Error(
+                    TEXT("capability.pcg_async_unproven"),
+                    TEXT("The exact PCG Component has an in-flight generation, "
+                        "cleanup, or refresh task; pcg_component edits fail "
+                        "closed until the Component is idle."))
+                .Interface(TEXT("pcg_component"))
+                .Operation(TEXT("patch"))
+                .Build()},
+            Patch.bDryRun,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("pcg_component"));
+    }
+
+    FString ComponentSlot = Component->GetFName().ToString();
+    TArray<TSharedPtr<FJsonObject>> Diagnostics;
+    TArray<TSharedPtr<FJsonObject>> Planned;
+    bool bAnyEdit = false;
+
+    // Terminal save: pcg_component never saves; the owning Level owns
+    // persistence. A lone save is a valid no-op that points at the Level.
+    if (Patch.Statements.Num() == 1)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        FString StatementKind;
+        if (Patch.Statements[0].IsValid()
+            && Patch.Statements[0]->TryGetObject(Statement)
+            && Statement != nullptr
+            && (*Statement).IsValid()
+            && (*Statement)->TryGetStringField(
+                TEXT("kind"),
+                StatementKind)
+            && StatementKind == TEXT("save"))
+        {
+            TSharedPtr<FJsonObject> Plan = MakeShared<FJsonObject>();
+            Plan->SetStringField(TEXT("operation"), TEXT("save"));
+            Plan->SetStringField(TEXT("assetPath"), Target.AssetPath);
+            Plan->SetStringField(
+                TEXT("status"),
+                TEXT("level_owned"));
+            return MakeMutationResult(
+                NoObjects,
+                {},
+                Patch.bDryRun,
+                true,
+                false,
+                Target.AssetPath,
+                TEXT("save"),
+                Plan);
+        }
+    }
+
+    for (const TSharedPtr<FJsonValue>& StatementValue : Patch.Statements)
+    {
+        const TSharedPtr<FJsonObject>* Statement = nullptr;
+        if (!StatementValue.IsValid()
+            || !StatementValue->TryGetObject(Statement)
+            || Statement == nullptr
+            || !(*Statement).IsValid())
+        {
+            continue;
+        }
+        FString Kind;
+        (*Statement)->TryGetStringField(TEXT("kind"), Kind);
+        if (Kind != TEXT("set") && Kind != TEXT("reset"))
+        {
+            Diagnostics.Add(
+                FSalDiagnostics::Error(
+                    TEXT("capability.operation_unavailable"),
+                    FString::Printf(
+                        TEXT("pcg_component Patch does not yet support the "
+                            "%s statement in this capability; supported "
+                            "statements are set, reset, and a terminal save."),
+                        *Kind))
+                    .Interface(TEXT("pcg_component"))
+                    .Operation(Kind)
+                    .Build());
+            continue;
+        }
+        const TSharedPtr<FJsonObject>* TargetRef = nullptr;
+        const TSharedPtr<FJsonObject>* ObjectRef = nullptr;
+        FString RefKind;
+        FString Path;
+        if (!(*Statement)->TryGetObjectField(TEXT("target"), TargetRef)
+            || TargetRef == nullptr
+            || !(*TargetRef).IsValid()
+            || !(*TargetRef)->TryGetObjectField(TEXT("object"), ObjectRef)
+            || ObjectRef == nullptr
+            || !(*ObjectRef).IsValid()
+            || !(*ObjectRef)->TryGetStringField(TEXT("kind"), RefKind)
+            || RefKind != TEXT("stable_ref")
+            || !(*Statement)->TryGetStringField(TEXT("path"), Path))
+        {
+            Diagnostics.Add(
+                FSalDiagnostics::Error(
+                    TEXT("validation.edit_target_invalid"),
+                    TEXT("pcg_component set/reset requires one member target "
+                        "on the exact Component."))
+                    .Interface(TEXT("pcg_component"))
+                    .Operation(Kind)
+                    .Build());
+            continue;
+        }
+        const TArray<TSharedPtr<FJsonValue>>* IdentityPath = nullptr;
+        FString RefSlot;
+        if (!(*ObjectRef)->TryGetArrayField(
+                TEXT("identityPath"),
+                IdentityPath)
+            || IdentityPath == nullptr
+            || IdentityPath->Num() != 1
+            || !(*IdentityPath)[0].IsValid()
+            || !(*IdentityPath)[0]->TryGetString(RefSlot)
+            || RefSlot != ComponentSlot)
+        {
+            Diagnostics.Add(
+                FSalDiagnostics::Error(
+                    TEXT("resolution.object_not_found"),
+                    TEXT("pcg_component set/reset must address the exact "
+                        "resolved Component slot."))
+                    .Interface(TEXT("pcg_component"))
+                    .Operation(Kind)
+                    .Ref(ComponentSlot)
+                    .Build());
+            continue;
+        }
+        if (Path != TEXT("Seed"))
+        {
+            Diagnostics.Add(
+                FSalDiagnostics::Error(
+                    TEXT("capability.field_unavailable"),
+                    TEXT("pcg_component authored edits certify only the Seed "
+                        "scalar in this capability."))
+                    .Interface(TEXT("pcg_component"))
+                    .Operation(Kind)
+                    .Ref(Path)
+                    .Build());
+            continue;
+        }
+        FProperty* Property = Component->GetClass()->FindPropertyByName(
+            FName(TEXT("Seed")));
+        if (Property == nullptr
+            || !Property->IsA(FIntProperty::StaticClass()))
+        {
+            Diagnostics.Add(
+                FSalDiagnostics::Error(
+                    TEXT("capability.field_unavailable"),
+                    TEXT("The PCG Component Seed field is unavailable in this "
+                        "runtime."))
+                    .Interface(TEXT("pcg_component"))
+                    .Operation(Kind)
+                    .Ref(Path)
+                    .Build());
+            continue;
+        }
+        const FIntProperty* IntProperty =
+            CastField<FIntProperty>(Property);
+        const int32 Before = IntProperty != nullptr
+            ? IntProperty->GetPropertyValue(
+                Property->ContainerPtrToValuePtr<void>(Component))
+            : 0;
+        FString After;
+        if (Kind == TEXT("reset"))
+        {
+            const UObject* CDO = Component->GetClass()->GetDefaultObject();
+            FString ResetText;
+            Property->ExportText_Direct(
+                ResetText,
+                Property->ContainerPtrToValuePtr<void>(CDO),
+                Property->ContainerPtrToValuePtr<void>(CDO),
+                const_cast<UObject*>(CDO),
+                PPF_None);
+            After = ResetText;
+        }
+        else
+        {
+            FString ValueText;
+            const TSharedPtr<FJsonValue> Value =
+                (*Statement)->TryGetField(TEXT("value"));
+            if (!Value.IsValid() || !Value->TryGetString(ValueText))
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("validation.value_invalid"),
+                        TEXT("pcg_component set requires one string scalar "
+                            "value."))
+                        .Interface(TEXT("pcg_component"))
+                        .Operation(Kind)
+                        .Ref(Path)
+                        .Build());
+                continue;
+            }
+            After = ValueText;
+        }
+        TSharedPtr<FJsonObject> Edit = MakeShared<FJsonObject>();
+        Edit->SetStringField(TEXT("kind"), Kind);
+        Edit->SetStringField(TEXT("ref"), ComponentSlot + TEXT(".") + Path);
+        Edit->SetStringField(
+            TEXT("before"),
+            FString::Printf(TEXT("%d"), Before));
+        Edit->SetStringField(TEXT("after"), After);
+        Planned.Add(Edit);
+        bAnyEdit = true;
+    }
+
+    if (!Diagnostics.IsEmpty())
+    {
+        return MakeMutationResult(
+            NoObjects,
+            Diagnostics,
+            Patch.bDryRun,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("pcg_component"));
+    }
+    if (!bAnyEdit)
+    {
+        return MakeMutationResult(
+            NoObjects,
+            {FSalDiagnostics::Error(
+                    TEXT("validation.no_operations"),
+                    TEXT("pcg_component Patch contained no supported "
+                        "statements."))
+                .Interface(TEXT("pcg_component"))
+                .Build()},
+            Patch.bDryRun,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("pcg_component"));
+    }
+
+    if (Patch.bDryRun)
+    {
+        TSharedPtr<FJsonObject> Plan = MakeShared<FJsonObject>();
+        TArray<TSharedPtr<FJsonValue>> Operations;
+        for (const TSharedPtr<FJsonObject>& Edit : Planned)
+        {
+            Operations.Add(MakeShared<FJsonValueObject>(Edit));
+        }
+        Plan->SetArrayField(TEXT("operations"), Operations);
+        return MakeMutationResult(
+            NoObjects,
+            {},
+            true,
+            true,
+            false,
+            Target.AssetPath,
+            TEXT("pcg_component"),
+            Plan);
+    }
+
+    FScopedTransaction Transaction(
+        FText::FromString(TEXT("SAL Edit PCG Component")));
+    if (!Transaction.IsOutstanding())
+    {
+        return MakeMutationResult(
+            NoObjects,
+            {FSalDiagnostics::Error(
+                    TEXT("capability.transaction_unavailable"),
+                    TEXT("UE did not open the required pcg_component Patch "
+                        "transaction."))
+                .Interface(TEXT("pcg_component"))
+                .Build()},
+            false,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("pcg_component"));
+    }
+    Component->Modify();
+    FProperty* SeedProperty = Component->GetClass()->FindPropertyByName(
+        FName(TEXT("Seed")));
+    for (const TSharedPtr<FJsonObject>& Edit : Planned)
+    {
+        FString After;
+        Edit->TryGetStringField(TEXT("after"), After);
+        void* Value = SeedProperty->ContainerPtrToValuePtr<void>(Component);
+        const TCHAR* End = SeedProperty->ImportText_Direct(
+            *After,
+            Value,
+            Component,
+            PPF_None,
+            GLog);
+        if (End == nullptr)
+        {
+            Transaction.Cancel();
+            return MakeMutationResult(
+                NoObjects,
+                {FSalDiagnostics::Error(
+                        TEXT("validation.apply_failed"),
+                        TEXT("UE could not import the requested pcg_component "
+                            "Seed value."))
+                    .Interface(TEXT("pcg_component"))
+                    .Operation(TEXT("set"))
+                    .Build()},
+                false,
+                false,
+                false,
+                Target.AssetPath,
+                TEXT("pcg_component"));
+        }
+    }
+    // The edit guard after-check: a native refresh or notification must not
+    // have started an asynchronous task inside the transaction.
+    if (PCGComponentIsBusy(Component))
+    {
+        Transaction.Cancel();
+        return MakeMutationResult(
+            NoObjects,
+            {FSalDiagnostics::Error(
+                    TEXT("capability.pcg_async_unproven"),
+                    TEXT("The pcg_component edit started an asynchronous PCG "
+                        "task inside the transaction; the change was rolled "
+                        "back and the capability fails closed."))
+                .Interface(TEXT("pcg_component"))
+                .Operation(TEXT("patch"))
+                .Build()},
+            false,
+            false,
+            false,
+            Target.AssetPath,
+            TEXT("pcg_component"));
+    }
+    const FIntProperty* IntProperty =
+        CastField<FIntProperty>(SeedProperty);
+    const int32 AfterValue = IntProperty != nullptr
+        ? IntProperty->GetPropertyValue(
+            SeedProperty->ContainerPtrToValuePtr<void>(Component))
+        : 0;
+    TSharedPtr<FJsonObject> Plan = MakeShared<FJsonObject>();
+    TArray<TSharedPtr<FJsonValue>> Operations;
+    for (const TSharedPtr<FJsonObject>& Edit : Planned)
+    {
+        Operations.Add(MakeShared<FJsonValueObject>(Edit));
+    }
+    Plan->SetArrayField(TEXT("operations"), Operations);
+    Plan->SetNumberField(
+        TEXT("afterValue"),
+        static_cast<double>(AfterValue));
+    return MakeMutationResult(
+        NoObjects,
+        {},
+        false,
+        true,
+        true,
+        Target.AssetPath,
+        TEXT("pcg_component"),
+        Plan);
 }
 }

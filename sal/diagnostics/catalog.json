@@ -1,1528 +1,1540 @@
 {
-    "diagnostics": [
-        {
-            "code": "capability.asset_registry_unavailable",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Asset Registry unavailable"
-        },
-        {
-            "code": "capability.clause_unavailable",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Clause unavailable"
-        },
-        {
-            "code": "capability.compile_unavailable",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Compile unavailable"
-        },
-        {
-            "code": "capability.component_not_removable",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Component not removable"
-        },
-        {
-            "code": "capability.component_owner_not_loaded",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Component owner not loaded"
-        },
-        {
-            "code": "capability.condition_unavailable",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Condition unavailable"
-        },
-        {
-            "code": "capability.detail_unavailable",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Detail unavailable"
-        },
-        {
-            "code": "capability.interface_unavailable",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Interface unavailable"
-        },
-        {
-            "code": "capability.layout_geometry_unavailable",
-            "layer": "capability",
-            "defaultSeverity": "warning",
-            "title": "Layout geometry unavailable"
-        },
-        {
-            "code": "capability.level_not_loaded",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Level not loaded"
-        },
-        {
-            "code": "capability.mixed_patch_interfaces_unavailable",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Mixed Patch interfaces unavailable"
-        },
-        {
-            "code": "capability.move_unavailable",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Move unavailable"
-        },
-        {
-            "code": "capability.operation_unavailable",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Operation unavailable"
-        },
-        {
-            "code": "capability.order_unavailable",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Order unavailable"
-        },
-        {
-            "code": "capability.patch_unavailable",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Patch unavailable"
-        },
-        {
-            "code": "capability.pcg_async_unproven",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "PCG async suppression unproven"
-        },
-        {
-            "code": "capability.pcg_derived_guard",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "PCG derived-state save guard"
-        },
-        {
-            "code": "capability.preflight_unavailable",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Preflight unavailable"
-        },
-        {
-            "code": "capability.reference_unavailable",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Reference capability unavailable"
-        },
-        {
-            "code": "capability.save_unavailable",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Save unavailable"
-        },
-        {
-            "code": "capability.transaction_unavailable",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Transaction unavailable"
-        },
-        {
-            "code": "capability.unsupported_constructor",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Unsupported constructor"
-        },
-        {
-            "code": "capability.unsupported_patch",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Unsupported Patch"
-        },
-        {
-            "code": "capability.unsupported_patch_operation",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Unsupported Patch operation"
-        },
-        {
-            "code": "capability.unsupported_query",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Unsupported Query"
-        },
-        {
-            "code": "capability.unsupported_query_operation",
-            "layer": "capability",
-            "defaultSeverity": "error",
-            "title": "Unsupported query operation"
-        },
-        {
-            "code": "language.comment_inside_statement",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Comment inside statement"
-        },
-        {
-            "code": "language.cyclic_target",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Cyclic target"
-        },
-        {
-            "code": "language.duplicate_argument",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Duplicate argument"
-        },
-        {
-            "code": "language.duplicate_binding",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Duplicate binding"
-        },
-        {
-            "code": "language.duplicate_object_key",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Duplicate object key"
-        },
-        {
-            "code": "language.duplicate_query_clause",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Duplicate query clause"
-        },
-        {
-            "code": "language.duplicate_target_field",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Duplicate Target field"
-        },
-        {
-            "code": "language.empty_comment",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Empty comment"
-        },
-        {
-            "code": "language.expected_member",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Expected member reference"
-        },
-        {
-            "code": "language.expected_quoted_text",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Expected quoted text"
-        },
-        {
-            "code": "language.expected_stable_reference",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Expected stable reference"
-        },
-        {
-            "code": "language.incomplete_patch_target",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Incomplete Patch Target"
-        },
-        {
-            "code": "language.incomplete_related_target",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Incomplete related Target"
-        },
-        {
-            "code": "language.incomplete_result_target",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Incomplete result Target"
-        },
-        {
-            "code": "language.incomplete_target",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Incomplete Target"
-        },
-        {
-            "code": "language.invalid_binding_target",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid binding target"
-        },
-        {
-            "code": "language.invalid_call_args",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid call arguments"
-        },
-        {
-            "code": "language.invalid_depth",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid depth"
-        },
-        {
-            "code": "language.invalid_detail",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid detail"
-        },
-        {
-            "code": "language.invalid_domain_root_target",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid Domain root Target"
-        },
-        {
-            "code": "language.invalid_exact_name",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid exact name"
-        },
-        {
-            "code": "language.invalid_invoke_output",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid invoke output"
-        },
-        {
-            "code": "language.invalid_number",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid number"
-        },
-        {
-            "code": "language.invalid_object",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid object"
-        },
-        {
-            "code": "language.invalid_object_shape",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid object shape"
-        },
-        {
-            "code": "language.invalid_object_statement",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid Object Text statement"
-        },
-        {
-            "code": "language.invalid_operation",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid operation"
-        },
-        {
-            "code": "language.invalid_order_by",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid order by"
-        },
-        {
-            "code": "language.invalid_page",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid page"
-        },
-        {
-            "code": "language.invalid_patch_header",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid Patch header"
-        },
-        {
-            "code": "language.invalid_patch_target",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid Patch target"
-        },
-        {
-            "code": "language.invalid_point",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid point"
-        },
-        {
-            "code": "language.invalid_query_header",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid Query header"
-        },
-        {
-            "code": "language.invalid_reference",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid reference"
-        },
-        {
-            "code": "language.invalid_result_context",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid result context"
-        },
-        {
-            "code": "language.invalid_result_envelope",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid Result Text envelope"
-        },
-        {
-            "code": "language.invalid_result_header",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid Result Text header"
-        },
-        {
-            "code": "language.invalid_result_shape",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid result shape"
-        },
-        {
-            "code": "language.invalid_string",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid quoted string"
-        },
-        {
-            "code": "language.invalid_target",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid target"
-        },
-        {
-            "code": "language.invalid_target_binding",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid target binding"
-        },
-        {
-            "code": "language.invalid_target_domain",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid Target Domain"
-        },
-        {
-            "code": "language.invalid_target_field",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid Target field"
-        },
-        {
-            "code": "language.invalid_target_guid",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid Target GUID"
-        },
-        {
-            "code": "language.invalid_target_value",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid Target value"
-        },
-        {
-            "code": "language.invalid_wrapped_value",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Invalid wrapped value"
-        },
-        {
-            "code": "language.legacy_constructor_requires_compatibility",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Legacy constructor requires compatibility mode"
-        },
-        {
-            "code": "language.missing_object_section",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Missing Result Text object section"
-        },
-        {
-            "code": "language.missing_patch_statement",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Missing Patch statement"
-        },
-        {
-            "code": "language.missing_query_operation",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Missing Query operation"
-        },
-        {
-            "code": "language.missing_result_target",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Missing result Target"
-        },
-        {
-            "code": "language.multiple_request_targets",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Multiple request Targets"
-        },
-        {
-            "code": "language.reserved_semantic_tag",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Reserved semantic tag"
-        },
-        {
-            "code": "language.target_not_object_expression",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Target used as object expression"
-        },
-        {
-            "code": "language.unbalanced_delimiter",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unbalanced delimiter"
-        },
-        {
-            "code": "language.unclosed_comment",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unclosed comment"
-        },
-        {
-            "code": "language.unclosed_delimiter",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unclosed delimiter"
-        },
-        {
-            "code": "language.unclosed_string",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unclosed string"
-        },
-        {
-            "code": "language.unexpected_object_text",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unexpected Object Text"
-        },
-        {
-            "code": "language.unexpected_query_statement",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unexpected Query statement"
-        },
-        {
-            "code": "language.unknown_local_reference",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unknown local reference"
-        },
-        {
-            "code": "language.unknown_target",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unknown target"
-        },
-        {
-            "code": "language.unknown_target_dependency",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unknown target dependency"
-        },
-        {
-            "code": "language.unknown_target_field",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unknown Target field"
-        },
-        {
-            "code": "language.unresolved_target_has_table",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unresolved result has a Target table"
-        },
-        {
-            "code": "language.unresolved_target_member",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unresolved target member"
-        },
-        {
-            "code": "language.unsafe_legacy_constructor",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unsafe legacy constructor lowering"
-        },
-        {
-            "code": "language.unsafe_legacy_reference",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unsafe legacy reference lowering"
-        },
-        {
-            "code": "language.unsafe_legacy_target",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unsafe legacy Target lowering"
-        },
-        {
-            "code": "language.unsupported_condition",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unsupported condition"
-        },
-        {
-            "code": "language.unsupported_value",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Unsupported value"
-        },
-        {
-            "code": "language.wrong_document_kind",
-            "layer": "language",
-            "defaultSeverity": "error",
-            "title": "Wrong document kind"
-        },
-        {
-            "code": "project.multiple_editors",
-            "layer": "project",
-            "defaultSeverity": "error",
-            "title": "Multiple Editors for project"
-        },
-        {
-            "code": "project.not_found",
-            "layer": "project",
-            "defaultSeverity": "error",
-            "title": "Project not found"
-        },
-        {
-            "code": "project.offline",
-            "layer": "project",
-            "defaultSeverity": "error",
-            "title": "Project offline"
-        },
-        {
-            "code": "project.selection_required",
-            "layer": "project",
-            "defaultSeverity": "error",
-            "title": "Project selection required"
-        },
-        {
-            "code": "projection.ambiguous",
-            "layer": "projection",
-            "defaultSeverity": "error",
-            "title": "Projection ambiguous"
-        },
-        {
-            "code": "projection.failed",
-            "layer": "projection",
-            "defaultSeverity": "error",
-            "title": "Projection failed"
-        },
-        {
-            "code": "projection.stale",
-            "layer": "projection",
-            "defaultSeverity": "error",
-            "title": "Projection stale"
-        },
-        {
-            "code": "projection.transient_only",
-            "layer": "projection",
-            "defaultSeverity": "error",
-            "title": "Projection transient only"
-        },
-        {
-            "code": "projection.unsupported",
-            "layer": "projection",
-            "defaultSeverity": "error",
-            "title": "Projection unsupported"
-        },
-        {
-            "code": "resolution.ambiguous_selector",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Ambiguous selector"
-        },
-        {
-            "code": "resolution.binding_already_consumed",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Binding already consumed"
-        },
-        {
-            "code": "resolution.binding_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Binding not found"
-        },
-        {
-            "code": "resolution.blueprint_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Owning Blueprint not found"
-        },
-        {
-            "code": "resolution.curve_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Curve not found"
-        },
-        {
-            "code": "resolution.default_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Default not found"
-        },
-        {
-            "code": "resolution.edge_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Edge not found"
-        },
-        {
-            "code": "resolution.editor_presentation_ambiguous",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Editor presentation ambiguous"
-        },
-        {
-            "code": "resolution.field_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Field not found"
-        },
-        {
-            "code": "resolution.function_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Function not found"
-        },
-        {
-            "code": "resolution.graph_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Graph not found"
-        },
-        {
-            "code": "resolution.identity_conflict",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Identity conflict"
-        },
-        {
-            "code": "resolution.insufficient_scope",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Insufficient reference scope"
-        },
-        {
-            "code": "resolution.invalid_anchor",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Invalid anchor"
-        },
-        {
-            "code": "resolution.invalid_traversal_target",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Invalid traversal target"
-        },
-        {
-            "code": "resolution.invoke_output_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Invoke output not found"
-        },
-        {
-            "code": "resolution.level_instance_source_unavailable",
-            "layer": "resolution",
-            "defaultSeverity": "warning",
-            "title": "Level Instance source unavailable"
-        },
-        {
-            "code": "resolution.name_collision",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Name collision"
-        },
-        {
-            "code": "resolution.node_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Node not found"
-        },
-        {
-            "code": "resolution.object_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Object not found"
-        },
-        {
-            "code": "resolution.package_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Package not found"
-        },
-        {
-            "code": "resolution.palette_ambiguous",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Palette entry ambiguous"
-        },
-        {
-            "code": "resolution.palette_entry_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Palette entry not found"
-        },
-        {
-            "code": "resolution.palette_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Palette not found"
-        },
-        {
-            "code": "resolution.palette_not_spawnable",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Palette entry not spawnable"
-        },
-        {
-            "code": "resolution.pin_ambiguous",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Pin selector ambiguous"
-        },
-        {
-            "code": "resolution.pin_not_connectable",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Pin not connectable"
-        },
-        {
-            "code": "resolution.pin_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Pin not found"
-        },
-        {
-            "code": "resolution.property_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Property not found"
-        },
-        {
-            "code": "resolution.reference_ambiguous",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Reference subject ambiguous"
-        },
-        {
-            "code": "resolution.reference_broken",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Reference subject broken"
-        },
-        {
-            "code": "resolution.reference_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Reference subject not found"
-        },
-        {
-            "code": "resolution.signature_node_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Signature node not found"
-        },
-        {
-            "code": "resolution.target_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Target not found"
-        },
-        {
-            "code": "resolution.timeline_track_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Timeline track not found"
-        },
-        {
-            "code": "resolution.unresolved_target",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Unresolved Target"
-        },
-        {
-            "code": "resolution.widget_not_found",
-            "layer": "resolution",
-            "defaultSeverity": "error",
-            "title": "Widget not found"
-        },
-        {
-            "code": "runtime.client_error",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Runtime client error"
-        },
-        {
-            "code": "runtime.connect_failed",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Runtime connection failed"
-        },
-        {
-            "code": "runtime.connection_closed",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Runtime connection closed"
-        },
-        {
-            "code": "runtime.connection_error",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Runtime connection error"
-        },
-        {
-            "code": "runtime.editor_blocked_by_modal",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Editor control blocked by Modal"
-        },
-        {
-            "code": "runtime.editor_shutting_down",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Editor shutting down"
-        },
-        {
-            "code": "runtime.editor_unresponsive",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Editor unresponsive"
-        },
-        {
-            "code": "runtime.identity_mismatch",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Runtime identity mismatch"
-        },
-        {
-            "code": "runtime.incompatible",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Runtime incompatible"
-        },
-        {
-            "code": "runtime.internal_error",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Runtime internal error"
-        },
-        {
-            "code": "runtime.invalid_health",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Invalid runtime health"
-        },
-        {
-            "code": "runtime.invalid_invoke_result",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Invalid runtime invoke result"
-        },
-        {
-            "code": "runtime.invalid_json",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Invalid runtime JSON"
-        },
-        {
-            "code": "runtime.invalid_response",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Invalid runtime response"
-        },
-        {
-            "code": "runtime.python_busy",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Python execution busy"
-        },
-        {
-            "code": "runtime.python_execution_expired",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Python execution expired"
-        },
-        {
-            "code": "runtime.python_execution_failed",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Python execution failed"
-        },
-        {
-            "code": "runtime.python_execution_lost",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Python execution lost"
-        },
-        {
-            "code": "runtime.python_execution_not_found",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Python execution not found"
-        },
-        {
-            "code": "runtime.python_initializing",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Python initializing"
-        },
-        {
-            "code": "runtime.python_invalid_result",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Invalid Python result"
-        },
-        {
-            "code": "runtime.python_result_too_large",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Python result too large"
-        },
-        {
-            "code": "runtime.python_source_staging_failed",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Python source staging failed"
-        },
-        {
-            "code": "runtime.python_unavailable",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Python unavailable"
-        },
-        {
-            "code": "runtime.request_cancelled",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Runtime request cancelled"
-        },
-        {
-            "code": "runtime.request_timeout",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Runtime request timed out"
-        },
-        {
-            "code": "runtime.rpc_error",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Runtime RPC error"
-        },
-        {
-            "code": "runtime.starting",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Runtime starting"
-        },
-        {
-            "code": "runtime.write_failed",
-            "layer": "runtime",
-            "defaultSeverity": "error",
-            "title": "Runtime write failed"
-        },
-        {
-            "code": "tool.invalid_arguments",
-            "layer": "tool",
-            "defaultSeverity": "error",
-            "title": "Invalid tool arguments"
-        },
-        {
-            "code": "tool.unknown",
-            "layer": "tool",
-            "defaultSeverity": "error",
-            "title": "Unknown tool"
-        },
-        {
-            "code": "validation.apply_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Apply failed"
-        },
-        {
-            "code": "validation.atomic_apply_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Atomic apply failed"
-        },
-        {
-            "code": "validation.atomic_rollback_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Atomic rollback failed"
-        },
-        {
-            "code": "validation.class_defaults_read_only",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Class defaults read only"
-        },
-        {
-            "code": "validation.class_source_required",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Class source required"
-        },
-        {
-            "code": "validation.connect_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Connect failed"
-        },
-        {
-            "code": "validation.creation_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Creation invalid"
-        },
-        {
-            "code": "validation.curve_type_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Curve type invalid"
-        },
-        {
-            "code": "validation.default_backup_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Default backup failed"
-        },
-        {
-            "code": "validation.default_constraint_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Default constraint failed"
-        },
-        {
-            "code": "validation.default_equal_inherited_not_durable",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Inherited-equal default is not durable"
-        },
-        {
-            "code": "validation.default_import_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Default import failed"
-        },
-        {
-            "code": "validation.default_not_resettable",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Default not resettable"
-        },
-        {
-            "code": "validation.default_read_only",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Default read only"
-        },
-        {
-            "code": "validation.default_rollback_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Default rollback failed"
-        },
-        {
-            "code": "validation.default_write_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Default write failed"
-        },
-        {
-            "code": "validation.disconnect_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Disconnect failed"
-        },
-        {
-            "code": "validation.duplicate_alias",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Duplicate alias"
-        },
-        {
-            "code": "validation.edit_target_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Edit target invalid"
-        },
-        {
-            "code": "validation.editor_close_vetoed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Editor close vetoed"
-        },
-        {
-            "code": "validation.editor_open_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Editor open failed"
-        },
-        {
-            "code": "validation.editor_verification_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Editor verification failed"
-        },
-        {
-            "code": "validation.exact_asset_required",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Exact Asset required"
-        },
-        {
-            "code": "validation.exact_class_required",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Exact Class required"
-        },
-        {
-            "code": "validation.exact_level_required",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Exact Level required"
-        },
-        {
-            "code": "validation.exact_pcg_graph_required",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Exact PCG Graph required"
-        },
-        {
-            "code": "validation.exact_widget_blueprint_required",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Exact Widget Blueprint required"
-        },
-        {
-            "code": "validation.field_unavailable",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Field unavailable"
-        },
-        {
-            "code": "validation.field_value_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Field value invalid"
-        },
-        {
-            "code": "validation.field_write_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Field write failed"
-        },
-        {
-            "code": "validation.finalization_must_be_independent",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Finalization must be independent"
-        },
-        {
-            "code": "validation.insert_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Insert invalid"
-        },
-        {
-            "code": "validation.invalid_add",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Invalid add"
-        },
-        {
-            "code": "validation.invalid_cursor",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Invalid cursor"
-        },
-        {
-            "code": "validation.invalid_default_target",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Invalid default target"
-        },
-        {
-            "code": "validation.invalid_field_target",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Invalid field target"
-        },
-        {
-            "code": "validation.invalid_mutation_result",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Invalid mutation result"
-        },
-        {
-            "code": "validation.invalid_reference",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Invalid reference"
-        },
-        {
-            "code": "validation.invalid_target",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Invalid target"
-        },
-        {
-            "code": "validation.invalid_widget_identity",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Invalid Widget identity"
-        },
-        {
-            "code": "validation.layout_apply_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Layout apply failed"
-        },
-        {
-            "code": "validation.layout_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Layout invalid"
-        },
-        {
-            "code": "validation.native_value_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Native value invalid"
-        },
-        {
-            "code": "validation.no_operations",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "No operations"
-        },
-        {
-            "code": "validation.node_not_deletable",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Node not deletable"
-        },
-        {
-            "code": "validation.object_invalidated",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Object invalidated"
-        },
-        {
-            "code": "validation.operation_arguments_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Operation arguments invalid"
-        },
-        {
-            "code": "validation.package_read_only",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Package read only"
-        },
-        {
-            "code": "validation.palette_context_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Palette context invalid"
-        },
-        {
-            "code": "validation.patch_state_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Patch state invalid"
-        },
-        {
-            "code": "validation.placement_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Placement invalid"
-        },
-        {
-            "code": "validation.preflight_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Preflight failed"
-        },
-        {
-            "code": "validation.reference_container_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Reference container failed"
-        },
-        {
-            "code": "validation.reference_scan_incomplete",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Reference scan incomplete"
-        },
-        {
-            "code": "validation.reference_scan_pending",
-            "layer": "validation",
-            "defaultSeverity": "info",
-            "title": "Reference scan pending"
-        },
-        {
-            "code": "validation.remove_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Remove invalid"
-        },
-        {
-            "code": "validation.replace_same_object",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Replacement is the target object"
-        },
-        {
-            "code": "validation.required_actor_protected",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Required actor protected"
-        },
-        {
-            "code": "validation.required_node_protected",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Required node protected"
-        },
-        {
-            "code": "validation.reset_source_unavailable",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Reset source unavailable"
-        },
-        {
-            "code": "validation.result_too_large",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Query result too large"
-        },
-        {
-            "code": "validation.rollback_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Rollback failed"
-        },
-        {
-            "code": "validation.save_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Save failed"
-        },
-        {
-            "code": "validation.save_plan_unavailable",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Save plan unavailable"
-        },
-        {
-            "code": "validation.settings_unavailable",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Settings unavailable"
-        },
-        {
-            "code": "validation.signature_edit_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Signature edit failed"
-        },
-        {
-            "code": "validation.signature_incompatible",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Signature incompatible"
-        },
-        {
-            "code": "validation.signature_inconsistent",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Signature inconsistent"
-        },
-        {
-            "code": "validation.sparse_data_unavailable",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Sparse data unavailable"
-        },
-        {
-            "code": "validation.spawn_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Spawn failed"
-        },
-        {
-            "code": "validation.statement_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Statement invalid"
-        },
-        {
-            "code": "validation.timeline_edit_failed",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Timeline edit failed"
-        },
-        {
-            "code": "validation.timeline_inconsistent",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Timeline inconsistent"
-        },
-        {
-            "code": "validation.timeline_key_conflict",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Timeline key conflict"
-        },
-        {
-            "code": "validation.timeline_key_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Timeline key invalid"
-        },
-        {
-            "code": "validation.timeline_track_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Timeline track invalid"
-        },
-        {
-            "code": "validation.unused_binding",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Unused binding"
-        },
-        {
-            "code": "validation.value_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Value invalid"
-        },
-        {
-            "code": "validation.widget_patch_invalid",
-            "layer": "validation",
-            "defaultSeverity": "error",
-            "title": "Widget Patch invalid"
-        }
-    ]
+  "diagnostics": [
+    {
+      "code": "capability.asset_registry_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Asset Registry unavailable"
+    },
+    {
+      "code": "capability.clause_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Clause unavailable"
+    },
+    {
+      "code": "capability.compile_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Compile unavailable"
+    },
+    {
+      "code": "capability.component_not_removable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Component not removable"
+    },
+    {
+      "code": "capability.component_owner_not_loaded",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Component owner not loaded"
+    },
+    {
+      "code": "capability.condition_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Condition unavailable"
+    },
+    {
+      "code": "capability.detail_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Detail unavailable"
+    },
+    {
+      "code": "capability.field_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Field unavailable"
+    },
+    {
+      "code": "capability.interface_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Interface unavailable"
+    },
+    {
+      "code": "capability.layout_geometry_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "warning",
+      "title": "Layout geometry unavailable"
+    },
+    {
+      "code": "capability.level_not_loaded",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Level not loaded"
+    },
+    {
+      "code": "capability.mixed_patch_interfaces_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Mixed Patch interfaces unavailable"
+    },
+    {
+      "code": "capability.move_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Move unavailable"
+    },
+    {
+      "code": "capability.operation_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Operation unavailable"
+    },
+    {
+      "code": "capability.order_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Order unavailable"
+    },
+    {
+      "code": "capability.patch_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Patch unavailable"
+    },
+    {
+      "code": "capability.pcg_async_unproven",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "PCG async suppression unproven"
+    },
+    {
+      "code": "capability.pcg_derived_guard",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "PCG derived-state save guard"
+    },
+    {
+      "code": "capability.preflight_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Preflight unavailable"
+    },
+    {
+      "code": "capability.reference_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Reference capability unavailable"
+    },
+    {
+      "code": "capability.save_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Save unavailable"
+    },
+    {
+      "code": "capability.transaction_unavailable",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Transaction unavailable"
+    },
+    {
+      "code": "capability.unsupported_constructor",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Unsupported constructor"
+    },
+    {
+      "code": "capability.unsupported_patch",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Unsupported Patch"
+    },
+    {
+      "code": "capability.unsupported_patch_operation",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Unsupported Patch operation"
+    },
+    {
+      "code": "capability.unsupported_query",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Unsupported Query"
+    },
+    {
+      "code": "capability.unsupported_query_operation",
+      "layer": "capability",
+      "defaultSeverity": "error",
+      "title": "Unsupported query operation"
+    },
+    {
+      "code": "language.comment_inside_statement",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Comment inside statement"
+    },
+    {
+      "code": "language.cyclic_target",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Cyclic target"
+    },
+    {
+      "code": "language.duplicate_argument",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Duplicate argument"
+    },
+    {
+      "code": "language.duplicate_binding",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Duplicate binding"
+    },
+    {
+      "code": "language.duplicate_object_key",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Duplicate object key"
+    },
+    {
+      "code": "language.duplicate_query_clause",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Duplicate query clause"
+    },
+    {
+      "code": "language.duplicate_target_field",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Duplicate Target field"
+    },
+    {
+      "code": "language.empty_comment",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Empty comment"
+    },
+    {
+      "code": "language.expected_member",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Expected member reference"
+    },
+    {
+      "code": "language.expected_quoted_text",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Expected quoted text"
+    },
+    {
+      "code": "language.expected_stable_reference",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Expected stable reference"
+    },
+    {
+      "code": "language.incomplete_patch_target",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Incomplete Patch Target"
+    },
+    {
+      "code": "language.incomplete_related_target",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Incomplete related Target"
+    },
+    {
+      "code": "language.incomplete_result_target",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Incomplete result Target"
+    },
+    {
+      "code": "language.incomplete_target",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Incomplete Target"
+    },
+    {
+      "code": "language.invalid_binding_target",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid binding target"
+    },
+    {
+      "code": "language.invalid_call_args",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid call arguments"
+    },
+    {
+      "code": "language.invalid_depth",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid depth"
+    },
+    {
+      "code": "language.invalid_detail",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid detail"
+    },
+    {
+      "code": "language.invalid_domain_root_target",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid Domain root Target"
+    },
+    {
+      "code": "language.invalid_exact_name",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid exact name"
+    },
+    {
+      "code": "language.invalid_invoke_output",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid invoke output"
+    },
+    {
+      "code": "language.invalid_number",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid number"
+    },
+    {
+      "code": "language.invalid_object",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid object"
+    },
+    {
+      "code": "language.invalid_object_shape",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid object shape"
+    },
+    {
+      "code": "language.invalid_object_statement",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid Object Text statement"
+    },
+    {
+      "code": "language.invalid_operation",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid operation"
+    },
+    {
+      "code": "language.invalid_order_by",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid order by"
+    },
+    {
+      "code": "language.invalid_page",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid page"
+    },
+    {
+      "code": "language.invalid_patch_header",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid Patch header"
+    },
+    {
+      "code": "language.invalid_patch_target",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid Patch target"
+    },
+    {
+      "code": "language.invalid_point",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid point"
+    },
+    {
+      "code": "language.invalid_query_header",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid Query header"
+    },
+    {
+      "code": "language.invalid_reference",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid reference"
+    },
+    {
+      "code": "language.invalid_result_context",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid result context"
+    },
+    {
+      "code": "language.invalid_result_envelope",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid Result Text envelope"
+    },
+    {
+      "code": "language.invalid_result_header",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid Result Text header"
+    },
+    {
+      "code": "language.invalid_result_shape",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid result shape"
+    },
+    {
+      "code": "language.invalid_string",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid quoted string"
+    },
+    {
+      "code": "language.invalid_target",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid target"
+    },
+    {
+      "code": "language.invalid_target_binding",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid target binding"
+    },
+    {
+      "code": "language.invalid_target_domain",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid Target Domain"
+    },
+    {
+      "code": "language.invalid_target_field",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid Target field"
+    },
+    {
+      "code": "language.invalid_target_guid",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid Target GUID"
+    },
+    {
+      "code": "language.invalid_target_value",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid Target value"
+    },
+    {
+      "code": "language.invalid_wrapped_value",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Invalid wrapped value"
+    },
+    {
+      "code": "language.legacy_constructor_requires_compatibility",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Legacy constructor requires compatibility mode"
+    },
+    {
+      "code": "language.missing_object_section",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Missing Result Text object section"
+    },
+    {
+      "code": "language.missing_patch_statement",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Missing Patch statement"
+    },
+    {
+      "code": "language.missing_query_operation",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Missing Query operation"
+    },
+    {
+      "code": "language.missing_result_target",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Missing result Target"
+    },
+    {
+      "code": "language.multiple_request_targets",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Multiple request Targets"
+    },
+    {
+      "code": "language.reserved_semantic_tag",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Reserved semantic tag"
+    },
+    {
+      "code": "language.target_not_object_expression",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Target used as object expression"
+    },
+    {
+      "code": "language.unbalanced_delimiter",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unbalanced delimiter"
+    },
+    {
+      "code": "language.unclosed_comment",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unclosed comment"
+    },
+    {
+      "code": "language.unclosed_delimiter",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unclosed delimiter"
+    },
+    {
+      "code": "language.unclosed_string",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unclosed string"
+    },
+    {
+      "code": "language.unexpected_object_text",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unexpected Object Text"
+    },
+    {
+      "code": "language.unexpected_query_statement",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unexpected Query statement"
+    },
+    {
+      "code": "language.unknown_local_reference",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unknown local reference"
+    },
+    {
+      "code": "language.unknown_target",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unknown target"
+    },
+    {
+      "code": "language.unknown_target_dependency",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unknown target dependency"
+    },
+    {
+      "code": "language.unknown_target_field",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unknown Target field"
+    },
+    {
+      "code": "language.unresolved_target_has_table",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unresolved result has a Target table"
+    },
+    {
+      "code": "language.unresolved_target_member",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unresolved target member"
+    },
+    {
+      "code": "language.unsafe_legacy_constructor",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unsafe legacy constructor lowering"
+    },
+    {
+      "code": "language.unsafe_legacy_reference",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unsafe legacy reference lowering"
+    },
+    {
+      "code": "language.unsafe_legacy_target",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unsafe legacy Target lowering"
+    },
+    {
+      "code": "language.unsupported_condition",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unsupported condition"
+    },
+    {
+      "code": "language.unsupported_value",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Unsupported value"
+    },
+    {
+      "code": "language.wrong_document_kind",
+      "layer": "language",
+      "defaultSeverity": "error",
+      "title": "Wrong document kind"
+    },
+    {
+      "code": "project.multiple_editors",
+      "layer": "project",
+      "defaultSeverity": "error",
+      "title": "Multiple Editors for project"
+    },
+    {
+      "code": "project.not_found",
+      "layer": "project",
+      "defaultSeverity": "error",
+      "title": "Project not found"
+    },
+    {
+      "code": "project.offline",
+      "layer": "project",
+      "defaultSeverity": "error",
+      "title": "Project offline"
+    },
+    {
+      "code": "project.selection_required",
+      "layer": "project",
+      "defaultSeverity": "error",
+      "title": "Project selection required"
+    },
+    {
+      "code": "projection.ambiguous",
+      "layer": "projection",
+      "defaultSeverity": "error",
+      "title": "Projection ambiguous"
+    },
+    {
+      "code": "projection.failed",
+      "layer": "projection",
+      "defaultSeverity": "error",
+      "title": "Projection failed"
+    },
+    {
+      "code": "projection.stale",
+      "layer": "projection",
+      "defaultSeverity": "error",
+      "title": "Projection stale"
+    },
+    {
+      "code": "projection.transient_only",
+      "layer": "projection",
+      "defaultSeverity": "error",
+      "title": "Projection transient only"
+    },
+    {
+      "code": "projection.unsupported",
+      "layer": "projection",
+      "defaultSeverity": "error",
+      "title": "Projection unsupported"
+    },
+    {
+      "code": "resolution.ambiguous_selector",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Ambiguous selector"
+    },
+    {
+      "code": "resolution.binding_already_consumed",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Binding already consumed"
+    },
+    {
+      "code": "resolution.binding_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Binding not found"
+    },
+    {
+      "code": "resolution.blueprint_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Owning Blueprint not found"
+    },
+    {
+      "code": "resolution.curve_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Curve not found"
+    },
+    {
+      "code": "resolution.default_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Default not found"
+    },
+    {
+      "code": "resolution.edge_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Edge not found"
+    },
+    {
+      "code": "resolution.editor_presentation_ambiguous",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Editor presentation ambiguous"
+    },
+    {
+      "code": "resolution.field_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Field not found"
+    },
+    {
+      "code": "resolution.function_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Function not found"
+    },
+    {
+      "code": "resolution.graph_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Graph not found"
+    },
+    {
+      "code": "resolution.identity_conflict",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Identity conflict"
+    },
+    {
+      "code": "resolution.insufficient_scope",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Insufficient reference scope"
+    },
+    {
+      "code": "resolution.invalid_anchor",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Invalid anchor"
+    },
+    {
+      "code": "resolution.invalid_traversal_target",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Invalid traversal target"
+    },
+    {
+      "code": "resolution.invoke_output_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Invoke output not found"
+    },
+    {
+      "code": "resolution.level_instance_source_unavailable",
+      "layer": "resolution",
+      "defaultSeverity": "warning",
+      "title": "Level Instance source unavailable"
+    },
+    {
+      "code": "resolution.name_collision",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Name collision"
+    },
+    {
+      "code": "resolution.node_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Node not found"
+    },
+    {
+      "code": "resolution.object_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Object not found"
+    },
+    {
+      "code": "resolution.package_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Package not found"
+    },
+    {
+      "code": "resolution.palette_ambiguous",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Palette entry ambiguous"
+    },
+    {
+      "code": "resolution.palette_entry_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Palette entry not found"
+    },
+    {
+      "code": "resolution.palette_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Palette not found"
+    },
+    {
+      "code": "resolution.palette_not_spawnable",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Palette entry not spawnable"
+    },
+    {
+      "code": "resolution.pin_ambiguous",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Pin selector ambiguous"
+    },
+    {
+      "code": "resolution.pin_not_connectable",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Pin not connectable"
+    },
+    {
+      "code": "resolution.pin_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Pin not found"
+    },
+    {
+      "code": "resolution.property_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Property not found"
+    },
+    {
+      "code": "resolution.reference_ambiguous",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Reference subject ambiguous"
+    },
+    {
+      "code": "resolution.reference_broken",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Reference subject broken"
+    },
+    {
+      "code": "resolution.reference_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Reference subject not found"
+    },
+    {
+      "code": "resolution.signature_node_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Signature node not found"
+    },
+    {
+      "code": "resolution.target_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Target not found"
+    },
+    {
+      "code": "resolution.timeline_track_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Timeline track not found"
+    },
+    {
+      "code": "resolution.unresolved_target",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Unresolved Target"
+    },
+    {
+      "code": "resolution.widget_not_found",
+      "layer": "resolution",
+      "defaultSeverity": "error",
+      "title": "Widget not found"
+    },
+    {
+      "code": "runtime.client_error",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Runtime client error"
+    },
+    {
+      "code": "runtime.connect_failed",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Runtime connection failed"
+    },
+    {
+      "code": "runtime.connection_closed",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Runtime connection closed"
+    },
+    {
+      "code": "runtime.connection_error",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Runtime connection error"
+    },
+    {
+      "code": "runtime.editor_blocked_by_modal",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Editor control blocked by Modal"
+    },
+    {
+      "code": "runtime.editor_shutting_down",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Editor shutting down"
+    },
+    {
+      "code": "runtime.editor_unresponsive",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Editor unresponsive"
+    },
+    {
+      "code": "runtime.identity_mismatch",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Runtime identity mismatch"
+    },
+    {
+      "code": "runtime.incompatible",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Runtime incompatible"
+    },
+    {
+      "code": "runtime.internal_error",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Runtime internal error"
+    },
+    {
+      "code": "runtime.invalid_health",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Invalid runtime health"
+    },
+    {
+      "code": "runtime.invalid_invoke_result",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Invalid runtime invoke result"
+    },
+    {
+      "code": "runtime.invalid_json",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Invalid runtime JSON"
+    },
+    {
+      "code": "runtime.invalid_response",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Invalid runtime response"
+    },
+    {
+      "code": "runtime.python_busy",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Python execution busy"
+    },
+    {
+      "code": "runtime.python_execution_expired",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Python execution expired"
+    },
+    {
+      "code": "runtime.python_execution_failed",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Python execution failed"
+    },
+    {
+      "code": "runtime.python_execution_lost",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Python execution lost"
+    },
+    {
+      "code": "runtime.python_execution_not_found",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Python execution not found"
+    },
+    {
+      "code": "runtime.python_initializing",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Python initializing"
+    },
+    {
+      "code": "runtime.python_invalid_result",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Invalid Python result"
+    },
+    {
+      "code": "runtime.python_result_too_large",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Python result too large"
+    },
+    {
+      "code": "runtime.python_source_staging_failed",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Python source staging failed"
+    },
+    {
+      "code": "runtime.python_unavailable",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Python unavailable"
+    },
+    {
+      "code": "runtime.request_cancelled",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Runtime request cancelled"
+    },
+    {
+      "code": "runtime.request_timeout",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Runtime request timed out"
+    },
+    {
+      "code": "runtime.rpc_error",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Runtime RPC error"
+    },
+    {
+      "code": "runtime.starting",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Runtime starting"
+    },
+    {
+      "code": "runtime.write_failed",
+      "layer": "runtime",
+      "defaultSeverity": "error",
+      "title": "Runtime write failed"
+    },
+    {
+      "code": "tool.invalid_arguments",
+      "layer": "tool",
+      "defaultSeverity": "error",
+      "title": "Invalid tool arguments"
+    },
+    {
+      "code": "tool.unknown",
+      "layer": "tool",
+      "defaultSeverity": "error",
+      "title": "Unknown tool"
+    },
+    {
+      "code": "validation.apply_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Apply failed"
+    },
+    {
+      "code": "validation.atomic_apply_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Atomic apply failed"
+    },
+    {
+      "code": "validation.atomic_rollback_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Atomic rollback failed"
+    },
+    {
+      "code": "validation.class_defaults_read_only",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Class defaults read only"
+    },
+    {
+      "code": "validation.class_source_required",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Class source required"
+    },
+    {
+      "code": "validation.connect_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Connect failed"
+    },
+    {
+      "code": "validation.creation_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Creation invalid"
+    },
+    {
+      "code": "validation.curve_type_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Curve type invalid"
+    },
+    {
+      "code": "validation.default_backup_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Default backup failed"
+    },
+    {
+      "code": "validation.default_constraint_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Default constraint failed"
+    },
+    {
+      "code": "validation.default_equal_inherited_not_durable",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Inherited-equal default is not durable"
+    },
+    {
+      "code": "validation.default_import_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Default import failed"
+    },
+    {
+      "code": "validation.default_not_resettable",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Default not resettable"
+    },
+    {
+      "code": "validation.default_read_only",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Default read only"
+    },
+    {
+      "code": "validation.default_rollback_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Default rollback failed"
+    },
+    {
+      "code": "validation.default_write_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Default write failed"
+    },
+    {
+      "code": "validation.disconnect_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Disconnect failed"
+    },
+    {
+      "code": "validation.duplicate_alias",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Duplicate alias"
+    },
+    {
+      "code": "validation.edit_target_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Edit target invalid"
+    },
+    {
+      "code": "validation.editor_close_vetoed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Editor close vetoed"
+    },
+    {
+      "code": "validation.editor_open_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Editor open failed"
+    },
+    {
+      "code": "validation.editor_verification_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Editor verification failed"
+    },
+    {
+      "code": "validation.exact_asset_required",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Exact Asset required"
+    },
+    {
+      "code": "validation.exact_class_required",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Exact Class required"
+    },
+    {
+      "code": "validation.exact_component_required",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Exact component required"
+    },
+    {
+      "code": "validation.exact_level_required",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Exact Level required"
+    },
+    {
+      "code": "validation.exact_pcg_graph_required",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Exact PCG Graph required"
+    },
+    {
+      "code": "validation.exact_widget_blueprint_required",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Exact Widget Blueprint required"
+    },
+    {
+      "code": "validation.field_unavailable",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Field unavailable"
+    },
+    {
+      "code": "validation.field_value_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Field value invalid"
+    },
+    {
+      "code": "validation.field_write_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Field write failed"
+    },
+    {
+      "code": "validation.finalization_must_be_independent",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Finalization must be independent"
+    },
+    {
+      "code": "validation.insert_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Insert invalid"
+    },
+    {
+      "code": "validation.invalid_add",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Invalid add"
+    },
+    {
+      "code": "validation.invalid_cursor",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Invalid cursor"
+    },
+    {
+      "code": "validation.invalid_default_target",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Invalid default target"
+    },
+    {
+      "code": "validation.invalid_field_target",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Invalid field target"
+    },
+    {
+      "code": "validation.invalid_mutation_result",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Invalid mutation result"
+    },
+    {
+      "code": "validation.invalid_reference",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Invalid reference"
+    },
+    {
+      "code": "validation.invalid_target",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Invalid target"
+    },
+    {
+      "code": "validation.invalid_widget_identity",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Invalid Widget identity"
+    },
+    {
+      "code": "validation.layout_apply_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Layout apply failed"
+    },
+    {
+      "code": "validation.layout_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Layout invalid"
+    },
+    {
+      "code": "validation.native_value_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Native value invalid"
+    },
+    {
+      "code": "validation.no_operations",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "No operations"
+    },
+    {
+      "code": "validation.node_not_deletable",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Node not deletable"
+    },
+    {
+      "code": "validation.object_invalidated",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Object invalidated"
+    },
+    {
+      "code": "validation.operation_arguments_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Operation arguments invalid"
+    },
+    {
+      "code": "validation.package_read_only",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Package read only"
+    },
+    {
+      "code": "validation.palette_context_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Palette context invalid"
+    },
+    {
+      "code": "validation.patch_state_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Patch state invalid"
+    },
+    {
+      "code": "validation.placement_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Placement invalid"
+    },
+    {
+      "code": "validation.preflight_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Preflight failed"
+    },
+    {
+      "code": "validation.reference_container_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Reference container failed"
+    },
+    {
+      "code": "validation.reference_scan_incomplete",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Reference scan incomplete"
+    },
+    {
+      "code": "validation.reference_scan_pending",
+      "layer": "validation",
+      "defaultSeverity": "info",
+      "title": "Reference scan pending"
+    },
+    {
+      "code": "validation.remove_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Remove invalid"
+    },
+    {
+      "code": "validation.replace_same_object",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Replacement is the target object"
+    },
+    {
+      "code": "validation.required_actor_protected",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Required actor protected"
+    },
+    {
+      "code": "validation.required_node_protected",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Required node protected"
+    },
+    {
+      "code": "validation.reset_source_unavailable",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Reset source unavailable"
+    },
+    {
+      "code": "validation.result_too_large",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Query result too large"
+    },
+    {
+      "code": "validation.rollback_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Rollback failed"
+    },
+    {
+      "code": "validation.save_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Save failed"
+    },
+    {
+      "code": "validation.save_plan_unavailable",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Save plan unavailable"
+    },
+    {
+      "code": "validation.settings_unavailable",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Settings unavailable"
+    },
+    {
+      "code": "validation.signature_edit_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Signature edit failed"
+    },
+    {
+      "code": "validation.signature_incompatible",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Signature incompatible"
+    },
+    {
+      "code": "validation.signature_inconsistent",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Signature inconsistent"
+    },
+    {
+      "code": "validation.sparse_data_unavailable",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Sparse data unavailable"
+    },
+    {
+      "code": "validation.spawn_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Spawn failed"
+    },
+    {
+      "code": "validation.statement_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Statement invalid"
+    },
+    {
+      "code": "validation.timeline_edit_failed",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Timeline edit failed"
+    },
+    {
+      "code": "validation.timeline_inconsistent",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Timeline inconsistent"
+    },
+    {
+      "code": "validation.timeline_key_conflict",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Timeline key conflict"
+    },
+    {
+      "code": "validation.timeline_key_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Timeline key invalid"
+    },
+    {
+      "code": "validation.timeline_track_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Timeline track invalid"
+    },
+    {
+      "code": "validation.unused_binding",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Unused binding"
+    },
+    {
+      "code": "validation.value_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Value invalid"
+    },
+    {
+      "code": "validation.widget_patch_invalid",
+      "layer": "validation",
+      "defaultSeverity": "error",
+      "title": "Widget Patch invalid"
+    }
+  ]
 }

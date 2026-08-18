@@ -1165,11 +1165,6 @@ bool ValidateNormalizedTarget(
     }
     if (Domain == TEXT("pcg_component"))
     {
-        if (Admission == ETargetAdmissionMode::Patch)
-        {
-            OutMessage = TEXT("pcg_component is Query-only in this protocol version and cannot be patched.");
-            return false;
-        }
         if (!HasOnly(
                 Value,
                 {TEXT("kind"), TEXT("domain"), TEXT("asset"), TEXT("actorId"), TEXT("source"), TEXT("id"), TEXT("type")})

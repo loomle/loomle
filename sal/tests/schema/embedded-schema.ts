@@ -27,17 +27,12 @@ assert.ok(
   schema.$defs.CollectionOperation.properties.kind.enum.includes("actors"),
   "protocol v6 must admit the Level actors collection operation",
 );
-for (const queryOnlyTarget of [
-  "PcgComponentTarget",
-]) {
-  assert.equal(
-    schema.$defs.PatchTarget.oneOf.some(
-      (entry: { $ref: string }) => entry.$ref === `#/$defs/${queryOnlyTarget}`,
-    ),
-    false,
-    `${queryOnlyTarget} must remain Query-only in the coordinated release`,
-  );
-}
+assert.ok(
+  schema.$defs.PatchTarget.oneOf.some(
+    (entry: { $ref: string }) => entry.$ref === "#/$defs/PcgComponentTarget",
+  ),
+  "pcg_component entered PatchTarget with the edit-guard capability bump",
+);
 assert.ok(
   schema.$defs.PatchTarget.oneOf.some(
     (entry: { $ref: string }) => entry.$ref === "#/$defs/CanonicalLevelTarget",

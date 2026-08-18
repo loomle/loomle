@@ -52,7 +52,8 @@ export type PatchTarget =
   | CanonicalStateTreeTarget
   | CanonicalWidgetTarget
   | CanonicalLevelTarget
-  | CanonicalPcgTarget;
+  | CanonicalPcgTarget
+  | PcgComponentTarget;
 export type PatchStatement = RequestBinding | PatchOperation;
 export type BindingTarget = LocalRef | BindingMemberRef;
 export type PatchOperation =

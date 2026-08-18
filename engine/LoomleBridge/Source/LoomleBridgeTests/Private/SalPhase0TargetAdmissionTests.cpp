@@ -343,8 +343,8 @@ bool FSalTargetAdmissionModesTest::RunTest(const FString& Parameters)
     TestTrue(
         TEXT("pcg_component passes canonical Result admission"),
         FSalJson::ValidateCanonicalTarget(Component, Message));
-    TestFalse(
-        TEXT("pcg_component fails Patch admission"),
+    TestTrue(
+        TEXT("pcg_component passes Patch admission with the edit-guard bump"),
         DecodePatchTarget(Component));
     TestFalse(
         TEXT("pcg_component rejects an open-ended source kind"),

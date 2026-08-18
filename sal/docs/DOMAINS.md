@@ -29,13 +29,12 @@ form the Scene/PCG family; `pcg_component` is Query-only in protocol v6:
 | `widget` | WidgetBlueprint asset plus `BlueprintGuid` | WidgetTree, Widgets, Slots, Widget Palette |
 | `level` | source-map Asset Path plus verified native Class | authored Actor and Component inspection, edits, lifecycle, and terminal save |
 | `pcg` | PCG Graph Asset Path plus verified native Class | authored PCG Graph, Node, Pin, Edge, Settings, and layout inspection and edits with terminal save |
-| `pcg_component` | Level asset, Actor Guid, source-aware Component locator, and verified native Class | read-only Graph binding and effective Parameter inspection |
+| `pcg_component` | Level asset, Actor Guid, source-aware Component locator, and verified native Class | Graph binding and effective Parameter inspection plus certified scalar edits under the async edit guard |
 
 All nine Domain names are structural keywords. They cannot be semantic tags,
-local aliases, or unquoted SAL Names. `level` and `pcg` are admitted to
-`PatchTarget`; `pcg_component` remains a public Query surface absent from
-`PatchTarget`, and its mutation contract requires a later capability
-release.
+local aliases, or unquoted SAL Names. `level`, `pcg`, and `pcg_component` are
+admitted to `PatchTarget`; `pcg_component` edits are gated by its fail-closed
+async edit guard.
 
 ## Target Grammar
 

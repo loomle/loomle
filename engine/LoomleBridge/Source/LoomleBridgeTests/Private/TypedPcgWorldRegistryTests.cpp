@@ -4,6 +4,7 @@
 
 #include "Runtime/Pcg/TypedPcgExecutionCoordinator.h"
 #include "Runtime/Pcg/TypedPcgWorldRegistry.h"
+#include "Sal/SalModule.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Dom/JsonObject.h"
@@ -17,6 +18,8 @@
 #include "Misc/Paths.h"
 #include "PCGComponent.h"
 #include "PCGVolume.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
@@ -529,6 +532,219 @@ bool FTypedPcgExecutionAdmissionTest::RunTest(const FString& Parameters)
     }
 
     Coordinator.Shutdown();
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+TSharedRef<FJsonObject> PcgComponentPatchArguments(
+    const FString& TargetText,
+    const TArray<TSharedPtr<FJsonValue>>& Statements,
+    const bool bDryRun = false)
+{
+    const TSharedPtr<FJsonObject> TargetValue = [&TargetText]()
+    {
+        TSharedPtr<FJsonObject> Object;
+        const TSharedRef<TJsonReader<>> Reader =
+            TJsonReaderFactory<>::Create(TargetText);
+        FJsonSerializer::Deserialize(Reader, Object);
+        return Object;
+    }();
+    TSharedRef<FJsonObject> Binding = MakeShared<FJsonObject>();
+    Binding->SetStringField(TEXT("alias"), TEXT("component"));
+    Binding->SetObjectField(TEXT("target"), TargetValue);
+    TSharedRef<FJsonObject> Patch = MakeShared<FJsonObject>();
+    Patch->SetStringField(TEXT("kind"), TEXT("patch"));
+    Patch->SetObjectField(TEXT("target"), Binding);
+    Patch->SetBoolField(TEXT("dryRun"), bDryRun);
+    Patch->SetArrayField(TEXT("statements"), Statements);
+    TSharedRef<FJsonObject> Arguments = MakeShared<FJsonObject>();
+    Arguments->SetObjectField(TEXT("object"), Patch);
+    return Arguments;
+}
+
+TSharedRef<FJsonObject> PcgComponentSeedStatement(
+    const FString& Kind,
+    const FString& ComponentId,
+    const FString& Value = FString())
+{
+    TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
+    Statement->SetStringField(TEXT("kind"), Kind);
+    TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("member"));
+    TSharedRef<FJsonObject> Owner = MakeShared<FJsonObject>();
+    Owner->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    TSharedRef<FJsonObject> Ref = MakeShared<FJsonObject>();
+    Ref->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    TArray<TSharedPtr<FJsonValue>> Identity;
+    Identity.Add(MakeShared<FJsonValueString>(ComponentId));
+    Ref->SetArrayField(TEXT("identityPath"), Identity);
+    Target->SetObjectField(TEXT("object"), Ref);
+    TArray<TSharedPtr<FJsonValue>> Path;
+    Path.Add(MakeShared<FJsonValueString>(TEXT("Seed")));
+    Target->SetArrayField(TEXT("path"), Path);
+    Statement->SetObjectField(TEXT("target"), Target);
+    if (Kind == TEXT("set"))
+    {
+        Statement->SetStringField(TEXT("value"), Value);
+    }
+    return Statement;
+}
+
+bool PcgComponentMutationHasField(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& Field,
+    bool& OutValue)
+{
+    OutValue = false;
+    return Result.IsValid()
+        && Result->TryGetBoolField(Field, OutValue);
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalPcgComponentPatchEditGuardTest,
+    "Loomle.Sal.PCGComponent.Patch.EditGuard",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalPcgComponentPatchEditGuardTest::RunTest(const FString& Parameters)
+{
+    if (GEditor == nullptr
+        || GEditor->IsPlaySessionInProgress())
+    {
+        AddError(TEXT(
+            "pcg_component Patch coverage requires an idle Editor outside "
+            "PIE."));
+        return false;
+    }
+    FTypedPcgFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("pcg_component Patch fixture builds"), Fixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const FString SourceText = Fixture.SourceTargetText();
+    const FString ComponentId = Fixture.ComponentId;
+
+    // Dry run plans without editing.
+    const TSharedPtr<FJsonObject> DryRun =
+        Loomle::Sal::FSalModule::BuildPatchResult(
+            PcgComponentPatchArguments(
+                SourceText,
+                {MakeShared<FJsonValueObject>(
+                    PcgComponentSeedStatement(
+                        TEXT("set"),
+                        ComponentId,
+                        TEXT("100")))},
+                true));
+    bool bValid = false;
+    bool bApplied = false;
+    TestTrue(
+        TEXT("pcg_component Patch dry-run validates"),
+        PcgComponentMutationHasField(DryRun, TEXT("valid"), bValid) && bValid);
+    TestTrue(
+        TEXT("pcg_component Patch dry-run does not apply"),
+        PcgComponentMutationHasField(DryRun, TEXT("applied"), bApplied)
+            && !bApplied);
+    TestEqual(
+        TEXT("The dry run leaves the Seed untouched"),
+        Fixture.Component->Seed,
+        42);
+
+    // Live set applies inside the transaction with readback.
+    const TSharedPtr<FJsonObject> SetResult =
+        Loomle::Sal::FSalModule::BuildPatchResult(
+            PcgComponentPatchArguments(
+                SourceText,
+                {MakeShared<FJsonValueObject>(
+                    PcgComponentSeedStatement(
+                        TEXT("set"),
+                        ComponentId,
+                        TEXT("100")))}));
+    TestTrue(
+        TEXT("pcg_component Patch set applies"),
+        PcgComponentMutationHasField(SetResult, TEXT("applied"), bApplied)
+            && bApplied);
+    TestTrue(
+        TEXT("pcg_component Patch set is valid"),
+        PcgComponentMutationHasField(SetResult, TEXT("valid"), bValid)
+            && bValid);
+    TestEqual(
+        TEXT("The set readback matches the requested Seed"),
+        Fixture.Component->Seed,
+        100);
+
+    // Reset restores the archetype default.
+    const TSharedPtr<FJsonObject> ResetResult =
+        Loomle::Sal::FSalModule::BuildPatchResult(
+            PcgComponentPatchArguments(
+                SourceText,
+                {MakeShared<FJsonValueObject>(
+                    PcgComponentSeedStatement(
+                        TEXT("reset"),
+                        ComponentId))}));
+    TestTrue(
+        TEXT("pcg_component Patch reset applies"),
+        PcgComponentMutationHasField(ResetResult, TEXT("applied"), bApplied)
+            && bApplied);
+    TestEqual(
+        TEXT("The reset restores the Seed default"),
+        Fixture.Component->Seed,
+        42);
+
+    // Unsupported field and statement fail closed.
+    TSharedRef<FJsonObject> BadField = PcgComponentSeedStatement(
+        TEXT("set"),
+        ComponentId,
+        TEXT("100"));
+    TSharedRef<FJsonObject> BadFieldTarget = MakeShared<FJsonObject>();
+    BadFieldTarget->SetStringField(TEXT("kind"), TEXT("member"));
+    TSharedRef<FJsonObject> BadFieldOwner = MakeShared<FJsonObject>();
+    BadFieldOwner->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    TArray<TSharedPtr<FJsonValue>> BadIdentity;
+    BadIdentity.Add(MakeShared<FJsonValueString>(ComponentId));
+    BadFieldOwner->SetArrayField(TEXT("identityPath"), BadIdentity);
+    BadFieldTarget->SetObjectField(TEXT("object"), BadFieldOwner);
+    TArray<TSharedPtr<FJsonValue>> BadPath;
+    BadPath.Add(MakeShared<FJsonValueString>(TEXT("NotAField")));
+    BadFieldTarget->SetArrayField(TEXT("path"), BadPath);
+    BadField->SetObjectField(TEXT("target"), BadFieldTarget);
+    const TSharedPtr<FJsonObject> BadFieldResult =
+        Loomle::Sal::FSalModule::BuildPatchResult(
+            PcgComponentPatchArguments(
+                SourceText,
+                {MakeShared<FJsonValueObject>(BadField)}));
+    TestTrue(
+        TEXT("An uncertified pcg_component field fails closed"),
+        PcgComponentMutationHasField(
+            BadFieldResult,
+            TEXT("valid"),
+            bValid) && !bValid);
+
+    // Terminal save is a valid level-owned no-op.
+    TSharedRef<FJsonObject> Save = MakeShared<FJsonObject>();
+    Save->SetStringField(TEXT("kind"), TEXT("save"));
+    const TSharedPtr<FJsonObject> SaveResult =
+        Loomle::Sal::FSalModule::BuildPatchResult(
+            PcgComponentPatchArguments(
+                SourceText,
+                {MakeShared<FJsonValueObject>(Save)}));
+    TestTrue(
+        TEXT("pcg_component terminal save is a valid level-owned no-op"),
+        PcgComponentMutationHasField(SaveResult, TEXT("valid"), bValid)
+            && bValid
+            && PcgComponentMutationHasField(
+                SaveResult,
+                TEXT("applied"),
+                bApplied) && !bApplied);
+
+    if (GEditor != nullptr && GEditor->Trans != nullptr)
+    {
+        GEditor->Trans->Reset(FText::FromString(TEXT("SAL test cleanup")));
+    }
+    Fixture.Component->Seed = 42;
     if (!Fixture.Cleanup(Error))
     {
         AddError(Error);

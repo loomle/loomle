@@ -1845,6 +1845,24 @@ Slice 3-B progress (branch, not published):
 
 ### Slice 4: generate, continuation/poll, and messages
 
+Slice 4-A progress (branch, not published):
+
+- `FTypedPcgExecutionCoordinator` (under `Runtime/Pcg/`) is the typed PCG
+  frontend on the shared kernel: every start carries the normalized World
+  selector, a matching source-bound ticket, and the canonical
+  `pcg_component` source, all revalidated atomically through the World
+  registry before admission;
+- the kernel record is registered before native scheduling, the lossless
+  native `FPCGTaskId` is captured, and terminal observation uses the
+  graph-generated delegate with a component-idle fallback; when native
+  admission refuses a task (unbound, inactive, or unavailable subsystem) the
+  run completes honestly as failed with `runtime.pcg_generation_failed`;
+- the kernel frees the frontend slot at terminal so a later execution is
+  admitted immediately (matching the proven Python lifecycle);
+- automation `Loomle.Runtime.Pcg.Execution.AdmissionGenerate` covers
+  admission, the failed-no-task outcome, the typed result, poll, and the
+  freed slot.
+
 - versioned typed PCG start/poll schema on the shared outer envelope;
 - required normalized World selector, matching source-bound World ticket, and
   canonical persistent Component source; no runtime-only source fallback;

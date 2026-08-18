@@ -33,7 +33,7 @@ SAL Text
   `state_tree`, `widget`, `level`, `pcg`, and `pcg_component`; each owns its
   closed Target schema and Target-relative identity environment. `level` and
   `pcg` are Patch Targets with authored edits and a terminal `save`;
-  `pcg_component` is Query-only in protocol v6 and is not a Patch Target.
+  `pcg_component` is a Patch Target under its fail-closed async edit guard.
 - Query has one primary `operation` plus optional `where`, `with`, `orderBy`,
   and `page`.
 - Patch contains one ordered `statements` array. Bindings and operations are

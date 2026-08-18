@@ -623,13 +623,6 @@ bool FSalTargetResolver::ResolveTarget(
 
     if (Domain == TEXT("pcg_component"))
     {
-        if (bForPatch)
-        {
-            OutError = InvalidTarget(
-                TEXT("pcg_component is a Query-only Target and cannot be used by sal_patch."));
-            return false;
-        }
-
         FString Asset;
         FString ActorId;
         FString Source;

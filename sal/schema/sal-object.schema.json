@@ -4,8 +4,12 @@
   "title": "SAL Normalized Object Schema",
   "description": "Normalized SAL contract for parsing, executors, RPC, ordered Object Text, and diagnostics.",
   "anyOf": [
-    { "$ref": "#/$defs/SalObject" },
-    { "$ref": "#/$defs/ObjectResult" }
+    {
+      "$ref": "#/$defs/SalObject"
+    },
+    {
+      "$ref": "#/$defs/ObjectResult"
+    }
   ],
   "$defs": {
     "Identifier": {
@@ -53,55 +57,98 @@
     "Name": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "name"],
+      "required": [
+        "kind",
+        "name"
+      ],
       "properties": {
-        "kind": { "const": "name" },
-        "name": { "$ref": "#/$defs/LocalIdentifier" }
+        "kind": {
+          "const": "name"
+        },
+        "name": {
+          "$ref": "#/$defs/LocalIdentifier"
+        }
       }
     },
     "LocalRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "name"],
+      "required": [
+        "kind",
+        "name"
+      ],
       "properties": {
-        "kind": { "const": "local" },
-        "name": { "$ref": "#/$defs/LocalIdentifier" }
+        "kind": {
+          "const": "local"
+        },
+        "name": {
+          "$ref": "#/$defs/LocalIdentifier"
+        }
       }
     },
     "StableRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "identityPath"],
+      "required": [
+        "kind",
+        "identityPath"
+      ],
       "properties": {
-        "kind": { "const": "stable_ref" },
+        "kind": {
+          "const": "stable_ref"
+        },
         "identityPath": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/NonEmptyString" }
+          "items": {
+            "$ref": "#/$defs/NonEmptyString"
+          }
         },
-        "semanticTag": { "$ref": "#/$defs/SemanticTag" }
+        "semanticTag": {
+          "$ref": "#/$defs/SemanticTag"
+        }
       }
     },
     "ScopedStableRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "target", "reference"],
+      "required": [
+        "kind",
+        "target",
+        "reference"
+      ],
       "properties": {
-        "kind": { "const": "scoped_stable_ref" },
-        "target": { "$ref": "#/$defs/LocalRef" },
-        "reference": { "$ref": "#/$defs/StableRef" }
+        "kind": {
+          "const": "scoped_stable_ref"
+        },
+        "target": {
+          "$ref": "#/$defs/LocalRef"
+        },
+        "reference": {
+          "$ref": "#/$defs/StableRef"
+        }
       }
     },
     "RequestMemberRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "object", "path"],
+      "required": [
+        "kind",
+        "object",
+        "path"
+      ],
       "properties": {
-        "kind": { "const": "member" },
+        "kind": {
+          "const": "member"
+        },
         "object": {
           "oneOf": [
-            { "$ref": "#/$defs/LocalRef" },
-            { "$ref": "#/$defs/StableRef" }
+            {
+              "$ref": "#/$defs/LocalRef"
+            },
+            {
+              "$ref": "#/$defs/StableRef"
+            }
           ]
         },
         "path": {
@@ -109,28 +156,52 @@
           "minItems": 1,
           "items": {
             "oneOf": [
-              { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
-              { "type": "integer", "minimum": 0, "maximum": 2147483647 }
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              },
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              }
             ]
           }
         }
       }
     },
-    "MemberRef": { "$ref": "#/$defs/RequestMemberRef" },
+    "MemberRef": {
+      "$ref": "#/$defs/RequestMemberRef"
+    },
     "StableMemberRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "object", "path"],
+      "required": [
+        "kind",
+        "object",
+        "path"
+      ],
       "properties": {
-        "kind": { "const": "member" },
-        "object": { "$ref": "#/$defs/StableRef" },
+        "kind": {
+          "const": "member"
+        },
+        "object": {
+          "$ref": "#/$defs/StableRef"
+        },
         "path": {
           "type": "array",
           "minItems": 1,
           "items": {
             "oneOf": [
-              { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
-              { "type": "integer", "minimum": 0, "maximum": 2147483647 }
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              },
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              }
             ]
           }
         }
@@ -139,14 +210,26 @@
     "ResultMemberRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "object", "path"],
+      "required": [
+        "kind",
+        "object",
+        "path"
+      ],
       "properties": {
-        "kind": { "const": "member" },
+        "kind": {
+          "const": "member"
+        },
         "object": {
           "oneOf": [
-            { "$ref": "#/$defs/LocalRef" },
-            { "$ref": "#/$defs/StableRef" },
-            { "$ref": "#/$defs/ScopedStableRef" }
+            {
+              "$ref": "#/$defs/LocalRef"
+            },
+            {
+              "$ref": "#/$defs/StableRef"
+            },
+            {
+              "$ref": "#/$defs/ScopedStableRef"
+            }
           ]
         },
         "path": {
@@ -154,8 +237,15 @@
           "minItems": 1,
           "items": {
             "oneOf": [
-              { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
-              { "type": "integer", "minimum": 0, "maximum": 2147483647 }
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              },
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              }
             ]
           }
         }
@@ -163,91 +253,180 @@
     },
     "RequestRef": {
       "oneOf": [
-        { "$ref": "#/$defs/LocalRef" },
-        { "$ref": "#/$defs/StableRef" },
-        { "$ref": "#/$defs/RequestMemberRef" }
+        {
+          "$ref": "#/$defs/LocalRef"
+        },
+        {
+          "$ref": "#/$defs/StableRef"
+        },
+        {
+          "$ref": "#/$defs/RequestMemberRef"
+        }
       ]
     },
     "ResultRef": {
       "oneOf": [
-        { "$ref": "#/$defs/LocalRef" },
-        { "$ref": "#/$defs/StableRef" },
-        { "$ref": "#/$defs/ScopedStableRef" },
-        { "$ref": "#/$defs/ResultMemberRef" }
+        {
+          "$ref": "#/$defs/LocalRef"
+        },
+        {
+          "$ref": "#/$defs/StableRef"
+        },
+        {
+          "$ref": "#/$defs/ScopedStableRef"
+        },
+        {
+          "$ref": "#/$defs/ResultMemberRef"
+        }
       ]
     },
     "ObjectExpr": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "fields"],
+      "required": [
+        "kind",
+        "fields"
+      ],
       "properties": {
-        "kind": { "const": "object" },
+        "kind": {
+          "const": "object"
+        },
         "fields": {
           "type": "object",
-          "additionalProperties": { "$ref": "#/$defs/RequestExpr" }
+          "additionalProperties": {
+            "$ref": "#/$defs/RequestExpr"
+          }
         },
-        "semanticTag": { "$ref": "#/$defs/SemanticTag" }
+        "semanticTag": {
+          "$ref": "#/$defs/SemanticTag"
+        }
       }
     },
     "ResultObjectExpr": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "fields"],
+      "required": [
+        "kind",
+        "fields"
+      ],
       "properties": {
-        "kind": { "const": "object" },
+        "kind": {
+          "const": "object"
+        },
         "fields": {
           "type": "object",
-          "additionalProperties": { "$ref": "#/$defs/ResultExpr" }
+          "additionalProperties": {
+            "$ref": "#/$defs/ResultExpr"
+          }
         },
-        "semanticTag": { "$ref": "#/$defs/SemanticTag" }
+        "semanticTag": {
+          "$ref": "#/$defs/SemanticTag"
+        }
       }
     },
     "RequestExpr": {
       "anyOf": [
-        { "type": "null" },
-        { "type": "boolean" },
-        { "type": "number" },
-        { "type": "string" },
-        { "$ref": "#/$defs/Name" },
-        { "$ref": "#/$defs/RequestRef" },
-        { "$ref": "#/$defs/ObjectExpr" },
-        { "type": "array", "items": { "$ref": "#/$defs/RequestExpr" } }
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/Name"
+        },
+        {
+          "$ref": "#/$defs/RequestRef"
+        },
+        {
+          "$ref": "#/$defs/ObjectExpr"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RequestExpr"
+          }
+        }
       ]
     },
     "ResultExpr": {
       "anyOf": [
-        { "type": "null" },
-        { "type": "boolean" },
-        { "type": "number" },
-        { "type": "string" },
-        { "$ref": "#/$defs/Name" },
-        { "$ref": "#/$defs/ResultRef" },
-        { "$ref": "#/$defs/ResultObjectExpr" },
-        { "type": "array", "items": { "$ref": "#/$defs/ResultExpr" } }
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/Name"
+        },
+        {
+          "$ref": "#/$defs/ResultRef"
+        },
+        {
+          "$ref": "#/$defs/ResultObjectExpr"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResultExpr"
+          }
+        }
       ]
     },
     "TargetSelfRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "properties": {
-        "kind": { "const": "target_self" }
+        "kind": {
+          "const": "target_self"
+        }
       }
     },
     "TargetSelfMemberRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "object", "path"],
+      "required": [
+        "kind",
+        "object",
+        "path"
+      ],
       "properties": {
-        "kind": { "const": "member" },
-        "object": { "$ref": "#/$defs/TargetSelfRef" },
+        "kind": {
+          "const": "member"
+        },
+        "object": {
+          "$ref": "#/$defs/TargetSelfRef"
+        },
         "path": {
           "type": "array",
           "minItems": 1,
           "items": {
             "oneOf": [
-              { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
-              { "type": "integer", "minimum": 0, "maximum": 2147483647 }
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              },
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              }
             ]
           }
         }
@@ -256,17 +435,32 @@
     "BindingMemberRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "object", "path"],
+      "required": [
+        "kind",
+        "object",
+        "path"
+      ],
       "properties": {
-        "kind": { "const": "member" },
-        "object": { "$ref": "#/$defs/LocalRef" },
+        "kind": {
+          "const": "member"
+        },
+        "object": {
+          "$ref": "#/$defs/LocalRef"
+        },
         "path": {
           "type": "array",
           "minItems": 1,
           "items": {
             "oneOf": [
-              { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
-              { "type": "integer", "minimum": 0, "maximum": 2147483647 }
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              },
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              }
             ]
           }
         }
@@ -274,50 +468,84 @@
     },
     "BindingTarget": {
       "oneOf": [
-        { "$ref": "#/$defs/LocalRef" },
-        { "$ref": "#/$defs/BindingMemberRef" }
+        {
+          "$ref": "#/$defs/LocalRef"
+        },
+        {
+          "$ref": "#/$defs/BindingMemberRef"
+        }
       ]
     },
     "Binding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["target", "value"],
+      "required": [
+        "target",
+        "value"
+      ],
       "properties": {
-        "target": { "$ref": "#/$defs/BindingTarget" },
-        "value": { "$ref": "#/$defs/ResultExpr" }
+        "target": {
+          "$ref": "#/$defs/BindingTarget"
+        },
+        "value": {
+          "$ref": "#/$defs/ResultExpr"
+        }
       }
     },
     "RequestBinding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["target", "value"],
+      "required": [
+        "target",
+        "value"
+      ],
       "properties": {
-        "target": { "$ref": "#/$defs/BindingTarget" },
-        "value": { "$ref": "#/$defs/RequestExpr" }
+        "target": {
+          "$ref": "#/$defs/BindingTarget"
+        },
+        "value": {
+          "$ref": "#/$defs/RequestExpr"
+        }
       }
     },
     "Edge": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["from", "to"],
+      "required": [
+        "from",
+        "to"
+      ],
       "properties": {
-        "from": { "$ref": "#/$defs/ResultRef" },
-        "to": { "$ref": "#/$defs/ResultRef" }
+        "from": {
+          "$ref": "#/$defs/ResultRef"
+        },
+        "to": {
+          "$ref": "#/$defs/ResultRef"
+        }
       }
     },
     "Comment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "text"],
+      "required": [
+        "kind",
+        "text"
+      ],
       "properties": {
-        "kind": { "const": "comment" },
+        "kind": {
+          "const": "comment"
+        },
         "text": {
           "oneOf": [
-            { "const": "###" },
+            {
+              "const": "###"
+            },
             {
               "type": "string",
               "minLength": 1,
-              "not": { "pattern": "(^|\\r?\\n)[ \\t]*###[ \\t]*(\\r?\\n|$)" }
+              "not": {
+                "pattern": "(^|\\r?\\n)[ \\t]*###[ \\t]*(\\r?\\n|$)"
+              }
             }
           ]
         }
@@ -325,428 +553,888 @@
     },
     "Statement": {
       "oneOf": [
-        { "$ref": "#/$defs/Binding" },
-        { "$ref": "#/$defs/Edge" },
-        { "$ref": "#/$defs/Comment" }
+        {
+          "$ref": "#/$defs/Binding"
+        },
+        {
+          "$ref": "#/$defs/Edge"
+        },
+        {
+          "$ref": "#/$defs/Comment"
+        }
       ]
     },
     "ObjectText": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["statements"],
+      "required": [
+        "statements"
+      ],
       "properties": {
         "statements": {
           "type": "array",
-          "items": { "$ref": "#/$defs/Statement" }
+          "items": {
+            "$ref": "#/$defs/Statement"
+          }
         }
       }
     },
     "TargetBaseProperties": {
       "type": "object",
-      "required": ["kind", "domain"],
+      "required": [
+        "kind",
+        "domain"
+      ],
       "properties": {
-        "kind": { "const": "target" },
+        "kind": {
+          "const": "target"
+        },
         "domain": {
-          "enum": ["asset", "blueprint", "class", "graph", "state_tree", "widget", "level", "pcg", "pcg_component"]
+          "enum": [
+            "asset",
+            "blueprint",
+            "class",
+            "graph",
+            "state_tree",
+            "widget",
+            "level",
+            "pcg",
+            "pcg_component"
+          ]
         }
       }
     },
     "AssetRootTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain"],
+      "required": [
+        "kind",
+        "domain"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "asset" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "asset"
+        }
       }
     },
     "AssetPathTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "path"],
+      "required": [
+        "kind",
+        "domain",
+        "path"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "asset" },
-        "path": { "$ref": "#/$defs/NonEmptyString" },
-        "type": { "$ref": "#/$defs/NonEmptyString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "asset"
+        },
+        "path": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "type": {
+          "$ref": "#/$defs/NonEmptyString"
+        }
       }
     },
     "AssetTarget": {
       "oneOf": [
-        { "$ref": "#/$defs/AssetRootTarget" },
-        { "$ref": "#/$defs/AssetPathTarget" }
+        {
+          "$ref": "#/$defs/AssetRootTarget"
+        },
+        {
+          "$ref": "#/$defs/AssetPathTarget"
+        }
       ]
     },
     "BlueprintTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "asset"],
+      "required": [
+        "kind",
+        "domain",
+        "asset"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "blueprint" },
-        "asset": { "$ref": "#/$defs/NonEmptyString" },
-        "id": { "$ref": "#/$defs/GuidString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "blueprint"
+        },
+        "asset": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "id": {
+          "$ref": "#/$defs/GuidString"
+        }
       }
     },
     "ClassTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "path"],
+      "required": [
+        "kind",
+        "domain",
+        "path"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "class" },
-        "path": { "$ref": "#/$defs/NonEmptyString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "class"
+        },
+        "path": {
+          "$ref": "#/$defs/NonEmptyString"
+        }
       }
     },
     "GraphByIdTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "asset", "id"],
+      "required": [
+        "kind",
+        "domain",
+        "asset",
+        "id"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "graph" },
-        "asset": { "$ref": "#/$defs/NonEmptyString" },
-        "blueprintId": { "$ref": "#/$defs/GuidString" },
-        "id": { "$ref": "#/$defs/GuidString" },
-        "name": { "$ref": "#/$defs/NonEmptyString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "graph"
+        },
+        "asset": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "blueprintId": {
+          "$ref": "#/$defs/GuidString"
+        },
+        "id": {
+          "$ref": "#/$defs/GuidString"
+        },
+        "name": {
+          "$ref": "#/$defs/NonEmptyString"
+        }
       }
     },
     "GraphByNameTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "asset", "name"],
+      "required": [
+        "kind",
+        "domain",
+        "asset",
+        "name"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "graph" },
-        "asset": { "$ref": "#/$defs/NonEmptyString" },
-        "blueprintId": { "$ref": "#/$defs/GuidString" },
-        "name": { "$ref": "#/$defs/NonEmptyString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "graph"
+        },
+        "asset": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "blueprintId": {
+          "$ref": "#/$defs/GuidString"
+        },
+        "name": {
+          "$ref": "#/$defs/NonEmptyString"
+        }
       }
     },
     "GraphTarget": {
       "oneOf": [
-        { "$ref": "#/$defs/GraphByIdTarget" },
-        { "$ref": "#/$defs/GraphByNameTarget" }
+        {
+          "$ref": "#/$defs/GraphByIdTarget"
+        },
+        {
+          "$ref": "#/$defs/GraphByNameTarget"
+        }
       ]
     },
     "StateTreeTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "asset"],
+      "required": [
+        "kind",
+        "domain",
+        "asset"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "state_tree" },
-        "asset": { "$ref": "#/$defs/NonEmptyString" },
-        "type": { "$ref": "#/$defs/NonEmptyString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "state_tree"
+        },
+        "asset": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "type": {
+          "$ref": "#/$defs/NonEmptyString"
+        }
       }
     },
     "WidgetTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "asset"],
+      "required": [
+        "kind",
+        "domain",
+        "asset"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "widget" },
-        "asset": { "$ref": "#/$defs/NonEmptyString" },
-        "id": { "$ref": "#/$defs/GuidString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "widget"
+        },
+        "asset": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "id": {
+          "$ref": "#/$defs/GuidString"
+        }
       }
     },
     "LevelTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "asset"],
+      "required": [
+        "kind",
+        "domain",
+        "asset"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "level" },
-        "asset": { "$ref": "#/$defs/NonEmptyString" },
-        "type": { "$ref": "#/$defs/NonEmptyString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "level"
+        },
+        "asset": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "type": {
+          "$ref": "#/$defs/NonEmptyString"
+        }
       }
     },
     "PcgTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "asset"],
+      "required": [
+        "kind",
+        "domain",
+        "asset"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "pcg" },
-        "asset": { "$ref": "#/$defs/NonEmptyString" },
-        "type": { "$ref": "#/$defs/NonEmptyString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "pcg"
+        },
+        "asset": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "type": {
+          "$ref": "#/$defs/NonEmptyString"
+        }
       }
     },
     "PcgComponentTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "asset", "actorId", "source", "id", "type"],
+      "required": [
+        "kind",
+        "domain",
+        "asset",
+        "actorId",
+        "source",
+        "id",
+        "type"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "pcg_component" },
-        "asset": { "$ref": "#/$defs/NonEmptyString" },
-        "actorId": { "$ref": "#/$defs/GuidString" },
-        "source": { "enum": ["native", "scs", "instance"] },
-        "id": { "$ref": "#/$defs/NonEmptyString" },
-        "type": { "$ref": "#/$defs/NonEmptyString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "pcg_component"
+        },
+        "asset": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "actorId": {
+          "$ref": "#/$defs/GuidString"
+        },
+        "source": {
+          "enum": [
+            "native",
+            "scs",
+            "instance"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "type": {
+          "$ref": "#/$defs/NonEmptyString"
+        }
       }
     },
     "QueryTarget": {
       "oneOf": [
-        { "$ref": "#/$defs/AssetTarget" },
-        { "$ref": "#/$defs/BlueprintTarget" },
-        { "$ref": "#/$defs/ClassTarget" },
-        { "$ref": "#/$defs/GraphTarget" },
-        { "$ref": "#/$defs/StateTreeTarget" },
-        { "$ref": "#/$defs/WidgetTarget" },
-        { "$ref": "#/$defs/LevelTarget" },
-        { "$ref": "#/$defs/PcgTarget" },
-        { "$ref": "#/$defs/PcgComponentTarget" }
+        {
+          "$ref": "#/$defs/AssetTarget"
+        },
+        {
+          "$ref": "#/$defs/BlueprintTarget"
+        },
+        {
+          "$ref": "#/$defs/ClassTarget"
+        },
+        {
+          "$ref": "#/$defs/GraphTarget"
+        },
+        {
+          "$ref": "#/$defs/StateTreeTarget"
+        },
+        {
+          "$ref": "#/$defs/WidgetTarget"
+        },
+        {
+          "$ref": "#/$defs/LevelTarget"
+        },
+        {
+          "$ref": "#/$defs/PcgTarget"
+        },
+        {
+          "$ref": "#/$defs/PcgComponentTarget"
+        }
       ]
     },
-    "Target": { "$ref": "#/$defs/QueryTarget" },
+    "Target": {
+      "$ref": "#/$defs/QueryTarget"
+    },
     "CanonicalAssetTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "path", "type"],
+      "required": [
+        "kind",
+        "domain",
+        "path",
+        "type"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "asset" },
-        "path": { "$ref": "#/$defs/NonEmptyString" },
-        "type": { "$ref": "#/$defs/NonEmptyString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "asset"
+        },
+        "path": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "type": {
+          "$ref": "#/$defs/NonEmptyString"
+        }
       }
     },
     "CanonicalBlueprintTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "asset", "id"],
+      "required": [
+        "kind",
+        "domain",
+        "asset",
+        "id"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "blueprint" },
-        "asset": { "$ref": "#/$defs/NonEmptyString" },
-        "id": { "$ref": "#/$defs/GuidString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "blueprint"
+        },
+        "asset": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "id": {
+          "$ref": "#/$defs/GuidString"
+        }
       }
     },
     "CanonicalGraphTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "asset", "blueprintId", "id"],
+      "required": [
+        "kind",
+        "domain",
+        "asset",
+        "blueprintId",
+        "id"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "graph" },
-        "asset": { "$ref": "#/$defs/NonEmptyString" },
-        "blueprintId": { "$ref": "#/$defs/GuidString" },
-        "id": { "$ref": "#/$defs/GuidString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "graph"
+        },
+        "asset": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "blueprintId": {
+          "$ref": "#/$defs/GuidString"
+        },
+        "id": {
+          "$ref": "#/$defs/GuidString"
+        }
       }
     },
     "CanonicalStateTreeTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "asset", "type"],
+      "required": [
+        "kind",
+        "domain",
+        "asset",
+        "type"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "state_tree" },
-        "asset": { "$ref": "#/$defs/NonEmptyString" },
-        "type": { "$ref": "#/$defs/NonEmptyString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "state_tree"
+        },
+        "asset": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "type": {
+          "$ref": "#/$defs/NonEmptyString"
+        }
       }
     },
     "CanonicalWidgetTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "asset", "id"],
+      "required": [
+        "kind",
+        "domain",
+        "asset",
+        "id"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "widget" },
-        "asset": { "$ref": "#/$defs/NonEmptyString" },
-        "id": { "$ref": "#/$defs/GuidString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "widget"
+        },
+        "asset": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "id": {
+          "$ref": "#/$defs/GuidString"
+        }
       }
     },
     "CanonicalLevelTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "asset", "type"],
+      "required": [
+        "kind",
+        "domain",
+        "asset",
+        "type"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "level" },
-        "asset": { "$ref": "#/$defs/NonEmptyString" },
-        "type": { "$ref": "#/$defs/NonEmptyString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "level"
+        },
+        "asset": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "type": {
+          "$ref": "#/$defs/NonEmptyString"
+        }
       }
     },
     "CanonicalPcgTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "domain", "asset", "type"],
+      "required": [
+        "kind",
+        "domain",
+        "asset",
+        "type"
+      ],
       "properties": {
-        "kind": { "const": "target" },
-        "domain": { "const": "pcg" },
-        "asset": { "$ref": "#/$defs/NonEmptyString" },
-        "type": { "$ref": "#/$defs/NonEmptyString" }
+        "kind": {
+          "const": "target"
+        },
+        "domain": {
+          "const": "pcg"
+        },
+        "asset": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "type": {
+          "$ref": "#/$defs/NonEmptyString"
+        }
       }
     },
     "CanonicalTarget": {
       "oneOf": [
-        { "$ref": "#/$defs/CanonicalAssetTarget" },
-        { "$ref": "#/$defs/CanonicalBlueprintTarget" },
-        { "$ref": "#/$defs/ClassTarget" },
-        { "$ref": "#/$defs/CanonicalGraphTarget" },
-        { "$ref": "#/$defs/CanonicalStateTreeTarget" },
-        { "$ref": "#/$defs/CanonicalWidgetTarget" },
-        { "$ref": "#/$defs/CanonicalLevelTarget" },
-        { "$ref": "#/$defs/CanonicalPcgTarget" },
-        { "$ref": "#/$defs/PcgComponentTarget" }
+        {
+          "$ref": "#/$defs/CanonicalAssetTarget"
+        },
+        {
+          "$ref": "#/$defs/CanonicalBlueprintTarget"
+        },
+        {
+          "$ref": "#/$defs/ClassTarget"
+        },
+        {
+          "$ref": "#/$defs/CanonicalGraphTarget"
+        },
+        {
+          "$ref": "#/$defs/CanonicalStateTreeTarget"
+        },
+        {
+          "$ref": "#/$defs/CanonicalWidgetTarget"
+        },
+        {
+          "$ref": "#/$defs/CanonicalLevelTarget"
+        },
+        {
+          "$ref": "#/$defs/CanonicalPcgTarget"
+        },
+        {
+          "$ref": "#/$defs/PcgComponentTarget"
+        }
       ]
     },
     "PatchTarget": {
       "oneOf": [
-        { "$ref": "#/$defs/CanonicalAssetTarget" },
-        { "$ref": "#/$defs/CanonicalBlueprintTarget" },
-        { "$ref": "#/$defs/ClassTarget" },
-        { "$ref": "#/$defs/CanonicalGraphTarget" },
-        { "$ref": "#/$defs/CanonicalStateTreeTarget" },
-        { "$ref": "#/$defs/CanonicalWidgetTarget" },
-        { "$ref": "#/$defs/CanonicalLevelTarget" },
-        { "$ref": "#/$defs/CanonicalPcgTarget" }
+        {
+          "$ref": "#/$defs/CanonicalAssetTarget"
+        },
+        {
+          "$ref": "#/$defs/CanonicalBlueprintTarget"
+        },
+        {
+          "$ref": "#/$defs/ClassTarget"
+        },
+        {
+          "$ref": "#/$defs/CanonicalGraphTarget"
+        },
+        {
+          "$ref": "#/$defs/CanonicalStateTreeTarget"
+        },
+        {
+          "$ref": "#/$defs/CanonicalWidgetTarget"
+        },
+        {
+          "$ref": "#/$defs/CanonicalLevelTarget"
+        },
+        {
+          "$ref": "#/$defs/CanonicalPcgTarget"
+        },
+        {
+          "$ref": "#/$defs/PcgComponentTarget"
+        }
       ]
     },
     "QueryTargetBinding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["alias", "target"],
+      "required": [
+        "alias",
+        "target"
+      ],
       "properties": {
-        "alias": { "$ref": "#/$defs/LocalIdentifier" },
-        "target": { "$ref": "#/$defs/QueryTarget" }
+        "alias": {
+          "$ref": "#/$defs/LocalIdentifier"
+        },
+        "target": {
+          "$ref": "#/$defs/QueryTarget"
+        }
       }
     },
-    "TargetBinding": { "$ref": "#/$defs/QueryTargetBinding" },
+    "TargetBinding": {
+      "$ref": "#/$defs/QueryTargetBinding"
+    },
     "CanonicalTargetBinding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["alias", "target"],
+      "required": [
+        "alias",
+        "target"
+      ],
       "properties": {
-        "alias": { "$ref": "#/$defs/LocalIdentifier" },
-        "target": { "$ref": "#/$defs/CanonicalTarget" }
+        "alias": {
+          "$ref": "#/$defs/LocalIdentifier"
+        },
+        "target": {
+          "$ref": "#/$defs/CanonicalTarget"
+        }
       }
     },
     "PatchTargetBinding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["alias", "target"],
+      "required": [
+        "alias",
+        "target"
+      ],
       "properties": {
-        "alias": { "$ref": "#/$defs/LocalIdentifier" },
-        "target": { "$ref": "#/$defs/PatchTarget" }
+        "alias": {
+          "$ref": "#/$defs/LocalIdentifier"
+        },
+        "target": {
+          "$ref": "#/$defs/PatchTarget"
+        }
       }
     },
     "DomainRootTargetBinding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["alias", "target"],
+      "required": [
+        "alias",
+        "target"
+      ],
       "properties": {
-        "alias": { "$ref": "#/$defs/LocalIdentifier" },
-        "target": { "$ref": "#/$defs/AssetRootTarget" }
+        "alias": {
+          "$ref": "#/$defs/LocalIdentifier"
+        },
+        "target": {
+          "$ref": "#/$defs/AssetRootTarget"
+        }
       }
     },
     "FieldPath": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path"],
+      "required": [
+        "path"
+      ],
       "properties": {
         "path": {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          }
         }
       }
     },
     "EqCondition": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "field", "value"],
+      "required": [
+        "kind",
+        "field",
+        "value"
+      ],
       "properties": {
-        "kind": { "const": "eq" },
-        "field": { "$ref": "#/$defs/FieldPath" },
-        "value": { "$ref": "#/$defs/RequestExpr" }
+        "kind": {
+          "const": "eq"
+        },
+        "field": {
+          "$ref": "#/$defs/FieldPath"
+        },
+        "value": {
+          "$ref": "#/$defs/RequestExpr"
+        }
       }
     },
     "NeCondition": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "field", "value"],
+      "required": [
+        "kind",
+        "field",
+        "value"
+      ],
       "properties": {
-        "kind": { "const": "ne" },
-        "field": { "$ref": "#/$defs/FieldPath" },
-        "value": { "$ref": "#/$defs/RequestExpr" }
+        "kind": {
+          "const": "ne"
+        },
+        "field": {
+          "$ref": "#/$defs/FieldPath"
+        },
+        "value": {
+          "$ref": "#/$defs/RequestExpr"
+        }
       }
     },
     "ContainsCondition": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "field", "value"],
+      "required": [
+        "kind",
+        "field",
+        "value"
+      ],
       "properties": {
-        "kind": { "const": "contains" },
-        "field": { "$ref": "#/$defs/FieldPath" },
-        "value": { "$ref": "#/$defs/RequestExpr" }
+        "kind": {
+          "const": "contains"
+        },
+        "field": {
+          "$ref": "#/$defs/FieldPath"
+        },
+        "value": {
+          "$ref": "#/$defs/RequestExpr"
+        }
       }
     },
     "CompareCondition": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "op", "field", "value"],
+      "required": [
+        "kind",
+        "op",
+        "field",
+        "value"
+      ],
       "properties": {
-        "kind": { "const": "compare" },
-        "op": { "enum": ["gt", "gte", "lt", "lte"] },
-        "field": { "$ref": "#/$defs/FieldPath" },
-        "value": { "$ref": "#/$defs/RequestExpr" }
+        "kind": {
+          "const": "compare"
+        },
+        "op": {
+          "enum": [
+            "gt",
+            "gte",
+            "lt",
+            "lte"
+          ]
+        },
+        "field": {
+          "$ref": "#/$defs/FieldPath"
+        },
+        "value": {
+          "$ref": "#/$defs/RequestExpr"
+        }
       }
     },
     "NotCondition": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "condition"],
+      "required": [
+        "kind",
+        "condition"
+      ],
       "properties": {
-        "kind": { "const": "not" },
-        "condition": { "$ref": "#/$defs/Condition" }
+        "kind": {
+          "const": "not"
+        },
+        "condition": {
+          "$ref": "#/$defs/Condition"
+        }
       }
     },
     "AndCondition": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "conditions"],
+      "required": [
+        "kind",
+        "conditions"
+      ],
       "properties": {
-        "kind": { "const": "and" },
+        "kind": {
+          "const": "and"
+        },
         "conditions": {
           "type": "array",
           "minItems": 2,
-          "items": { "$ref": "#/$defs/Condition" }
+          "items": {
+            "$ref": "#/$defs/Condition"
+          }
         }
       }
     },
     "OrCondition": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "conditions"],
+      "required": [
+        "kind",
+        "conditions"
+      ],
       "properties": {
-        "kind": { "const": "or" },
+        "kind": {
+          "const": "or"
+        },
         "conditions": {
           "type": "array",
           "minItems": 2,
-          "items": { "$ref": "#/$defs/Condition" }
+          "items": {
+            "$ref": "#/$defs/Condition"
+          }
         }
       }
     },
     "Condition": {
       "oneOf": [
-        { "$ref": "#/$defs/EqCondition" },
-        { "$ref": "#/$defs/NeCondition" },
-        { "$ref": "#/$defs/ContainsCondition" },
-        { "$ref": "#/$defs/CompareCondition" },
-        { "$ref": "#/$defs/NotCondition" },
-        { "$ref": "#/$defs/AndCondition" },
-        { "$ref": "#/$defs/OrCondition" }
+        {
+          "$ref": "#/$defs/EqCondition"
+        },
+        {
+          "$ref": "#/$defs/NeCondition"
+        },
+        {
+          "$ref": "#/$defs/ContainsCondition"
+        },
+        {
+          "$ref": "#/$defs/CompareCondition"
+        },
+        {
+          "$ref": "#/$defs/NotCondition"
+        },
+        {
+          "$ref": "#/$defs/AndCondition"
+        },
+        {
+          "$ref": "#/$defs/OrCondition"
+        }
       ]
     },
     "OrderBy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["key", "direction"],
+      "required": [
+        "key",
+        "direction"
+      ],
       "properties": {
-        "key": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*$" },
-        "direction": { "enum": ["asc", "desc"] }
+        "key": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*$"
+        },
+        "direction": {
+          "enum": [
+            "asc",
+            "desc"
+          ]
+        }
       }
     },
     "Page": {
@@ -754,26 +1442,47 @@
       "additionalProperties": false,
       "minProperties": 1,
       "properties": {
-        "limit": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
-        "after": { "type": "string", "minLength": 1 }
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "after": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "SummaryOperation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind"],
-      "properties": { "kind": { "const": "summary" } }
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "summary"
+        }
+      }
     },
     "TargetOperation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind"],
-      "properties": { "kind": { "const": "target" } }
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "target"
+        }
+      }
     },
     "CollectionOperation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "properties": {
         "kind": {
           "enum": [
@@ -792,13 +1501,19 @@
             "parameters"
           ]
         },
-        "text": { "type": "string", "minLength": 1 }
+        "text": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "NamedOperation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "name"],
+      "required": [
+        "kind",
+        "name"
+      ],
       "properties": {
         "kind": {
           "enum": [
@@ -812,209 +1527,399 @@
             "widget"
           ]
         },
-        "name": { "type": "string", "minLength": 1 }
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "ExactObjectOperation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "target"],
+      "required": [
+        "kind",
+        "target"
+      ],
       "properties": {
-        "kind": { "const": "object" },
-        "target": { "$ref": "#/$defs/StableRef" }
+        "kind": {
+          "const": "object"
+        },
+        "target": {
+          "$ref": "#/$defs/StableRef"
+        }
       }
     },
     "PaletteIdOperation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "id"],
+      "required": [
+        "kind",
+        "id"
+      ],
       "properties": {
-        "kind": { "const": "palette" },
-        "id": { "type": "string", "minLength": 1, "pattern": "^\\S+$" }
+        "kind": {
+          "const": "palette"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S+$"
+        }
       }
     },
     "TreeOperation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "properties": {
-        "kind": { "const": "tree" },
-        "root": { "$ref": "#/$defs/StableRef" },
-        "depth": { "type": "integer", "minimum": 1, "maximum": 2147483647 }
+        "kind": {
+          "const": "tree"
+        },
+        "root": {
+          "$ref": "#/$defs/StableRef"
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        }
       }
     },
     "ContextOperation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "target"],
+      "required": [
+        "kind",
+        "target"
+      ],
       "properties": {
-        "kind": { "const": "context" },
-        "target": { "$ref": "#/$defs/StableRef" },
-        "depth": { "type": "integer", "minimum": 1, "maximum": 2147483647 }
+        "kind": {
+          "const": "context"
+        },
+        "target": {
+          "$ref": "#/$defs/StableRef"
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        }
       }
     },
     "FlowOperation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "direction", "target"],
+      "required": [
+        "kind",
+        "direction",
+        "target"
+      ],
       "properties": {
-        "kind": { "enum": ["exec_flow", "data_flow"] },
-        "direction": { "enum": ["from", "to"] },
-        "target": { "$ref": "#/$defs/StableRef" },
-        "depth": { "type": "integer", "minimum": 1, "maximum": 2147483647 }
+        "kind": {
+          "enum": [
+            "exec_flow",
+            "data_flow"
+          ]
+        },
+        "direction": {
+          "enum": [
+            "from",
+            "to"
+          ]
+        },
+        "target": {
+          "$ref": "#/$defs/StableRef"
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        }
       }
     },
     "ReferencesOperation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "target"],
+      "required": [
+        "kind",
+        "target"
+      ],
       "properties": {
-        "kind": { "const": "references" },
+        "kind": {
+          "const": "references"
+        },
         "target": {
           "oneOf": [
-            { "$ref": "#/$defs/TargetSelfRef" },
-            { "$ref": "#/$defs/TargetSelfMemberRef" },
-            { "$ref": "#/$defs/StableRef" },
-            { "$ref": "#/$defs/StableMemberRef" }
+            {
+              "$ref": "#/$defs/TargetSelfRef"
+            },
+            {
+              "$ref": "#/$defs/TargetSelfMemberRef"
+            },
+            {
+              "$ref": "#/$defs/StableRef"
+            },
+            {
+              "$ref": "#/$defs/StableMemberRef"
+            }
           ]
         },
-        "scope": { "const": "project" }
+        "scope": {
+          "const": "project"
+        }
       }
     },
     "PalettePinContext": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["direction", "pin"],
+      "required": [
+        "direction",
+        "pin"
+      ],
       "properties": {
-        "direction": { "enum": ["from", "to"] },
-        "pin": { "$ref": "#/$defs/StableRef" }
+        "direction": {
+          "enum": [
+            "from",
+            "to"
+          ]
+        },
+        "pin": {
+          "$ref": "#/$defs/StableRef"
+        }
       }
     },
     "PaletteEntriesOperation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "properties": {
-        "kind": { "const": "palette_entries" },
-        "text": { "type": "string", "minLength": 1 },
-        "pinContext": { "$ref": "#/$defs/PalettePinContext" }
+        "kind": {
+          "const": "palette_entries"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pinContext": {
+          "$ref": "#/$defs/PalettePinContext"
+        }
       }
     },
     "DestinationPaletteEntriesOperation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "to"],
+      "required": [
+        "kind",
+        "to"
+      ],
       "properties": {
-        "kind": { "const": "palette_entries" },
-        "text": { "type": "string", "minLength": 1 },
-        "to": { "$ref": "#/$defs/RequestRef" }
-      }
-    },
-    "DestinationPaletteEntriesOperation": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["kind", "to"],
-      "properties": {
-        "kind": { "const": "palette_entries" },
-        "text": { "type": "string", "minLength": 1 },
-        "to": { "$ref": "#/$defs/RequestRef" }
+        "kind": {
+          "const": "palette_entries"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "$ref": "#/$defs/RequestRef"
+        }
       }
     },
     "DestinationPaletteIdOperation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "id", "to"],
+      "required": [
+        "kind",
+        "id",
+        "to"
+      ],
       "properties": {
-        "kind": { "const": "palette" },
-        "id": { "type": "string", "minLength": 1, "pattern": "^\\S+$" },
-        "to": { "$ref": "#/$defs/RequestRef" }
+        "kind": {
+          "const": "palette"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S+$"
+        },
+        "to": {
+          "$ref": "#/$defs/RequestRef"
+        }
       }
     },
     "QueryOperation": {
       "oneOf": [
-        { "$ref": "#/$defs/TargetOperation" },
-        { "$ref": "#/$defs/SummaryOperation" },
-        { "$ref": "#/$defs/CollectionOperation" },
-        { "$ref": "#/$defs/NamedOperation" },
-        { "$ref": "#/$defs/ExactObjectOperation" },
-        { "$ref": "#/$defs/PaletteIdOperation" },
-        { "$ref": "#/$defs/TreeOperation" },
-        { "$ref": "#/$defs/ContextOperation" },
-        { "$ref": "#/$defs/FlowOperation" },
-        { "$ref": "#/$defs/ReferencesOperation" },
-        { "$ref": "#/$defs/PaletteEntriesOperation" },
-        { "$ref": "#/$defs/DestinationPaletteEntriesOperation" },
-        { "$ref": "#/$defs/DestinationPaletteIdOperation" }
+        {
+          "$ref": "#/$defs/TargetOperation"
+        },
+        {
+          "$ref": "#/$defs/SummaryOperation"
+        },
+        {
+          "$ref": "#/$defs/CollectionOperation"
+        },
+        {
+          "$ref": "#/$defs/NamedOperation"
+        },
+        {
+          "$ref": "#/$defs/ExactObjectOperation"
+        },
+        {
+          "$ref": "#/$defs/PaletteIdOperation"
+        },
+        {
+          "$ref": "#/$defs/TreeOperation"
+        },
+        {
+          "$ref": "#/$defs/ContextOperation"
+        },
+        {
+          "$ref": "#/$defs/FlowOperation"
+        },
+        {
+          "$ref": "#/$defs/ReferencesOperation"
+        },
+        {
+          "$ref": "#/$defs/PaletteEntriesOperation"
+        },
+        {
+          "$ref": "#/$defs/DestinationPaletteEntriesOperation"
+        },
+        {
+          "$ref": "#/$defs/DestinationPaletteIdOperation"
+        }
       ]
     },
     "Query": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "target", "operation"],
+      "required": [
+        "kind",
+        "target",
+        "operation"
+      ],
       "properties": {
-        "kind": { "const": "query" },
-        "target": { "$ref": "#/$defs/QueryTargetBinding" },
-        "operation": { "$ref": "#/$defs/QueryOperation" },
-        "where": { "$ref": "#/$defs/Condition" },
+        "kind": {
+          "const": "query"
+        },
+        "target": {
+          "$ref": "#/$defs/QueryTargetBinding"
+        },
+        "operation": {
+          "$ref": "#/$defs/QueryOperation"
+        },
+        "where": {
+          "$ref": "#/$defs/Condition"
+        },
         "with": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          }
         },
         "orderBy": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/OrderBy" }
+          "items": {
+            "$ref": "#/$defs/OrderBy"
+          }
         },
-        "page": { "$ref": "#/$defs/Page" }
+        "page": {
+          "$ref": "#/$defs/Page"
+        }
       }
     },
     "Point": {
       "type": "array",
       "minItems": 2,
       "maxItems": 2,
-      "items": { "type": "number" }
+      "items": {
+        "type": "number"
+      }
     },
     "Add": {
       "type": "object",
       "additionalProperties": false,
       "maxProperties": 3,
-      "required": ["kind", "target"],
+      "required": [
+        "kind",
+        "target"
+      ],
       "properties": {
-        "kind": { "const": "add" },
-        "target": { "$ref": "#/$defs/BindingTarget" },
-        "to": { "$ref": "#/$defs/RequestRef" },
-        "before": { "$ref": "#/$defs/RequestRef" },
-        "after": { "$ref": "#/$defs/RequestRef" }
+        "kind": {
+          "const": "add"
+        },
+        "target": {
+          "$ref": "#/$defs/BindingTarget"
+        },
+        "to": {
+          "$ref": "#/$defs/RequestRef"
+        },
+        "before": {
+          "$ref": "#/$defs/RequestRef"
+        },
+        "after": {
+          "$ref": "#/$defs/RequestRef"
+        }
       }
     },
     "Remove": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "target"],
+      "required": [
+        "kind",
+        "target"
+      ],
       "properties": {
-        "kind": { "const": "remove" },
-        "target": { "$ref": "#/$defs/RequestRef" }
+        "kind": {
+          "const": "remove"
+        },
+        "target": {
+          "$ref": "#/$defs/RequestRef"
+        }
       }
     },
     "Set": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "target", "value"],
+      "required": [
+        "kind",
+        "target",
+        "value"
+      ],
       "properties": {
-        "kind": { "const": "set" },
-        "target": { "$ref": "#/$defs/MemberRef" },
-        "value": { "$ref": "#/$defs/RequestExpr" }
+        "kind": {
+          "const": "set"
+        },
+        "target": {
+          "$ref": "#/$defs/MemberRef"
+        },
+        "value": {
+          "$ref": "#/$defs/RequestExpr"
+        }
       }
     },
     "Reset": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "target"],
+      "required": [
+        "kind",
+        "target"
+      ],
       "properties": {
-        "kind": { "const": "reset" },
-        "target": { "$ref": "#/$defs/MemberRef" }
+        "kind": {
+          "const": "reset"
+        },
+        "target": {
+          "$ref": "#/$defs/MemberRef"
+        }
       }
     },
     "Move": {
@@ -1022,364 +1927,719 @@
       "additionalProperties": false,
       "minProperties": 3,
       "maxProperties": 3,
-      "required": ["kind", "target"],
+      "required": [
+        "kind",
+        "target"
+      ],
       "properties": {
-        "kind": { "const": "move" },
-        "target": { "$ref": "#/$defs/RequestRef" },
+        "kind": {
+          "const": "move"
+        },
+        "target": {
+          "$ref": "#/$defs/RequestRef"
+        },
         "to": {
           "oneOf": [
-            { "$ref": "#/$defs/RequestRef" },
-            { "$ref": "#/$defs/Point" }
+            {
+              "$ref": "#/$defs/RequestRef"
+            },
+            {
+              "$ref": "#/$defs/Point"
+            }
           ]
         },
-        "by": { "$ref": "#/$defs/Point" },
-        "before": { "$ref": "#/$defs/RequestRef" },
-        "after": { "$ref": "#/$defs/RequestRef" }
+        "by": {
+          "$ref": "#/$defs/Point"
+        },
+        "before": {
+          "$ref": "#/$defs/RequestRef"
+        },
+        "after": {
+          "$ref": "#/$defs/RequestRef"
+        }
       }
     },
     "Connect": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "from", "to"],
+      "required": [
+        "kind",
+        "from",
+        "to"
+      ],
       "properties": {
-        "kind": { "const": "connect" },
-        "from": { "$ref": "#/$defs/RequestRef" },
-        "to": { "$ref": "#/$defs/RequestRef" }
+        "kind": {
+          "const": "connect"
+        },
+        "from": {
+          "$ref": "#/$defs/RequestRef"
+        },
+        "to": {
+          "$ref": "#/$defs/RequestRef"
+        }
       }
     },
     "Disconnect": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "from", "to"],
+      "required": [
+        "kind",
+        "from",
+        "to"
+      ],
       "properties": {
-        "kind": { "const": "disconnect" },
-        "from": { "$ref": "#/$defs/RequestRef" },
-        "to": { "$ref": "#/$defs/RequestRef" }
+        "kind": {
+          "const": "disconnect"
+        },
+        "from": {
+          "$ref": "#/$defs/RequestRef"
+        },
+        "to": {
+          "$ref": "#/$defs/RequestRef"
+        }
       }
     },
     "Bind": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "from", "to"],
+      "required": [
+        "kind",
+        "from",
+        "to"
+      ],
       "properties": {
-        "kind": { "const": "bind" },
-        "from": { "$ref": "#/$defs/RequestRef" },
-        "to": { "$ref": "#/$defs/RequestRef" }
+        "kind": {
+          "const": "bind"
+        },
+        "from": {
+          "$ref": "#/$defs/RequestRef"
+        },
+        "to": {
+          "$ref": "#/$defs/RequestRef"
+        }
       }
     },
     "Unbind": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "from", "to"],
+      "required": [
+        "kind",
+        "from",
+        "to"
+      ],
       "properties": {
-        "kind": { "const": "unbind" },
-        "from": { "$ref": "#/$defs/RequestRef" },
-        "to": { "$ref": "#/$defs/RequestRef" }
+        "kind": {
+          "const": "unbind"
+        },
+        "from": {
+          "$ref": "#/$defs/RequestRef"
+        },
+        "to": {
+          "$ref": "#/$defs/RequestRef"
+        }
       }
     },
     "Break": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "target"],
+      "required": [
+        "kind",
+        "target"
+      ],
       "properties": {
-        "kind": { "const": "break" },
-        "target": { "$ref": "#/$defs/RequestRef" }
+        "kind": {
+          "const": "break"
+        },
+        "target": {
+          "$ref": "#/$defs/RequestRef"
+        }
       }
     },
     "Insert": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "from", "input", "output", "to"],
+      "required": [
+        "kind",
+        "from",
+        "input",
+        "output",
+        "to"
+      ],
       "properties": {
-        "kind": { "const": "insert" },
-        "from": { "$ref": "#/$defs/RequestRef" },
-        "input": { "$ref": "#/$defs/RequestRef" },
-        "output": { "$ref": "#/$defs/RequestRef" },
-        "to": { "$ref": "#/$defs/RequestRef" }
+        "kind": {
+          "const": "insert"
+        },
+        "from": {
+          "$ref": "#/$defs/RequestRef"
+        },
+        "input": {
+          "$ref": "#/$defs/RequestRef"
+        },
+        "output": {
+          "$ref": "#/$defs/RequestRef"
+        },
+        "to": {
+          "$ref": "#/$defs/RequestRef"
+        }
       }
     },
     "Wrap": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "targets", "with"],
+      "required": [
+        "kind",
+        "targets",
+        "with"
+      ],
       "properties": {
-        "kind": { "const": "wrap" },
+        "kind": {
+          "const": "wrap"
+        },
         "targets": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/RequestRef" }
+          "items": {
+            "$ref": "#/$defs/RequestRef"
+          }
         },
-        "with": { "$ref": "#/$defs/LocalRef" }
+        "with": {
+          "$ref": "#/$defs/LocalRef"
+        }
       }
     },
     "Replace": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "target", "with"],
+      "required": [
+        "kind",
+        "target",
+        "with"
+      ],
       "properties": {
-        "kind": { "const": "replace" },
-        "target": { "$ref": "#/$defs/RequestRef" },
-        "with": { "$ref": "#/$defs/RequestRef" }
+        "kind": {
+          "const": "replace"
+        },
+        "target": {
+          "$ref": "#/$defs/RequestRef"
+        },
+        "with": {
+          "$ref": "#/$defs/RequestRef"
+        }
       }
     },
     "InvokeOutput": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["alias"],
+      "required": [
+        "alias"
+      ],
       "properties": {
-        "selector": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*$" },
-        "alias": { "$ref": "#/$defs/LocalIdentifier" }
+        "selector": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*$"
+        },
+        "alias": {
+          "$ref": "#/$defs/LocalIdentifier"
+        }
       }
     },
     "Invoke": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "target", "operation", "args", "outputs"],
+      "required": [
+        "kind",
+        "target",
+        "operation",
+        "args",
+        "outputs"
+      ],
       "properties": {
-        "kind": { "const": "invoke" },
-        "target": { "$ref": "#/$defs/RequestRef" },
-        "operation": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+        "kind": {
+          "const": "invoke"
+        },
+        "target": {
+          "$ref": "#/$defs/RequestRef"
+        },
+        "operation": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
         "args": {
           "type": "object",
-          "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
-          "additionalProperties": { "$ref": "#/$defs/RequestExpr" }
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/RequestExpr"
+          }
         },
         "outputs": {
           "type": "array",
-          "items": { "$ref": "#/$defs/InvokeOutput" }
+          "items": {
+            "$ref": "#/$defs/InvokeOutput"
+          }
         }
       }
     },
     "Save": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind"],
-      "properties": { "kind": { "const": "save" } }
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "save"
+        }
+      }
     },
     "Compile": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind"],
-      "properties": { "kind": { "const": "compile" } }
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "compile"
+        }
+      }
     },
     "PatchOperation": {
       "oneOf": [
-        { "$ref": "#/$defs/Add" },
-        { "$ref": "#/$defs/Remove" },
-        { "$ref": "#/$defs/Set" },
-        { "$ref": "#/$defs/Reset" },
-        { "$ref": "#/$defs/Move" },
-        { "$ref": "#/$defs/Connect" },
-        { "$ref": "#/$defs/Disconnect" },
-        { "$ref": "#/$defs/Bind" },
-        { "$ref": "#/$defs/Unbind" },
-        { "$ref": "#/$defs/Break" },
-        { "$ref": "#/$defs/Insert" },
-        { "$ref": "#/$defs/Wrap" },
-        { "$ref": "#/$defs/Replace" },
-        { "$ref": "#/$defs/Invoke" },
-        { "$ref": "#/$defs/Compile" },
-        { "$ref": "#/$defs/Save" }
+        {
+          "$ref": "#/$defs/Add"
+        },
+        {
+          "$ref": "#/$defs/Remove"
+        },
+        {
+          "$ref": "#/$defs/Set"
+        },
+        {
+          "$ref": "#/$defs/Reset"
+        },
+        {
+          "$ref": "#/$defs/Move"
+        },
+        {
+          "$ref": "#/$defs/Connect"
+        },
+        {
+          "$ref": "#/$defs/Disconnect"
+        },
+        {
+          "$ref": "#/$defs/Bind"
+        },
+        {
+          "$ref": "#/$defs/Unbind"
+        },
+        {
+          "$ref": "#/$defs/Break"
+        },
+        {
+          "$ref": "#/$defs/Insert"
+        },
+        {
+          "$ref": "#/$defs/Wrap"
+        },
+        {
+          "$ref": "#/$defs/Replace"
+        },
+        {
+          "$ref": "#/$defs/Invoke"
+        },
+        {
+          "$ref": "#/$defs/Compile"
+        },
+        {
+          "$ref": "#/$defs/Save"
+        }
       ]
     },
     "PatchStatement": {
       "oneOf": [
-        { "$ref": "#/$defs/RequestBinding" },
-        { "$ref": "#/$defs/PatchOperation" }
+        {
+          "$ref": "#/$defs/RequestBinding"
+        },
+        {
+          "$ref": "#/$defs/PatchOperation"
+        }
       ]
     },
     "Patch": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "target", "dryRun", "statements"],
+      "required": [
+        "kind",
+        "target",
+        "dryRun",
+        "statements"
+      ],
       "properties": {
-        "kind": { "const": "patch" },
-        "target": { "$ref": "#/$defs/PatchTargetBinding" },
-        "dryRun": { "type": "boolean" },
+        "kind": {
+          "const": "patch"
+        },
+        "target": {
+          "$ref": "#/$defs/PatchTargetBinding"
+        },
+        "dryRun": {
+          "type": "boolean"
+        },
         "statements": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/PatchStatement" }
+          "items": {
+            "$ref": "#/$defs/PatchStatement"
+          }
         }
       }
     },
     "SalObject": {
       "oneOf": [
-        { "$ref": "#/$defs/Query" },
-        { "$ref": "#/$defs/Patch" },
-        { "$ref": "#/$defs/ObjectText" }
+        {
+          "$ref": "#/$defs/Query"
+        },
+        {
+          "$ref": "#/$defs/Patch"
+        },
+        {
+          "$ref": "#/$defs/ObjectText"
+        }
       ]
     },
     "SourceSpan": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["line", "column"],
+      "required": [
+        "line",
+        "column"
+      ],
       "properties": {
-        "line": { "type": "integer", "minimum": 1 },
-        "column": { "type": "integer", "minimum": 1 },
-        "length": { "type": "integer", "minimum": 0 }
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "DiagnosticPath": {
       "type": "array",
       "items": {
         "oneOf": [
-          { "type": "string" },
-          { "type": "integer", "minimum": 0 }
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer",
+            "minimum": 0
+          }
         ]
       }
     },
     "Diagnostic": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["severity", "code", "message"],
+      "required": [
+        "severity",
+        "code",
+        "message"
+      ],
       "properties": {
-        "severity": { "enum": ["error", "warning", "info"] },
-        "code": { "type": "string", "minLength": 1 },
-        "message": { "type": "string", "minLength": 1 },
-        "path": { "$ref": "#/$defs/DiagnosticPath" },
-        "span": { "$ref": "#/$defs/SourceSpan" },
-        "domain": { "type": "string", "minLength": 1 },
-        "operation": { "type": "string", "minLength": 1 },
-        "ref": { "type": "string", "minLength": 1 },
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "$ref": "#/$defs/DiagnosticPath"
+        },
+        "span": {
+          "$ref": "#/$defs/SourceSpan"
+        },
+        "domain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        },
         "expected": true,
         "actual": true,
         "supported": true,
-        "matches": { "type": "array", "items": true },
-        "suggestion": { "type": "string", "minLength": 1 }
+        "matches": {
+          "type": "array",
+          "items": true
+        },
+        "suggestion": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "ResultPage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["next"],
+      "required": [
+        "next"
+      ],
       "properties": {
-        "next": { "type": "string", "minLength": 1 }
+        "next": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "Result": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["diagnostics"],
+      "required": [
+        "diagnostics"
+      ],
       "properties": {
-        "object": { "$ref": "#/$defs/ObjectText" },
+        "object": {
+          "$ref": "#/$defs/ObjectText"
+        },
         "diagnostics": {
           "type": "array",
-          "items": { "$ref": "#/$defs/Diagnostic" }
+          "items": {
+            "$ref": "#/$defs/Diagnostic"
+          }
         },
-        "page": { "$ref": "#/$defs/ResultPage" }
+        "page": {
+          "$ref": "#/$defs/ResultPage"
+        }
       }
     },
     "MutationResult": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["diagnostics", "isError", "dryRun", "valid", "applied", "operation"],
+      "required": [
+        "diagnostics",
+        "isError",
+        "dryRun",
+        "valid",
+        "applied",
+        "operation"
+      ],
       "if": {
-        "properties": { "dryRun": { "const": true } },
-        "required": ["dryRun"]
+        "properties": {
+          "dryRun": {
+            "const": true
+          }
+        },
+        "required": [
+          "dryRun"
+        ]
       },
       "then": {
-        "properties": { "applied": { "const": false } }
+        "properties": {
+          "applied": {
+            "const": false
+          }
+        }
       },
       "properties": {
-        "object": { "$ref": "#/$defs/ObjectText" },
+        "object": {
+          "$ref": "#/$defs/ObjectText"
+        },
         "diagnostics": {
           "type": "array",
-          "items": { "$ref": "#/$defs/Diagnostic" }
+          "items": {
+            "$ref": "#/$defs/Diagnostic"
+          }
         },
-        "page": { "$ref": "#/$defs/ResultPage" },
-        "isError": { "type": "boolean" },
-        "dryRun": { "type": "boolean" },
-        "valid": { "type": "boolean" },
-        "applied": { "type": "boolean" },
-        "assetPath": { "type": "string", "minLength": 1 },
-        "operation": { "type": "string", "minLength": 1 },
+        "page": {
+          "$ref": "#/$defs/ResultPage"
+        },
+        "isError": {
+          "type": "boolean"
+        },
+        "dryRun": {
+          "type": "boolean"
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "assetPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation": {
+          "type": "string",
+          "minLength": 1
+        },
         "resolvedRefs": true,
         "planned": true,
         "diff": true,
-        "previousRevision": { "type": "string", "minLength": 1 },
-        "newRevision": { "type": "string", "minLength": 1 }
+        "previousRevision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "newRevision": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "TargetHandoff": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "purpose", "target"],
+      "required": [
+        "kind",
+        "purpose",
+        "target"
+      ],
       "properties": {
-        "kind": { "const": "target_handoff" },
-        "purpose": { "$ref": "#/$defs/NonEmptyString" },
-        "target": { "$ref": "#/$defs/LocalRef" }
+        "kind": {
+          "const": "target_handoff"
+        },
+        "purpose": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "target": {
+          "$ref": "#/$defs/LocalRef"
+        }
       }
     },
     "ExactTargetResultContext": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["targetContext", "target"],
+      "required": [
+        "targetContext",
+        "target"
+      ],
       "properties": {
-        "targetContext": { "const": "exact_target" },
-        "target": { "$ref": "#/$defs/CanonicalTargetBinding" },
+        "targetContext": {
+          "const": "exact_target"
+        },
+        "target": {
+          "$ref": "#/$defs/CanonicalTargetBinding"
+        },
         "relatedTargets": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/CanonicalTargetBinding" }
+          "items": {
+            "$ref": "#/$defs/CanonicalTargetBinding"
+          }
         },
         "handoffs": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/TargetHandoff" }
+          "items": {
+            "$ref": "#/$defs/TargetHandoff"
+          }
         }
       }
     },
     "DomainRootResultContext": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["targetContext", "target"],
+      "required": [
+        "targetContext",
+        "target"
+      ],
       "properties": {
-        "targetContext": { "const": "domain_root" },
-        "target": { "$ref": "#/$defs/DomainRootTargetBinding" },
+        "targetContext": {
+          "const": "domain_root"
+        },
+        "target": {
+          "$ref": "#/$defs/DomainRootTargetBinding"
+        },
         "relatedTargets": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/CanonicalTargetBinding" }
+          "items": {
+            "$ref": "#/$defs/CanonicalTargetBinding"
+          }
         },
         "handoffs": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/TargetHandoff" }
+          "items": {
+            "$ref": "#/$defs/TargetHandoff"
+          }
         }
       }
     },
     "UnresolvedTargetResultContext": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["targetContext"],
+      "required": [
+        "targetContext"
+      ],
       "properties": {
-        "targetContext": { "const": "unresolved_target" }
+        "targetContext": {
+          "const": "unresolved_target"
+        }
       }
     },
     "ExactQueryResult": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["targetContext", "target", "diagnostics"],
+      "required": [
+        "targetContext",
+        "target",
+        "diagnostics"
+      ],
       "properties": {
-        "targetContext": { "const": "exact_target" },
-        "target": { "$ref": "#/$defs/CanonicalTargetBinding" },
+        "targetContext": {
+          "const": "exact_target"
+        },
+        "target": {
+          "$ref": "#/$defs/CanonicalTargetBinding"
+        },
         "relatedTargets": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/CanonicalTargetBinding" }
+          "items": {
+            "$ref": "#/$defs/CanonicalTargetBinding"
+          }
         },
         "handoffs": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/TargetHandoff" }
+          "items": {
+            "$ref": "#/$defs/TargetHandoff"
+          }
         },
-        "object": { "$ref": "#/$defs/ObjectText" },
+        "object": {
+          "$ref": "#/$defs/ObjectText"
+        },
         "diagnostics": {
           "type": "array",
-          "items": { "$ref": "#/$defs/Diagnostic" }
+          "items": {
+            "$ref": "#/$defs/Diagnostic"
+          }
         },
-        "page": { "$ref": "#/$defs/ResultPage" }
+        "page": {
+          "$ref": "#/$defs/ResultPage"
+        }
       }
     },
     "ExactMutationResult": {
@@ -1396,87 +2656,166 @@
         "operation"
       ],
       "if": {
-        "properties": { "dryRun": { "const": true } },
-        "required": ["dryRun"]
+        "properties": {
+          "dryRun": {
+            "const": true
+          }
+        },
+        "required": [
+          "dryRun"
+        ]
       },
       "then": {
-        "properties": { "applied": { "const": false } }
+        "properties": {
+          "applied": {
+            "const": false
+          }
+        }
       },
       "properties": {
-        "targetContext": { "const": "exact_target" },
-        "target": { "$ref": "#/$defs/CanonicalTargetBinding" },
+        "targetContext": {
+          "const": "exact_target"
+        },
+        "target": {
+          "$ref": "#/$defs/CanonicalTargetBinding"
+        },
         "relatedTargets": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/CanonicalTargetBinding" }
+          "items": {
+            "$ref": "#/$defs/CanonicalTargetBinding"
+          }
         },
         "handoffs": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/TargetHandoff" }
+          "items": {
+            "$ref": "#/$defs/TargetHandoff"
+          }
         },
-        "object": { "$ref": "#/$defs/ObjectText" },
+        "object": {
+          "$ref": "#/$defs/ObjectText"
+        },
         "diagnostics": {
           "type": "array",
-          "items": { "$ref": "#/$defs/Diagnostic" }
+          "items": {
+            "$ref": "#/$defs/Diagnostic"
+          }
         },
-        "page": { "$ref": "#/$defs/ResultPage" },
-        "isError": { "type": "boolean" },
-        "dryRun": { "type": "boolean" },
-        "valid": { "type": "boolean" },
-        "applied": { "type": "boolean" },
-        "assetPath": { "type": "string", "minLength": 1 },
-        "operation": { "type": "string", "minLength": 1 },
+        "page": {
+          "$ref": "#/$defs/ResultPage"
+        },
+        "isError": {
+          "type": "boolean"
+        },
+        "dryRun": {
+          "type": "boolean"
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "assetPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation": {
+          "type": "string",
+          "minLength": 1
+        },
         "resolvedRefs": true,
         "planned": true,
         "diff": true,
-        "previousRevision": { "type": "string", "minLength": 1 },
-        "newRevision": { "type": "string", "minLength": 1 }
+        "previousRevision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "newRevision": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "DomainRootQueryResult": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["targetContext", "target", "diagnostics"],
+      "required": [
+        "targetContext",
+        "target",
+        "diagnostics"
+      ],
       "properties": {
-        "targetContext": { "const": "domain_root" },
-        "target": { "$ref": "#/$defs/DomainRootTargetBinding" },
+        "targetContext": {
+          "const": "domain_root"
+        },
+        "target": {
+          "$ref": "#/$defs/DomainRootTargetBinding"
+        },
         "relatedTargets": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/CanonicalTargetBinding" }
+          "items": {
+            "$ref": "#/$defs/CanonicalTargetBinding"
+          }
         },
         "handoffs": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/TargetHandoff" }
+          "items": {
+            "$ref": "#/$defs/TargetHandoff"
+          }
         },
-        "object": { "$ref": "#/$defs/ObjectText" },
+        "object": {
+          "$ref": "#/$defs/ObjectText"
+        },
         "diagnostics": {
           "type": "array",
-          "items": { "$ref": "#/$defs/Diagnostic" }
+          "items": {
+            "$ref": "#/$defs/Diagnostic"
+          }
         },
-        "page": { "$ref": "#/$defs/ResultPage" }
+        "page": {
+          "$ref": "#/$defs/ResultPage"
+        }
       }
     },
     "UnresolvedQueryResult": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["targetContext", "diagnostics"],
+      "required": [
+        "targetContext",
+        "diagnostics"
+      ],
       "properties": {
-        "targetContext": { "const": "unresolved_target" },
-        "object": { "$ref": "#/$defs/ObjectText" },
+        "targetContext": {
+          "const": "unresolved_target"
+        },
+        "object": {
+          "$ref": "#/$defs/ObjectText"
+        },
         "diagnostics": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/Diagnostic" },
+          "items": {
+            "$ref": "#/$defs/Diagnostic"
+          },
           "contains": {
             "type": "object",
-            "required": ["severity"],
-            "properties": { "severity": { "const": "error" } }
+            "required": [
+              "severity"
+            ],
+            "properties": {
+              "severity": {
+                "const": "error"
+              }
+            }
           }
         },
-        "page": { "$ref": "#/$defs/ResultPage" }
+        "page": {
+          "$ref": "#/$defs/ResultPage"
+        }
       }
     },
     "UnresolvedMutationResult": {
@@ -1492,39 +2831,83 @@
         "operation"
       ],
       "properties": {
-        "targetContext": { "const": "unresolved_target" },
-        "object": { "$ref": "#/$defs/ObjectText" },
+        "targetContext": {
+          "const": "unresolved_target"
+        },
+        "object": {
+          "$ref": "#/$defs/ObjectText"
+        },
         "diagnostics": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/Diagnostic" },
+          "items": {
+            "$ref": "#/$defs/Diagnostic"
+          },
           "contains": {
             "type": "object",
-            "required": ["severity"],
-            "properties": { "severity": { "const": "error" } }
+            "required": [
+              "severity"
+            ],
+            "properties": {
+              "severity": {
+                "const": "error"
+              }
+            }
           }
         },
-        "page": { "$ref": "#/$defs/ResultPage" },
-        "isError": { "const": true },
-        "dryRun": { "type": "boolean" },
-        "valid": { "const": false },
-        "applied": { "const": false },
-        "assetPath": { "type": "string", "minLength": 1 },
-        "operation": { "type": "string", "minLength": 1 },
+        "page": {
+          "$ref": "#/$defs/ResultPage"
+        },
+        "isError": {
+          "const": true
+        },
+        "dryRun": {
+          "type": "boolean"
+        },
+        "valid": {
+          "const": false
+        },
+        "applied": {
+          "const": false
+        },
+        "assetPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation": {
+          "type": "string",
+          "minLength": 1
+        },
         "resolvedRefs": true,
         "planned": true,
         "diff": true,
-        "previousRevision": { "type": "string", "minLength": 1 },
-        "newRevision": { "type": "string", "minLength": 1 }
+        "previousRevision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "newRevision": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "ObjectResult": {
       "oneOf": [
-        { "$ref": "#/$defs/ExactQueryResult" },
-        { "$ref": "#/$defs/ExactMutationResult" },
-        { "$ref": "#/$defs/DomainRootQueryResult" },
-        { "$ref": "#/$defs/UnresolvedQueryResult" },
-        { "$ref": "#/$defs/UnresolvedMutationResult" }
+        {
+          "$ref": "#/$defs/ExactQueryResult"
+        },
+        {
+          "$ref": "#/$defs/ExactMutationResult"
+        },
+        {
+          "$ref": "#/$defs/DomainRootQueryResult"
+        },
+        {
+          "$ref": "#/$defs/UnresolvedQueryResult"
+        },
+        {
+          "$ref": "#/$defs/UnresolvedMutationResult"
+        }
       ]
     }
   }

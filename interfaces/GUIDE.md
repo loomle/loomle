@@ -103,14 +103,14 @@ Query and Patch Target sets are deliberately separate:
 | `widget` | `asset`, optional `id` | `asset + id` | `asset + id` |
 | `level` | `asset`, optional `type` | `asset + type` | `asset + type` |
 | `pcg` | `asset`, optional `type` | `asset + type` | `asset + type` |
-| `pcg_component` | `asset + actorId + source + id + type` | same exact fields | unavailable |
+| `pcg_component` | `asset + actorId + source + id + type` | same exact fields | same exact fields |
 
-The `level` and `pcg` cards are public Query plus authored Patch interfaces;
-`pcg_component` remains a public read-only Query interface in this release. A
-Domain's presence in the catalog does not grant Patch admission: request
-parsing rejects a `pcg_component` Patch before Bridge dispatch, and every
-other Domain's Patch surface is exactly what its static card defines. These
-canonical Query and Result identities are stable across Patch expansions.
+The `level`, `pcg`, and `pcg_component` cards are public Query plus authored
+Patch interfaces; `pcg_component` edits are gated by its fail-closed async
+edit guard. A Domain's presence in the catalog does not grant Patch
+admission: every Domain's Patch surface is exactly what its static card
+defines. These canonical Query and Result identities are stable across Patch
+expansions.
 
 `type` is a native-Class assertion inside a selected Domain. It never selects
 or adds a Domain. The same `UWidgetBlueprint`, for example, has separate
@@ -252,8 +252,8 @@ resolve, validate, and plan path, then stops before live application.
 Only Domains whose static card defines a Patch surface are Patch Targets;
 `level` admits authored Actor and Component field edits, `pcg` admits
 Palette-backed Node creation, Settings edits, movement, connection edits,
-removal, and a terminal `save`, and `pcg_component` remains Query-only in
-this release.
+removal, and a terminal `save`, and `pcg_component` admits certified scalar
+edits under its async edit guard.
 
 ## Results And Handoffs
 
