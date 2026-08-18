@@ -13,6 +13,7 @@
     { "code": "capability.move_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Move unavailable" },
     { "code": "capability.operation_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Operation unavailable" },
     { "code": "capability.order_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Order unavailable" },
+    { "code": "capability.palette_source_unavailable", "layer": "capability", "defaultSeverity": "warning", "title": "Palette capability source unavailable" },
     { "code": "capability.patch_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Patch unavailable" },
     { "code": "capability.preflight_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Preflight unavailable" },
     { "code": "capability.reference_unavailable", "layer": "capability", "defaultSeverity": "error", "title": "Reference capability unavailable" },

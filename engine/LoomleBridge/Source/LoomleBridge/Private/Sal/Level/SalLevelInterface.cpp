@@ -2751,11 +2751,12 @@ bool ResolveLevelPaletteDestination(
     }
     const TSharedPtr<FJsonObject>& Ref = *DestinationRef;
     FString RefKind;
-    TArray<TSharedPtr<FJsonValue>> Path;
+    const TArray<TSharedPtr<FJsonValue>>* Path = nullptr;
     if (!Ref->TryGetStringField(TEXT("kind"), RefKind)
         || RefKind != TEXT("member")
         || !Ref->TryGetArrayField(TEXT("path"), Path)
-        || Path.Num() != 1)
+        || Path == nullptr
+        || Path->Num() != 1)
     {
         OutMessage = TEXT(
             "A Level Palette destination must be a member reference such as "
@@ -2763,7 +2764,7 @@ bool ResolveLevelPaletteDestination(
         return false;
     }
     FString Member;
-    if (!Path[0]->TryGetString(Member))
+    if (!(*Path)[0]->TryGetString(Member))
     {
         OutMessage = TEXT(
             "A Level Palette destination member must be a path name.");
@@ -2805,9 +2806,10 @@ bool ResolveLevelPaletteDestination(
                 "persisted Actor StableRef, such as @actorGuid.Components.");
             return false;
         }
-        TArray<TSharedPtr<FJsonValue>> IdentityPath;
+        const TArray<TSharedPtr<FJsonValue>>* IdentityPath = nullptr;
         if (!(*ObjectRef)->TryGetArrayField(TEXT("identityPath"), IdentityPath)
-            || IdentityPath.Num() != 1)
+            || IdentityPath == nullptr
+            || IdentityPath->Num() != 1)
         {
             OutMessage = TEXT(
                 "A Level Component Palette destination Actor identity must "
@@ -2815,7 +2817,7 @@ bool ResolveLevelPaletteDestination(
             return false;
         }
         FString GuidText;
-        if (!IdentityPath[0]->TryGetString(GuidText)
+        if (!(*IdentityPath)[0]->TryGetString(GuidText)
             || !ParseActorGuid(GuidText, Out.ActorGuid))
         {
             OutMessage = TEXT(
@@ -3912,4 +3914,5 @@ bool FSalLevelInterface::LowerStableReference(
     Ref->SetStringField(TEXT("source"), ComponentMatch->Source);
     Ref->SetStringField(TEXT("id"), ComponentMatch->Id);
     return true;
+}
 }

@@ -11755,26 +11755,14 @@ bool FSalLevelPaletteUnloadedLevelTest::RunTest(const FString& Parameters)
         AddError(Error);
         return false;
     }
-    if (!TestTrue(
-            TEXT("Level palette fixture activates the loaded source"),
-            Fixture.Activate(Fixture.Loaded, Error)))
-    {
-        AddError(Error);
-        return false;
-    }
+    // The fixture's Unloaded map is saved on disk but never loaded into any
+    // Editor World; its object path must fail closed for Palette discovery.
     const TSharedRef<FJsonObject> Target =
-        LevelTarget(Fixture.Loaded.ObjectPath);
+        LevelTarget(Fixture.Unloaded.ObjectPath);
     const TSharedRef<FJsonObject> Destination = LevelPaletteMemberRef(
         LevelPaletteLocalRef(TEXT("level_scope")),
         TEXT("Actors"));
 
-    UWorld* OriginalWorld = Fixture.Loaded.World;
-    FString CleanupError;
-    if (!FScopedLevelQueryFixture::UnloadMap(Fixture.Loaded, CleanupError))
-    {
-        AddError(CleanupError);
-        return false;
-    }
     const TSharedPtr<FJsonObject> Result = FSalModule::BuildQueryResult(
         LevelQueryArguments(
             Target,
@@ -11782,7 +11770,7 @@ bool FSalLevelPaletteUnloadedLevelTest::RunTest(const FString& Parameters)
     TestTrue(
         TEXT("Actor Palette discovery fails closed on an unloaded source map"),
         LevelHasDiagnostic(Result, TEXT("capability.level_not_loaded")));
-    TestNotNull(TEXT("Unloaded-map palette keeps the source World out of the active Editor World"), OriginalWorld);
+
     if (!Fixture.Cleanup(Error))
     {
         AddError(Error);
