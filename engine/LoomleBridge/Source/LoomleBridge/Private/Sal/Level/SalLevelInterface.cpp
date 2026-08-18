@@ -2490,8 +2490,11 @@ FString LevelActorSchemaText(
         "identityValid, identityUnique");
     Text += TEXT(
         "\n  compound:\n"
-        "    transform: classified (native SetActorTransform; exact "
-        "planning only)");
+        "    transform:\n"
+        "      operation: SetActorTransform (invoke)\n"
+        "      location: [x, y, z] (omit to preserve)\n"
+        "      rotation: [pitch, yaw, roll] degrees (omit to preserve)\n"
+        "      scale: [x, y, z] (omit to preserve)");
     Text += TEXT(
         "\n  lifecycle:\n"
         "    create: unavailable\n"
@@ -3623,12 +3626,17 @@ TSharedPtr<FJsonObject> QueryLevelPalette(
 
 struct FLevelPlannedEdit
 {
-    FString Kind; // "set" | "reset"
+    FString Kind; // "set" | "reset" | "transform"
     FString RefText;
     TWeakObjectPtr<UObject> Object;
     FProperty* Property = nullptr;
     FString Before;
     FString After;
+    // Compound Actor transform (SetActorTransform) inputs; unset means the
+    // native current value is preserved.
+    TOptional<FVector> TransformLocation;
+    TOptional<FVector> TransformRotation; // degrees: pitch, yaw, roll
+    TOptional<FVector> TransformScale;
 };
 
 bool LevelValueImportText(
@@ -3955,6 +3963,181 @@ bool ResolveLevelPatchMember(
     return true;
 }
 
+// Resolve one lowered exact Actor owner ref inside the loaded source Level.
+bool ResolveLevelPatchActor(
+    const TSharedPtr<FJsonObject>& Statement,
+    FLevelSnapshot& Snapshot,
+    AActor*& OutActor,
+    FString& OutIdentity,
+    FString& OutError)
+{
+    OutActor = nullptr;
+    OutError.Reset();
+    const TSharedPtr<FJsonObject>* TargetRef = nullptr;
+    FString TargetKind;
+    if (!Statement.IsValid()
+        || !Statement->TryGetObjectField(TEXT("target"), TargetRef)
+        || TargetRef == nullptr
+        || !(*TargetRef).IsValid()
+        || !(*TargetRef)->TryGetStringField(TEXT("kind"), TargetKind)
+        || TargetKind != TEXT("actor"))
+    {
+        OutError = TEXT(
+            "Level invoke target must be one exact persisted Actor.");
+        return false;
+    }
+    FString Id;
+    FGuid Guid;
+    if (!(*TargetRef)->TryGetStringField(TEXT("id"), Id)
+        || !ParseActorGuid(Id, Guid))
+    {
+        OutError = TEXT("Level invoke Actor identity is invalid.");
+        return false;
+    }
+    FLevelActorEntry* Match = nullptr;
+    int32 MatchCount = 0;
+    for (FLevelActorEntry& Entry : Snapshot.Actors)
+    {
+        if (Entry.Guid == Guid)
+        {
+            Match = &Entry;
+            ++MatchCount;
+        }
+    }
+    if (MatchCount != 1 || Match == nullptr || !Match->bLoaded)
+    {
+        OutError = MatchCount > 1
+            ? TEXT("Multiple persisted Level Actor records share this "
+                "ActorGuid; the invoke is ambiguous.")
+            : TEXT("The exact persisted Actor is not loaded or not present; "
+                "Level Patch will not load an unloaded descriptor.");
+        return false;
+    }
+    AActor* Actor = Match->Actor.Get();
+    if (!IsValid(Actor))
+    {
+        OutError = TEXT("The exact persisted Actor UObject is invalid.");
+        return false;
+    }
+    OutIdentity = Guid.ToString(EGuidFormats::DigitsWithHyphensLower);
+    OutActor = Actor;
+    return true;
+}
+
+bool LevelParseTransformVectorArg(
+    const TSharedPtr<FJsonObject>& Args,
+    const FString& Name,
+    TOptional<FVector>& Out)
+{
+    if (!Args.IsValid())
+    {
+        return false;
+    }
+    const TSharedPtr<FJsonValue>* Value = Args->Values.Find(Name);
+    if (Value == nullptr || !(*Value).IsValid())
+    {
+        return true; // omitted; the native current value is preserved
+    }
+    const TArray<TSharedPtr<FJsonValue>>* Elements = nullptr;
+    if (!(*Value)->TryGetArray(Elements)
+        || Elements == nullptr
+        || Elements->Num() != 3)
+    {
+        return false;
+    }
+    FVector Result;
+    for (int32 Index = 0; Index < 3; ++Index)
+    {
+        double Number = 0.0;
+        if (!(*Elements)[Index].IsValid()
+            || !(*Elements)[Index]->TryGetNumber(Number))
+        {
+            return false;
+        }
+        Result[Index] = Number;
+    }
+    Out = Result;
+    return true;
+}
+
+bool LevelBuildTransformEdit(
+    const TSharedPtr<FJsonObject>& Statement,
+    AActor* Actor,
+    const FString& Identity,
+    FLevelPlannedEdit& OutEdit,
+    FString& OutError)
+{
+    OutError.Reset();
+    const TSharedPtr<FJsonObject>* Args = nullptr;
+    const TArray<TSharedPtr<FJsonValue>>* Outputs = nullptr;
+    if (!Statement->TryGetObjectField(TEXT("args"), Args)
+        || Args == nullptr
+        || !Statement->TryGetArrayField(TEXT("outputs"), Outputs)
+        || Outputs == nullptr
+        || !Outputs->IsEmpty())
+    {
+        OutError = TEXT(
+            "SetActorTransform accepts only location, rotation, and scale "
+            "arguments and has no output object.");
+        return false;
+    }
+    if (HasPCGManagedComponent(Actor))
+    {
+        OutError = TEXT(
+            "Transform on this Actor could schedule PCG generate or cleanup, "
+            "and async suppression is not proven; the transform is "
+            "unavailable.");
+        return false;
+    }
+    OutEdit.Kind = TEXT("transform");
+    OutEdit.RefText = Identity + TEXT(".transform");
+    OutEdit.Object = Actor;
+    const FTransform Current = Actor->GetActorTransform();
+    const FVector CurrentLocation = Current.GetLocation();
+    const FRotator CurrentRotation = Current.Rotator();
+    const FVector CurrentScale = Current.GetScale3D();
+    OutEdit.TransformLocation = CurrentLocation;
+    OutEdit.TransformRotation =
+        FVector(CurrentRotation.Pitch, CurrentRotation.Yaw, CurrentRotation.Roll);
+    OutEdit.TransformScale = CurrentScale;
+    if (!LevelParseTransformVectorArg(
+            *Args,
+            TEXT("location"),
+            OutEdit.TransformLocation)
+        || !LevelParseTransformVectorArg(
+            *Args,
+            TEXT("rotation"),
+            OutEdit.TransformRotation)
+        || !LevelParseTransformVectorArg(
+            *Args,
+            TEXT("scale"),
+            OutEdit.TransformScale))
+    {
+        OutError = TEXT(
+            "SetActorTransform location, rotation, and scale must each be a "
+            "three-number array of finite values.");
+        return false;
+    }
+    const FTransform Planned(
+        FRotator(
+            OutEdit.TransformRotation.GetValue().X,
+            OutEdit.TransformRotation.GetValue().Y,
+            OutEdit.TransformRotation.GetValue().Z),
+        OutEdit.TransformLocation.GetValue(),
+        OutEdit.TransformScale.GetValue());
+    OutEdit.Before = FString::Printf(
+        TEXT("location=(%s) rotation=(%s) scale=(%s)"),
+        *CurrentLocation.ToString(),
+        *CurrentRotation.ToString(),
+        *CurrentScale.ToString());
+    OutEdit.After = FString::Printf(
+        TEXT("location=(%s) rotation=(%s) scale=(%s)"),
+        *Planned.GetLocation().ToString(),
+        *Planned.Rotator().ToString(),
+        *Planned.GetScale3D().ToString());
+    return true;
+}
+
 // Returns the exact native archetype/template value for reset.
 bool LevelResetValue(
     const FProperty* Property,
@@ -4177,6 +4360,65 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
         }
         FString Kind;
         (*Statement)->TryGetStringField(TEXT("kind"), Kind);
+        if (Kind == TEXT("invoke"))
+        {
+            FString Operation;
+            (*Statement)->TryGetStringField(TEXT("operation"), Operation);
+            if (Operation != TEXT("SetActorTransform"))
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("capability.operation_unavailable"),
+                        FString::Printf(
+                            TEXT("Level Patch does not yet support the %s "
+                                "invoke operation in this capability."),
+                            *Operation))
+                        .Interface(TEXT("level"))
+                        .Operation(Kind)
+                        .Build());
+                continue;
+            }
+            AActor* Actor = nullptr;
+            FString ActorIdentity;
+            FString Error;
+            if (!ResolveLevelPatchActor(
+                    *Statement,
+                    Snapshot,
+                    Actor,
+                    ActorIdentity,
+                    Error))
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("validation.edit_target_invalid"),
+                        Error)
+                        .Interface(TEXT("level"))
+                        .Operation(Kind)
+                        .Build());
+                continue;
+            }
+            TSharedPtr<FLevelPlannedEdit> Edit =
+                MakeShared<FLevelPlannedEdit>();
+            if (!LevelBuildTransformEdit(
+                    *Statement,
+                    Actor,
+                    ActorIdentity,
+                    *Edit,
+                    Error))
+            {
+                Diagnostics.Add(
+                    FSalDiagnostics::Error(
+                        TEXT("validation.operation_arguments_invalid"),
+                        Error)
+                        .Interface(TEXT("level"))
+                        .Operation(Kind)
+                        .Ref(ActorIdentity)
+                        .Build());
+                continue;
+            }
+            Edits.Add(Edit);
+            continue;
+        }
         if (Kind != TEXT("set") && Kind != TEXT("reset"))
         {
             Diagnostics.Add(
@@ -4185,7 +4427,8 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
                     FString::Printf(
                         TEXT("Level Patch does not yet support the %s "
                             "statement in this capability; supported "
-                            "statements are set and reset."),
+                            "statements are set, reset, and transform "
+                            "invoke."),
                         *Kind))
                     .Interface(TEXT("level"))
                     .Operation(Kind)
@@ -4357,6 +4600,38 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
                 LevelPlannedObject(Edits));
         }
         Object->Modify();
+        if (Edit->Kind == TEXT("transform"))
+        {
+            AActor* Actor = Cast<AActor>(Object);
+            if (Actor == nullptr)
+            {
+                Transaction.Cancel();
+                return MakeMutationResult(
+                    NoObjects,
+                    {FSalDiagnostics::Error(
+                            TEXT("validation.object_invalidated"),
+                            TEXT("Level transform target is not an "
+                                "Actor."))
+                        .Interface(TEXT("level"))
+                        .Ref(Edit->RefText)
+                        .Build()},
+                    false,
+                    false,
+                    false,
+                    Target.AssetPath,
+                    TEXT("level"),
+                    LevelPlannedObject(Edits));
+            }
+            const FTransform Planned(
+                FRotator(
+                    Edit->TransformRotation.GetValue().X,
+                    Edit->TransformRotation.GetValue().Y,
+                    Edit->TransformRotation.GetValue().Z),
+                Edit->TransformLocation.GetValue(),
+                Edit->TransformScale.GetValue());
+            Actor->SetActorTransform(Planned);
+            continue;
+        }
         FString Error;
         if (!LevelImportScalarValue(
                 Edit->Property,
@@ -4387,6 +4662,20 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
     for (const TSharedPtr<FLevelPlannedEdit>& Edit : Edits)
     {
         UObject* Object = Edit->Object.Get();
+        if (Edit->Kind == TEXT("transform"))
+        {
+            AActor* Actor = Cast<AActor>(Object);
+            if (IsValid(Actor))
+            {
+                const FTransform Readback = Actor->GetActorTransform();
+                Edit->Before = FString::Printf(
+                    TEXT("location=(%s) rotation=(%s) scale=(%s)"),
+                    *Readback.GetLocation().ToString(),
+                    *Readback.Rotator().ToString(),
+                    *Readback.GetScale3D().ToString());
+            }
+            continue;
+        }
         if (IsValid(Object) && Edit->Property != nullptr)
         {
             Edit->Before = LevelExportScalarValue(

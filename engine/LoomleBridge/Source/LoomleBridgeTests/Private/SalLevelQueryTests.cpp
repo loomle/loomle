@@ -12351,6 +12351,182 @@ bool FSalLevelPatchValidationTest::RunTest(const FString& Parameters)
     return true;
 }
 
+
+TSharedRef<FJsonObject> LevelTransformStatement(
+    const FString& ActorId,
+    const TArray<TSharedPtr<FJsonValue>>& Locations,
+    const TArray<TSharedPtr<FJsonValue>>& Rotations,
+    const TArray<TSharedPtr<FJsonValue>>& Scales)
+{
+    TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
+    Statement->SetStringField(TEXT("kind"), TEXT("invoke"));
+    TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    Target->SetArrayField(
+        TEXT("identityPath"),
+        LevelStringValues({ActorId}));
+    Statement->SetObjectField(TEXT("target"), Target);
+    Statement->SetStringField(TEXT("operation"), TEXT("SetActorTransform"));
+    TSharedRef<FJsonObject> Args = MakeShared<FJsonObject>();
+    if (Locations.Num() == 3)
+    {
+        Args->SetArrayField(TEXT("location"), Locations);
+    }
+    if (Rotations.Num() == 3)
+    {
+        Args->SetArrayField(TEXT("rotation"), Rotations);
+    }
+    if (Scales.Num() == 3)
+    {
+        Args->SetArrayField(TEXT("scale"), Scales);
+    }
+    Statement->SetObjectField(TEXT("args"), Args);
+    Statement->SetArrayField(TEXT("outputs"), {});
+    return Statement;
+}
+
+TArray<TSharedPtr<FJsonValue>> LevelTransformVector(
+    double X,
+    double Y,
+    double Z)
+{
+    return {
+        MakeShared<FJsonValueNumber>(X),
+        MakeShared<FJsonValueNumber>(Y),
+        MakeShared<FJsonValueNumber>(Z),
+    };
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelPatchTransformTest,
+    "Loomle.Sal.Level.Patch.Transform",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelPatchTransformTest::RunTest(const FString& Parameters)
+{
+    FScopedLevelQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("Level transform fixture builds"), Fixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Level transform fixture activates the loaded source"),
+            Fixture.Activate(Fixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const TSharedRef<FJsonObject> Target =
+        LevelTarget(
+            Fixture.Loaded.ObjectPath,
+            UWorld::StaticClass()->GetPathName());
+    const FString ActorId = LevelGuidText(Fixture.AlphaId);
+
+    AActor* Actor = Fixture.Alpha;
+    if (!TestNotNull(TEXT("Transform target Actor is loaded"), Actor))
+    {
+        return false;
+    }
+    const FTransform Original = Actor->GetActorTransform();
+
+    // Dry run plans without applying.
+    const TSharedPtr<FJsonObject> DryRun = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {MakeShared<FJsonValueObject>(LevelTransformStatement(
+                ActorId,
+                LevelTransformVector(1000.0, 2000.0, 3000.0),
+                {},
+                {}))},
+            true));
+    bool bValid = false;
+    bool bApplied = false;
+    TestTrue(
+        TEXT("Level transform dry-run validates"),
+        LevelMutationHasField(DryRun, TEXT("valid"), bValid) && bValid);
+    TestTrue(
+        TEXT("Level transform dry-run does not apply"),
+        LevelMutationHasField(DryRun, TEXT("applied"), bApplied) && !bApplied);
+    TestTrue(
+        TEXT("Level transform dry-run preserves the live transform"),
+        Actor->GetActorTransform().Equals(Original, 0.001));
+
+    // Live transform applies and reads back.
+    const TSharedPtr<FJsonObject> LiveResult = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {MakeShared<FJsonValueObject>(LevelTransformStatement(
+                ActorId,
+                LevelTransformVector(1000.0, 2000.0, 3000.0),
+                {},
+                {}))}));
+    TestTrue(
+        TEXT("Level transform applies"),
+        LevelMutationHasField(LiveResult, TEXT("applied"), bApplied) && bApplied);
+    const FVector AppliedLocation = Actor->GetActorLocation();
+    TestTrue(
+        TEXT("Level transform readback matches the requested location"),
+        AppliedLocation.Equals(FVector(1000.0, 2000.0, 3000.0), 0.001));
+
+    // Partial update preserves the untouched axes.
+    const TSharedPtr<FJsonObject> PartialResult = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {MakeShared<FJsonValueObject>(LevelTransformStatement(
+                ActorId,
+                {},
+                LevelTransformVector(90.0, 0.0, 0.0),
+                {}))}));
+    TestTrue(
+        TEXT("Level partial transform applies"),
+        LevelMutationHasField(PartialResult, TEXT("applied"), bApplied) && bApplied);
+    TestTrue(
+        TEXT("Level partial transform preserves omitted axes"),
+        Actor->GetActorLocation().Equals(FVector(1000.0, 2000.0, 3000.0), 0.001)
+            && Actor->GetActorRotation().Equals(FRotator(90.0, 0.0, 0.0), 0.001));
+
+    // Invalid arguments fail closed.
+    TSharedRef<FJsonObject> BadArgs = MakeShared<FJsonObject>();
+    BadArgs->SetStringField(TEXT("kind"), TEXT("invoke"));
+    TSharedRef<FJsonObject> BadTarget = MakeShared<FJsonObject>();
+    BadTarget->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    BadTarget->SetArrayField(
+        TEXT("identityPath"),
+        LevelStringValues({ActorId}));
+    BadArgs->SetObjectField(TEXT("target"), BadTarget);
+    BadArgs->SetStringField(TEXT("operation"), TEXT("SetActorTransform"));
+    TSharedRef<FJsonObject> BadArgsObject = MakeShared<FJsonObject>();
+    BadArgsObject->SetArrayField(
+        TEXT("location"),
+        LevelTransformVector(1.0, 2.0, 3.0));
+    BadArgsObject->SetStringField(TEXT("rotation"), TEXT("not-a-vector"));
+    BadArgs->SetObjectField(TEXT("args"), BadArgsObject);
+    BadArgs->SetArrayField(TEXT("outputs"), {});
+    const TSharedPtr<FJsonObject> BadResult = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {MakeShared<FJsonValueObject>(BadArgs)}));
+    TestTrue(
+        TEXT("Level transform rejects malformed arguments"),
+        LevelMutationHasField(BadResult, TEXT("valid"), bValid) && !bValid);
+
+    if (GEditor != nullptr && GEditor->Trans != nullptr)
+    {
+        GEditor->Trans->Reset(FText::FromString(TEXT("SAL test cleanup")));
+    }
+    if (Actor->GetOutermost() != nullptr)
+    {
+        Actor->GetOutermost()->SetDirtyFlag(false);
+    }
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
 }
 
 #endif
