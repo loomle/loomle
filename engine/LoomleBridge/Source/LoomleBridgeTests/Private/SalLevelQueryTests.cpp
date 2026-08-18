@@ -12002,21 +12002,25 @@ bool FSalLevelSchemaOnLoadedComponentTest::RunTest(const FString& Parameters)
     }
     const TSharedRef<FJsonObject> Target =
         LevelTarget(Fixture.Loaded.ObjectPath);
-    const UActorComponent* RootComponent =
-        Fixture.Alpha != nullptr
-            ? Fixture.Alpha->GetRootComponent()
-            : nullptr;
-    if (!TestNotNull(TEXT("Alpha has a root Component"), RootComponent))
+    USceneComponent* SceneComponent = NewObject<USceneComponent>(
+        Fixture.Alpha,
+        USceneComponent::StaticClass(),
+        FName(TEXT("LoomleSchemaScene")),
+        RF_Transactional);
+    if (!TestNotNull(TEXT("Alpha gains a serialized instance Component"), SceneComponent))
     {
         return false;
     }
+    Fixture.Alpha->AddInstanceComponent(SceneComponent);
+    SceneComponent->OnComponentCreated();
+    SceneComponent->RegisterComponent();
     const TSharedPtr<FJsonObject> Result = FSalModule::BuildQueryResult(
         LevelQueryArgumentsWithSchema(
             Target,
             LevelExactComponentOperation(
                 LevelGuidText(Fixture.AlphaId),
-                TEXT("native"),
-                RootComponent->GetName())));
+                TEXT("instance"),
+                TEXT("LoomleSchemaScene"))));
     if (!TestFalse(
             TEXT("Loaded Component schema Query has no error"),
             LevelHasError(Result)))
@@ -12027,7 +12031,7 @@ bool FSalLevelSchemaOnLoadedComponentTest::RunTest(const FString& Parameters)
     for (const FString& Comment : CollectLevelComments(Result))
     {
         if (Comment.Contains(TEXT("subject: component"))
-            && Comment.Contains(TEXT("source: native"))
+            && Comment.Contains(TEXT("source: instance"))
             && Comment.Contains(TEXT("mutation: inactive"))
             && Comment.Contains(TEXT("lifecycle:"))
             && Comment.Contains(TEXT("fields:")))
