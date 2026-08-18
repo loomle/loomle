@@ -5673,7 +5673,7 @@ TSharedPtr<FJsonObject> FSalLevelInterface::Patch(
             && !Op->ComponentSlotId.IsEmpty())
         {
             TSharedPtr<FJsonObject> Args = MakeShared<FJsonObject>();
-            Args->SetStringField(
+            Args->SetField(
                 TEXT("actor"),
                 Value::Stable(
                     TEXT("actor"),
