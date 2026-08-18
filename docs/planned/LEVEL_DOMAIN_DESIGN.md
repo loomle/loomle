@@ -1795,6 +1795,25 @@ for lifecycle operations.
 - reconstruction, registration, attachment, and root effects;
 - final ActorGuid/source/component-slot alias readback.
 
+Slice 4-A progress (branch, not published):
+
+- Palette entries now report creation availability honestly: class-only Actor
+  entries and instance Component entries are creation-available, while
+  asset-driven Actor entries stay unavailable (explicit source Assets are
+  not yet accepted);
+- the level Patch accepts `add <binding> to arena.Actors`: it re-resolves the
+  exact Palette id against the current destination, spawns the advertised
+  native Class in the target source Level through the same top-level
+  transaction, audits the final ActorGuid, and binds the created Actor
+  StableRef in the result;
+- `remove <exact Actor>` destroys the persisted Actor after guarding
+  WorldSettings/LevelScriptActor and PCG-managed Actors; creation and removal
+  share dry-run planning, readback, and rollback.
+
+Remaining in Slice 4: Palette-backed instance Component creation and
+instance-Component removal, reconstruction/registration/attachment/root
+effects, and external-package deletion evidence for removed Actors.
+
 ### Slice 5: Save, handoffs, and packaged acceptance
 
 - World-aware Source Control preflight;
