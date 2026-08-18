@@ -1786,6 +1786,24 @@ promotion have not run.
 
 ### Slice 3: typed-runtime foundation and source preparation
 
+Slice 3-A progress (branch, not published):
+
+- a frontend-neutral `FLoomleAsyncKernel` (under `Runtime/`) owns the shared
+  async lifecycle extracted from the Python execution service: namespaced
+  opaque execution-id allocation (`python`/`pcg` frontends), the outer
+  `running -> succeeded | failed | lost` status machine, exact continuation
+  formatting, thread-safe poll, bounded terminal retention and expiry,
+  no-replay, and lost-on-shutdown. It never touches Python staging files,
+  native execution, logs, or the `sal.object()` projection annex;
+- `FPythonExecutionService` keeps every Python-specific concern (script and
+  runner staging, Game Thread admission, native execution, log capture,
+  result-file staging, projection) and delegates only the record lifecycle to
+  the kernel, so ordinary Python behavior, ids, and acceptance results are
+  unchanged;
+- the kernel and the refactored Python service are verified by the complete
+  existing Python acceptance suite (deferred TaskGraph entry, structured
+  result, play-session admission, sal.object() projection, validation).
+
 - begin only after the separate family `sal.object()` projection slice has
   preserved ordinary Python behavior and passed its own compatibility gates;
 - extract the shared async kernel from the existing Python lifecycle without
