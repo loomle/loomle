@@ -37,8 +37,8 @@ export type QueryOperation =
   | FlowOperation
   | ReferencesOperation
   | PaletteEntriesOperation
-  | StateTreePaletteEntriesOperation
-  | StateTreePaletteIdOperation;
+  | DestinationPaletteEntriesOperation
+  | DestinationPaletteIdOperation;
 export type SemanticTag = string;
 export type RequestRef = LocalRef | StableRef | RequestMemberRef;
 export type Condition =
@@ -272,7 +272,7 @@ export interface PalettePinContext {
   direction: "from" | "to";
   pin: StableRef;
 }
-export interface StateTreePaletteEntriesOperation {
+export interface DestinationPaletteEntriesOperation {
   kind: "palette_entries";
   text?: string;
   to: RequestRef;
@@ -289,7 +289,7 @@ export interface RequestMemberRef {
    */
   path: [string | number, ...(string | number)[]];
 }
-export interface StateTreePaletteIdOperation {
+export interface DestinationPaletteIdOperation {
   kind: "palette";
   id: string;
   to: RequestRef;

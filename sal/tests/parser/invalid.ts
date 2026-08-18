@@ -85,6 +85,16 @@ const cases: Array<{ name: string; text: string; code: string }> = [
     code: "language.invalid_target_value",
   },
   {
+    name: "level palette from destination requires a stable reference",
+    text: "arena = target {domain: level, asset: \"/Game/Maps/Arena.Arena\"}\nquery arena\npalette entries \"Static Mesh Actor\" from arena.Actors",
+    code: "language.expected_stable_reference",
+  },
+  {
+    name: "level palette destination names an unknown local",
+    text: "arena = target {domain: level, asset: \"/Game/Maps/Arena.Arena\"}\nquery arena\npalette entries \"Static Mesh Actor\" to missing.Actors",
+    code: "language.unknown_local_reference",
+  },
+  {
     name: "scoped request reference",
     text: `${graphTarget}\nquery g\ncontext bp::@N`,
     code: "language.invalid_reference",

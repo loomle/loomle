@@ -898,7 +898,7 @@
         "pinContext": { "$ref": "#/$defs/PalettePinContext" }
       }
     },
-    "StateTreePaletteEntriesOperation": {
+    "DestinationPaletteEntriesOperation": {
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "to"],
@@ -908,7 +908,17 @@
         "to": { "$ref": "#/$defs/RequestRef" }
       }
     },
-    "StateTreePaletteIdOperation": {
+    "DestinationPaletteEntriesOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "to"],
+      "properties": {
+        "kind": { "const": "palette_entries" },
+        "text": { "type": "string", "minLength": 1 },
+        "to": { "$ref": "#/$defs/RequestRef" }
+      }
+    },
+    "DestinationPaletteIdOperation": {
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "id", "to"],
@@ -931,8 +941,8 @@
         { "$ref": "#/$defs/FlowOperation" },
         { "$ref": "#/$defs/ReferencesOperation" },
         { "$ref": "#/$defs/PaletteEntriesOperation" },
-        { "$ref": "#/$defs/StateTreePaletteEntriesOperation" },
-        { "$ref": "#/$defs/StateTreePaletteIdOperation" }
+        { "$ref": "#/$defs/DestinationPaletteEntriesOperation" },
+        { "$ref": "#/$defs/DestinationPaletteIdOperation" }
       ]
     },
     "Query": {

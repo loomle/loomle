@@ -60,6 +60,22 @@ summary`,
 query arena
 actors "light"
 page limit 25`,
+  `arena = target {domain: level, asset: "/Game/Maps/Arena.Arena"}
+
+query arena
+palette entries "Static Mesh Actor" to arena.Actors`,
+  `arena = target {domain: level, asset: "/Game/Maps/Arena.Arena"}
+
+query arena
+palette entries "Audio Component" to @${actorId}.Components`,
+  `arena = target {domain: level, asset: "/Game/Maps/Arena.Arena"}
+
+query arena
+palette @actor.static_mesh to arena.Actors`,
+  `arena = target {domain: level, asset: "/Game/Maps/Arena.Arena"}
+
+query arena
+palette @actor.static_mesh to @${actorId}.Components`,
   `forest = target {domain: pcg, asset: "/Game/PCG/PCG_Forest.PCG_Forest", type: "/Script/PCG.PCGGraph"}
 
 query forest

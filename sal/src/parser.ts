@@ -1173,7 +1173,7 @@ function parseQueryOperation(
           );
         }
         pinContext = { direction: context.direction, pin: ref };
-      } else if (targetDomain === "state_tree") {
+      } else if (targetDomain === "state_tree" || targetDomain === "level") {
         destination = ref;
       } else {
         if (!isStableRef(ref)) {
