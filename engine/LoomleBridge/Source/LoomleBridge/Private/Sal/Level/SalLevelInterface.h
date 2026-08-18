@@ -31,6 +31,15 @@ public:
         const FSalPatch& Patch,
         const FSalResolvedTarget& Target);
 
+    /**
+     * Map one opaque level Palette id to its creation kind ("actor" or
+     * "component") for request lowering. The prefix is structural; the
+     * adapter revalidates the full id against the exact destination.
+     */
+    static bool ResolveCreationKind(
+        const FString& PaletteId,
+        FString& OutKind);
+
     /** Resolve a Level-scoped Actor or source-qualified Component StableRef. */
     static bool LowerStableReference(
         const FSalResolvedTarget& Target,

@@ -29,7 +29,9 @@
 #include "Engine/Selection.h"
 #include "Engine/SimpleConstructionScript.h"
 #include "Engine/StaticMeshActor.h"
+#include "Engine/LevelScriptActor.h"
 #include "Engine/World.h"
+#include "Engine/WorldSettings.h"
 #include "GameFramework/Actor.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformTime.h"
@@ -11638,11 +11640,13 @@ bool FSalLevelPaletteActorEntriesTest::RunTest(const FString& Parameters)
             && Entry.PaletteId.StartsWith(TEXT("level.actor."))
             && !Entry.Name.IsEmpty()
             && !Entry.Type.IsEmpty()
-            && Entry.Creation == TEXT("unavailable")
-            && !Entry.Reason.IsEmpty();
+            && (Entry.Creation == TEXT("available")
+                || Entry.Creation == TEXT("unavailable"))
+            && (Entry.Creation == TEXT("available")
+                || !Entry.Reason.IsEmpty());
     }
     TestTrue(
-        TEXT("Actor Palette entries carry opaque ids, names, types, and honest unavailability"),
+        TEXT("Actor Palette entries carry opaque ids, names, types, and honest availability"),
         bAllWellFormed);
 
     const FString FirstId = Entries[0].PaletteId;
@@ -11752,11 +11756,10 @@ bool FSalLevelPaletteComponentEntriesTest::RunTest(const FString& Parameters)
             && Entry.PaletteId.StartsWith(TEXT("level.component."))
             && !Entry.Name.IsEmpty()
             && !Entry.Type.IsEmpty()
-            && Entry.Creation == TEXT("unavailable")
-            && !Entry.Reason.IsEmpty();
+            && Entry.Creation == TEXT("available");
     }
     TestTrue(
-        TEXT("Component Palette entries carry opaque ids, names, types, and honest unavailability"),
+        TEXT("Component Palette entries carry opaque ids, names, types, and availability"),
         bAllWellFormed);
 
     // Fresh destination; the discovery destination was lowered in place.
@@ -12533,6 +12536,219 @@ bool FSalLevelPatchTransformTest::RunTest(const FString& Parameters)
     if (Actor->GetOutermost() != nullptr)
     {
         Actor->GetOutermost()->SetDirtyFlag(false);
+    }
+    if (!Fixture.Cleanup(Error))
+    {
+        AddError(Error);
+    }
+    return true;
+}
+
+
+TSharedRef<FJsonObject> LevelAddStatement(
+    const FString& Alias,
+    const FString& PaletteId,
+    const FString& DestinationAlias)
+{
+    TSharedRef<FJsonObject> Binding = MakeShared<FJsonObject>();
+    Binding->SetStringField(TEXT("kind"), TEXT("local"));
+    Binding->SetStringField(TEXT("name"), Alias);
+    TSharedRef<FJsonObject> Value = MakeShared<FJsonObject>();
+    Value->SetStringField(TEXT("kind"), TEXT("object"));
+    TSharedRef<FJsonObject> Fields = MakeShared<FJsonObject>();
+    Fields->SetStringField(TEXT("palette"), PaletteId);
+    Value->SetObjectField(TEXT("fields"), Fields);
+    TSharedRef<FJsonObject> BindingStatement = MakeShared<FJsonObject>();
+    BindingStatement->SetObjectField(TEXT("target"), Binding);
+    BindingStatement->SetObjectField(TEXT("value"), Value);
+
+    TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
+    Statement->SetStringField(TEXT("kind"), TEXT("add"));
+    TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("local"));
+    Target->SetStringField(TEXT("name"), Alias);
+    Statement->SetObjectField(TEXT("target"), Target);
+    TSharedRef<FJsonObject> To = MakeShared<FJsonObject>();
+    To->SetStringField(TEXT("kind"), TEXT("member"));
+    TSharedRef<FJsonObject> Owner = MakeShared<FJsonObject>();
+    Owner->SetStringField(TEXT("kind"), TEXT("local"));
+    Owner->SetStringField(TEXT("name"), DestinationAlias);
+    To->SetObjectField(TEXT("object"), Owner);
+    To->SetArrayField(
+        TEXT("path"),
+        LevelStringValues({TEXT("Actors")}));
+    Statement->SetObjectField(TEXT("to"), To);
+    return Statement;
+}
+
+TSharedRef<FJsonObject> LevelRemoveStatement(const FString& ActorId)
+{
+    TSharedRef<FJsonObject> Statement = MakeShared<FJsonObject>();
+    Statement->SetStringField(TEXT("kind"), TEXT("remove"));
+    TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    Target->SetArrayField(
+        TEXT("identityPath"),
+        LevelStringValues({ActorId}));
+    Statement->SetObjectField(TEXT("target"), Target);
+    return Statement;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalLevelPatchLifecycleTest,
+    "Loomle.Sal.Level.Patch.Lifecycle",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalLevelPatchLifecycleTest::RunTest(const FString& Parameters)
+{
+    FScopedLevelQueryFixture Fixture;
+    FString Error;
+    if (!TestTrue(TEXT("Level lifecycle fixture builds"), Fixture.Build(Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    if (!TestTrue(
+            TEXT("Level lifecycle fixture activates the loaded source"),
+            Fixture.Activate(Fixture.Loaded, Error)))
+    {
+        AddError(Error);
+        return false;
+    }
+    const TSharedRef<FJsonObject> Target =
+        LevelTarget(
+            Fixture.Loaded.ObjectPath,
+            UWorld::StaticClass()->GetPathName());
+
+    // Discover one creation-available Actor Palette entry.
+    const TSharedRef<FJsonObject> Destination = LevelPaletteMemberRef(
+        LevelPaletteLocalRef(TEXT("level_scope")),
+        TEXT("Actors"));
+    const TSharedPtr<FJsonObject> EntriesResult = FSalModule::BuildQueryResult(
+        LevelQueryArguments(
+            Target,
+            LevelPaletteEntriesOperation(Destination)));
+    const TArray<FLevelPaletteEntryView> Entries =
+        CollectLevelPaletteEntries(EntriesResult);
+    FString PaletteId;
+    for (const FLevelPaletteEntryView& Entry : Entries)
+    {
+        if (Entry.Creation == TEXT("available"))
+        {
+            PaletteId = Entry.PaletteId;
+            break;
+        }
+    }
+    if (!TestTrue(
+            TEXT("Actor Palette exposes at least one creation-available entry"),
+            !PaletteId.IsEmpty()))
+    {
+        return false;
+    }
+
+    const int32 ActorCountBefore = Fixture.Loaded.World != nullptr
+        ? Fixture.Loaded.World->GetCurrentLevel()->Actors.Num()
+        : 0;
+
+    // Dry run plans without spawning.
+    const TSharedPtr<FJsonObject> DryRun = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {
+                MakeShared<FJsonValueObject>(
+                    LevelAddStatement(TEXT("created"), PaletteId, TEXT("level_scope"))),
+            },
+            true));
+    bool bValid = false;
+    bool bApplied = false;
+    TestTrue(
+        TEXT("Level Actor add dry-run validates"),
+        LevelMutationHasField(DryRun, TEXT("valid"), bValid) && bValid);
+    TestTrue(
+        TEXT("Level Actor add dry-run does not apply"),
+        LevelMutationHasField(DryRun, TEXT("applied"), bApplied) && !bApplied);
+    TestEqual(
+        TEXT("Level Actor add dry-run spawns nothing"),
+        Fixture.Loaded.World->GetCurrentLevel()->Actors.Num(),
+        ActorCountBefore);
+
+    // Live add spawns the Actor and returns the final StableRef.
+    const TSharedPtr<FJsonObject> AddResult = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {
+                MakeShared<FJsonValueObject>(
+                    LevelAddStatement(TEXT("created"), PaletteId, TEXT("level_scope"))),
+            }));
+    TestTrue(
+        TEXT("Level Actor add applies"),
+        LevelMutationHasField(AddResult, TEXT("applied"), bApplied) && bApplied);
+    TestTrue(
+        TEXT("Level Actor add is valid"),
+        LevelMutationHasField(AddResult, TEXT("valid"), bValid) && bValid);
+    TestTrue(
+        TEXT("Level Actor add spawned one new Actor"),
+        Fixture.Loaded.World->GetCurrentLevel()->Actors.Num()
+            == ActorCountBefore + 1);
+
+    AActor* CreatedActor = nullptr;
+    for (AActor* Actor : Fixture.Loaded.World->GetCurrentLevel()->Actors)
+    {
+        if (Actor != nullptr && IsValid(Actor)
+            && !Actor->IsA(AWorldSettings::StaticClass())
+            && !Actor->IsA(ALevelScriptActor::StaticClass())
+            && Actor->GetActorGuid() != Fixture.AlphaId
+            && Actor->GetActorGuid() != Fixture.BetaId
+            && Actor->GetActorGuid() != Fixture.GammaId
+            && Actor->GetActorGuid() != Fixture.InstanceProjectionId
+            && Actor->GetActorGuid() != Fixture.ExternalContentId
+            && Actor->GetActorGuid() != Fixture.PcgGeneratedId)
+        {
+            CreatedActor = Actor;
+        }
+    }
+    if (!TestNotNull(TEXT("Level Actor add created an auditable Actor"), CreatedActor))
+    {
+        return false;
+    }
+    const FString CreatedId = LevelGuidText(CreatedActor->GetActorGuid());
+    if (!TestTrue(TEXT("Created Actor has a valid ActorGuid"), CreatedActor->GetActorGuid().IsValid()))
+    {
+        return false;
+    }
+    bool bResultBindsCreated = false;
+    for (const FLevelPaletteEntryView& View :
+        CollectLevelPaletteEntries(AddResult))
+    {
+        if (View.PaletteId == CreatedId)
+        {
+            bResultBindsCreated = true;
+        }
+    }
+    TestTrue(
+        TEXT("Level Actor add result returns the final Actor StableRef"),
+        bResultBindsCreated);
+
+    // Remove the created Actor.
+    const TSharedPtr<FJsonObject> RemoveResult = FSalModule::BuildPatchResult(
+        LevelPatchArguments(
+            Target,
+            {MakeShared<FJsonValueObject>(LevelRemoveStatement(CreatedId))}));
+    TestTrue(
+        TEXT("Level Actor remove applies"),
+        LevelMutationHasField(RemoveResult, TEXT("applied"), bApplied) && bApplied);
+    TestTrue(
+        TEXT("Level Actor remove destroyed the Actor"),
+        !IsValid(CreatedActor));
+
+    if (GEditor != nullptr && GEditor->Trans != nullptr)
+    {
+        GEditor->Trans->Reset(FText::FromString(TEXT("SAL test cleanup")));
+    }
+    if (Fixture.Loaded.World != nullptr
+        && Fixture.Loaded.World->GetOutermost() != nullptr)
+    {
+        Fixture.Loaded.World->GetOutermost()->SetDirtyFlag(false);
     }
     if (!Fixture.Cleanup(Error))
     {

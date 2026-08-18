@@ -614,6 +614,12 @@ bool LowerExpression(
                 case ESalDomain::Widget:
                     LegacyCreationKind = TEXT("widget");
                     break;
+                case ESalDomain::Level:
+                    bMapped =
+                        FSalLevelInterface::ResolveCreationKind(
+                            Palette,
+                            LegacyCreationKind);
+                    break;
                 default:
                     bMapped = false;
                     break;
