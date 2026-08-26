@@ -145,6 +145,9 @@ LoomleBridge/
       format-unreal-blueprints/
         SKILL.md
         references/
+      manage-unreal-assets-with-python/
+        SKILL.md
+        references/
       use-unreal-python/
         SKILL.md
         references/

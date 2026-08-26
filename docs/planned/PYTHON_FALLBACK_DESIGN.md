@@ -45,6 +45,14 @@ asset. The test compiles and passes on the official UE 5.7 and UE 5.8 Launcher
 installations for Mac arm64. Client, Skill-validation, site-build, and Fab
 packaging tests also pass for the unified guidance chain.
 
+The 2026-08-26 Asset-lifecycle audit added the resident
+`manage-unreal-assets-with-python` specialization. It routes create/edit,
+duplicate, native rename/move, and guarded cross-project migration through
+separate references while retaining Asset SAL for registry discovery and
+exact-package save. Skill validation, the 119-test Client suite, the 44-test
+Fab suite, the 22-test release suite, and the public site build pass. This is
+guidance-only and changes no Bridge or UE runtime behavior.
+
 The later Scene/PCG design reuses this tool's proven outer async lifecycle as
 the basis of a shared internal execution kernel. That is a future internal
 refactor gate for the typed PCG frontend.
@@ -100,12 +108,13 @@ never grants the returned script a structured mutation capability.
 ## Agent Guidance Layering
 
 The tool contract and resident Agent Skills form one progressive guidance
-chain rather than three parallel sources of workflow policy:
+tree rather than parallel sources of workflow policy:
 
 ```text
 python tool description
 -> use-unreal-python
--> debug-unreal-pie-with-python when the task enters PIE
+   -> manage-unreal-assets-with-python for asset lifecycle work
+   -> debug-unreal-pie-with-python when the task enters PIE
 ```
 
 The public `python` description owns only permanent capability facts and
@@ -129,8 +138,74 @@ selection, cross-frame call boundaries, multi-world ambiguity, and cleanup. It
 must direct the agent to load and follow `use-unreal-python` first instead of
 duplicating its general safety policy.
 
-This boundary lets the base policy evolve once while keeping PIE's distinct UE
-lifecycle semantics discoverable only for runtime debugging tasks.
+`manage-unreal-assets-with-python` is a sibling additive specialization. It
+owns persistent Asset identity, factory-backed create/reuse, property editing,
+native rename/move behavior, redirectors and referencers, exact-package save,
+and cross-project migration risk. It does not replace Asset SAL discovery or
+save, and it does not own Blueprint Graph internals, Level assets, deletion,
+bulk import, or PIE.
+
+This boundary lets the base policy evolve once while keeping distinct UE
+lifecycle semantics discoverable only for matching tasks.
+
+## Asset Lifecycle Specialization
+
+Asset lifecycle work uses UE's package and Asset Tools model. The Skill must
+never model a rename or move as an operating-system `.uasset` file move.
+Before Python it uses the published `asset` Domain for registry-backed source
+and destination discovery; after Python it uses Asset Query and, when
+appropriate, the exact Asset terminal `save` operation for structured
+verification and persistence.
+
+The supported workflow classes are:
+
+- create or reuse one asset through the live reflected factory and expected
+  native Class;
+- edit certified task-specific editor properties after comparing current
+  values;
+- duplicate one asset to an absent destination;
+- rename or move assets inside the same mounted project through Asset Tools;
+- explicitly requested migration of packages and dependencies to another
+  project's Content directory.
+
+Deletion, consolidation, broad import, Level/map assets, raw filesystem moves,
+and silent overwrite are outside the first Skill version. A matching
+structured Loomle Domain remains authoritative whenever it owns the edit.
+
+UE 5.7 and 5.8 expose compatible Editor Asset Library rename/move and
+single-package save surfaces. UE 5.8 additionally adds an overwrite argument
+to `IAssetTools::CreateAsset`; the Skill deliberately does not use it as a
+portable safety mechanism. Existing destinations are reused only after exact
+Class verification or treated as conflicts.
+
+Native rename is not a simple object-name assignment. `FAssetRenameManager`
+waits for Asset Registry discovery, gathers hard and soft referencers, attempts
+source-control checkout, saves writable referencing packages, and may retain
+redirectors for references it cannot rewrite. Code, config, text, localized
+variants, read-only packages, and CDO references can require interaction or
+leave follow-up work. The Skill therefore inventories referencers before the
+operation and independently verifies the old path, new path, Class, and
+remaining redirectors afterward.
+
+Cross-project migration is a separate high-risk workflow. UE's
+`MigratePackages` first calls `SaveDirtyPackages` for map and content packages,
+recursively gathers dependencies unless explicitly disabled, writes outside
+the bound project, and returns no per-package result through its reflected
+`void` API. If the Asset Registry is still discovering, UE may defer the
+operation after the Python call returns. The Skill may invoke migration only
+after confirming an idle registry, no unrelated dirty packages, an exact
+destination Content directory, a reviewed dependency manifest, and an
+explicit conflict policy. It must verify destination state independently and
+must never report a successful Python return as proof of completed migration.
+
+The asset specialization is based on the UE 5.7 source implementation and the
+corresponding UE 5.8 Launcher source headers and implementation:
+
+- `Engine/Source/Developer/AssetTools/Public/IAssetTools.h`;
+- `Engine/Source/Developer/AssetTools/Private/AssetTools.cpp`;
+- `Engine/Source/Developer/AssetTools/Private/AssetRenameManager.cpp`;
+- `Engine/Plugins/Editor/EditorScriptingUtilities/Source/EditorScriptingUtilities/Public/EditorAssetLibrary.h`;
+- `Engine/Plugins/Editor/EditorScriptingUtilities/Source/EditorScriptingUtilities/Private/EditorAssetLibrary.cpp`.
 
 ## Intent and Boundary
 

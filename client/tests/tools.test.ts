@@ -455,6 +455,8 @@ test("keeps the resident guide only on sal_schema", () => {
   assert.match(agentSkill?.description ?? "", /runtime Actors or components/);
   assert.match(agentSkill?.description ?? "", /format-unreal-blueprints/);
   assert.match(agentSkill?.description ?? "", /near-human visual quality/);
+  assert.match(agentSkill?.description ?? "", /manage-unreal-assets-with-python/);
+  assert.match(agentSkill?.description ?? "", /cross-project migrate/);
   assert.match(agentSkill?.description ?? "", /use-unreal-python/);
   assert.match(agentSkill?.description ?? "", /partial-state recovery/);
   assert.doesNotMatch(agentSkill?.description ?? "", /# Format Unreal Blueprints/);
@@ -876,6 +878,7 @@ test("agent_skill lists and loads the complete resident workflow without calling
   assert.match(list.content[0].text, /^agent_skills:$/m);
   assert.match(list.content[0].text, /name: debug-unreal-pie-with-python/);
   assert.match(list.content[0].text, /name: format-unreal-blueprints/);
+  assert.match(list.content[0].text, /name: manage-unreal-assets-with-python/);
   assert.match(list.content[0].text, /name: use-unreal-python/);
   assert.match(list.content[0].text, /near-human visual quality/);
 
@@ -933,8 +936,29 @@ test("agent_skill lists and loads the complete resident workflow without calling
   assert.match(allText(pythonSkill), /Call `status`/);
   assert.match(allText(pythonSkill), /stateMayHaveChanged/);
   assert.match(allText(pythonSkill), /applied`, `notApplied`, or `unknown`/);
-  assert.match(allText(pythonSkill), /save the exact asset or package explicitly/);
+  assert.match(allText(pythonSkill), /save the exact native asset or package explicitly/);
   assert.match(allText(pythonSkill), /debug-unreal-pie-with-python/);
+  assert.match(allText(pythonSkill), /manage-unreal-assets-with-python/);
+
+  const assetSkill = await service.call("agent_skill", {
+    name: "manage-unreal-assets-with-python",
+  });
+  assert.equal(assetSkill.isError, undefined);
+  assert.deepEqual(
+    assetSkill.content.map(({ text }) => /^file: ([^\n]+)$/m.exec(text)?.[1]),
+    [
+      "SKILL.md",
+      "references/create-and-edit.md",
+      "references/cross-project-migration.md",
+      "references/rename-and-move.md",
+    ],
+  );
+  assert.match(allText(assetSkill), /# Manage Unreal Assets with Python/);
+  assert.match(allText(assetSkill), /Use `sal_schema` for the `asset` Domain/);
+  assert.match(allText(assetSkill), /Never rename the\s+UObject directly/);
+  assert.match(allText(assetSkill), /Do not call Save All/);
+  assert.match(allText(assetSkill), /returns no per-package result/);
+  assert.match(allText(assetSkill), /Do not claim migration success/);
   assert.equal(rpc.calls.length, 0);
 });
 

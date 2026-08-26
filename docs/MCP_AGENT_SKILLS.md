@@ -89,6 +89,9 @@ The resident catalog currently includes:
 - `use-unreal-python`, which owns capability selection, live API discovery,
   idempotent execution, continuation recovery, persistence, and verification
   for every unrestricted Python fallback;
+- `manage-unreal-assets-with-python`, which adds persistent Asset creation,
+  editing, duplication, native rename/move, referencer and redirector handling,
+  and guarded cross-project migration after the base Python Skill is loaded;
 - `debug-unreal-pie-with-python`, which guides permission-aware PIE startup,
   runtime World selection, cross-frame calls, UE-owned shutdown, and cleanup
   after the base Python Skill is loaded;

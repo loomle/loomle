@@ -122,6 +122,10 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
     );
     assert.match(
       tools.tools.find((tool) => tool.name === "agent_skill")?.description ?? "",
+      /manage-unreal-assets-with-python/,
+    );
+    assert.match(
+      tools.tools.find((tool) => tool.name === "agent_skill")?.description ?? "",
       /use-unreal-python/,
     );
     assert.match(
@@ -147,6 +151,14 @@ test("isolated Client bundle completes MCP initialization", { timeout: 15_000 },
     assert.notEqual(pythonSkill.isError, true);
     assert.match(JSON.stringify(pythonSkill), /# Use Unreal Python/);
     assert.match(JSON.stringify(pythonSkill), /stateMayHaveChanged/);
+
+    const assetSkill = await client.callTool({
+      name: "agent_skill",
+      arguments: { name: "manage-unreal-assets-with-python" },
+    });
+    assert.notEqual(assetSkill.isError, true);
+    assert.match(JSON.stringify(assetSkill), /# Manage Unreal Assets with Python/);
+    assert.match(JSON.stringify(assetSkill), /# Cross-Project Asset Migration/);
 
     const pieSkill = await client.callTool({
       name: "agent_skill",

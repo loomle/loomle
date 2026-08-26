@@ -54,10 +54,18 @@ Before any unrestricted Python fallback:
 agent_skill({ name: "use-unreal-python" })
 ```
 
+For persistent Asset creation, editing, duplication, rename/move, or guarded
+cross-project migration through Python:
+
+```text
+agent_skill({ name: "manage-unreal-assets-with-python" })
+```
+
 The Python Skill owns general capability selection, API discovery,
-idempotency, continuation recovery, persistence, and verification. PIE tasks
-load both Skills; the PIE Skill adds only play-session lifecycle and Game World
-semantics.
+idempotency, continuation recovery, persistence, and verification. Asset and
+PIE tasks load the general Skill plus their matching specialization. The Asset
+Skill adds package and reference semantics; the PIE Skill adds play-session
+lifecycle and Game World semantics.
 
 The result begins with `SKILL.md`, followed by its Markdown references in
 deterministic relative-path order. Each text block names its source-relative
@@ -72,5 +80,5 @@ Resident Skills share the Client product version. Replacing the complete
 Loomle plugin updates the Client and its Skills together, so there is no
 separate Skill install, update, or uninstall lifecycle.
 
-Resident workflows currently cover safe Unreal Python fallback, PIE debugging,
-and Blueprint Graph formatting.
+Resident workflows currently cover safe Unreal Python fallback, persistent
+Asset lifecycle work, PIE debugging, and Blueprint Graph formatting.

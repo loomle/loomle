@@ -19,6 +19,9 @@ bound Unreal Editor, not as a replacement for SAL or an agent-local runtime.
   is uncertain, or the Editor restarts.
 - For a PIE or Simulate workflow, also load and follow the resident
   `debug-unreal-pie-with-python` Skill before requesting a lifecycle change.
+- For persistent Asset creation, editing, duplication, rename/move, or
+  cross-project migration, also load and follow the resident
+  `manage-unreal-assets-with-python` Skill.
 
 ## Follow the fallback workflow
 

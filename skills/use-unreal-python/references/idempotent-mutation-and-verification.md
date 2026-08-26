@@ -28,58 +28,45 @@ facts that let another call or the user verify the outcome:
 - before and after values;
 - warnings and bounded counts.
 
-Never return a UObject wrapper. Native logs are diagnostics, not the result.
+Never return a raw UObject wrapper. Native logs are diagnostics, not the
+result. When a published SAL Domain can project a selected UObject,
+`sal.object(value)` may explicitly request that additional read-only canonical
+projection; still return the ordinary facts needed to interpret the operation.
 
-## Create or reuse, then configure
+## Resolve, compare, then mutate
 
-Use one call to create or resolve an asset and return its stable path. Use a
-later call to reload that path before applying dependent configuration.
+Use one call to resolve stable targets and report current state. Use a later
+call to rediscover those targets, compare current and intended values, and
+apply only missing changes. Return durable identifiers for the next call,
+never a cached UObject assumption.
 
 ```python
 import unreal
 
 def run():
-    package_path = "/Game/LoomleWork"
-    asset_name = "M_AgentGenerated"
-    object_path = f"{package_path}/{asset_name}.{asset_name}"
-    asset = unreal.load_object(None, object_path)
-    created = False
-    if asset is None:
-        asset = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
-            asset_name,
-            package_path,
-            unreal.Material,
-            unreal.MaterialFactoryNew(),
-        )
-        created = asset is not None
-    if asset is None:
-        return {
-            "ok": False,
-            "objectPath": object_path,
-            "reason": "create_asset returned None",
-        }
+    subsystem = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
+    world = subsystem.get_editor_world()
     return {
-        "ok": True,
-        "objectPath": asset.get_path_name(),
-        "classPath": asset.get_class().get_path_name(),
-        "created": created,
-        "reused": not created,
+        "worldPath": world.get_path_name() if world else None,
+        "available": world is not None,
     }
 ```
 
-Use task-specific paths and authorization. Do not copy this example into a
-formal asset location without confirming the intended destination.
+This example is read-only. The matching domain Skill owns the native identity
+and mutation rules for assets, PIE objects, Graphs, Levels, and other
+specialized targets.
 
 ## Persist and verify explicitly
 
 Creation or property mutation in memory does not prove durable persistence.
-When the task requires saving:
+When the task requires persistence:
 
-1. save the exact asset or package explicitly;
-2. report the native save result;
-3. reload or independently query the target;
-4. verify important class and property values;
-5. use the owning structured interface for compilation or specialized checks.
+1. use the owning structured interface's exact save operation when available;
+2. otherwise save the exact native asset or package explicitly;
+3. report the save result separately from the mutation result;
+4. reload or independently query the target;
+5. verify important identity, class, and property values;
+6. use the owning structured interface for compilation or specialized checks.
 
 Do not save unrelated dirty packages. A successful `run()` proves only what
 its returned evidence and subsequent readback establish.

@@ -8,6 +8,7 @@ test("embeds the canonical Agent Skill Markdown files without drift", () => {
   assert.deepEqual(agentSkills.map(({ name }) => name), [
     "debug-unreal-pie-with-python",
     "format-unreal-blueprints",
+    "manage-unreal-assets-with-python",
     "use-unreal-python",
   ]);
   for (const skill of agentSkills) {

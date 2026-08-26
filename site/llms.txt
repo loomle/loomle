@@ -77,6 +77,9 @@ MCP-managed Agent Skills:
   planning the specialized workflow.
 - `use-unreal-python` supplies the general safety, API discovery, idempotency,
   recovery, persistence, and verification workflow for every Python fallback.
+- `manage-unreal-assets-with-python` adds persistent Asset create/edit,
+  duplicate, rename/move, referencer, redirector, and guarded cross-project
+  migration guidance after the general Python Skill is loaded.
 - `debug-unreal-pie-with-python` starts, inspects, exercises, and stops an
   in-process PIE session after the general Python Skill is loaded.
 - `format-unreal-blueprints` formats and audits Blueprint K2 graphs using live

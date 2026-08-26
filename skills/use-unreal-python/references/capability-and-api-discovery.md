@@ -36,17 +36,18 @@ module listing.
 import unreal
 
 def run():
-    type_name = "AssetToolsHelpers"
+    type_name = "SystemLibrary"
     exposed_type = getattr(unreal, type_name, None)
-    methods = [] if exposed_type is None else [
-        name for name in dir(exposed_type)
-        if "asset" in name.lower()
-    ][:40]
+    member_name = "get_engine_version"
+    member = None if exposed_type is None else getattr(
+        exposed_type, member_name, None
+    )
     return {
         "engineVersion": unreal.SystemLibrary.get_engine_version(),
         "type": type_name,
         "available": exposed_type is not None,
-        "matchingMembers": methods,
+        "member": member_name,
+        "memberAvailable": callable(member),
     }
 ```
 
