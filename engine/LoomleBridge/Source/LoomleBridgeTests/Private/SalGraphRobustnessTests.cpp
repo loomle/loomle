@@ -31,12 +31,14 @@
 #include "Engine/BlueprintGeneratedClass.h"
 #include "Engine/SCS_Node.h"
 #include "Engine/SimpleConstructionScript.h"
+#include "Framework/Application/SlateApplication.h"
 #include "GameFramework/Actor.h"
 #include "HAL/FileManager.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_CallFunctionOnMember.h"
 #include "K2Node_CustomEvent.h"
 #include "K2Node_IfThenElse.h"
+#include "K2Node_Event.h"
 #include "K2Node_MacroInstance.h"
 #include "K2Node_MakeArray.h"
 #include "K2Node_GetSubsystem.h"
@@ -49,6 +51,7 @@
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Subsystems/LocalPlayerSubsystem.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
@@ -2856,6 +2859,197 @@ bool FSalRobustGraphComponentBoundPaletteIdentityTest::RunTest(
     Transactions.Restore();
     return bDryRunsValid
         && bCorrectBinding;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphDryRunUiNeutralTest,
+    "Loomle.Sal.Robustness.Graph.DryRunUiNeutral",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphDryRunUiNeutralTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(
+            *this,
+            TEXT("Graph dry-run UI-neutral coverage")))
+    {
+        return false;
+    }
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(
+            TEXT("Graph dry-run UI-neutral coverage isolates Undo history"),
+            Transactions.Initialize()))
+    {
+        return false;
+    }
+    FRobustGraphFixture Fixture;
+    if (!TestTrue(
+            TEXT("Graph dry-run UI-neutral fixture is valid"),
+            Fixture.IsValid()))
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    const FSalResolvedTarget Target =
+        RobustGraphTarget(Fixture.Blueprint, Fixture.Graph);
+    FSalQuery Palette = RobustGraphQuery(TEXT("palette_entries"));
+    Palette.Operation->SetStringField(TEXT("text"), TEXT("BeginPlay"));
+    Palette.PageLimit = 100;
+    const FString BeginPlayPalette = RobustGraphFindPaletteId(
+        FSalGraphInterface::Query(Palette, Target),
+        UK2Node_Event::StaticClass()->GetPathName());
+    if (!TestFalse(
+            TEXT("Graph dry-run UI-neutral coverage discovers BeginPlay"),
+            BeginPlayPalette.IsEmpty()))
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    UAssetEditorSubsystem* AssetEditors =
+        GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+    if (!TestNotNull(
+            TEXT("Asset Editor subsystem is available"),
+            AssetEditors))
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    const TSet<UObject*> EditedAssetsBefore(
+        AssetEditors->GetAllEditedAssets());
+    const TSet<IAssetEditorInstance*> OpenEditorsBefore(
+        AssetEditors->GetAllOpenEditors());
+    const TWeakPtr<SWindow> ActiveWindowBefore =
+        FSlateApplication::IsInitialized()
+            ? FSlateApplication::Get().GetActiveTopLevelWindow()
+            : nullptr;
+    const TWeakPtr<SWidget> KeyboardFocusBefore =
+        FSlateApplication::IsInitialized()
+            ? FSlateApplication::Get().GetKeyboardFocusedWidget()
+            : nullptr;
+
+    int32 TransientOpenRequests = 0;
+    int32 TransientOpenedEvents = 0;
+    TArray<TWeakObjectPtr<UObject>> UnexpectedTransientAssets;
+    const auto RecordTransientAsset =
+        [&UnexpectedTransientAssets](UObject* Asset) -> bool
+        {
+            const UBlueprint* Blueprint = Cast<UBlueprint>(Asset);
+            if (Blueprint == nullptr
+                || !Blueprint->IsIn(GetTransientPackage()))
+            {
+                return false;
+            }
+            UnexpectedTransientAssets.AddUnique(
+                TWeakObjectPtr<UObject>(Asset));
+            return true;
+        };
+    const FDelegateHandle RequestedHandle =
+        AssetEditors->OnAssetEditorRequestedOpen().AddLambda(
+            [&TransientOpenRequests,
+             &RecordTransientAsset](UObject* Asset)
+            {
+                if (RecordTransientAsset(Asset))
+                {
+                    ++TransientOpenRequests;
+                }
+            });
+    const FDelegateHandle OpenedHandle =
+        AssetEditors->OnAssetOpenedInEditor().AddLambda(
+            [&TransientOpenedEvents,
+             &RecordTransientAsset](
+                UObject* Asset,
+                IAssetEditorInstance*)
+            {
+                if (RecordTransientAsset(Asset))
+                {
+                    ++TransientOpenedEvents;
+                }
+            });
+    ON_SCOPE_EXIT
+    {
+        AssetEditors->OnAssetEditorRequestedOpen().Remove(
+            RequestedHandle);
+        AssetEditors->OnAssetOpenedInEditor().Remove(OpenedHandle);
+        for (const TWeakObjectPtr<UObject>& Asset :
+             UnexpectedTransientAssets)
+        {
+            if (Asset.IsValid())
+            {
+                AssetEditors->CloseAllEditorsForAsset(Asset.Get());
+            }
+        }
+        Transactions.Restore();
+    };
+
+    FSalPatch Patch;
+    Patch.Alias = TEXT("graph");
+    Patch.bDryRun = true;
+    Patch.Statements = {
+        RobustGraphBinding(
+            TEXT("FirstBeginPlay"),
+            BeginPlayPalette,
+            UK2Node_Event::StaticClass()->GetPathName()),
+        RobustGraphUnary(
+            TEXT("add"),
+            RobustGraphLocal(TEXT("FirstBeginPlay"))),
+        RobustGraphBinding(
+            TEXT("DuplicateBeginPlay"),
+            BeginPlayPalette,
+            UK2Node_Event::StaticClass()->GetPathName()),
+        RobustGraphUnary(
+            TEXT("add"),
+            RobustGraphLocal(TEXT("DuplicateBeginPlay")))
+    };
+    const TSharedPtr<FJsonObject> Result =
+        FSalGraphInterface::Patch(Patch, Target);
+
+    TestFalse(
+        *FString::Printf(
+            TEXT("Duplicate singleton Event fails dry-run validation [%s]"),
+            *RobustGraphDiagnosticsText(Result)),
+        RobustGraphResultBool(Result, TEXT("valid"), true));
+    TestTrue(
+        TEXT("Duplicate singleton Event reports a non-spawnable Palette action"),
+        RobustGraphHasDiagnosticCode(
+            Result,
+            TEXT("resolution.palette_not_spawnable")));
+    TestEqual(
+        TEXT("Graph dry run does not request a transient Blueprint editor"),
+        TransientOpenRequests,
+        0);
+    TestEqual(
+        TEXT("Graph dry run does not open a transient Blueprint editor"),
+        TransientOpenedEvents,
+        0);
+    const TSet<IAssetEditorInstance*> OpenEditorsAfter(
+        AssetEditors->GetAllOpenEditors());
+    TestTrue(
+        TEXT("Graph dry run preserves the set of open Asset Editors"),
+        OpenEditorsAfter.Difference(OpenEditorsBefore).IsEmpty()
+            && OpenEditorsBefore.Difference(OpenEditorsAfter).IsEmpty());
+    const TSet<UObject*> NewEditedAssets =
+        TSet<UObject*>(AssetEditors->GetAllEditedAssets())
+            .Difference(EditedAssetsBefore);
+    TestTrue(
+        TEXT("Graph dry run registers no newly edited Assets"),
+        NewEditedAssets.IsEmpty());
+    if (FSlateApplication::IsInitialized())
+    {
+        TestTrue(
+            TEXT("Graph dry run preserves the active Slate window"),
+            ActiveWindowBefore.Pin()
+                == FSlateApplication::Get().GetActiveTopLevelWindow());
+        TestTrue(
+            TEXT("Graph dry run preserves keyboard focus"),
+            KeyboardFocusBefore.Pin()
+                == FSlateApplication::Get().GetKeyboardFocusedWidget());
+    }
+
+    return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(

@@ -30,6 +30,16 @@ Mutation tools should follow this internal path:
 Real edits and dry runs should share steps 1-4. The real edit path should not
 re-interpret the original request differently from the dry-run path.
 
+An authored-state dry run is also presentation-neutral. It may create and
+compile transient UE objects to exercise native validation, but it must not
+request, register, or open an Asset Editor for them. It must not change the
+foreground window, owner or document Tab, focused Graph, keyboard focus,
+Editor selection, or Editor Context. Native action wrappers that combine an
+edit with selection, navigation, focus, or editor-opening behavior must be
+split at the boundary: dry-run planning invokes the native edit primitive and
+preserves its validation semantics without executing its presentation side
+effects.
+
 Native UE edit and validation calls are object-lifecycle boundaries. A call may
 synchronously reconstruct or remove Nodes, Pins, or other provisional objects
 before returning. Planning code may retain stable identity and an owner captured

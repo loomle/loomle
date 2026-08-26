@@ -37,6 +37,7 @@
 #include "Layout/ArrangedChildren.h"
 #include "Layout/WidgetPath.h"
 #include "K2Node_AddPinInterface.h"
+#include "K2Node.h"
 #include "K2Node_BaseMCDelegate.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_CommutativeAssociativeBinaryOperator.h"
@@ -70,6 +71,7 @@
 #include "Framework/Application/SlateApplication.h"
 #include "ScopedTransaction.h"
 #include "SGraphNode.h"
+#include "SNodePanel.h"
 #include "SGraphPanel.h"
 #include "SGraphPin.h"
 #include "Sal/Blueprint/SalBlueprintSandbox.h"
@@ -113,6 +115,21 @@ TSharedPtr<FEdGraphSchemaAction> RetargetPaletteAction(
     const TSharedPtr<FEdGraphSchemaAction>& Action,
     const FSalResolvedTarget& CapabilityTarget,
     const FSalResolvedTarget& MutationTarget);
+bool SplitPaletteId(
+    const FString& Id,
+    FString& OutToken,
+    FString& OutDescriptor);
+struct FPaletteContextData;
+bool BuildPaletteContextFromDescriptor(
+    const FSalResolvedTarget& Target,
+    const FString& Descriptor,
+    FPaletteContextData& Out,
+    FString& OutMessage);
+const FObjectProperty* FindActionObjectBinding(
+    const TSharedPtr<FEdGraphSchemaAction>& Action,
+    const UBlueprintNodeSpawner* Spawner,
+    const FSalResolvedTarget& Target,
+    const FPaletteContextData& PaletteContext);
 bool ValidatePaletteActionForTarget(
     const FBlueprintActionMenuItem& Item,
     const FSalResolvedTarget& Target,
@@ -121,10 +138,6 @@ UEdGraphNode* TemplateForAction(
     const TSharedPtr<FEdGraphSchemaAction>& Action,
     UEdGraph* Graph,
     const TArray<FFieldVariant>* SelectedObjects = nullptr);
-UEdGraphNode* TemplateForPaletteAction(
-    const TSharedPtr<FEdGraphSchemaAction>& Action,
-    const FSalResolvedTarget& Target,
-    const FString& Palette);
 bool ImportPinType(const FString& Text, FEdGraphPinType& OutType);
 bool IsExecPin(const UEdGraphPin* Pin);
 FString GraphPlanRef(const TSharedPtr<FJsonObject>& Ref);
@@ -150,6 +163,14 @@ struct FGraphObjectRef
     bool IsValid() const { return Node != nullptr || Pin != nullptr || Graph != nullptr; }
 };
 
+struct FPaletteContextData
+{
+    bool bContextSensitive = true;
+    TArray<UEdGraphPin*> Pins;
+    TArray<FFieldVariant> SelectedObjects;
+    FString Descriptor = TEXT("cs1");
+};
+
 struct FNodeDefinition
 {
     FString Alias;
@@ -158,6 +179,10 @@ struct FNodeDefinition
     // Roots the UE spawner this definition resolves to for the complete Patch
     // lifetime (see RegisterDefinition); a bare shared pointer is not a GC root.
     TStrongObjectPtr<UBlueprintNodeSpawner> ActionRoot;
+    // FBlueprintActionMenuItem keeps these private because it is a UI wrapper.
+    // SAL retains the target-local bindings separately so materialization can
+    // invoke the native spawner without selection, focus, or asset-editor UI.
+    IBlueprintNodeBinder::FBindingSet SpawnBindings;
     UEdGraphNode* Template = nullptr;
     TSharedPtr<FJsonObject> ConstructorArgs;
     bool bConsumed = false;
@@ -684,10 +709,33 @@ bool RegisterDefinition(FPatchState& State, const TSharedPtr<FJsonObject>& Bindi
             Palette);
         return false;
     }
-    UEdGraphNode* Template = TemplateForPaletteAction(
+    FString PaletteToken;
+    FString PaletteDescriptor;
+    FPaletteContextData PaletteContext;
+    if (!SplitPaletteId(
+            Palette,
+            PaletteToken,
+            PaletteDescriptor)
+        || !BuildPaletteContextFromDescriptor(
+            State.Target,
+            PaletteDescriptor,
+            PaletteContext,
+            SpawnMessage))
+    {
+        AddPatchError(
+            State,
+            TEXT("resolution.palette_not_spawnable"),
+            SpawnMessage.IsEmpty()
+                ? TEXT("Palette entry carries an invalid or stale Graph context.")
+                : SpawnMessage,
+            TEXT("binding"),
+            Palette);
+        return false;
+    }
+    UEdGraphNode* Template = TemplateForAction(
         Action,
-        State.Target,
-        Palette);
+        State.Target.Graph,
+        &PaletteContext.SelectedObjects);
     if (Template == nullptr)
     {
         AddPatchError(
@@ -714,6 +762,32 @@ bool RegisterDefinition(FPatchState& State, const TSharedPtr<FJsonObject>& Bindi
         TStrongObjectPtr<UBlueprintNodeSpawner>(
             const_cast<UBlueprintNodeSpawner*>(
                 MenuItem->GetRawAction()));
+    if (const UBlueprintNodeSpawner* Spawner =
+            MenuItem->GetRawAction())
+    {
+        for (const FFieldVariant& SelectedObject :
+             PaletteContext.SelectedObjects)
+        {
+            const FBindingObject BindingObject(SelectedObject);
+            if (Spawner->IsBindingCompatible(BindingObject))
+            {
+                Definition.SpawnBindings.Add(BindingObject);
+            }
+        }
+        const FObjectProperty* DerivedBinding =
+            FindActionObjectBinding(
+                Action,
+                Spawner,
+                State.Target,
+                PaletteContext);
+        if (DerivedBinding != nullptr)
+        {
+            Definition.SpawnBindings.Add(
+                FBindingObject(
+                    const_cast<FObjectProperty*>(
+                        DerivedBinding)));
+        }
+    }
     if (Cast<UK2Node_Timeline>(Template) != nullptr)
     {
         FString TimelineName;
@@ -770,6 +844,98 @@ FVector2f NextNodeLocation(const UEdGraph* Graph)
     return bFound ? FVector2f(Right + 320.0f, Top) : FVector2f::ZeroVector;
 }
 
+void MarkBlueprintDirtyFromNewNode(UEdGraphNode* Node)
+{
+    if (Node == nullptr || Node->GetGraph() == nullptr)
+    {
+        return;
+    }
+    UBlueprint* Blueprint =
+        FBlueprintEditorUtils::FindBlueprintForGraphChecked(
+            Node->GetGraph());
+    if (Node->GetSchema()->MarkBlueprintDirtyFromNewNode(
+            Blueprint,
+            Node))
+    {
+        return;
+    }
+    const UK2Node* K2Node = Cast<UK2Node>(Node);
+    if (K2Node == nullptr
+        || K2Node->NodeCausesStructuralBlueprintChange())
+    {
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(
+            Blueprint);
+    }
+    else
+    {
+        FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+    }
+}
+
+UEdGraphNode* InvokePaletteActionHeadless(
+    const UBlueprintNodeSpawner* Spawner,
+    UEdGraph* Graph,
+    const IBlueprintNodeBinder::FBindingSet& Bindings,
+    const FVector2f& Location,
+    UEdGraphNode*& OutExistingNode)
+{
+    OutExistingNode = nullptr;
+    if (Spawner == nullptr || Graph == nullptr)
+    {
+        return nullptr;
+    }
+
+    FVector2f ModifiedLocation = Location;
+    UEdGraphNode* LastSpawnedNode = nullptr;
+    auto BindingIt = Bindings.CreateConstIterator();
+    do
+    {
+        IBlueprintNodeBinder::FBindingSet BindingSubset;
+        for (;
+             BindingIt
+             && (Spawner->CanBindMultipleObjects()
+                 || BindingSubset.IsEmpty());
+             ++BindingIt)
+        {
+            if (BindingIt->IsValid())
+            {
+                BindingSubset.Add(*BindingIt);
+            }
+        }
+
+        const TSet<UEdGraphNode*> OldNodes(Graph->Nodes);
+        UEdGraphNode* SpawnedNode = Spawner->Invoke(
+            Graph,
+            BindingSubset,
+            FVector2D(ModifiedLocation));
+        if (SpawnedNode == nullptr)
+        {
+            return nullptr;
+        }
+
+        const TSet<UEdGraphNode*> NewNodes =
+            TSet<UEdGraphNode*>(Graph->Nodes).Difference(OldNodes);
+        if (!NewNodes.Contains(SpawnedNode))
+        {
+            // UE menu actions turn this case into navigation to an existing
+            // singleton Event/Bound Node, which synchronously opens the owning
+            // Blueprint editor. A SAL creation binding must create a new Node.
+            OutExistingNode = SpawnedNode;
+            return nullptr;
+        }
+
+        SpawnedNode->SnapToGrid(SNodePanel::GetSnapGridSize());
+        FBlueprintEditorUtils::AnalyticsTrackNewNode(SpawnedNode);
+        MarkBlueprintDirtyFromNewNode(SpawnedNode);
+        LastSpawnedNode = SpawnedNode;
+        ModifiedLocation.Y +=
+            UEdGraphSchema_K2::EstimateNodeHeight(SpawnedNode);
+    }
+    while (BindingIt);
+
+    return LastSpawnedNode;
+}
+
 UEdGraphNode* MaterializeDefinition(FPatchState& State, const FString& Alias, const FString& Operation)
 {
     FNodeDefinition* Definition = State.Definitions.Find(Alias);
@@ -794,7 +960,7 @@ UEdGraphNode* MaterializeDefinition(FPatchState& State, const FString& Alias, co
         AddPatchError(State, TEXT("resolution.palette_not_spawnable"), TEXT("Palette action cannot create a Node."), Operation, Definition->Palette);
         return nullptr;
     }
-    FBlueprintActionMenuItem* Item = static_cast<FBlueprintActionMenuItem*>(Definition->Action.Get());
+    const FBlueprintActionMenuItem* Item = static_cast<const FBlueprintActionMenuItem*>(Definition->Action.Get());
     FString SpawnMessage;
     if (!ValidatePaletteActionForTarget(*Item, State.Target, SpawnMessage))
     {
@@ -808,10 +974,30 @@ UEdGraphNode* MaterializeDefinition(FPatchState& State, const FString& Alias, co
             Definition->Palette);
         return nullptr;
     }
-    UEdGraphNode* NewNode = Item->PerformAction(State.Target.Graph, nullptr, NextNodeLocation(State.Target.Graph), false);
+    UEdGraphNode* ExistingNode = nullptr;
+    UEdGraphNode* NewNode = InvokePaletteActionHeadless(
+        Item->GetRawAction(),
+        State.Target.Graph,
+        Definition->SpawnBindings,
+        NextNodeLocation(State.Target.Graph),
+        ExistingNode);
     if (NewNode == nullptr)
     {
-        AddPatchError(State, TEXT("validation.spawn_failed"), TEXT("UE Palette action did not create a Node."), Operation, Definition->Palette);
+        AddPatchError(
+            State,
+            ExistingNode != nullptr
+                ? TEXT("resolution.palette_not_spawnable")
+                : TEXT("validation.spawn_failed"),
+            ExistingNode != nullptr
+                ? TEXT("UE Palette action resolved to an existing Node; a Graph creation binding must create a new Node.")
+                : TEXT("UE Palette action did not create a Node."),
+            Operation,
+            ExistingNode != nullptr
+                ? NodeId(ExistingNode)
+                : Definition->Palette,
+            ExistingNode != nullptr
+                ? TEXT("Inspect the existing Node and omit the duplicate creation request.")
+                : FString());
         return nullptr;
     }
     State.LocalNodes.Add(Alias, NewNode);
@@ -5803,14 +5989,6 @@ void AddSchemaComment(FSalObjectBuilder& Builder, const FString& Subject, const 
     Builder.AddComment(Text);
 }
 
-struct FPaletteContextData
-{
-    bool bContextSensitive = true;
-    TArray<UEdGraphPin*> Pins;
-    TArray<FFieldVariant> SelectedObjects;
-    FString Descriptor = TEXT("cs1");
-};
-
 const TSharedPtr<FJsonValue> FindConditionValue(const TSharedPtr<FJsonObject>& Condition, const FString& Field)
 {
     if (!Condition.IsValid()) return nullptr;
@@ -6257,9 +6435,9 @@ FString VariablePaletteActionToken(
     return GuidText(Signature.AsGuid());
 }
 
-const FObjectProperty* FindFunctionActionBinding(
+const FObjectProperty* FindActionObjectBinding(
     const TSharedPtr<FEdGraphSchemaAction>& Action,
-    const UBlueprintFunctionNodeSpawner* Spawner,
+    const UBlueprintNodeSpawner* Spawner,
     const FSalResolvedTarget& Target,
     const FPaletteContextData& PaletteContext)
 {
@@ -6478,7 +6656,7 @@ FString PaletteActionToken(
             {
                 AddFunctionBindingIdentity(
                     Signature,
-                    FindFunctionActionBinding(
+                    FindActionObjectBinding(
                         Action,
                         FunctionSpawner,
                         *Target,
@@ -7048,30 +7226,6 @@ UEdGraphNode* TemplateForAction(
         Template->AllocateDefaultPins();
     }
     return Template;
-}
-
-UEdGraphNode* TemplateForPaletteAction(
-    const TSharedPtr<FEdGraphSchemaAction>& Action,
-    const FSalResolvedTarget& Target,
-    const FString& Palette)
-{
-    FString Token;
-    FString Descriptor;
-    FPaletteContextData Context;
-    FString Message;
-    if (SplitPaletteId(Palette, Token, Descriptor)
-        && BuildPaletteContextFromDescriptor(
-            Target,
-            Descriptor,
-            Context,
-            Message))
-    {
-        return TemplateForAction(
-            Action,
-            Target.Graph,
-            &Context.SelectedObjects);
-    }
-    return TemplateForAction(Action, Target.Graph);
 }
 
 const UK2Node_Event* ExistingBoundEvent(

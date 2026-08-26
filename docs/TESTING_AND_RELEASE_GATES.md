@@ -216,6 +216,16 @@ the copied Generated Class, Skeleton Class, CDOs, SCS, templates, and graphs.
 Directly duplicating or hand-constructing `UBlueprintGeneratedClass` is not a
 supported substitute.
 
+The sandbox is never an Editor presentation target. Preflight must not request
+or open an Asset Editor for a transient Blueprint, and it must leave the active
+window, owner/document Tabs, focused Graph, keyboard focus, Editor selection,
+and Editor Context unchanged. Graph Node materialization therefore invokes the
+resolved native `UBlueprintNodeSpawner` through a headless path; it must not use
+`FBlueprintActionMenuItem::PerformAction`, whose existing-singleton behavior
+navigates to a Node and opens the owning Blueprint. Tests must listen for both
+Asset Editor open requests and completed opens so an open-then-close workaround
+cannot satisfy this gate.
+
 The sandbox preserves every stable identifier used by SAL, repairs the copied
 Class property-Guid maps after UE's ordinary duplication remap, and then audits
 the source and copy exactly. UE may reconstruct a dynamic Pin while duplicating
