@@ -656,6 +656,7 @@ an arbitrarily selected option. The initial K2 matrix is:
 | removable operator input Pin | `RemoveInputPin()` | none |
 | DoOnce MultiInput Node | `AddInputPin()` | `input`, `output` |
 | removable DoOnce MultiInput input Pin | `RemoveInputPin()` | none |
+| Create Event Node | `SetDelegateFunction(FunctionName)` | none |
 
 DoOnce MultiInput illustrates target-local meaning: its `AddInputPin()` creates
 the corresponding execution input and output together. Only its removable
@@ -677,6 +678,29 @@ invoke @vector-node-guid/x-pin-guid RecombineStructPin()
 ```
 
 Native schema rules prohibit hidden implicit disconnect/migration.
+
+### Create Event Delegate Target
+
+`UK2Node_CreateDelegate` (the Blueprint editor's Create Event Node) owns its
+selected function as coordinated native state rather than as a generic writable
+property. Exact Node schema exposes:
+
+```sal
+invoke @create-event-node-guid SetDelegateFunction(
+  FunctionName: HandleWorldCardClicked
+)
+```
+
+`FunctionName` is required and resolves in the Node's native object scope.
+Preflight requires the connected Delegate signature, the resolved scope Class,
+one function or event of that name, signature compatibility, and UE delegate
+bindability. Missing signature or scope and incompatible or unbindable functions
+are diagnostics; the operation never guesses a function or accepts a stale
+selection. Apply uses `UK2Node_CreateDelegate::SetFunction` followed by its
+native change reconciliation so Blueprint-authored function identity is stored
+with the corresponding Guid. `SelectedFunctionName` and
+`SelectedFunctionGuid` remain read-only projections because changing either
+field alone would bypass that coordinated UE behavior.
 
 ### Function And Event Signatures
 

@@ -398,6 +398,21 @@ the new regression 1/1, all eight `Loomle.Sal.Robustness.Graph` tests, Graph
 dry-run sandbox isolation 1/1, and both normalized public Patch dry-run tests.
 This was a focused regression audit rather than a complete native-suite run.
 
+## Create Event Delegate Function Audit
+
+The August 26 UE 5.7 arm64 audit adds
+`Loomle.Sal.ReleaseBlocker.Graph.CreateDelegateFunction` for issue 197. Its real
+Widget Blueprint fixture authors a Dispatcher Signature, compatible and
+incompatible Function Graphs, a Bind Event Node, and connected and disconnected
+Create Event Nodes inside a Function Graph. The test proves that exact Node schema advertises
+`SetDelegateFunction(FunctionName)`, compatible dry run leaves live state
+unchanged, missing signature and incompatible function selection fail with
+registered diagnostics, live apply stores the Blueprint function name and Guid
+through UE's native reconciliation path, and repeating the selection is an
+idempotent no-op. The same-source UE 5.7 arm64 incremental product-and-test
+build linked successfully and the targeted automation passed 1/1. This was a
+focused regression audit rather than a complete native-suite run.
+
 ## Release Gate
 
 An active public operation must have a matrix entry and a named native test.

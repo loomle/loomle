@@ -10,21 +10,28 @@
 
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
+#include "Blueprint/UserWidget.h"
+#include "Blueprint/WidgetBlueprintGeneratedClass.h"
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
 #include "EdGraph/EdGraphPin.h"
 #include "EdGraphSchema_K2.h"
+#include "EdGraphSchema_K2_Actions.h"
 #include "Editor.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
 #include "GameFramework/Actor.h"
+#include "K2Node_AddDelegate.h"
+#include "K2Node_CreateDelegate.h"
 #include "K2Node_CustomEvent.h"
+#include "K2Node_FunctionEntry.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/AutomationTest.h"
 #include "UObject/GarbageCollection.h"
 #include "UObject/Package.h"
 #include "UObject/UObjectHash.h"
+#include "WidgetBlueprint.h"
 
 namespace
 {
@@ -662,6 +669,262 @@ public:
 
 private:
     bool bVariableAdded = false;
+    bool bCleaned = false;
+};
+
+TSharedRef<FJsonValue> SetDelegateFunctionStatement(
+    const UK2Node_CreateDelegate* Node,
+    const FName FunctionName)
+{
+    TSharedRef<FJsonObject> NodeRef = MakeShared<FJsonObject>();
+    NodeRef->SetStringField(TEXT("kind"), TEXT("node"));
+    NodeRef->SetStringField(
+        TEXT("id"),
+        Node != nullptr ? GuidText(Node->NodeGuid) : FString());
+    TSharedRef<FJsonObject> Args = MakeShared<FJsonObject>();
+    Args->SetStringField(TEXT("FunctionName"), FunctionName.ToString());
+    TSharedRef<FJsonObject> Invoke = MakeShared<FJsonObject>();
+    Invoke->SetStringField(TEXT("kind"), TEXT("invoke"));
+    Invoke->SetObjectField(TEXT("target"), NodeRef);
+    Invoke->SetStringField(
+        TEXT("operation"),
+        TEXT("SetDelegateFunction"));
+    Invoke->SetObjectField(TEXT("args"), Args);
+    return MakeShared<FJsonValueObject>(Invoke);
+}
+
+class FCreateDelegateReleaseFixture
+{
+public:
+    FCreateDelegateReleaseFixture()
+    {
+        const FString Token =
+            FGuid::NewGuid().ToString(EGuidFormats::Digits);
+        Package = CreatePackage(*FString::Printf(
+            TEXT("/Game/LoomleTests/SalCreateDelegate_%s"),
+            *Token));
+        Blueprint = Package != nullptr
+            ? Cast<UWidgetBlueprint>(
+                FKismetEditorUtilities::CreateBlueprint(
+                    UUserWidget::StaticClass(),
+                    Package,
+                    *FString::Printf(
+                        TEXT("WBP_SalCreateDelegate_%s"),
+                        *Token),
+                    BPTYPE_Normal,
+                    UWidgetBlueprint::StaticClass(),
+                    UWidgetBlueprintGeneratedClass::StaticClass(),
+                    NAME_None))
+            : nullptr;
+        const UEdGraphSchema_K2* Schema =
+            GetDefault<UEdGraphSchema_K2>();
+        if (Blueprint == nullptr || Schema == nullptr)
+        {
+            return;
+        }
+
+        FEdGraphPinType DelegateType;
+        DelegateType.PinCategory = UEdGraphSchema_K2::PC_MCDelegate;
+        if (!FBlueprintEditorUtils::AddMemberVariable(
+                Blueprint,
+                DispatcherName,
+                DelegateType))
+        {
+            return;
+        }
+        DispatcherGuid =
+            FBlueprintEditorUtils::FindMemberVariableGuidByName(
+                Blueprint,
+                DispatcherName);
+        DispatcherGraph = FBlueprintEditorUtils::CreateNewGraph(
+            Blueprint,
+            DispatcherName,
+            UEdGraph::StaticClass(),
+            UEdGraphSchema_K2::StaticClass());
+        if (DispatcherGraph == nullptr)
+        {
+            return;
+        }
+        DispatcherGraph->bEditable = false;
+        Schema->CreateDefaultNodesForGraph(*DispatcherGraph);
+        Schema->CreateFunctionGraphTerminators(
+            *DispatcherGraph,
+            static_cast<UClass*>(nullptr));
+        Schema->AddExtraFunctionFlags(
+            DispatcherGraph,
+            FUNC_BlueprintCallable | FUNC_BlueprintEvent | FUNC_Public);
+        Schema->MarkFunctionEntryAsEditable(DispatcherGraph, true);
+        Blueprint->DelegateSignatureGraphs.Add(DispatcherGraph);
+
+        MatchingGraph = AddFunctionGraph(MatchingFunctionName);
+        MismatchingGraph = AddFunctionGraph(MismatchingFunctionName);
+        Graph = AddFunctionGraph(OperationFunctionName);
+        if (MatchingGraph == nullptr
+            || MismatchingGraph == nullptr
+            || Graph == nullptr)
+        {
+            return;
+        }
+        TArray<UK2Node_FunctionEntry*> MismatchingEntries;
+        MismatchingGraph->GetNodesOfClass(MismatchingEntries);
+        FEdGraphPinType IntType;
+        IntType.PinCategory = UEdGraphSchema_K2::PC_Int;
+        if (MismatchingEntries.Num() != 1
+            || MismatchingEntries[0] == nullptr
+            || MismatchingEntries[0]->CreateUserDefinedPin(
+                TEXT("Value"),
+                IntType,
+                EGPD_Output,
+                false) == nullptr)
+        {
+            return;
+        }
+
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(
+            Blueprint);
+        FKismetEditorUtilities::CompileBlueprint(Blueprint);
+        if (Blueprint->Status == BS_Error
+            || Blueprint->SkeletonGeneratedClass == nullptr)
+        {
+            return;
+        }
+
+        BindNode =
+            FEdGraphSchemaAction_K2NewNode::SpawnNode<UK2Node_AddDelegate>(
+                Graph,
+                FVector2D(500.0, 0.0),
+                EK2NewNodeFlags::None,
+                [&](UK2Node_AddDelegate* Node)
+                {
+                    Node->DelegateReference.SetSelfMember(
+                        DispatcherName,
+                        DispatcherGuid);
+                });
+        CreateDelegate =
+            FEdGraphSchemaAction_K2NewNode::SpawnNode<UK2Node_CreateDelegate>(
+                Graph,
+                FVector2D(200.0, 0.0),
+                EK2NewNodeFlags::None);
+        DisconnectedCreateDelegate =
+            FEdGraphSchemaAction_K2NewNode::SpawnNode<UK2Node_CreateDelegate>(
+                Graph,
+                FVector2D(200.0, 220.0),
+                EK2NewNodeFlags::None);
+        bConnected = BindNode != nullptr
+            && CreateDelegate != nullptr
+            && Schema->TryCreateConnection(
+                CreateDelegate->GetDelegateOutPin(),
+                BindNode->GetDelegatePin());
+        FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+        Package->SetDirtyFlag(false);
+    }
+
+    ~FCreateDelegateReleaseFixture()
+    {
+        FString Ignored;
+        Cleanup(Ignored);
+    }
+
+    FCreateDelegateReleaseFixture(
+        const FCreateDelegateReleaseFixture&) = delete;
+    FCreateDelegateReleaseFixture& operator=(
+        const FCreateDelegateReleaseFixture&) = delete;
+
+    bool IsValid() const
+    {
+        UFunction* Signature = CreateDelegate != nullptr
+            ? CreateDelegate->GetDelegateSignature()
+            : nullptr;
+        UFunction* Matching = Blueprint != nullptr
+                && Blueprint->SkeletonGeneratedClass != nullptr
+            ? Blueprint->SkeletonGeneratedClass->FindFunctionByName(
+                MatchingFunctionName)
+            : nullptr;
+        UFunction* Mismatching = Blueprint != nullptr
+                && Blueprint->SkeletonGeneratedClass != nullptr
+            ? Blueprint->SkeletonGeneratedClass->FindFunctionByName(
+                MismatchingFunctionName)
+            : nullptr;
+        return Package != nullptr
+            && Blueprint != nullptr
+            && Graph != nullptr
+            && DispatcherGraph != nullptr
+            && MatchingGraph != nullptr
+            && MismatchingGraph != nullptr
+            && DispatcherGuid.IsValid()
+            && BindNode != nullptr
+            && CreateDelegate != nullptr
+            && DisconnectedCreateDelegate != nullptr
+            && bConnected
+            && Signature != nullptr
+            && Matching != nullptr
+            && Mismatching != nullptr
+            && Signature->IsSignatureCompatibleWith(Matching)
+            && !Signature->IsSignatureCompatibleWith(Mismatching);
+    }
+
+    bool Cleanup(FString& OutError)
+    {
+        if (bCleaned)
+        {
+            OutError.Reset();
+            return true;
+        }
+        bCleaned = true;
+        UPackage* PackageToUnload = Package;
+        if (Blueprint != nullptr)
+        {
+            Blueprint->ClearFlags(RF_Public | RF_Standalone);
+        }
+        Package = nullptr;
+        Blueprint = nullptr;
+        Graph = nullptr;
+        DispatcherGraph = nullptr;
+        MatchingGraph = nullptr;
+        MismatchingGraph = nullptr;
+        BindNode = nullptr;
+        CreateDelegate = nullptr;
+        DisconnectedCreateDelegate = nullptr;
+        return UnloadTestPackage(PackageToUnload, OutError);
+    }
+
+    UPackage* Package = nullptr;
+    UBlueprint* Blueprint = nullptr;
+    UEdGraph* Graph = nullptr;
+    UEdGraph* DispatcherGraph = nullptr;
+    UEdGraph* MatchingGraph = nullptr;
+    UEdGraph* MismatchingGraph = nullptr;
+    UK2Node_AddDelegate* BindNode = nullptr;
+    UK2Node_CreateDelegate* CreateDelegate = nullptr;
+    UK2Node_CreateDelegate* DisconnectedCreateDelegate = nullptr;
+    const FName DispatcherName = TEXT("OnDelegateTargetTest");
+    const FName MatchingFunctionName = TEXT("HandleDelegateTargetTest");
+    const FName MismatchingFunctionName =
+        TEXT("HandleDelegateTargetMismatchTest");
+    const FName OperationFunctionName = TEXT("BuildDelegateBindingTest");
+
+private:
+    UEdGraph* AddFunctionGraph(const FName Name)
+    {
+        UEdGraph* FunctionGraph =
+            FBlueprintEditorUtils::CreateNewGraph(
+                Blueprint,
+                Name,
+                UEdGraph::StaticClass(),
+                UEdGraphSchema_K2::StaticClass());
+        if (FunctionGraph != nullptr)
+        {
+            FBlueprintEditorUtils::AddFunctionGraph<UClass>(
+                Blueprint,
+                FunctionGraph,
+                true,
+                nullptr);
+        }
+        return FunctionGraph;
+    }
+
+    FGuid DispatcherGuid;
+    bool bConnected = false;
     bool bCleaned = false;
 };
 
@@ -1425,6 +1688,156 @@ bool FSalGraphLiveMoveReleaseBlockerTest::RunTest(
     TestTrue(
         *FString::Printf(
             TEXT("Mutation fixture unloads: %s"),
+            *CleanupError),
+        bCleaned);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalGraphCreateDelegateFunctionReleaseBlockerTest,
+    "Loomle.Sal.ReleaseBlocker.Graph.CreateDelegateFunction",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalGraphCreateDelegateFunctionReleaseBlockerTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RequireEditor(*this, TEXT("Create Event delegate function test")))
+    {
+        return false;
+    }
+
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(
+            TEXT("Create Event fixture owns an isolated transaction buffer"),
+            Transactions.Initialize()))
+    {
+        return false;
+    }
+    FCreateDelegateReleaseFixture Fixture;
+    if (!TestTrue(
+            TEXT("Create Event fixture has native compatible and incompatible functions"),
+            Fixture.IsValid()))
+    {
+        Transactions.Restore();
+        return false;
+    }
+
+    const FSalResolvedTarget GraphScope =
+        GraphTarget(Fixture.Blueprint, Fixture.Graph);
+    FSalQuery ExactNode = Query(TEXT("node"), TEXT("graph"));
+    ExactNode.Operation->SetStringField(
+        TEXT("id"),
+        GuidText(Fixture.CreateDelegate->NodeGuid));
+    ExactNode.With.Add(TEXT("schema"));
+    const TSharedPtr<FJsonObject> ExactSchema =
+        FSalGraphInterface::Query(ExactNode, GraphScope);
+    TestFalse(
+        TEXT("Create Event exact schema Query succeeds"),
+        HasError(ExactSchema));
+    TestTrue(
+        TEXT("Create Event exact schema advertises SetDelegateFunction"),
+        HasCommentContaining(
+            ExactSchema,
+            TEXT("SetDelegateFunction(FunctionName)")));
+
+    FSalPatch DryRun;
+    DryRun.Alias = TEXT("graph");
+    DryRun.bDryRun = true;
+    DryRun.Statements = {
+        SetDelegateFunctionStatement(
+            Fixture.CreateDelegate,
+            Fixture.MatchingFunctionName)};
+    const TSharedPtr<FJsonObject> DryRunResult =
+        FSalGraphInterface::Patch(DryRun, GraphScope);
+    TestTrue(
+        TEXT("Compatible delegate function validates in dry run"),
+        ResultBool(DryRunResult, TEXT("valid")));
+    TestTrue(
+        TEXT("Compatible delegate function result is a dry run"),
+        ResultBool(DryRunResult, TEXT("dryRun")));
+    TestFalse(
+        TEXT("Compatible delegate function dry run does not apply"),
+        ResultBool(DryRunResult, TEXT("applied"), true));
+    TestTrue(
+        TEXT("Delegate function dry run preserves the live selection"),
+        Fixture.CreateDelegate->GetFunctionName().IsNone()
+            && !Fixture.CreateDelegate->SelectedFunctionGuid.IsValid());
+
+    FSalPatch Mismatch = DryRun;
+    Mismatch.Statements = {
+        SetDelegateFunctionStatement(
+            Fixture.CreateDelegate,
+            Fixture.MismatchingFunctionName)};
+    const TSharedPtr<FJsonObject> MismatchResult =
+        FSalGraphInterface::Patch(Mismatch, GraphScope);
+    TestFalse(
+        TEXT("Incompatible delegate function does not validate"),
+        ResultBool(MismatchResult, TEXT("valid"), true));
+    TestTrue(
+        TEXT("Incompatible delegate function reports signature diagnostics"),
+        HasDiagnosticCode(
+            MismatchResult,
+            TEXT("validation.signature_incompatible")));
+
+    FSalPatch Disconnected = DryRun;
+    Disconnected.Statements = {
+        SetDelegateFunctionStatement(
+            Fixture.DisconnectedCreateDelegate,
+            Fixture.MatchingFunctionName)};
+    const TSharedPtr<FJsonObject> DisconnectedResult =
+        FSalGraphInterface::Patch(Disconnected, GraphScope);
+    TestFalse(
+        TEXT("Disconnected Create Event function selection does not validate"),
+        ResultBool(DisconnectedResult, TEXT("valid"), true));
+    TestTrue(
+        TEXT("Disconnected Create Event reports its missing prerequisite"),
+        HasDiagnosticCode(
+            DisconnectedResult,
+            TEXT("capability.operation_unavailable")));
+
+    FSalPatch Apply = DryRun;
+    Apply.bDryRun = false;
+    const TSharedPtr<FJsonObject> ApplyResult =
+        FSalGraphInterface::Patch(Apply, GraphScope);
+    TestTrue(
+        TEXT("Compatible delegate function applies"),
+        ResultBool(ApplyResult, TEXT("valid"))
+            && ResultBool(ApplyResult, TEXT("applied")));
+    TestTrue(
+        TEXT("Native Create Event stores the selected function identity"),
+        Fixture.CreateDelegate->GetFunctionName()
+                == Fixture.MatchingFunctionName
+            && Fixture.CreateDelegate->SelectedFunctionGuid.IsValid());
+    UFunction* AppliedFunction =
+        Fixture.CreateDelegate->GetScopeClass() != nullptr
+        ? Fixture.CreateDelegate->GetScopeClass()->FindFunctionByName(
+            Fixture.CreateDelegate->GetFunctionName())
+        : nullptr;
+    TestTrue(
+        TEXT("Native Create Event accepts the applied selection"),
+        AppliedFunction != nullptr
+            && Fixture.CreateDelegate->GetDelegateSignature() != nullptr
+            && Fixture.CreateDelegate->GetDelegateSignature()
+                ->IsSignatureCompatibleWith(AppliedFunction)
+            && UEdGraphSchema_K2::FunctionCanBeUsedInDelegate(
+                AppliedFunction));
+
+    const TSharedPtr<FJsonObject> NoOpResult =
+        FSalGraphInterface::Patch(Apply, GraphScope);
+    TestTrue(
+        TEXT("Repeated delegate function selection remains valid"),
+        ResultBool(NoOpResult, TEXT("valid")));
+    TestFalse(
+        TEXT("Repeated delegate function selection is an idempotent no-op"),
+        ResultBool(NoOpResult, TEXT("applied"), true));
+
+    Transactions.Restore();
+    FString CleanupError;
+    const bool bCleaned = Fixture.Cleanup(CleanupError);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Create Event fixture unloads: %s"),
             *CleanupError),
         bCleaned);
     return true;

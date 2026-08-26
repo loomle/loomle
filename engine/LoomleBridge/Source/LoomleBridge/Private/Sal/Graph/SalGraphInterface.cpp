@@ -42,6 +42,7 @@
 #include "K2Node_CommutativeAssociativeBinaryOperator.h"
 #include "K2Node_ComponentBoundEvent.h"
 #include "K2Node_Composite.h"
+#include "K2Node_CreateDelegate.h"
 #include "K2Node_CustomEvent.h"
 #include "K2Node_DoOnceMultiInput.h"
 #include "K2Node_EditablePinBase.h"
@@ -2472,6 +2473,87 @@ bool ExecuteNodeInvoke(
         if (TimelineOperations.Contains(Name)) return ExecuteTimelineInvoke(State, Timeline, Operation, Name);
     }
 
+    if (Name == TEXT("SetDelegateFunction"))
+    {
+        UK2Node_CreateDelegate* CreateDelegate = Cast<UK2Node_CreateDelegate>(Node);
+        if (CreateDelegate == nullptr)
+        {
+            AddPatchError(State, TEXT("capability.operation_unavailable"), TEXT("SetDelegateFunction is available only on a Create Event Node."), Name);
+            return false;
+        }
+        const TSharedPtr<FJsonObject>* Args = nullptr;
+        Operation->TryGetObjectField(TEXT("args"), Args);
+        FString FunctionName;
+        if (!ReadArgText(Args, TEXT("FunctionName"), FunctionName) || FName(*FunctionName).IsNone())
+        {
+            AddPatchError(State, TEXT("validation.operation_arguments_invalid"), TEXT("SetDelegateFunction requires a non-empty FunctionName."), Name);
+            return false;
+        }
+        UFunction* Signature = CreateDelegate->GetDelegateSignature();
+        if (Signature == nullptr)
+        {
+            AddPatchError(State, TEXT("capability.operation_unavailable"), TEXT("Connect the Create Event Delegate output before selecting its function."), Name);
+            return false;
+        }
+        UClass* ScopeClass = CreateDelegate->GetScopeClass();
+        if (ScopeClass == nullptr)
+        {
+            AddPatchError(State, TEXT("capability.operation_unavailable"), TEXT("UE cannot determine the Create Event object scope from its Object input."), Name);
+            return false;
+        }
+        UFunction* Function = ScopeClass->FindFunctionByName(FName(*FunctionName));
+        if (Function == nullptr)
+        {
+            AddPatchError(State, TEXT("resolution.function_not_found"), FString::Printf(TEXT("Function or event '%s' was not found in Create Event scope '%s'."), *FunctionName, *ScopeClass->GetPathName()), Name, FunctionName);
+            return false;
+        }
+        if (!Signature->IsSignatureCompatibleWith(Function))
+        {
+            AddPatchError(State, TEXT("validation.signature_incompatible"), FString::Printf(TEXT("Function or event '%s' does not match delegate signature '%s'."), *FunctionName, *Signature->GetName()), Name, FunctionName);
+            return false;
+        }
+        if (!UEdGraphSchema_K2::FunctionCanBeUsedInDelegate(Function))
+        {
+            AddPatchError(State, TEXT("validation.signature_incompatible"), FString::Printf(TEXT("Function or event '%s' cannot be used in a delegate."), *FunctionName), Name, FunctionName);
+            return false;
+        }
+        if (!Function->HasAllFunctionFlags(FUNC_BlueprintAuthorityOnly))
+        {
+            for (const UEdGraphPin* LinkedPin : CreateDelegate->GetDelegateOutPin()->LinkedTo)
+            {
+                const UK2Node_BaseMCDelegate* DelegateNode = LinkedPin != nullptr
+                    ? Cast<UK2Node_BaseMCDelegate>(LinkedPin->GetOwningNode())
+                    : nullptr;
+                if (DelegateNode != nullptr && DelegateNode->IsAuthorityOnly())
+                {
+                    AddPatchError(State, TEXT("validation.signature_incompatible"), FString::Printf(TEXT("Function or event '%s' is not authority-only but the connected delegate is."), *FunctionName), Name, FunctionName);
+                    return false;
+                }
+            }
+        }
+        const UClass* FunctionOwner = Function->GetOuterUClass();
+        const bool bBlueprintAuthored = FunctionOwner != nullptr
+            && FunctionOwner->ClassGeneratedBy != nullptr;
+        if (CreateDelegate->GetFunctionName() == Function->GetFName()
+            && (!bBlueprintAuthored
+                || CreateDelegate->SelectedFunctionGuid.IsValid()))
+        {
+            return BindInvokeOutputs(State, Operation, {}, nullptr, Name);
+        }
+
+        CreateDelegate->Modify();
+        CreateDelegate->SetFunction(Function->GetFName());
+        CreateDelegate->HandleAnyChangeWithoutNotifying();
+        if (CreateDelegate->GetFunctionName() != Function->GetFName())
+        {
+            AddPatchError(State, TEXT("validation.signature_incompatible"), TEXT("UE rejected the selected Create Event function during native change reconciliation."), Name, FunctionName);
+            return false;
+        }
+        State.TouchedNodes.Add(CreateDelegate);
+        ++State.ChangedOps;
+        return BindInvokeOutputs(State, Operation, {}, nullptr, Name);
+    }
+
     TSet<UEdGraphPin*> Before;
     for (UEdGraphPin* Existing : Node->Pins) Before.Add(Existing);
     TArray<UEdGraphPin*> PrimaryPins;
@@ -2907,6 +2989,7 @@ bool ValidateInvokeArguments(FPatchState& State, const TSharedPtr<FJsonObject>& 
         if (Name == TEXT("SetKey")) Allowed.Add(TEXT("NewTime"));
     }
     else if (Name == TEXT("RemoveKey")) Allowed = {TEXT("TrackName"), TEXT("Channel"), TEXT("Time")};
+    else if (Name == TEXT("SetDelegateFunction")) Allowed = {TEXT("FunctionName")};
     if (Args != nullptr && (*Args).IsValid())
     {
         for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Args)->Values)
@@ -7418,6 +7501,10 @@ void AddExactNodeSchema(UEdGraphNode* Node, TArray<FString>& Fields, TArray<FStr
     }
     if (Node->CanUserDeleteNode()) Operations.Add(TEXT("remove"));
     Operations.Add(TEXT("move to (x, y)"));
+    if (Cast<UK2Node_CreateDelegate>(Node) != nullptr)
+    {
+        Operations.Add(TEXT("SetDelegateFunction(FunctionName)"));
+    }
     if (UK2Node_CustomEvent* Event = Cast<UK2Node_CustomEvent>(Node); Event != nullptr && Event->bIsEditable)
     {
         Operations.Add(TEXT("AddParameter(name, type) -> pin"));
