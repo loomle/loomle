@@ -216,6 +216,20 @@ the copied Generated Class, Skeleton Class, CDOs, SCS, templates, and graphs.
 Directly duplicating or hand-constructing `UBlueprintGeneratedClass` is not a
 supported substitute.
 
+Before that call, inspect both source Generated/Skeleton Classes and their
+existing CDOs without creating defaults. Require valid native Blueprint classes,
+source class ownership, and CDO class identity; inspect loaded descendant CDOs
+as well. Unsafe state returns the existing preflight diagnostic with compile
+and re-query guidance. Compiler errors alone must not prevent repair.
+
+The transient Blueprint name must also reserve the generated and skeleton
+class names derived by UE's `GetBlueprintClassNames`. `MakeUniqueObjectName`
+alone checks only the Blueprint object name. Retry the native name generator
+while either derived sibling name is occupied by any UObject. Native duplicate
+class creation must never overwrite an unrelated strongly referenced object.
+See [UE 5.8 sandbox safety](planned/UE58_BLUEPRINT_SANDBOX_SAFETY.md) for the
+source basis, reproduced assertion, and exact-version validation limits.
+
 The sandbox is never an Editor presentation target. Preflight must not request
 or open an Asset Editor for a transient Blueprint, and it must leave the active
 window, owner/document Tabs, focused Graph, keyboard focus, Editor selection,
@@ -245,9 +259,9 @@ is destroyed. The sandbox must therefore strongly retain the source Blueprint
 and every currently nested source object for exactly the native duplication
 call, then release them only after `StaticDuplicateObject` returns. This keeps
 annotation keys alive without replacing, delaying, or weakening UE's native
-duplication and compilation lifecycle. Together the source-graph guard and the
-copied-Blueprint guard ensure that neither compile-time GC nor a long Editor
-session can invalidate or leak the sandbox.
+duplication and compilation lifecycle. Retention does not authorize overwriting
+compiler-owned or unrelated existing objects, and does not prove safety for
+every native callback or unavailable asset state.
 Compiler-error status alone is allowed: agents must remain able to repair a
 broken Blueprint.
 
@@ -267,6 +281,14 @@ Widget identities must survive the sandbox unchanged. A reconstructed
 `UK2Node_PromotableOperator` tolerance Pin is the canonical dynamic-Pin
 regression: dry-run must restore its source `@NodeGuid/PinId`, while ambiguous structural
 matches must still fail.
+
+Compatibility regressions additionally cover generated/skeleton class-name
+collisions, Widget object properties with a None CDO default, source CDO
+mismatch/missing-default diagnostics, function signature and byte-to-int action
+preflight across compile/GC, and unsupported foreign-variable actions. A real
+native compiler-error Blueprint must remain repairable through public dry-run,
+live graph removal, and Undo. Healthy operation-shape fixtures do not establish
+that an unavailable reported asset's crash has been fixed.
 
 ## Fixture Contract
 

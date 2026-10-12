@@ -3,6 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Sal/Blueprint/SalBlueprintInterface.h"
+#include "Sal/SalModule.h"
 #include "LoomleTestObjectIteration.h"
 #include "LoomleTestEditorState.h"
 
@@ -22,15 +23,19 @@
 #include "Engine/TimelineTemplate.h"
 #include "GameFramework/Actor.h"
 #include "K2Node_BaseMCDelegate.h"
+#include "K2Node_CallFunction.h"
+#include "K2Node_FunctionEntry.h"
 #include "K2Node_Variable.h"
 #include "K2Node_VariableGet.h"
 #include "Kismet2/BlueprintEditorUtils.h"
+#include "Kismet2/CompilerResultsLog.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/AutomationTest.h"
 #include "ScopedTransaction.h"
 #include "UObject/GarbageCollection.h"
 #include "UObject/UObjectHash.h"
 #include "UObject/Package.h"
+#include "UObject/UnrealType.h"
 #include "WidgetBlueprint.h"
 
 namespace
@@ -301,6 +306,54 @@ bool ResultBool(
         : Default;
 }
 
+bool HasMutationDiagnosticCode(
+    const TSharedPtr<FJsonObject>& Result,
+    const FString& Expected)
+{
+    const TArray<TSharedPtr<FJsonValue>>* Diagnostics = nullptr;
+    if (!Result.IsValid()
+        || !Result->TryGetArrayField(TEXT("diagnostics"), Diagnostics)
+        || Diagnostics == nullptr)
+    {
+        return false;
+    }
+    for (const TSharedPtr<FJsonValue>& Value : *Diagnostics)
+    {
+        const TSharedPtr<FJsonObject>* Diagnostic = nullptr;
+        FString Code;
+        if (Value.IsValid() && Value->TryGetObject(Diagnostic)
+            && Diagnostic != nullptr
+            && (*Diagnostic)->TryGetStringField(TEXT("code"), Code)
+            && Code == Expected)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+class FScopedTestDefaultObjectOverride
+{
+public:
+    FScopedTestDefaultObjectOverride(UClass* InClass, UObject* Replacement)
+        : Class(InClass)
+        , OriginalCDO(InClass->GetDefaultObject(false))
+    {
+        Class->SetDefaultObject(Replacement);
+    }
+
+    ~FScopedTestDefaultObjectOverride()
+    {
+        Class->SetDefaultObject(OriginalCDO.Get());
+    }
+
+private:
+    UClass* Class;
+    // The original CDO is temporarily detached from its class. Retain it until
+    // restoration; none of these rejection scenarios compiles the class.
+    TStrongObjectPtr<UObject> OriginalCDO;
+};
+
 struct FBlueprintTestStableIds
 {
     TMap<FString, FGuid> Graphs;
@@ -414,6 +467,48 @@ bool TestStableGuidMapsEqual(
         }
     }
     return true;
+}
+
+TSharedRef<FJsonObject> PublicBlueprintRemoveGraphPatch(
+    const UBlueprint* Blueprint,
+    const UEdGraph* Graph,
+    const bool bDryRun = true)
+{
+    TSharedRef<FJsonObject> BlueprintTarget = MakeShared<FJsonObject>();
+    BlueprintTarget->SetStringField(TEXT("kind"), TEXT("target"));
+    BlueprintTarget->SetStringField(TEXT("domain"), TEXT("blueprint"));
+    BlueprintTarget->SetStringField(TEXT("asset"), Blueprint->GetPathName());
+    BlueprintTarget->SetStringField(
+        TEXT("id"),
+        Blueprint->GetBlueprintGuid().ToString(
+            EGuidFormats::DigitsWithHyphensLower));
+
+    TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("alias"), TEXT("sourceBlueprint"));
+    Target->SetObjectField(TEXT("target"), BlueprintTarget);
+
+    TSharedRef<FJsonObject> GraphReference = MakeShared<FJsonObject>();
+    GraphReference->SetStringField(TEXT("kind"), TEXT("stable_ref"));
+    GraphReference->SetArrayField(
+        TEXT("identityPath"),
+        {MakeShared<FJsonValueString>(Graph->GraphGuid.ToString(
+            EGuidFormats::DigitsWithHyphensLower))});
+
+    TSharedRef<FJsonObject> Remove = MakeShared<FJsonObject>();
+    Remove->SetStringField(TEXT("kind"), TEXT("remove"));
+    Remove->SetObjectField(TEXT("target"), GraphReference);
+
+    TSharedRef<FJsonObject> Patch = MakeShared<FJsonObject>();
+    Patch->SetStringField(TEXT("kind"), TEXT("patch"));
+    Patch->SetObjectField(TEXT("target"), Target);
+    Patch->SetBoolField(TEXT("dryRun"), bDryRun);
+    Patch->SetArrayField(
+        TEXT("statements"),
+        {MakeShared<FJsonValueObject>(Remove)});
+
+    TSharedRef<FJsonObject> Arguments = MakeShared<FJsonObject>();
+    Arguments->SetObjectField(TEXT("object"), Patch);
+    return Arguments;
 }
 }
 
@@ -541,6 +636,552 @@ bool FSalBlueprintDescriptionMutationTest::RunTest(const FString& Parameters)
                 *CleanupError),
             bCleaned);
     }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalBlueprintWidgetObjectDefaultDryRunTest,
+    "Loomle.Sal.Blueprint.Mutation.WidgetObjectDefaultDryRun",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalBlueprintWidgetObjectDefaultDryRunTest::RunTest(
+    const FString& Parameters)
+{
+    (void)Parameters;
+    if (GEditor == nullptr || GEditor->PlayWorld != nullptr
+        || GEditor->IsTransactionActive())
+    {
+        AddError(TEXT("Widget object default regression requires an idle Editor."));
+        return false;
+    }
+
+    // Issue #201 reports a healthy ObjectProperty with a None CDO default.
+    // Create that state through UE authoring and compilation, never by
+    // constructing a generated class or corrupting an existing CDO.
+    FBlueprintMutationFixture ReferencedWidget(
+        EBlueprintMutationFixtureKind::WidgetBlueprint);
+    if (!TestNotNull(
+            TEXT("Referenced Widget Blueprint exists"),
+            ReferencedWidget.Blueprint))
+    {
+        return false;
+    }
+    FKismetEditorUtilities::CompileBlueprint(ReferencedWidget.Blueprint);
+    if (!TestTrue(
+            TEXT("Referenced Widget Blueprint compiles successfully"),
+            ReferencedWidget.Blueprint->Status == BS_UpToDate
+                && IsValid(ReferencedWidget.Blueprint->GeneratedClass.Get())))
+    {
+        return false;
+    }
+    ReferencedWidget.Package->SetDirtyFlag(false);
+
+    for (const EBlueprintMutationFixtureKind Kind : {
+        EBlueprintMutationFixtureKind::Blueprint,
+        EBlueprintMutationFixtureKind::WidgetBlueprint})
+    {
+        FBlueprintMutationFixture Fixture(Kind);
+        if (!TestNotNull(
+                TEXT("Object default source Blueprint exists"),
+                Fixture.Blueprint))
+        {
+            return false;
+        }
+        Loomle::Tests::FScopedIsolatedTransactor Transactions;
+        if (!TestTrue(
+                TEXT("Object default fixture owns isolated authoring transactions"),
+                Transactions.Initialize()))
+        {
+            return false;
+        }
+
+        const FName ReferenceName(TEXT("Shooter_Hud_Reference"));
+        FEdGraphPinType ReferenceType;
+        ReferenceType.PinCategory = UEdGraphSchema_K2::PC_Object;
+        ReferenceType.PinSubCategoryObject =
+            ReferencedWidget.Blueprint->GeneratedClass.Get();
+        if (!TestTrue(
+                TEXT("Cross-Blueprint Widget object variable is authored"),
+                FBlueprintEditorUtils::AddMemberVariable(
+                    Fixture.Blueprint,
+                    ReferenceName,
+                    ReferenceType,
+                    TEXT("None"))))
+        {
+            return false;
+        }
+        UEdGraph* EventGraph =
+            FBlueprintEditorUtils::FindEventGraph(Fixture.Blueprint);
+        if (!TestNotNull(TEXT("Object default Event Graph exists"), EventGraph)
+            || !TestNotNull(
+                TEXT("Object default getter is authored"),
+                GetDefault<UEdGraphSchema_K2>()->SpawnVariableGetNode(
+                    FVector2D(240.0, 160.0),
+                    EventGraph,
+                    ReferenceName,
+                    nullptr)))
+        {
+            return false;
+        }
+        UEdGraph* RemovableGraph = FBlueprintEditorUtils::CreateNewGraph(
+            Fixture.Blueprint,
+            TEXT("SandboxRemovalTarget"),
+            UEdGraph::StaticClass(),
+            UEdGraphSchema_K2::StaticClass());
+        if (!TestNotNull(TEXT("Removable Function Graph exists"), RemovableGraph))
+        {
+            return false;
+        }
+        FBlueprintEditorUtils::AddFunctionGraph(
+            Fixture.Blueprint,
+            RemovableGraph,
+            true,
+            static_cast<UClass*>(nullptr));
+        const FGuid BlueprintGuid = Fixture.Blueprint->GetBlueprintGuid();
+        const FGuid GraphGuid = RemovableGraph->GraphGuid;
+        const int32 VariableIndex = FBlueprintEditorUtils::FindNewVariableIndex(
+            Fixture.Blueprint,
+            ReferenceName);
+        if (!TestTrue(TEXT("Object variable has a stable GUID"), VariableIndex != INDEX_NONE))
+        {
+            return false;
+        }
+        const FGuid VariableGuid = Fixture.Blueprint->NewVariables[VariableIndex].VarGuid;
+
+        // Recompile between calls so coverage includes warm compiler and GC
+        // state as well as the first sandbox made from a freshly compiled asset.
+        for (int32 Round = 0; Round < 3; ++Round)
+        {
+            FKismetEditorUtilities::CompileBlueprint(Fixture.Blueprint);
+            CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+            const FString Context = FString::Printf(
+                TEXT("%s ObjectProperty dry run, round %d"),
+                *Fixture.Label,
+                Round + 1);
+            if (!TestTrue(
+                    *(Context + TEXT(" starts from a successfully compiled Blueprint")),
+                    Fixture.Blueprint->Status == BS_UpToDate))
+            {
+                return false;
+            }
+
+            UClass* SourceClass = Fixture.Blueprint->GeneratedClass.Get();
+            UObject* SourceCDO = IsValid(SourceClass)
+                ? SourceClass->GetDefaultObject(false)
+                : nullptr;
+            UClass* SourceSkeleton = Fixture.Blueprint->SkeletonGeneratedClass.Get();
+            UClass* ReferencedClass = ReferencedWidget.Blueprint->GeneratedClass.Get();
+            UObject* ReferencedCDO = IsValid(ReferencedClass)
+                ? ReferencedClass->GetDefaultObject(false)
+                : nullptr;
+            if (!TestTrue(
+                    *(Context + TEXT(" starts with a valid class and CDO")),
+                    IsValid(SourceClass) && IsValid(SourceCDO)
+                        && SourceClass->IsValidLowLevelFast()
+                        && SourceCDO->IsValidLowLevelFast()
+                        && SourceCDO->GetClass() == SourceClass
+                        && SourceCDO->HasAnyFlags(RF_ClassDefaultObject)))
+            {
+                return false;
+            }
+            FObjectProperty* ReferenceProperty = FindFProperty<FObjectProperty>(
+                SourceClass,
+                ReferenceName);
+            if (!TestTrue(
+                    *(Context + TEXT(" starts with a Widget ObjectProperty defaulting to None")),
+                    ReferenceProperty != nullptr
+                        && ReferenceProperty->HasAllPropertyFlags(
+                            CPF_Edit | CPF_BlueprintVisible | CPF_DisableEditOnInstance)
+                        && ReferenceProperty->PropertyClass
+                            == ReferencedClass
+                        && ReferenceProperty->GetObjectPropertyValue_InContainer(SourceCDO)
+                            == nullptr))
+            {
+                return false;
+            }
+            const FBlueprintTestStableIds Before = CaptureTestStableIds(Fixture.Blueprint);
+            const int32 FunctionCount = Fixture.Blueprint->FunctionGraphs.Num();
+            Fixture.Package->SetDirtyFlag(false);
+
+            const TSharedPtr<FJsonObject> Result = FSalModule::BuildPatchResult(
+                PublicBlueprintRemoveGraphPatch(Fixture.Blueprint, RemovableGraph));
+            TestFalse(*(Context + TEXT(" has no public-path error")), ResultBool(Result, TEXT("isError"), true));
+            TestTrue(*(Context + TEXT(" validates graph removal")), ResultBool(Result, TEXT("valid")));
+            TestTrue(*(Context + TEXT(" is reported as dry run")), ResultBool(Result, TEXT("dryRun")));
+            TestFalse(*(Context + TEXT(" does not apply")), ResultBool(Result, TEXT("applied"), true));
+            if (!TestTrue(
+                    *(Context + TEXT(" preserves valid source class and CDO identity")),
+                    IsValid(SourceClass) && IsValid(SourceCDO)
+                        && SourceClass->IsValidLowLevelFast()
+                        && SourceCDO->IsValidLowLevelFast()
+                        && Fixture.Blueprint->GeneratedClass.Get() == SourceClass
+                        && Fixture.Blueprint->SkeletonGeneratedClass.Get() == SourceSkeleton
+                        && SourceClass->GetDefaultObject(false) == SourceCDO
+                        && SourceCDO->GetClass() == SourceClass))
+            {
+                return false;
+            }
+            ReferenceProperty = FindFProperty<FObjectProperty>(SourceClass, ReferenceName);
+            TestTrue(
+                *(Context + TEXT(" preserves referenced Widget class and CDO identity")),
+                IsValid(ReferencedClass) && IsValid(ReferencedCDO)
+                    && ReferencedWidget.Blueprint->GeneratedClass.Get() == ReferencedClass
+                    && ReferencedClass->GetDefaultObject(false) == ReferencedCDO);
+            TestTrue(
+                *(Context + TEXT(" preserves the Widget object default")),
+                ReferenceProperty != nullptr
+                    && ReferenceProperty->PropertyClass == ReferencedWidget.Blueprint->GeneratedClass.Get()
+                    && ReferenceProperty->GetObjectPropertyValue_InContainer(SourceCDO) == nullptr);
+            TestFalse(*(Context + TEXT(" preserves source dirty state")), Fixture.Package->IsDirty());
+            TestFalse(*(Context + TEXT(" preserves referenced asset dirty state")), ReferencedWidget.Package->IsDirty());
+            TestTrue(
+                *(Context + TEXT(" leaves the requested graph in the source")),
+                Fixture.Blueprint->FunctionGraphs.Contains(RemovableGraph)
+                    && Fixture.Blueprint->FunctionGraphs.Num() == FunctionCount
+                    && RemovableGraph->GraphGuid == GraphGuid);
+            TestEqual(*(Context + TEXT(" preserves Blueprint GUID")), Fixture.Blueprint->GetBlueprintGuid(), BlueprintGuid);
+            const int32 CurrentVariableIndex = FBlueprintEditorUtils::FindNewVariableIndex(
+                Fixture.Blueprint,
+                ReferenceName);
+            TestTrue(
+                *(Context + TEXT(" preserves variable GUID")),
+                CurrentVariableIndex != INDEX_NONE
+                    && Fixture.Blueprint->NewVariables[CurrentVariableIndex].VarGuid == VariableGuid);
+            const FBlueprintTestStableIds After = CaptureTestStableIds(Fixture.Blueprint);
+            TestTrue(
+                *(Context + TEXT(" preserves graph, node, pin and member GUIDs")),
+                TestStableGuidMapsEqual(Before.Graphs, After.Graphs)
+                    && TestStableGuidMapsEqual(Before.Nodes, After.Nodes)
+                    && TestStableGuidMapsEqual(Before.Pins, After.Pins)
+                    && TestStableGuidMapsEqual(Before.MemberReferences, After.MemberReferences));
+            if (ResultBool(Result, TEXT("isError"), true)
+                || !ResultBool(Result, TEXT("valid")))
+            {
+                return false;
+            }
+        }
+        Transactions.Restore();
+        FString CleanupError;
+        const bool bCleaned = Fixture.Cleanup(CleanupError);
+        TestTrue(*FString::Printf(TEXT("Object default source fixture unloads: %s"), *CleanupError), bCleaned);
+    }
+    FString CleanupError;
+    const bool bCleaned = ReferencedWidget.Cleanup(CleanupError);
+    TestTrue(*FString::Printf(TEXT("Referenced Widget fixture unloads: %s"), *CleanupError), bCleaned);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalBlueprintCompileErrorGraphRepairTest,
+    "Loomle.Sal.Blueprint.Mutation.CompileErrorGraphRepair",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalBlueprintCompileErrorGraphRepairTest::RunTest(
+    const FString& Parameters)
+{
+    (void)Parameters;
+    if (GEditor == nullptr || GEditor->PlayWorld != nullptr
+        || GEditor->IsTransactionActive())
+    {
+        AddError(TEXT("Compile-error repair regression requires an idle Editor."));
+        return false;
+    }
+
+    FBlueprintMutationFixture Fixture(EBlueprintMutationFixtureKind::Blueprint);
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestNotNull(TEXT("Compile-error Blueprint exists"), Fixture.Blueprint)
+        || !TestTrue(TEXT("Compile-error fixture owns isolated Undo history"), Transactions.Initialize()))
+    {
+        return false;
+    }
+    UEdGraph* BrokenGraph = FBlueprintEditorUtils::CreateNewGraph(
+        Fixture.Blueprint,
+        TEXT("RepairableBrokenFunction"),
+        UEdGraph::StaticClass(),
+        UEdGraphSchema_K2::StaticClass());
+    if (!TestNotNull(TEXT("Repairable Function Graph exists"), BrokenGraph))
+    {
+        return false;
+    }
+    FBlueprintEditorUtils::AddFunctionGraph(
+        Fixture.Blueprint, BrokenGraph, true, static_cast<UClass*>(nullptr));
+    TArray<UK2Node_FunctionEntry*> Entries;
+    BrokenGraph->GetNodesOfClass(Entries);
+    UFunction* NativeFunction = AActor::StaticClass()->FindFunctionByName(TEXT("K2_DestroyActor"));
+    if (!TestEqual(TEXT("Repair fixture has one Function Entry"), Entries.Num(), 1)
+        || !TestNotNull(TEXT("Native impure function exists"), NativeFunction))
+    {
+        return false;
+    }
+    UK2Node_CallFunction* BrokenCall = NewObject<UK2Node_CallFunction>(
+        BrokenGraph, NAME_None, RF_Transactional);
+    BrokenCall->CreateNewGuid();
+    BrokenCall->SetFromFunction(NativeFunction);
+    BrokenGraph->AddNode(BrokenCall, false, false);
+    BrokenCall->AllocateDefaultPins();
+    UEdGraphPin* EntryExec = Entries[0]->FindPin(UEdGraphSchema_K2::PN_Then, EGPD_Output);
+    UEdGraphPin* CallExec = BrokenCall->FindPin(UEdGraphSchema_K2::PN_Execute, EGPD_Input);
+    if (!TestTrue(TEXT("Native schema connects the impure function into execution"),
+            EntryExec != nullptr && CallExec != nullptr
+                && GetDefault<UEdGraphSchema_K2>()->TryCreateConnection(EntryExec, CallExec)))
+    {
+        return false;
+    }
+    // Keep the native call's execution pins, but refer to a genuinely missing
+    // function. K2Node_CallFunction::ValidateNodeDuringCompilation reports this
+    // as a compiler error; BS_Error itself is never assigned by the test.
+    BrokenCall->FunctionReference.SetSelfMember(TEXT("LoomleMissingRepairTarget"));
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Fixture.Blueprint);
+    AddExpectedError(TEXT("LoomleMissingRepairTarget"), EAutomationExpectedErrorFlags::Contains, 0);
+    FCompilerResultsLog FailedCompile;
+    FKismetEditorUtilities::CompileBlueprint(
+        Fixture.Blueprint, EBlueprintCompileOptions::None, &FailedCompile);
+    if (!TestTrue(TEXT("Native compiler produces a real repairable BS_Error Blueprint"),
+            FailedCompile.NumErrors > 0 && Fixture.Blueprint->Status == BS_Error))
+    {
+        return false;
+    }
+    FString ClassStateMessage;
+    if (!TestTrue(TEXT("Compiler errors retain class/CDO state suitable for repair"),
+            FSalBlueprintInterface::ValidateModificationClassStateForTesting(
+                Fixture.Blueprint, ClassStateMessage)))
+    {
+        return false;
+    }
+    Fixture.Package->SetDirtyFlag(false);
+    const FGuid BlueprintGuid = Fixture.Blueprint->GetBlueprintGuid();
+    const FGuid GraphGuid = BrokenGraph->GraphGuid;
+    const FGuid CallGuid = BrokenCall->NodeGuid;
+    const int32 FunctionCount = Fixture.Blueprint->FunctionGraphs.Num();
+    const FBlueprintTestStableIds Before = CaptureTestStableIds(Fixture.Blueprint);
+    UClass* SourceClass = Fixture.Blueprint->GeneratedClass.Get();
+    UClass* SourceSkeleton = Fixture.Blueprint->SkeletonGeneratedClass.Get();
+    UObject* SourceCDO = SourceClass->GetDefaultObject(false);
+    UObject* SourceSkeletonCDO = SourceSkeleton->GetDefaultObject(false);
+
+    const TSharedPtr<FJsonObject> DryRun = FSalModule::BuildPatchResult(
+        PublicBlueprintRemoveGraphPatch(Fixture.Blueprint, BrokenGraph));
+    if (!TestTrue(TEXT("Public dry run validates removal from a BS_Error Blueprint"),
+            ResultBool(DryRun, TEXT("valid")) && !ResultBool(DryRun, TEXT("isError"), true)))
+    {
+        return false;
+    }
+    TestTrue(TEXT("Compile-error repair is reported as dry run"), ResultBool(DryRun, TEXT("dryRun")));
+    TestFalse(TEXT("Compile-error dry run does not apply"), ResultBool(DryRun, TEXT("applied"), true));
+    TestTrue(TEXT("Dry run preserves source compiler status, classes and CDOs"),
+        Fixture.Blueprint->Status == BS_Error
+            && Fixture.Blueprint->GeneratedClass.Get() == SourceClass
+            && Fixture.Blueprint->SkeletonGeneratedClass.Get() == SourceSkeleton
+            && SourceClass->GetDefaultObject(false) == SourceCDO
+            && SourceSkeleton->GetDefaultObject(false) == SourceSkeletonCDO);
+    TestEqual(TEXT("Dry run preserves source Function Graph membership"),
+        Fixture.Blueprint->FunctionGraphs.Num(), FunctionCount);
+    TestFalse(TEXT("Dry run preserves source dirty state"), Fixture.Package->IsDirty());
+    const FBlueprintTestStableIds After = CaptureTestStableIds(Fixture.Blueprint);
+    TestTrue(TEXT("Dry run preserves graph, node, pin and member GUIDs"),
+        TestStableGuidMapsEqual(Before.Graphs, After.Graphs)
+            && TestStableGuidMapsEqual(Before.Nodes, After.Nodes)
+            && TestStableGuidMapsEqual(Before.Pins, After.Pins)
+            && TestStableGuidMapsEqual(Before.MemberReferences, After.MemberReferences));
+
+    const TSharedPtr<FJsonObject> Applied = FSalModule::BuildPatchResult(
+        PublicBlueprintRemoveGraphPatch(Fixture.Blueprint, BrokenGraph, false));
+    if (!TestTrue(TEXT("Public live Patch repairs a BS_Error Blueprint"),
+            ResultBool(Applied, TEXT("valid")) && ResultBool(Applied, TEXT("applied"))
+                && !ResultBool(Applied, TEXT("isError"), true)))
+    {
+        return false;
+    }
+    TestEqual(TEXT("Live repair removes exactly the broken Function Graph"),
+        Fixture.Blueprint->FunctionGraphs.Num(), FunctionCount - 1);
+    FKismetEditorUtilities::CompileBlueprint(Fixture.Blueprint);
+    TestTrue(TEXT("Repaired Blueprint compiles successfully through UE"),
+        Fixture.Blueprint->Status == BS_UpToDate
+            || Fixture.Blueprint->Status == BS_UpToDateWithWarnings);
+    TestEqual(TEXT("Repair preserves Blueprint identity"), Fixture.Blueprint->GetBlueprintGuid(), BlueprintGuid);
+    if (!TestTrue(TEXT("Live repair is one Undo step"), GEditor->UndoTransaction(false)))
+    {
+        return false;
+    }
+    UEdGraph* RestoredGraph = nullptr;
+    for (UEdGraph* Graph : Fixture.Blueprint->FunctionGraphs)
+    {
+        if (Graph != nullptr && Graph->GraphGuid == GraphGuid)
+        {
+            RestoredGraph = Graph;
+            break;
+        }
+    }
+    TestEqual(TEXT("Undo restores Function Graph membership"),
+        Fixture.Blueprint->FunctionGraphs.Num(), FunctionCount);
+    if (!TestNotNull(TEXT("Undo restores the same Function Graph identity"), RestoredGraph))
+    {
+        return false;
+    }
+    TestTrue(TEXT("Undo restores the broken call's node identity"),
+        RestoredGraph->Nodes.ContainsByPredicate([CallGuid](const UEdGraphNode* Node)
+        {
+            return Node != nullptr && Node->NodeGuid == CallGuid;
+        }));
+    FCompilerResultsLog RestoredCompile;
+    FKismetEditorUtilities::CompileBlueprint(
+        Fixture.Blueprint, EBlueprintCompileOptions::None, &RestoredCompile);
+    TestTrue(TEXT("Undo restores the native compiler error as well as the graph"),
+        RestoredCompile.NumErrors > 0 && Fixture.Blueprint->Status == BS_Error);
+    Transactions.Restore();
+    FString CleanupError;
+    TestTrue(*FString::Printf(TEXT("Compile-error fixture unloads: %s"), *CleanupError),
+        Fixture.Cleanup(CleanupError));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalBlueprintInvalidDefaultObjectPreflightTest,
+    "Loomle.Sal.Blueprint.Mutation.InvalidDefaultObjectPreflight",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSalBlueprintInvalidDefaultObjectPreflightTest::RunTest(
+    const FString& Parameters)
+{
+    (void)Parameters;
+    if (GEditor == nullptr || GEditor->PlayWorld != nullptr
+        || GEditor->IsTransactionActive())
+    {
+        AddError(TEXT("CDO validation regression requires an idle Editor."));
+        return false;
+    }
+
+    FBlueprintMutationFixture ForeignFixture(
+        EBlueprintMutationFixtureKind::Blueprint);
+    if (!TestNotNull(TEXT("Foreign CDO fixture exists"), ForeignFixture.Blueprint))
+    {
+        return false;
+    }
+    FKismetEditorUtilities::CompileBlueprint(ForeignFixture.Blueprint);
+    UClass* ForeignClass = ForeignFixture.Blueprint->GeneratedClass.Get();
+    UObject* ForeignCDO = IsValid(ForeignClass)
+        ? ForeignClass->GetDefaultObject(false)
+        : nullptr;
+    if (!TestTrue(
+            TEXT("Foreign CDO is a valid native-compiled class default object"),
+            IsValid(ForeignCDO)
+                && ForeignCDO->GetClass() == ForeignClass
+                && ForeignCDO->HasAnyFlags(RF_ClassDefaultObject)))
+    {
+        return false;
+    }
+    ForeignFixture.Package->SetDirtyFlag(false);
+
+    for (const EBlueprintMutationFixtureKind Kind : {
+        EBlueprintMutationFixtureKind::Blueprint,
+        EBlueprintMutationFixtureKind::WidgetBlueprint})
+    {
+        FBlueprintMutationFixture Fixture(Kind);
+        if (!TestNotNull(TEXT("CDO validation source exists"), Fixture.Blueprint))
+        {
+            return false;
+        }
+        Loomle::Tests::FScopedIsolatedTransactor Transactions;
+        if (!TestTrue(
+                TEXT("CDO validation fixture owns isolated transactions"),
+                Transactions.Initialize()))
+        {
+            return false;
+        }
+        FKismetEditorUtilities::CompileBlueprint(Fixture.Blueprint);
+        UClass* GeneratedClass = Fixture.Blueprint->GeneratedClass.Get();
+        UClass* SkeletonClass = Fixture.Blueprint->SkeletonGeneratedClass.Get();
+        UObject* GeneratedCDO = IsValid(GeneratedClass)
+            ? GeneratedClass->GetDefaultObject(false)
+            : nullptr;
+        UObject* SkeletonCDO = IsValid(SkeletonClass)
+            ? SkeletonClass->GetDefaultObject(false)
+            : nullptr;
+        FString HealthyMessage;
+        if (!TestTrue(
+                TEXT("Native-compiled source class state is initially healthy"),
+                IsValid(GeneratedCDO) && IsValid(SkeletonCDO)
+                    && FSalBlueprintInterface::ValidateModificationClassStateForTesting(
+                        Fixture.Blueprint,
+                        HealthyMessage)))
+        {
+            return false;
+        }
+        Fixture.Package->SetDirtyFlag(false);
+        const FString Description = Fixture.Blueprint->BlueprintDescription;
+        const FGuid BlueprintGuid = Fixture.Blueprint->GetBlueprintGuid();
+        const FBlueprintTestStableIds Before = CaptureTestStableIds(Fixture.Blueprint);
+
+        struct FInvalidCDOCase
+        {
+            const TCHAR* Label;
+            UClass* Class;
+            UObject* Replacement;
+        };
+        for (const FInvalidCDOCase& Case : {
+            FInvalidCDOCase{TEXT("Generated Class mismatched CDO"), GeneratedClass, ForeignCDO},
+            FInvalidCDOCase{TEXT("Skeleton Class missing CDO"), SkeletonClass, nullptr},
+            FInvalidCDOCase{TEXT("Skeleton Class mismatched CDO"), SkeletonClass, ForeignCDO}})
+        {
+            const FString Context = Fixture.Label + TEXT(" ") + Case.Label;
+            {
+                const FScopedTestDefaultObjectOverride Override(Case.Class, Case.Replacement);
+                FString ValidationMessage;
+                // Check the validator first. If it regresses, report that
+                // failure and restore safely before an unsafe duplicate call.
+                if (!TestFalse(
+                        *(Context + TEXT(" is rejected before duplication")),
+                        FSalBlueprintInterface::ValidateModificationClassStateForTesting(
+                            Fixture.Blueprint,
+                            ValidationMessage)))
+                {
+                    return false;
+                }
+                TestFalse(*(Context + TEXT(" explains the invalid state")), ValidationMessage.IsEmpty());
+                const TSharedPtr<FJsonObject> Result = FSalBlueprintInterface::Patch(
+                    DescriptionPatch(TEXT("Unsafe state must not reach sandbox apply"), true),
+                    BlueprintTarget(Fixture.Blueprint));
+                TestTrue(
+                    *(Context + TEXT(" returns capability.preflight_unavailable")),
+                    HasMutationDiagnosticCode(Result, TEXT("capability.preflight_unavailable")));
+                TestTrue(*(Context + TEXT(" reports an error")), ResultBool(Result, TEXT("isError")));
+                TestFalse(*(Context + TEXT(" is not valid")), ResultBool(Result, TEXT("valid"), true));
+                TestFalse(*(Context + TEXT(" is not applied")), ResultBool(Result, TEXT("applied"), true));
+                TestTrue(
+                    *(Context + TEXT(" leaves both source class identities unchanged")),
+                    Fixture.Blueprint->GeneratedClass.Get() == GeneratedClass
+                        && Fixture.Blueprint->SkeletonGeneratedClass.Get() == SkeletonClass
+                        && Case.Class->GetDefaultObject(false) == Case.Replacement);
+                TestEqual(*(Context + TEXT(" preserves source description")), Fixture.Blueprint->BlueprintDescription, Description);
+                TestEqual(*(Context + TEXT(" preserves Blueprint GUID")), Fixture.Blueprint->GetBlueprintGuid(), BlueprintGuid);
+                TestFalse(*(Context + TEXT(" preserves source dirty state")), Fixture.Package->IsDirty());
+                TestTrue(
+                    *(Context + TEXT(" leaves the foreign CDO untouched")),
+                    IsValid(ForeignCDO) && ForeignClass->GetDefaultObject(false) == ForeignCDO
+                        && ForeignCDO->GetClass() == ForeignClass
+                        && ForeignCDO->HasAnyFlags(RF_ClassDefaultObject)
+                        && !ForeignFixture.Package->IsDirty());
+                const FBlueprintTestStableIds After = CaptureTestStableIds(Fixture.Blueprint);
+                TestTrue(
+                    *(Context + TEXT(" preserves graph, node, pin and member GUIDs")),
+                    TestStableGuidMapsEqual(Before.Graphs, After.Graphs)
+                        && TestStableGuidMapsEqual(Before.Nodes, After.Nodes)
+                        && TestStableGuidMapsEqual(Before.Pins, After.Pins)
+                        && TestStableGuidMapsEqual(Before.MemberReferences, After.MemberReferences));
+            }
+            TestTrue(
+                *(Context + TEXT(" restores original CDOs before cleanup")),
+                GeneratedClass->GetDefaultObject(false) == GeneratedCDO
+                    && SkeletonClass->GetDefaultObject(false) == SkeletonCDO);
+        }
+        Transactions.Restore();
+        FString CleanupError;
+        const bool bCleaned = Fixture.Cleanup(CleanupError);
+        TestTrue(*FString::Printf(TEXT("CDO validation source fixture unloads: %s"), *CleanupError), bCleaned);
+    }
+    FString CleanupError;
+    const bool bCleaned = ForeignFixture.Cleanup(CleanupError);
+    TestTrue(*FString::Printf(TEXT("Foreign CDO fixture unloads: %s"), *CleanupError), bCleaned);
     return true;
 }
 

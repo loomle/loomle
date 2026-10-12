@@ -413,6 +413,28 @@ idempotent no-op. The same-source UE 5.7 arm64 incremental product-and-test
 build linked successfully and the targeted automation passed 1/1. This was a
 focused regression audit rather than a complete native-suite run.
 
+## UE 5.8 Blueprint Sandbox Safety Audit
+
+The October 12 Win64 audit of 0.7.15 plus the local sandbox repair passes all
+207 native tests on UE 5.8.1 / CL 56057345 and UE 5.7.4 / CL 51494982. Both
+production and independent test modules build successfully. The runs report no
+log hazards, new crash reports, or retained runner workspaces.
+
+Six added regressions cover native generated/skeleton class-name collisions,
+public Blueprint dry-run with a Widget object property/default None, invalid
+source CDO rejection, real compile-error graph repair and Undo, public function
+signature/global/contextual byte-to-int actions across compile/GC, and the
+existing unsupported foreign-variable diagnostic. The collision fixture crashes
+against unchanged 0.7.15 with the issue 202 UObject refcount assertion, then
+passes with native derived-class name collision avoidance.
+
+This does not identify the original issue 201 invalid property container or
+the original issue 202 destroyed object. The colleague's assets and UE 5.8.3
+were unavailable locally. Original-asset verification and normal same-source
+packaged release gates remain pending. See
+[the design and audit](planned/UE58_BLUEPRINT_SANDBOX_SAFETY.md) for named tests,
+source semantics, exact local evidence, and remaining boundaries.
+
 ## Release Gate
 
 An active public operation must have a matrix entry and a named native test.

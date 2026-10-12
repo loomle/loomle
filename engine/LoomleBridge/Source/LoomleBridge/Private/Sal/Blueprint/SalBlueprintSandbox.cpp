@@ -1093,6 +1093,74 @@ private:
     // assurance for the exact duration of that native call.
     TArray<TStrongObjectPtr<UObject>> RetainedObjects;
 };
+
+FName MakeSandboxBlueprintName(UBlueprint* Source, UPackage* Package)
+{
+    for (;;)
+    {
+        const FName Candidate = MakeUniqueObjectName(
+            Package,
+            Source->GetClass(),
+            Source->GetFName());
+        FName GeneratedClassName;
+        FName SkeletonClassName;
+        Source->GetBlueprintClassNames(
+            GeneratedClassName,
+            SkeletonClassName,
+            Candidate);
+        // Native PostDuplicate creates these package siblings by name. The
+        // Blueprint name alone being unique does not prevent NewObject from
+        // overwriting an existing class, including one with strong references.
+        if (FindObjectFast<UObject>(Package, GeneratedClassName) == nullptr
+            && FindObjectFast<UObject>(Package, SkeletonClassName) == nullptr)
+        {
+            return Candidate;
+        }
+    }
+}
+
+bool ValidateBlueprintClassDefaultObject(
+    UClass* Class,
+    const TCHAR* Kind,
+    FString& OutMessage)
+{
+    if (Class == nullptr
+        || !Class->IsValidLowLevel()
+        || !IsValid(Class)
+        || Cast<UBlueprintGeneratedClass>(Class) == nullptr)
+    {
+        OutMessage = FString::Printf(
+            TEXT("Blueprint %s is unavailable or invalid for transient preflight. Compile and re-query the Blueprint before retrying."),
+            Kind);
+        return false;
+    }
+
+    // Reinstancing can temporarily leave a class pointing at a CDO with a
+    // different class. A non-null default object is not sufficient for the
+    // native property-container accesses made during Blueprint duplication.
+    // Never create a missing CDO here: preflight must inspect source state.
+    UObject* CDO = Class->GetDefaultObject(false);
+    if (CDO == nullptr)
+    {
+        OutMessage = FString::Printf(
+            TEXT("Blueprint %s has no default object: %s. Compile and re-query the Blueprint before retrying."),
+            Kind,
+            *Class->GetPathName());
+        return false;
+    }
+    if (!CDO->IsValidLowLevel()
+        || !IsValid(CDO)
+        || !CDO->HasAnyFlags(RF_ClassDefaultObject)
+        || CDO->GetClass() != Class)
+    {
+        OutMessage = FString::Printf(
+            TEXT("Blueprint %s has an invalid or mismatched default object: %s. Compile and re-query the Blueprint before retrying."),
+            Kind,
+            *Class->GetPathName());
+        return false;
+    }
+    return true;
+}
 }
 
 bool ValidateBlueprintModificationClassState(
@@ -1105,19 +1173,23 @@ bool ValidateBlueprintModificationClassState(
             TEXT("Blueprint is unavailable for modification class-state validation.");
         return false;
     }
-    UBlueprintGeneratedClass* GeneratedClass =
-        Cast<UBlueprintGeneratedClass>(Blueprint->GeneratedClass.Get());
-    if (GeneratedClass == nullptr)
+    UClass* GeneratedClass = Blueprint->GeneratedClass.Get();
+    if (!ValidateBlueprintClassDefaultObject(
+            GeneratedClass,
+            TEXT("Generated Class"),
+            OutMessage)
+        || !ValidateBlueprintClassDefaultObject(
+            Blueprint->SkeletonGeneratedClass.Get(),
+            TEXT("Skeleton Class"),
+            OutMessage))
     {
-        OutMessage =
-            TEXT("Blueprint Generated Class is unavailable for modification.");
         return false;
     }
-    if (GeneratedClass->GetDefaultObject(false) == nullptr)
+    if (GeneratedClass->ClassGeneratedBy != Blueprint
+        || Blueprint->SkeletonGeneratedClass->ClassGeneratedBy != Blueprint)
     {
-        OutMessage = FString::Printf(
-            TEXT("Blueprint Generated Class has no default object: %s."),
-            *GeneratedClass->GetPathName());
+        OutMessage =
+            TEXT("Blueprint generated or skeleton class belongs to a different Blueprint. Compile and re-query the Blueprint before retrying.");
         return false;
     }
 
@@ -1125,20 +1197,11 @@ bool ValidateBlueprintModificationClassState(
     GetDerivedClasses(GeneratedClass, DerivedClasses);
     for (UClass* DerivedClass : DerivedClasses)
     {
-        UBlueprintGeneratedClass* DerivedBPGC =
-            Cast<UBlueprintGeneratedClass>(DerivedClass);
-        if (DerivedBPGC == nullptr)
+        if (!ValidateBlueprintClassDefaultObject(
+                DerivedClass,
+                TEXT("loaded derived Class"),
+                OutMessage))
         {
-            OutMessage = FString::Printf(
-                TEXT("Loaded derived Class is not a BlueprintGeneratedClass: %s."),
-                *GetPathNameSafe(DerivedClass));
-            return false;
-        }
-        if (DerivedBPGC->GetDefaultObject(false) == nullptr)
-        {
-            OutMessage = FString::Printf(
-                TEXT("Loaded derived BlueprintGeneratedClass has no default object: %s."),
-                *DerivedBPGC->GetPathName());
             return false;
         }
     }
@@ -1190,10 +1253,7 @@ TStrongObjectPtr<UBlueprint> MakeBlueprintSandbox(
         Copy = Cast<UBlueprint>(StaticDuplicateObject(
             Source,
             TransientPackage,
-            MakeUniqueObjectName(
-                TransientPackage,
-                Source->GetClass(),
-                Source->GetFName())));
+            MakeSandboxBlueprintName(Source, TransientPackage)));
     }
     // UTimelineTemplate::Serialize populates an empty TrackDisplayOrder even
     // while saving the source into StaticDuplicateObject. Restore both sides

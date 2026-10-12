@@ -1559,4 +1559,171 @@ bool FSalWidgetSandboxNestedCompilationGCTest::RunTest(
     return bBuilt;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalGraphSandboxClassNameCollisionTest,
+    "Loomle.Sal.Graph.Mutation.SandboxClassNameCollision",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalGraphSandboxClassNameCollisionTest::RunTest(
+    const FString& Parameters)
+{
+    for (const bool bOccupySkeletonName : {false, true})
+    {
+        const FString Token =
+            FGuid::NewGuid().ToString(EGuidFormats::Digits);
+        const FName BlueprintName(*FString::Printf(
+            TEXT("BP_SandboxCollision_%s"),
+            *Token));
+        UPackage* Package = CreatePackage(*FString::Printf(
+            TEXT("/Game/LoomleTests/SalSandboxCollision_%s"),
+            *Token));
+        UBlueprint* Blueprint = FKismetEditorUtilities::CreateBlueprint(
+            AActor::StaticClass(),
+            Package,
+            BlueprintName,
+            BPTYPE_Normal,
+            UBlueprint::StaticClass(),
+            UBlueprintGeneratedClass::StaticClass(),
+            NAME_None);
+        TStrongObjectPtr<UBlueprintGeneratedClass> OccupantGuard;
+        TStrongObjectPtr<UBlueprint> SandboxOwner;
+        ON_SCOPE_EXIT
+        {
+            SandboxOwner.Reset();
+            if (OccupantGuard.IsValid())
+            {
+                OccupantGuard->RemoveFromRoot();
+                OccupantGuard->ClearFlags(RF_Public | RF_Standalone);
+            }
+            OccupantGuard.Reset();
+            UPackage* PackageToUnload = Package;
+            Blueprint = nullptr;
+            Package = nullptr;
+            FString CleanupError;
+            const bool bCleaned = UnloadSandboxTestPackage(
+                PackageToUnload,
+                CleanupError);
+            TestTrue(
+                *FString::Printf(
+                    TEXT("Class-name collision fixture unloads cleanly: %s"),
+                    *CleanupError),
+                bCleaned);
+        };
+        TestNotNull(TEXT("Class-name collision source exists"), Blueprint);
+        if (Blueprint == nullptr)
+        {
+            return false;
+        }
+        FKismetEditorUtilities::CompileBlueprint(
+            Blueprint,
+            EBlueprintCompileOptions::SkipGarbageCollection
+                | EBlueprintCompileOptions::SkipSave);
+        UEdGraph* Graph = FBlueprintEditorUtils::FindEventGraph(Blueprint);
+        UClass* SourceClass = Blueprint->GeneratedClass.Get();
+        UObject* SourceCDO = SourceClass != nullptr
+            ? SourceClass->GetDefaultObject(false)
+            : nullptr;
+        TestNotNull(TEXT("Class-name collision source Graph exists"), Graph);
+        TestNotNull(TEXT("Class-name collision source CDO exists"), SourceCDO);
+        if (Graph == nullptr || SourceCDO == nullptr)
+        {
+            return false;
+        }
+        Package->SetDirtyFlag(false);
+
+        // A fresh GUID base has no suffix entry in /Engine/Transient. UE's
+        // first MakeUniqueObjectName candidate has internal FName number 1,
+        // displayed as _0. That check only tests the Blueprint's object name,
+        // while compilation derives sibling Class names from the candidate.
+        const FName FirstSandboxName(BlueprintName, 1);
+        FName GeneratedName;
+        FName SkeletonName;
+        Blueprint->GetBlueprintClassNames(
+            GeneratedName,
+            SkeletonName,
+            FirstSandboxName);
+        const FName OccupantName = bOccupySkeletonName
+            ? SkeletonName
+            : GeneratedName;
+        TestNull(
+            TEXT("Fresh sandbox Blueprint candidate is unoccupied"),
+            FindObject<UObject>(
+                GetTransientPackage(),
+                *FirstSandboxName.ToString()));
+        TestNull(
+            TEXT("Fresh derived Class candidate is unoccupied"),
+            FindObject<UObject>(
+                GetTransientPackage(),
+                *OccupantName.ToString()));
+
+        UBlueprintGeneratedClass* Occupant =
+            NewObject<UBlueprintGeneratedClass>(
+                GetTransientPackage(),
+                OccupantName,
+                RF_Transient);
+        Occupant->SetSuperStruct(UObject::StaticClass());
+        Occupant->AddToRoot();
+        OccupantGuard.Reset(Occupant);
+        const TWeakObjectPtr<UBlueprintGeneratedClass> OccupantIdentity(
+            Occupant);
+        const EObjectFlags OccupantFlags = Occupant->GetFlags();
+
+        FSalResolvedTarget SandboxTarget;
+        FString SandboxError;
+        const bool bBuilt = FSalGraphInterface::BuildSandboxTargetForTesting(
+            GraphTarget(Blueprint, Graph),
+            SandboxOwner,
+            SandboxTarget,
+            SandboxError);
+        TestTrue(
+            *FString::Printf(
+                TEXT("Sandbox avoids %s Class-name collision: %s"),
+                bOccupySkeletonName ? TEXT("skeleton") : TEXT("generated"),
+                *SandboxError),
+            bBuilt);
+        TestTrue(
+            TEXT("Existing Class retains its native object identity"),
+            OccupantIdentity.IsValid()
+                && OccupantIdentity.Get() == OccupantGuard.Get());
+        TestTrue(
+            TEXT("Existing Class keeps its name and Outer"),
+            Occupant->GetFName() == OccupantName
+                && Occupant->GetOuter() == GetTransientPackage());
+        TestTrue(
+            TEXT("Existing Class keeps its owner, parent, CDO, and flags"),
+            Occupant->ClassGeneratedBy == nullptr
+                && Occupant->GetSuperClass() == UObject::StaticClass()
+                && Occupant->GetDefaultObject(false) == nullptr
+                && Occupant->GetFlags() == OccupantFlags);
+        TestTrue(
+            TEXT("Sandbox construction preserves source Class and CDO"),
+            Blueprint->GeneratedClass == SourceClass
+                && SourceClass->GetDefaultObject(false) == SourceCDO);
+        TestFalse(
+            TEXT("Sandbox construction preserves source dirty state"),
+            Package->IsDirty());
+        UBlueprint* Sandbox = SandboxOwner.Get();
+        TestTrue(
+            TEXT("Sandbox uses distinct generated and skeleton Classes"),
+            Sandbox != nullptr
+                && Sandbox->GeneratedClass != nullptr
+                && Sandbox->SkeletonGeneratedClass != nullptr
+                && Sandbox->GeneratedClass != SourceClass
+                && Sandbox->GeneratedClass != Occupant
+                && Sandbox->SkeletonGeneratedClass != Occupant
+                && Sandbox->GetFName() != FirstSandboxName);
+        TestTrue(
+            TEXT("Sandbox resolves an isolated Graph with source identity"),
+            SandboxTarget.Graph != nullptr
+                && SandboxTarget.Graph != Graph
+                && SandboxTarget.Graph->GraphGuid == Graph->GraphGuid);
+        if (!bBuilt)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 #endif

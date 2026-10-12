@@ -4,6 +4,7 @@
 
 #include "Sal/Blueprint/SalBlueprintInterface.h"
 #include "Sal/Graph/SalGraphInterface.h"
+#include "Sal/SalModule.h"
 #include "SalTestObjectModel.h"
 #include "LoomleTestEditorState.h"
 
@@ -42,6 +43,8 @@
 #include "K2Node_MacroInstance.h"
 #include "K2Node_MakeArray.h"
 #include "K2Node_GetSubsystem.h"
+#include "K2Node_FunctionEntry.h"
+#include "K2Node_FunctionResult.h"
 #include "K2Node_VariableGet.h"
 #include "K2Node_VariableSet.h"
 #include "Kismet/KismetMathLibrary.h"
@@ -55,8 +58,11 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
+#include "Misc/ScopeExit.h"
 #include "PackageTools.h"
 #include "UObject/Package.h"
+#include "UObject/GarbageCollection.h"
+#include "UObject/StructOnScope.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UObjectHash.h"
 #include "WidgetBlueprint.h"
@@ -4298,6 +4304,358 @@ bool FSalRobustGraphSandboxClassIdentityTest::RunTest(
         SandboxGenerated != Fixture.Blueprint->GeneratedClass
             && SandboxSkeleton
                 != Fixture.Blueprint->SkeletonGeneratedClass);
+    return true;
+}
+
+// Issue #202 reaches the shared Blueprint sandbox from ordinary signature and
+// Palette edits. Use normalized SAL at the public decoder boundary so a
+// successful private sandbox construction alone cannot satisfy this regression.
+TSharedPtr<FJsonObject> RobustGraphPublicPatch(
+    UBlueprint* Blueprint,
+    UEdGraph* Graph,
+    const bool bDryRun,
+    const TArray<TSharedPtr<FJsonValue>>& Statements)
+{
+    TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+    Target->SetStringField(TEXT("kind"), TEXT("target"));
+    Target->SetStringField(TEXT("domain"), TEXT("graph"));
+    Target->SetStringField(TEXT("asset"), Blueprint->GetPathName());
+    Target->SetStringField(
+        TEXT("blueprintId"),
+        RobustGraphGuidText(Blueprint->GetBlueprintGuid()));
+    Target->SetStringField(TEXT("id"), RobustGraphGuidText(Graph->GraphGuid));
+    TSharedRef<FJsonObject> Binding = MakeShared<FJsonObject>();
+    Binding->SetStringField(TEXT("alias"), TEXT("sourceGraph"));
+    Binding->SetObjectField(TEXT("target"), Target);
+    TSharedRef<FJsonObject> Patch = MakeShared<FJsonObject>();
+    Patch->SetStringField(TEXT("kind"), TEXT("patch"));
+    Patch->SetObjectField(TEXT("target"), Binding);
+    Patch->SetBoolField(TEXT("dryRun"), bDryRun);
+    Patch->SetArrayField(TEXT("statements"), Statements);
+    TSharedRef<FJsonObject> Arguments = MakeShared<FJsonObject>();
+    Arguments->SetObjectField(TEXT("object"), Patch);
+    return FSalModule::BuildPatchResult(Arguments);
+}
+
+TSharedRef<FJsonValue> RobustGraphPublicPaletteBinding(
+    const FString& Alias,
+    const FString& Palette)
+{
+    TSharedRef<FJsonObject> Fields = MakeShared<FJsonObject>();
+    Fields->SetStringField(TEXT("palette"), Palette);
+    TSharedRef<FJsonObject> Value = MakeShared<FJsonObject>();
+    Value->SetStringField(TEXT("kind"), TEXT("object"));
+    Value->SetObjectField(TEXT("fields"), Fields);
+    TSharedRef<FJsonObject> Binding = MakeShared<FJsonObject>();
+    Binding->SetObjectField(TEXT("target"), RobustGraphLocal(Alias));
+    Binding->SetObjectField(TEXT("value"), Value);
+    return MakeShared<FJsonValueObject>(Binding);
+}
+
+TSharedRef<FJsonValue> RobustGraphPublicSignatureInvoke(
+    const FString& Operation,
+    const FString& Name,
+    const FName Category)
+{
+    TSharedRef<FJsonObject> Args = MakeShared<FJsonObject>();
+    Args->SetStringField(TEXT("name"), Name);
+    Args->SetStringField(TEXT("type"), RobustGraphPinTypeText(Category));
+    TSharedRef<FJsonObject> Invoke = MakeShared<FJsonObject>();
+    Invoke->SetStringField(TEXT("kind"), TEXT("invoke"));
+    Invoke->SetObjectField(TEXT("target"), RobustGraphLocal(TEXT("sourceGraph")));
+    Invoke->SetStringField(TEXT("operation"), Operation);
+    Invoke->SetObjectField(TEXT("args"), Args);
+    Invoke->SetArrayField(TEXT("outputs"), {});
+    return MakeShared<FJsonValueObject>(Invoke);
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphPreflightSignatureConversionLifecycleTest,
+    "Loomle.Sal.Robustness.Graph.PreflightSignatureConversionLifecycle",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphPreflightSignatureConversionLifecycleTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(
+            *this,
+            TEXT("signature and conversion preflight regression")))
+    {
+        return false;
+    }
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(TEXT("Regression owns isolated Undo history"), Transactions.Initialize()))
+    {
+        return false;
+    }
+    FDryRunFunctionFixture Fixture;
+    ON_SCOPE_EXIT { Transactions.Restore(); };
+    if (!TestTrue(TEXT("Signature regression fixture is valid"), Fixture.IsValid()))
+    {
+        return false;
+    }
+    // UE's Function Entry serializes local defaults through a shared native
+    // FStructOnScope cache. Keep that real cache populated when duplicating.
+    FEdGraphPinType LocalType;
+    LocalType.PinCategory = UEdGraphSchema_K2::PC_Int;
+    const FName LocalName(TEXT("LoomleCachedLocal"));
+    if (!TestTrue(
+            TEXT("Fixture authors a native function local"),
+            FBlueprintEditorUtils::AddLocalVariable(
+                Fixture.Blueprint,
+                Fixture.FunctionGraph,
+                LocalName,
+                LocalType,
+                TEXT("37"))))
+    {
+        return false;
+    }
+    FKismetEditorUtilities::CompileBlueprint(Fixture.Blueprint);
+    TStrongObjectPtr<UBlueprint> RetainSource(Fixture.Blueprint);
+    const FString CallType = TEXT("/Script/BlueprintGraph.K2Node_CallFunction");
+
+    for (int32 Pass = 0; Pass < 2; ++Pass)
+    {
+        TArray<UK2Node_FunctionEntry*> Entries;
+        Fixture.FunctionGraph->GetNodesOfClass(Entries);
+        if (!TestEqual(TEXT("Function owns one Entry"), Entries.Num(), 1))
+        {
+            return false;
+        }
+        UK2Node_FunctionEntry* Entry = Entries[0];
+        TestTrue(
+            TEXT("Source Function Entry has a native local-variable cache"),
+            Entry->GetFunctionVariableCache(true).IsValid());
+        const FString InputName = FString::Printf(TEXT("ByteInput%d"), Pass);
+        const FString OutputName = FString::Printf(TEXT("IntegerOutput%d"), Pass);
+        auto SignatureStatements = [&InputName, &OutputName]()
+        {
+            return TArray<TSharedPtr<FJsonValue>> {
+                RobustGraphPublicSignatureInvoke(TEXT("AddInputParameter"), InputName, UEdGraphSchema_K2::PC_Byte),
+                RobustGraphPublicSignatureInvoke(TEXT("AddOutputParameter"), OutputName, UEdGraphSchema_K2::PC_Int)};
+        };
+        Fixture.Package->SetDirtyFlag(false);
+        UClass* SourceClass = Fixture.Blueprint->GeneratedClass.Get();
+        UObject* SourceCDO = SourceClass != nullptr ? SourceClass->GetDefaultObject(false) : nullptr;
+        const int32 OriginalNodes = Fixture.FunctionGraph->Nodes.Num();
+        const TSharedPtr<FJsonObject> SignatureDryRun = RobustGraphPublicPatch(
+            Fixture.Blueprint, Fixture.FunctionGraph, true, SignatureStatements());
+        const bool bSignatureValid = RobustGraphResultBool(SignatureDryRun, TEXT("valid"));
+        TestTrue(
+            *FString::Printf(TEXT("Signature dry run survives native preflight [%s]"), *RobustGraphDiagnosticsText(SignatureDryRun)),
+            bSignatureValid);
+        TestFalse(TEXT("Signature dry run is unapplied"), RobustGraphResultBool(SignatureDryRun, TEXT("applied"), true));
+        TestNull(TEXT("Dry run does not add a source input"), Entry->FindPin(FName(*InputName)));
+        TestEqual(TEXT("Dry run does not create a source Result Node"), Fixture.FunctionGraph->Nodes.Num(), OriginalNodes);
+        TestFalse(TEXT("Signature dry run preserves source dirty state"), Fixture.Package->IsDirty());
+        TestTrue(TEXT("Signature dry run preserves source Class/CDO"), Fixture.Blueprint->GeneratedClass == SourceClass
+            && SourceClass != nullptr && SourceClass->GetDefaultObject(false) == SourceCDO);
+        if (!bSignatureValid)
+        {
+            return false;
+        }
+        const TSharedPtr<FJsonObject> SignatureApply = RobustGraphPublicPatch(
+            Fixture.Blueprint, Fixture.FunctionGraph, false, SignatureStatements());
+        if (!TestTrue(
+                *FString::Printf(TEXT("Signature live Patch applies [%s]"), *RobustGraphDiagnosticsText(SignatureApply)),
+                RobustGraphResultBool(SignatureApply, TEXT("valid")) && RobustGraphResultBool(SignatureApply, TEXT("applied"))))
+        {
+            return false;
+        }
+        FKismetEditorUtilities::CompileBlueprint(Fixture.Blueprint);
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+        UFunction* Function = Fixture.Blueprint->GeneratedClass != nullptr
+            ? Fixture.Blueprint->GeneratedClass->FindFunctionByName(Fixture.SelfFunctionName) : nullptr;
+        const FByteProperty* InputProperty = Function != nullptr
+            ? FindFProperty<FByteProperty>(Function, FName(*InputName)) : nullptr;
+        const FIntProperty* OutputProperty = Function != nullptr
+            ? FindFProperty<FIntProperty>(Function, FName(*OutputName)) : nullptr;
+        TestTrue(TEXT("Compiled native signature retains byte input"), InputProperty != nullptr
+            && InputProperty->HasAnyPropertyFlags(CPF_Parm) && !InputProperty->HasAnyPropertyFlags(CPF_OutParm));
+        TestTrue(TEXT("Compiled native signature retains integer output"), OutputProperty != nullptr
+            && OutputProperty->HasAllPropertyFlags(CPF_Parm | CPF_OutParm));
+        Entries.Reset();
+        Fixture.FunctionGraph->GetNodesOfClass(Entries);
+        UEdGraphPin* BytePin = Entries.Num() == 1 ? Entries[0]->FindPin(FName(*InputName), EGPD_Output) : nullptr;
+        TArray<UK2Node_FunctionResult*> Results;
+        Fixture.FunctionGraph->GetNodesOfClass(Results);
+        TestTrue(TEXT("Function output uses a native Result input Pin"), Results.Num() == 1
+            && Results[0]->FindPin(FName(*OutputName), EGPD_Input) != nullptr);
+        if (!TestNotNull(TEXT("Byte input survives compile and GC"), BytePin))
+        {
+            return false;
+        }
+        const FSalResolvedTarget Target = RobustGraphTarget(Fixture.Blueprint, Fixture.FunctionGraph);
+        FSalQuery GlobalQuery = RobustGraphQuery(TEXT("palette_entries"));
+        GlobalQuery.Operation->SetStringField(TEXT("text"), TEXT("To Integer (Byte)"));
+        GlobalQuery.PageLimit = 20;
+        const FString GlobalPalette = RobustGraphFindPaletteId(FSalGraphInterface::Query(GlobalQuery, Target), CallType);
+        const FString ContextPalette = RobustGraphFindPaletteId(
+            FSalGraphInterface::Query(RobustGraphPaletteFromPin(TEXT("To Integer (Byte)"), BytePin), Target), CallType);
+        TestFalse(TEXT("Conv_ByteToInt has a global Palette action"), GlobalPalette.IsEmpty());
+        TestFalse(TEXT("Conv_ByteToInt has a byte-Pin contextual Palette action"), ContextPalette.IsEmpty());
+        if (GlobalPalette.IsEmpty() || ContextPalette.IsEmpty())
+        {
+            return false;
+        }
+        auto ConversionStatements = [&GlobalPalette, &ContextPalette]()
+        {
+            return TArray<TSharedPtr<FJsonValue>> {
+                RobustGraphPublicPaletteBinding(TEXT("GlobalConversion"), GlobalPalette),
+                RobustGraphUnary(TEXT("add"), RobustGraphLocal(TEXT("GlobalConversion"))),
+                RobustGraphPublicPaletteBinding(TEXT("ContextConversion"), ContextPalette),
+                RobustGraphUnary(TEXT("add"), RobustGraphLocal(TEXT("ContextConversion")))};
+        };
+        Fixture.Package->SetDirtyFlag(false);
+        SourceClass = Fixture.Blueprint->GeneratedClass.Get();
+        SourceCDO = SourceClass->GetDefaultObject(false);
+        const int32 BeforeConversions = Fixture.FunctionGraph->Nodes.Num();
+        const TSharedPtr<FJsonObject> ConversionDryRun = RobustGraphPublicPatch(
+            Fixture.Blueprint, Fixture.FunctionGraph, true, ConversionStatements());
+        const bool bConversionValid = RobustGraphResultBool(ConversionDryRun, TEXT("valid"));
+        TestTrue(
+            *FString::Printf(TEXT("Both conversion actions survive preflight after compile/GC [%s]"), *RobustGraphDiagnosticsText(ConversionDryRun)),
+            bConversionValid);
+        TestFalse(TEXT("Conversion dry run is unapplied"), RobustGraphResultBool(ConversionDryRun, TEXT("applied"), true));
+        TestEqual(TEXT("Conversion dry run preserves source Nodes"), Fixture.FunctionGraph->Nodes.Num(), BeforeConversions);
+        TestFalse(TEXT("Conversion dry run preserves source dirty state"), Fixture.Package->IsDirty());
+        TestTrue(TEXT("Conversion dry run preserves source Class/CDO"), Fixture.Blueprint->GeneratedClass == SourceClass
+            && SourceClass->GetDefaultObject(false) == SourceCDO);
+        if (!bConversionValid)
+        {
+            return false;
+        }
+        const TSharedPtr<FJsonObject> ConversionApply = RobustGraphPublicPatch(
+            Fixture.Blueprint, Fixture.FunctionGraph, false, ConversionStatements());
+        if (!TestTrue(
+                *FString::Printf(TEXT("Global and contextual conversion live Patch applies [%s]"), *RobustGraphDiagnosticsText(ConversionApply)),
+                RobustGraphResultBool(ConversionApply, TEXT("valid")) && RobustGraphResultBool(ConversionApply, TEXT("applied"))))
+        {
+            return false;
+        }
+        TestEqual(TEXT("Conversion Patch adds exactly two Nodes"), Fixture.FunctionGraph->Nodes.Num(), BeforeConversions + 2);
+        for (const FString& Alias : {TEXT("GlobalConversion"), TEXT("ContextConversion")})
+        {
+            FGuid NodeGuid;
+            UK2Node_CallFunction* Call = FGuid::Parse(RobustGraphResolvedRef(ConversionApply, Alias), NodeGuid)
+                ? Cast<UK2Node_CallFunction>(FRobustGraphFixture::FindNodeByGuid(Fixture.FunctionGraph, NodeGuid)) : nullptr;
+            TestTrue(TEXT("Materialized action is exactly native Conv_ByteToInt"), Call != nullptr
+                && Call->GetTargetFunction() == UKismetMathLibrary::StaticClass()->FindFunctionByName(
+                    GET_FUNCTION_NAME_CHECKED(UKismetMathLibrary, Conv_ByteToInt)));
+        }
+        TestTrue(TEXT("One Undo removes both conversion Nodes"), GEditor->UndoTransaction(false));
+        TestEqual(TEXT("Undo restores source Node count"), Fixture.FunctionGraph->Nodes.Num(), BeforeConversions);
+        FKismetEditorUtilities::CompileBlueprint(Fixture.Blueprint);
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+    }
+    RetainSource.Reset();
+    Transactions.Restore();
+    FString CleanupError;
+    TestTrue(
+        *FString::Printf(TEXT("Signature regression fixture unloads: %s"), *CleanupError),
+        Fixture.Cleanup(CleanupError));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphForeignVariablePreflightDiagnosticTest,
+    "Loomle.Sal.Robustness.Graph.ForeignVariablePreflightDiagnostic",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphForeignVariablePreflightDiagnosticTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(*this, TEXT("foreign variable preflight regression")))
+    {
+        return false;
+    }
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(TEXT("Foreign-variable regression owns isolated Undo history"), Transactions.Initialize()))
+    {
+        return false;
+    }
+    FVariablePaletteFixture Foreign(false);
+    FDryRunFunctionFixture Fixture;
+    ON_SCOPE_EXIT { Transactions.Restore(); };
+    if (!TestTrue(TEXT("Foreign and target Blueprints are valid"), Foreign.IsValid() && Fixture.IsValid()))
+    {
+        return false;
+    }
+    FKismetEditorUtilities::CompileBlueprint(Foreign.Blueprint);
+    FEdGraphPinType ObjectType;
+    ObjectType.PinCategory = UEdGraphSchema_K2::PC_Object;
+    ObjectType.PinSubCategoryObject = Foreign.Blueprint->GeneratedClass;
+    const FName ReferenceName(TEXT("ForeignBlueprintReference"));
+    if (!TestTrue(TEXT("Target owns a typed foreign Blueprint reference"), FBlueprintEditorUtils::AddMemberVariable(
+            Fixture.Blueprint, ReferenceName, ObjectType)))
+    {
+        return false;
+    }
+    FKismetEditorUtilities::CompileBlueprint(Fixture.Blueprint);
+    FObjectProperty* ReferenceProperty = FindFProperty<FObjectProperty>(Fixture.Blueprint->SkeletonGeneratedClass.Get(), ReferenceName);
+    if (!TestNotNull(TEXT("Reference property is reflected"), ReferenceProperty))
+    {
+        return false;
+    }
+    UK2Node_VariableGet* ReferenceGetter = NewObject<UK2Node_VariableGet>(Fixture.FunctionGraph, NAME_None, RF_Transactional);
+    ReferenceGetter->CreateNewGuid();
+    ReferenceGetter->SetFromProperty(ReferenceProperty, true, Fixture.Blueprint->SkeletonGeneratedClass.Get());
+    Fixture.FunctionGraph->AddNode(ReferenceGetter, false, false);
+    ReferenceGetter->AllocateDefaultPins();
+    const FGuid GetterGuid = ReferenceGetter->NodeGuid;
+    TStrongObjectPtr<UBlueprint> RetainSource(Fixture.Blueprint);
+    TStrongObjectPtr<UBlueprint> RetainForeign(Foreign.Blueprint);
+    FBlueprintActionDatabase::Get().RefreshAssetActions(Foreign.Blueprint);
+    FBlueprintActionDatabase::Get().RefreshAssetActions(Fixture.Blueprint);
+    for (int32 Pass = 0; Pass < 2; ++Pass)
+    {
+        ReferenceGetter = Cast<UK2Node_VariableGet>(FRobustGraphFixture::FindNodeByGuid(Fixture.FunctionGraph, GetterGuid));
+        UEdGraphPin* ObjectPin = ReferenceGetter != nullptr ? ReferenceGetter->GetValuePin() : nullptr;
+        if (!TestNotNull(TEXT("Foreign object context Pin survives compile/GC"), ObjectPin))
+        {
+            return false;
+        }
+        const FSalResolvedTarget Target = RobustGraphTarget(Fixture.Blueprint, Fixture.FunctionGraph);
+        const FString Palette = RobustGraphFindPaletteId(FSalGraphInterface::Query(
+            RobustGraphPaletteFromPin(TEXT("Get ") + Foreign.AlphaName.ToString(), ObjectPin), Target),
+            TEXT("/Script/BlueprintGraph.K2Node_VariableGet"));
+        if (!TestFalse(TEXT("Context menu exposes the unrelated Blueprint variable"), Palette.IsEmpty()))
+        {
+            return false;
+        }
+        Fixture.Package->SetDirtyFlag(false);
+        Foreign.Package->SetDirtyFlag(false);
+        const int32 SourceNodeCount = Fixture.FunctionGraph->Nodes.Num();
+        UClass* SourceClass = Fixture.Blueprint->GeneratedClass.Get();
+        UObject* SourceCDO = SourceClass->GetDefaultObject(false);
+        UClass* ForeignClass = Foreign.Blueprint->GeneratedClass.Get();
+        const TSharedPtr<FJsonObject> Rejected = RobustGraphPublicPatch(
+            Fixture.Blueprint, Fixture.FunctionGraph, true,
+            {RobustGraphPublicPaletteBinding(TEXT("ForeignVariable"), Palette),
+             RobustGraphUnary(TEXT("add"), RobustGraphLocal(TEXT("ForeignVariable")))});
+        TestFalse(TEXT("Unsupported cross-Blueprint variable dry run is invalid"), RobustGraphResultBool(Rejected, TEXT("valid"), true));
+        TestFalse(TEXT("Unsupported cross-Blueprint variable dry run is unapplied"), RobustGraphResultBool(Rejected, TEXT("applied"), true));
+        TestTrue(
+            *FString::Printf(TEXT("Unsupported contextual action returns its existing diagnostic [%s]"), *RobustGraphDiagnosticsText(Rejected)),
+            RobustGraphHasDiagnosticCode(Rejected, TEXT("resolution.palette_not_spawnable")));
+        TestEqual(TEXT("Rejected preflight preserves source Graph"), Fixture.FunctionGraph->Nodes.Num(), SourceNodeCount);
+        TestFalse(TEXT("Rejected preflight preserves source dirty state"), Fixture.Package->IsDirty());
+        TestFalse(TEXT("Rejected preflight preserves foreign dirty state"), Foreign.Package->IsDirty());
+        TestTrue(TEXT("Rejected preflight preserves both Blueprint classes and source CDO"),
+            Fixture.Blueprint->GeneratedClass == SourceClass && SourceClass->GetDefaultObject(false) == SourceCDO
+            && Foreign.Blueprint->GeneratedClass == ForeignClass);
+        FKismetEditorUtilities::CompileBlueprint(Fixture.Blueprint);
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+    }
+    RetainSource.Reset();
+    RetainForeign.Reset();
+    Transactions.Restore();
+    FString CleanupError;
+    TestTrue(TEXT("Foreign-variable target fixture unloads"), Fixture.Cleanup(CleanupError));
+    CleanupError.Reset();
+    TestTrue(TEXT("Foreign-variable owner fixture unloads"), Foreign.Cleanup(CleanupError));
     return true;
 }
 
