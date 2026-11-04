@@ -5223,6 +5223,172 @@ bool FSalRobustGraphCrossBlueprintStaleActionTest::RunTest(
     return true;
 }
 
+namespace
+{
+// Exact #198 shape: Widget Blueprint function called from a typed Create Widget
+// ReturnValue Pin. K2Node_CreateWidget is private to UMGEditor, so the Node is
+// created by reflection and typed through its Class Pin default.
+void RunCrossBlueprintWidgetCase(
+    FAutomationTestBase& Test,
+    const bool bFunctionAddedAfterFirstCompile,
+    const TCHAR* Label)
+{
+    // Restored before cleanup so the isolated Undo buffer cannot keep the
+    // fixtures loaded.
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!Test.TestTrue(
+            *FString::Printf(TEXT("%s: isolates Undo history"), Label),
+            Transactions.Initialize()))
+    {
+        return;
+    }
+    const FString Token = FGuid::NewGuid().ToString(EGuidFormats::Digits);
+    const FString AssetName = FString::Printf(TEXT("WBP_CrossCall_%s"), *Token);
+    const FName FunctionName(TEXT("ConfigureShop"));
+    UPackage* WidgetPackage = CreatePackage(
+        *FString::Printf(TEXT("/Game/LoomleTests/RobustGraph_%s"), *Token));
+    UWidgetBlueprint* Widget = WidgetPackage != nullptr
+        ? Cast<UWidgetBlueprint>(FKismetEditorUtilities::CreateBlueprint(
+            UUserWidget::StaticClass(),
+            WidgetPackage,
+            FName(*AssetName),
+            BPTYPE_Normal,
+            UWidgetBlueprint::StaticClass(),
+            UWidgetBlueprintGeneratedClass::StaticClass(),
+            NAME_None))
+        : nullptr;
+    FRobustGraphFixture Target;
+    if (!Test.TestTrue(
+            *FString::Printf(TEXT("%s: widget and target fixtures are valid"), Label),
+            Widget != nullptr && Target.IsValid()))
+    {
+        return;
+    }
+    const auto AddConfigureShop = [&]()
+    {
+        UEdGraph* Graph = FBlueprintEditorUtils::CreateNewGraph(
+            Widget, FunctionName, UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+        FBlueprintEditorUtils::AddFunctionGraph(
+            Widget, Graph, true, static_cast<UClass*>(nullptr));
+    };
+    if (bFunctionAddedAfterFirstCompile)
+    {
+        FKismetEditorUtilities::CompileBlueprint(Widget);
+        AddConfigureShop();
+    }
+    else
+    {
+        AddConfigureShop();
+    }
+    FKismetEditorUtilities::CompileBlueprint(Widget);
+    TStrongObjectPtr<UBlueprint> RetainWidget(Widget);
+    TStrongObjectPtr<UBlueprint> RetainTarget(Target.Blueprint);
+
+    UClass* CreateWidgetNodeClass =
+        FindObject<UClass>(nullptr, TEXT("/Script/UMGEditor.K2Node_CreateWidget"));
+    UEdGraphNode* CreateWidget = Test.TestNotNull(
+                                     *FString::Printf(TEXT("%s: Create Widget Node class exists"), Label),
+                                     CreateWidgetNodeClass)
+        ? NewObject<UEdGraphNode>(Target.Graph, CreateWidgetNodeClass, NAME_None, RF_Transactional)
+        : nullptr;
+    UEdGraphPin* ReturnPin = nullptr;
+    if (CreateWidget != nullptr)
+    {
+        CreateWidget->CreateNewGuid();
+        Target.Graph->AddNode(CreateWidget, false, false);
+        CreateWidget->AllocateDefaultPins();
+        UEdGraphPin* ClassPin = CreateWidget->FindPin(TEXT("Class"));
+        if (Test.TestNotNull(*FString::Printf(TEXT("%s: Class Pin exists"), Label), ClassPin))
+        {
+            GetDefault<UEdGraphSchema_K2>()->TrySetDefaultObject(*ClassPin, Widget->GeneratedClass);
+        }
+        ReturnPin = CreateWidget->FindPin(UEdGraphSchema_K2::PN_ReturnValue);
+    }
+    FString Palette;
+    if (Test.TestNotNull(*FString::Printf(TEXT("%s: ReturnValue Pin exists"), Label), ReturnPin))
+    {
+        FBlueprintActionDatabase::Get().RefreshAssetActions(Widget);
+        FBlueprintActionDatabase::Get().RefreshAssetActions(Target.Blueprint);
+        Palette = RobustGraphFindPaletteId(
+            FSalGraphInterface::Query(
+                RobustGraphPaletteFromPin(FunctionName.ToString(), ReturnPin),
+                RobustGraphTarget(Target.Blueprint, Target.Graph)),
+            CrossBlueprintCallType);
+    }
+    if (Test.TestFalse(
+            *FString::Printf(TEXT("%s: Widget function is discoverable from ReturnValue"), Label),
+            Palette.IsEmpty()))
+    {
+        const auto Statements = [&Palette]()
+        {
+            return TArray<TSharedPtr<FJsonValue>>{
+                RobustGraphPublicPaletteBinding(TEXT("ShopCall"), Palette),
+                RobustGraphUnary(TEXT("add"), RobustGraphLocal(TEXT("ShopCall")))};
+        };
+        Target.Package->SetDirtyFlag(false);
+        const int32 SourceNodeCount = Target.Graph->Nodes.Num();
+        const TSharedPtr<FJsonObject> DryRun =
+            RobustGraphPublicPatch(Target.Blueprint, Target.Graph, true, Statements());
+        const bool bValid = RobustGraphResultBool(DryRun, TEXT("valid"));
+        Test.TestTrue(
+            *FString::Printf(TEXT("%s: dry run is valid [%s]"), Label, *RobustGraphDiagnosticsText(DryRun)),
+            bValid);
+        Test.TestEqual(
+            *FString::Printf(TEXT("%s: dry run leaves the Graph unchanged"), Label),
+            Target.Graph->Nodes.Num(), SourceNodeCount);
+        if (bValid)
+        {
+            const TSharedPtr<FJsonObject> Applied =
+                RobustGraphPublicPatch(Target.Blueprint, Target.Graph, false, Statements());
+            Test.TestTrue(
+                *FString::Printf(TEXT("%s: apply succeeds [%s]"), Label, *RobustGraphDiagnosticsText(Applied)),
+                RobustGraphResultBool(Applied, TEXT("applied")));
+            Test.TestEqual(
+                *FString::Printf(TEXT("%s: apply adds exactly one Node"), Label),
+                Target.Graph->Nodes.Num(), SourceNodeCount + 1);
+            FKismetEditorUtilities::CompileBlueprint(Target.Blueprint);
+            FKismetEditorUtilities::CompileBlueprint(Widget);
+            Test.TestTrue(
+                *FString::Printf(TEXT("%s: target compiles without error"), Label),
+                Target.Blueprint->Status != BS_Error);
+            Test.TestTrue(
+                *FString::Printf(TEXT("%s: widget compiles without error"), Label),
+                Widget->Status != BS_Error);
+        }
+    }
+    Transactions.Restore();
+    RetainWidget.Reset();
+    RetainTarget.Reset();
+    FBlueprintActionDatabase::Get().ClearAssetActions(Widget);
+    FString CleanupError;
+    Test.TestTrue(
+        *FString::Printf(TEXT("%s: widget unloads"), Label),
+        RobustGraphUnloadPackage(WidgetPackage, CleanupError));
+    CleanupError.Reset();
+    Test.TestTrue(
+        *FString::Printf(TEXT("%s: target unloads"), Label),
+        Target.Cleanup(CleanupError));
+}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphCrossBlueprintWidgetCallTest,
+    "Loomle.Sal.Robustness.Graph.CrossBlueprintWidgetCall",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphCrossBlueprintWidgetCallTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(*this, TEXT("cross-Blueprint widget call")))
+    {
+        return false;
+    }
+    RunCrossBlueprintWidgetCase(*this, false, TEXT("function existed at first compile"));
+    RunCrossBlueprintWidgetCase(*this, true, TEXT("function added after first compile"));
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Issue #196: distinct K2Node_GetSubsystem creation actions shared one SAL
 // palette identity because UE's FBlueprintNodeSpawner::GetSpawnerSignature
