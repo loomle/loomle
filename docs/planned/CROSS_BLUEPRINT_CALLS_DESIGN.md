@@ -2,7 +2,11 @@
 
 ## Status and baseline
 
-- Status: planned design, not implemented. Written 2026-11-04.
+- Status: implemented on the fork branch and verified on UE 5.7.4 (Windows),
+  2026-11-04: 214 of 214 `Loomle` Automation tests pass (207 before). UE 5.8 and
+  upstream submission are pending. Tests are in
+  `SalGraphRobustnessTests.cpp` (`Loomle.Sal.Robustness.Graph.CrossBlueprint*`);
+  coverage is recorded in `docs/UE_AUTOMATION_COVERAGE.md`.
 - Baseline: Loomle 0.7.16 (`c1dae30`), Bridge protocol 6, UE 5.7.4 on Windows.
 - Tracks upstream issue `loomle/loomle#198`: a Graph Palette action for a
   Blueprint-defined function of another Blueprint is discoverable but is
@@ -83,9 +87,17 @@ Node materialization is unchanged: UE's spawner and `SetGivenSelfScope`
 normalize the owner. Loomle introduces no second source of truth for the
 class.
 
-Interface messages (`BPI_*`) use the same owner shape. The implementation
-verifies them with their own test; if they need different handling the design
-is amended before code, per `AGENTS.md`.
+Interface messages (`BPI_*`) use the same owner shape. Verified on UE 5.7.4: a
+Blueprint implementing an interface exposes its message to a typed object Pin as
+a `K2Node_Message` Palette action; it is admitted by the same resolution with no
+extra handling, and dry run, apply, and compile are valid.
+
+Removed functions and unloaded Blueprints never reach this guard: the Palette
+entry is already gone, so the request is rejected earlier as
+`resolution.palette_not_found`. The new message covers the remaining case of a
+stale entry whose foreign Blueprint can no longer satisfy it. A function whose
+signature changed after the query resolves to the new signature: the created
+Node carries the new pins.
 
 ## Spike evidence (throwaway, not part of the repository)
 
@@ -127,7 +139,6 @@ accepts; is the dry run still presentation-neutral
 
 ## Open items
 
-- Interface message behavior (test 5) is unverified.
 - Kismet crash after a refused transient preflight followed by `compile` was
   not reproduced on 0.7.16 (variable added without compile, graph patch, then
   compile-only Blueprint patch: all succeeded). Needs the original crash

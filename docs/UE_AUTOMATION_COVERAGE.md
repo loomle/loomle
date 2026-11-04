@@ -227,6 +227,42 @@ member owner. The new Graph robustness coverage proves:
   (`resolution.palette_not_spawnable` or `validation.spawn_failed`) instead of
   invoking UE's spawner.
 
+## Cross-Blueprint Function Call Audit (Issue #198)
+
+Contextual Palette actions for a Blueprint-defined function of another Blueprint
+carry the foreign skeleton Class as owner, which the Issue #195 guard rejected
+for every foreign Blueprint. The guard now admits such an action when the
+foreign Blueprint has a valid, current generated Class that still defines the
+function, and otherwise rejects it with the foreign Blueprint's name, the
+reason, and the next step. The design is
+`docs/planned/CROSS_BLUEPRINT_CALLS_DESIGN.md`. The Windows UE 5.7.4 Graph
+robustness run covers:
+
+- an Actor Blueprint calling a function of another Actor Blueprint through a
+  typed variable Pin: dry run valid and unapplied, live apply adds exactly one
+  external-reference call Node, one Undo removes it, and both Blueprints compile;
+- the same Palette action added three times in one Patch, with one Undo for all;
+- a static function of a Blueprint Function Library without a Target Pin;
+- the exact Issue #198 shape: a Widget Blueprint function reached from the
+  `ReturnValue` Pin of a `Create Widget` Node, both when the function existed at
+  the first compile and when it was added afterwards;
+- a Blueprint Interface message reached through an implementing Blueprint,
+  exposed as a `K2Node_Message` Palette action;
+- a foreign Blueprint recompiled between the Palette query and the Patch, a
+  removed function, a changed signature, and an unloaded foreign Blueprint:
+  recompiling and a changed signature produce a valid Patch whose Node carries the
+  new signature, while a removed function or an unloaded Blueprint is rejected as
+  `resolution.palette_not_found` with the live Graph, dirty state, and compile
+  status unchanged;
+- the resolution reasons (`has no valid generated class`, `has a newer class
+  version`, `no longer defines <Function>`) through the
+  `ForeignBlueprintFunctionResolvableForTesting` hook.
+
+Foreign Blueprint variable Nodes stay rejected and remain covered by
+`ForeignVariablePreflightDiagnostic`. Forcing the resolution helper to refuse
+makes all seven new tests fail. The complete Windows UE 5.7.4 run passed
+214 of 214 tests (207 before this change) with no failure, assertion, or crash.
+
 ## Subsystem Palette Identity Audit (Issue #196)
 
 The August 17 Issue #196 regression proved that every `K2Node_GetSubsystem`
