@@ -260,8 +260,10 @@ robustness run covers:
 
 Foreign Blueprint variable Nodes stay rejected and remain covered by
 `ForeignVariablePreflightDiagnostic`. Forcing the resolution helper to refuse
-makes all seven new tests fail. The complete Windows UE 5.7.4 run passed
-214 of 214 tests (207 before this change) with no failure, assertion, or crash.
+makes all seven new tests fail. The complete Windows UE 5.7.4 run and the
+complete UE 5.8.4 run (plugin built with `BuildPlugin`, minimal host project)
+each passed 214 of 214 tests (207 before this change) with no failure,
+assertion, or crash.
 
 ## Subsystem Palette Identity Audit (Issue #196)
 
