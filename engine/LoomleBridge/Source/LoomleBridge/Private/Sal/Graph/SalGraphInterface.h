@@ -7,7 +7,9 @@
 
 class FJsonObject;
 class UBlueprint;
+class UClass;
 class UEdGraphNode;
+class UFunction;
 
 namespace Loomle::Sal
 {
@@ -36,6 +38,11 @@ public:
         FString& OutError);
     static void SetMoveAppliedHookForTesting(
         TFunction<void(UEdGraphNode*)> Hook);
+    static bool ForeignBlueprintFunctionResolvableForTesting(
+        const UClass* OwnerClass,
+        const UBlueprint* TargetBlueprint,
+        const UFunction* Function,
+        FString& OutReason);
 #endif
 };
 }

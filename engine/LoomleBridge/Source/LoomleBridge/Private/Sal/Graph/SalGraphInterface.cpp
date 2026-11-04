@@ -6953,13 +6953,26 @@ bool ForeignBlueprintFunctionResolvable(
             : nullptr;
     if (ForeignBlueprint == nullptr
         || ForeignBlueprint == TargetBlueprint
-        || Function == nullptr
-        || ForeignGenerated == nullptr
-        || !IsValid(ForeignGenerated)
-        || ForeignGenerated->HasAnyClassFlags(CLASS_NewerVersionExists)
-        || ForeignGenerated->FindFunctionByName(Function->GetFName()) == nullptr)
+        || Function == nullptr)
     {
-        OutReason = TEXT("has no usable generated class for this function");
+        OutReason = TEXT("is not a separate Blueprint that defines this function");
+        return false;
+    }
+    if (ForeignGenerated == nullptr || !IsValid(ForeignGenerated))
+    {
+        OutReason = TEXT("has no valid generated class");
+        return false;
+    }
+    if (ForeignGenerated->HasAnyClassFlags(CLASS_NewerVersionExists))
+    {
+        OutReason = TEXT("has a newer class version");
+        return false;
+    }
+    if (ForeignGenerated->FindFunctionByName(Function->GetFName()) == nullptr)
+    {
+        OutReason = FString::Printf(
+            TEXT("no longer defines %s"),
+            *Function->GetName());
         return false;
     }
     return true;
@@ -7024,9 +7037,16 @@ bool ValidatePaletteActionForTarget(
             && !ForeignBlueprintFunctionResolvable(
                 OwnerClass, Blueprint, Function, ForeignReason))
         {
-            OutMessage = FString::Printf(
-                TEXT("Function Palette action belongs to a different Blueprint (%s)."),
-                *OwnerClass->GetName());
+            const UBlueprint* ForeignBlueprint =
+                Cast<UBlueprint>(OwnerClass->ClassGeneratedBy);
+            OutMessage = ForeignBlueprint != nullptr
+                ? FString::Printf(
+                    TEXT("Function Palette action belongs to Blueprint %s, which %s. Compile that Blueprint and query the Palette again."),
+                    *ForeignBlueprint->GetName(),
+                    *ForeignReason)
+                : FString::Printf(
+                    TEXT("Function Palette action belongs to a different Blueprint (%s)."),
+                    *OwnerClass->GetName());
             return false;
         }
     }
@@ -8675,6 +8695,21 @@ bool FSalGraphInterface::LowerStableReference(
 
 // Patch implementation follows the query implementation so the same live
 // identity, Palette, Pin, and native property helpers are shared.
+
+#if WITH_DEV_AUTOMATION_TESTS
+bool FSalGraphInterface::ForeignBlueprintFunctionResolvableForTesting(
+    const UClass* OwnerClass,
+    const UBlueprint* TargetBlueprint,
+    const UFunction* Function,
+    FString& OutReason)
+{
+    return ForeignBlueprintFunctionResolvable(
+        OwnerClass,
+        TargetBlueprint,
+        Function,
+        OutReason);
+}
+#endif
 
 }
 
