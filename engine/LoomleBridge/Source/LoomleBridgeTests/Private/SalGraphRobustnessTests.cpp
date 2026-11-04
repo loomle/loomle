@@ -47,6 +47,8 @@
 #include "K2Node_FunctionResult.h"
 #include "K2Node_VariableGet.h"
 #include "K2Node_VariableSet.h"
+#include "Kismet/BlueprintFunctionLibrary.h"
+#include "UObject/Interface.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -4656,6 +4658,960 @@ bool FSalRobustGraphForeignVariablePreflightDiagnosticTest::RunTest(
     TestTrue(TEXT("Foreign-variable target fixture unloads"), Fixture.Cleanup(CleanupError));
     CleanupError.Reset();
     TestTrue(TEXT("Foreign-variable owner fixture unloads"), Foreign.Cleanup(CleanupError));
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Issue #198: a Palette action for a Blueprint-defined function of another
+// Blueprint is spawnable when that Blueprint's generated Class is valid and
+// still defines the function. docs/planned/CROSS_BLUEPRINT_CALLS_DESIGN.md
+// ---------------------------------------------------------------------------
+
+namespace
+{
+const TCHAR* const CrossBlueprintCallType =
+    TEXT("/Script/BlueprintGraph.K2Node_CallFunction");
+
+struct FCrossBlueprintScenario
+{
+    FDryRunFunctionFixture Foreign;
+    FRobustGraphFixture Target;
+    UEdGraphPin* ObjectPin = nullptr;
+    FString Palette;
+    FString PaletteNodeClass;
+    TStrongObjectPtr<UBlueprint> RetainTarget;
+    TStrongObjectPtr<UBlueprint> RetainForeign;
+
+    bool Cleanup(FString& OutError)
+    {
+        RetainTarget.Reset();
+        RetainForeign.Reset();
+        ObjectPin = nullptr;
+        FString ForeignError;
+        const bool bTarget = Target.Cleanup(OutError);
+        const bool bForeign = Foreign.Cleanup(ForeignError);
+        if (OutError.IsEmpty())
+        {
+            OutError = ForeignError;
+        }
+        return bTarget && bForeign;
+    }
+};
+
+// Gives Target a variable typed as the foreign generated Class, spawns its
+// getter, and resolves the contextual Palette entry for the foreign function
+// from the getter's value Pin.
+bool BuildCrossBlueprintScenario(
+    FAutomationTestBase& Test,
+    FCrossBlueprintScenario& Out,
+    const FString& FunctionSearchText,
+    const TArray<FString>& NodeClassPaths = {FString(CrossBlueprintCallType)})
+{
+    if (!Test.TestTrue(
+            TEXT("Cross-Blueprint fixtures are valid"),
+            Out.Foreign.IsValid() && Out.Target.IsValid()))
+    {
+        return false;
+    }
+    FEdGraphPinType ObjectType;
+    ObjectType.PinCategory = UEdGraphSchema_K2::PC_Object;
+    ObjectType.PinSubCategoryObject = Out.Foreign.Blueprint->GeneratedClass;
+    const FName ReferenceName(TEXT("ForeignReference"));
+    if (!Test.TestTrue(
+            TEXT("Target owns a typed foreign Blueprint reference"),
+            FBlueprintEditorUtils::AddMemberVariable(
+                Out.Target.Blueprint, ReferenceName, ObjectType)))
+    {
+        return false;
+    }
+    FKismetEditorUtilities::CompileBlueprint(Out.Target.Blueprint);
+    FObjectProperty* ReferenceProperty = FindFProperty<FObjectProperty>(
+        Out.Target.Blueprint->SkeletonGeneratedClass.Get(), ReferenceName);
+    if (!Test.TestNotNull(TEXT("Reference property is reflected"), ReferenceProperty))
+    {
+        return false;
+    }
+    UK2Node_VariableGet* Getter = NewObject<UK2Node_VariableGet>(
+        Out.Target.Graph, NAME_None, RF_Transactional);
+    Getter->CreateNewGuid();
+    Getter->SetFromProperty(
+        ReferenceProperty, true, Out.Target.Blueprint->SkeletonGeneratedClass.Get());
+    Out.Target.Graph->AddNode(Getter, false, false);
+    Getter->AllocateDefaultPins();
+    Out.RetainTarget.Reset(Out.Target.Blueprint);
+    Out.RetainForeign.Reset(Out.Foreign.Blueprint);
+    FBlueprintActionDatabase::Get().RefreshAssetActions(Out.Foreign.Blueprint);
+    FBlueprintActionDatabase::Get().RefreshAssetActions(Out.Target.Blueprint);
+    Out.ObjectPin = Getter->GetValuePin();
+    if (!Test.TestNotNull(TEXT("Foreign object context Pin exists"), Out.ObjectPin))
+    {
+        return false;
+    }
+    for (const FString& NodeClassPath : NodeClassPaths)
+    {
+        Out.Palette = RobustGraphFindPaletteId(
+            FSalGraphInterface::Query(
+                RobustGraphPaletteFromPin(FunctionSearchText, Out.ObjectPin),
+                RobustGraphTarget(Out.Target.Blueprint, Out.Target.Graph)),
+            NodeClassPath);
+        if (!Out.Palette.IsEmpty())
+        {
+            Out.PaletteNodeClass = NodeClassPath;
+            break;
+        }
+    }
+    return Test.TestFalse(
+        TEXT("Pin Palette exposes the foreign function"), Out.Palette.IsEmpty());
+}
+
+TSharedPtr<FJsonObject> CrossBlueprintPatch(
+    FCrossBlueprintScenario& Scenario,
+    const bool bDryRun,
+    const int32 CallCount)
+{
+    TArray<TSharedPtr<FJsonValue>> Statements;
+    for (int32 Index = 0; Index < CallCount; ++Index)
+    {
+        const FString Alias = FString::Printf(TEXT("ForeignCall%d"), Index);
+        Statements.Add(RobustGraphPublicPaletteBinding(Alias, Scenario.Palette));
+        Statements.Add(RobustGraphUnary(TEXT("add"), RobustGraphLocal(Alias)));
+    }
+    return RobustGraphPublicPatch(
+        Scenario.Target.Blueprint, Scenario.Target.Graph, bDryRun, Statements);
+}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphCrossBlueprintFunctionCallTest,
+    "Loomle.Sal.Robustness.Graph.CrossBlueprintFunctionCall",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphCrossBlueprintFunctionCallTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(*this, TEXT("cross-Blueprint function call")))
+    {
+        return false;
+    }
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(TEXT("Cross-Blueprint call isolates Undo history"), Transactions.Initialize()))
+    {
+        return false;
+    }
+    FCrossBlueprintScenario Scenario;
+    ON_SCOPE_EXIT { Transactions.Restore(); };
+    if (!BuildCrossBlueprintScenario(
+            *this, Scenario, Scenario.Foreign.SelfFunctionName.ToString()))
+    {
+        FString Ignored;
+        Scenario.Cleanup(Ignored);
+        return false;
+    }
+
+    Scenario.Target.Package->SetDirtyFlag(false);
+    Scenario.Foreign.Package->SetDirtyFlag(false);
+    const int32 SourceNodeCount = Scenario.Target.Graph->Nodes.Num();
+    const TSharedPtr<FJsonObject> DryRun = CrossBlueprintPatch(Scenario, true, 1);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Cross-Blueprint function dry run is valid [%s]"),
+            *RobustGraphDiagnosticsText(DryRun)),
+        RobustGraphResultBool(DryRun, TEXT("valid")));
+    TestFalse(TEXT("Dry run is unapplied"), RobustGraphResultBool(DryRun, TEXT("applied"), true));
+    TestEqual(TEXT("Dry run leaves the Graph unchanged"), Scenario.Target.Graph->Nodes.Num(), SourceNodeCount);
+    TestFalse(TEXT("Dry run preserves target dirty state"), Scenario.Target.Package->IsDirty());
+    TestFalse(TEXT("Dry run preserves foreign dirty state"), Scenario.Foreign.Package->IsDirty());
+
+    if (RobustGraphResultBool(DryRun, TEXT("valid")))
+    {
+        const TSharedPtr<FJsonObject> Applied = CrossBlueprintPatch(Scenario, false, 1);
+        TestTrue(
+            *FString::Printf(
+                TEXT("Cross-Blueprint function call applies [%s]"),
+                *RobustGraphDiagnosticsText(Applied)),
+            RobustGraphResultBool(Applied, TEXT("valid"))
+                && RobustGraphResultBool(Applied, TEXT("applied")));
+        TestEqual(TEXT("Apply adds exactly one Node"), Scenario.Target.Graph->Nodes.Num(), SourceNodeCount + 1);
+        FGuid NodeGuid;
+        UK2Node_CallFunction* Call =
+            FGuid::Parse(RobustGraphResolvedRef(Applied, TEXT("ForeignCall0")), NodeGuid)
+                ? Cast<UK2Node_CallFunction>(
+                    FRobustGraphFixture::FindNodeByGuid(Scenario.Target.Graph, NodeGuid))
+                : nullptr;
+        if (TestNotNull(TEXT("Call Node materializes"), Call))
+        {
+            TestNotNull(TEXT("Call Node resolves its target function"), Call->GetTargetFunction());
+            TestFalse(
+                TEXT("Call Node is an external member reference"),
+                Call->FunctionReference.IsSelfContext());
+        }
+        TestTrue(TEXT("One Undo removes the call Node"), GEditor->UndoTransaction(false));
+        TestEqual(TEXT("Undo restores the Node count"), Scenario.Target.Graph->Nodes.Num(), SourceNodeCount);
+        const TSharedPtr<FJsonObject> Reapplied = CrossBlueprintPatch(Scenario, false, 1);
+        TestTrue(TEXT("Call re-applies after Undo"), RobustGraphResultBool(Reapplied, TEXT("applied")));
+        FKismetEditorUtilities::CompileBlueprint(Scenario.Target.Blueprint);
+        FKismetEditorUtilities::CompileBlueprint(Scenario.Foreign.Blueprint);
+        TestTrue(TEXT("Target compiles without error"), Scenario.Target.Blueprint->Status != BS_Error);
+        TestTrue(TEXT("Foreign compiles without error"), Scenario.Foreign.Blueprint->Status != BS_Error);
+    }
+
+    Transactions.Restore();
+    FString CleanupError;
+    TestTrue(
+        *FString::Printf(TEXT("Cross-Blueprint scenario unloads: %s"), *CleanupError),
+        Scenario.Cleanup(CleanupError));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphCrossBlueprintFunctionRepeatTest,
+    "Loomle.Sal.Robustness.Graph.CrossBlueprintFunctionRepeat",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphCrossBlueprintFunctionRepeatTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(*this, TEXT("cross-Blueprint repeated call")))
+    {
+        return false;
+    }
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(TEXT("Repeated call isolates Undo history"), Transactions.Initialize()))
+    {
+        return false;
+    }
+    FCrossBlueprintScenario Scenario;
+    ON_SCOPE_EXIT { Transactions.Restore(); };
+    if (!BuildCrossBlueprintScenario(
+            *this, Scenario, Scenario.Foreign.SelfFunctionName.ToString()))
+    {
+        FString Ignored;
+        Scenario.Cleanup(Ignored);
+        return false;
+    }
+    const int32 SourceNodeCount = Scenario.Target.Graph->Nodes.Num();
+    const TSharedPtr<FJsonObject> DryRun = CrossBlueprintPatch(Scenario, true, 3);
+    TestTrue(
+        *FString::Printf(
+            TEXT("Three identical foreign calls dry-run valid [%s]"),
+            *RobustGraphDiagnosticsText(DryRun)),
+        RobustGraphResultBool(DryRun, TEXT("valid")));
+    if (RobustGraphResultBool(DryRun, TEXT("valid")))
+    {
+        const TSharedPtr<FJsonObject> Applied = CrossBlueprintPatch(Scenario, false, 3);
+        TestTrue(TEXT("Three foreign calls apply"), RobustGraphResultBool(Applied, TEXT("applied")));
+        TestEqual(TEXT("Apply adds exactly three Nodes"), Scenario.Target.Graph->Nodes.Num(), SourceNodeCount + 3);
+        TestTrue(TEXT("One Undo removes all three Nodes"), GEditor->UndoTransaction(false));
+        TestEqual(TEXT("Undo restores the Node count"), Scenario.Target.Graph->Nodes.Num(), SourceNodeCount);
+    }
+    Transactions.Restore();
+    FString CleanupError;
+    TestTrue(TEXT("Repeat scenario unloads"), Scenario.Cleanup(CleanupError));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphCrossBlueprintFunctionLibraryTest,
+    "Loomle.Sal.Robustness.Graph.CrossBlueprintFunctionLibrary",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphCrossBlueprintFunctionLibraryTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(*this, TEXT("cross-Blueprint function library")))
+    {
+        return false;
+    }
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(TEXT("Function library call isolates Undo history"), Transactions.Initialize()))
+    {
+        return false;
+    }
+    FRobustGraphFixture Target;
+    ON_SCOPE_EXIT { Transactions.Restore(); };
+    const FString Token = FGuid::NewGuid().ToString(EGuidFormats::Digits);
+    const FString LibraryName = FString::Printf(TEXT("BPFL_RobustLibrary_%s"), *Token);
+    const FName FunctionName(TEXT("RobustLibraryFunction"));
+    UPackage* LibraryPackage = CreatePackage(
+        *FString::Printf(TEXT("/Game/LoomleTests/RobustGraph_%s"), *Token));
+    UBlueprint* Library = LibraryPackage != nullptr
+        ? FKismetEditorUtilities::CreateBlueprint(
+            UBlueprintFunctionLibrary::StaticClass(),
+            LibraryPackage,
+            FName(*LibraryName),
+            BPTYPE_FunctionLibrary,
+            UBlueprint::StaticClass(),
+            UBlueprintGeneratedClass::StaticClass(),
+            NAME_None)
+        : nullptr;
+    if (!TestTrue(TEXT("Function library and target fixtures are valid"),
+            Library != nullptr && Target.IsValid()))
+    {
+        return false;
+    }
+    UEdGraph* FunctionGraph = FBlueprintEditorUtils::CreateNewGraph(
+        Library, FunctionName, UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+    FBlueprintEditorUtils::AddFunctionGraph(
+        Library, FunctionGraph, true, static_cast<UClass*>(nullptr));
+    FKismetEditorUtilities::CompileBlueprint(Library);
+    TStrongObjectPtr<UBlueprint> RetainLibrary(Library);
+    TStrongObjectPtr<UBlueprint> RetainTarget(Target.Blueprint);
+    FBlueprintActionDatabase::Get().RefreshAssetActions(Library);
+    FBlueprintActionDatabase::Get().RefreshAssetActions(Target.Blueprint);
+
+    FSalQuery Query = RobustGraphQuery(TEXT("palette_entries"));
+    Query.Operation->SetStringField(TEXT("text"), FunctionName.ToString());
+    Query.PageLimit = 50;
+    const FString Palette = RobustGraphFindPaletteId(
+        FSalGraphInterface::Query(Query, RobustGraphTarget(Target.Blueprint, Target.Graph)),
+        CrossBlueprintCallType);
+    if (TestFalse(TEXT("Function library function is discoverable"), Palette.IsEmpty()))
+    {
+        const int32 SourceNodeCount = Target.Graph->Nodes.Num();
+        // A patch consumes its statement objects; build fresh ones per call.
+        const auto Statements = [&Palette]()
+        {
+            return TArray<TSharedPtr<FJsonValue>>{
+                RobustGraphPublicPaletteBinding(TEXT("LibraryCall"), Palette),
+                RobustGraphUnary(TEXT("add"), RobustGraphLocal(TEXT("LibraryCall")))};
+        };
+        const TSharedPtr<FJsonObject> DryRun =
+            RobustGraphPublicPatch(Target.Blueprint, Target.Graph, true, Statements());
+        TestTrue(
+            *FString::Printf(
+                TEXT("Function library dry run is valid [%s]"),
+                *RobustGraphDiagnosticsText(DryRun)),
+            RobustGraphResultBool(DryRun, TEXT("valid")));
+        if (RobustGraphResultBool(DryRun, TEXT("valid")))
+        {
+            const TSharedPtr<FJsonObject> Applied =
+                RobustGraphPublicPatch(Target.Blueprint, Target.Graph, false, Statements());
+            TestTrue(
+                *FString::Printf(
+                    TEXT("Function library call applies [%s]"),
+                    *RobustGraphDiagnosticsText(Applied)),
+                RobustGraphResultBool(Applied, TEXT("applied")));
+            TestEqual(TEXT("Apply adds exactly one Node"), Target.Graph->Nodes.Num(), SourceNodeCount + 1);
+            FKismetEditorUtilities::CompileBlueprint(Target.Blueprint);
+            TestTrue(TEXT("Target compiles without error"), Target.Blueprint->Status != BS_Error);
+        }
+    }
+
+    Transactions.Restore();
+    RetainLibrary.Reset();
+    RetainTarget.Reset();
+    FString CleanupError;
+    FBlueprintActionDatabase::Get().ClearAssetActions(Library);
+    TestTrue(TEXT("Function library unloads"), RobustGraphUnloadPackage(LibraryPackage, CleanupError));
+    CleanupError.Reset();
+    TestTrue(TEXT("Function library target unloads"), Target.Cleanup(CleanupError));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphCrossBlueprintResolutionReasonsTest,
+    "Loomle.Sal.Robustness.Graph.CrossBlueprintResolutionReasons",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphCrossBlueprintResolutionReasonsTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(*this, TEXT("cross-Blueprint resolution reasons")))
+    {
+        return false;
+    }
+    FDryRunFunctionFixture Foreign;
+    FRobustGraphFixture Target;
+    if (!TestTrue(TEXT("Reason fixtures are valid"), Foreign.IsValid() && Target.IsValid()))
+    {
+        return false;
+    }
+    UFunction* Function =
+        Foreign.Blueprint->SkeletonGeneratedClass->FindFunctionByName(Foreign.SelfFunctionName);
+    const UClass* Owner = Function != nullptr ? Function->GetOwnerClass() : nullptr;
+    if (!TestTrue(TEXT("Foreign skeleton function and owner exist"), Function != nullptr && Owner != nullptr))
+    {
+        return false;
+    }
+    FString Reason;
+    TestTrue(
+        TEXT("A current generated Class defining the function resolves"),
+        FSalGraphInterface::ForeignBlueprintFunctionResolvableForTesting(
+            Owner, Target.Blueprint, Function, Reason));
+    TestTrue(TEXT("A resolvable function reports no reason"), Reason.IsEmpty());
+
+    UClass* Generated = Foreign.Blueprint->GeneratedClass.Get();
+    Foreign.Blueprint->GeneratedClass = nullptr;
+    TestFalse(
+        TEXT("A Blueprint without a generated Class does not resolve"),
+        FSalGraphInterface::ForeignBlueprintFunctionResolvableForTesting(
+            Owner, Target.Blueprint, Function, Reason));
+    TestEqual(TEXT("Missing generated Class reason"), Reason, FString(TEXT("has no valid generated class")));
+    Foreign.Blueprint->GeneratedClass = Generated;
+
+    Generated->ClassFlags |= CLASS_NewerVersionExists;
+    TestFalse(
+        TEXT("A superseded generated Class does not resolve"),
+        FSalGraphInterface::ForeignBlueprintFunctionResolvableForTesting(
+            Owner, Target.Blueprint, Function, Reason));
+    TestEqual(TEXT("Superseded generated Class reason"), Reason, FString(TEXT("has a newer class version")));
+    Generated->ClassFlags &= ~CLASS_NewerVersionExists;
+
+    const UFunction* Other = UKismetMathLibrary::StaticClass()->FindFunctionByName(
+        GET_FUNCTION_NAME_CHECKED(UKismetMathLibrary, Conv_ByteToInt));
+    TestFalse(
+        TEXT("A function the generated Class does not define does not resolve"),
+        FSalGraphInterface::ForeignBlueprintFunctionResolvableForTesting(
+            Owner, Target.Blueprint, Other, Reason));
+    TestEqual(
+        TEXT("Missing function reason names the function"),
+        Reason,
+        FString(TEXT("no longer defines Conv_ByteToInt")));
+
+    FString CleanupError;
+    TestTrue(TEXT("Reason target unloads"), Target.Cleanup(CleanupError));
+    CleanupError.Reset();
+    TestTrue(TEXT("Reason foreign unloads"), Foreign.Cleanup(CleanupError));
+    return true;
+}
+
+namespace
+{
+enum class EStaleCase
+{
+    RecompileUnchanged,
+    FunctionRemoved,
+    SignatureChanged,
+    ForeignUnloaded
+};
+
+void RunCrossBlueprintStaleCase(
+    FAutomationTestBase& Test,
+    const EStaleCase Case,
+    const TCHAR* Label)
+{
+    // Restored before cleanup so the isolated Undo buffer cannot keep the
+    // fixtures loaded.
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!Test.TestTrue(
+            *FString::Printf(TEXT("%s: isolates Undo history"), Label),
+            Transactions.Initialize()))
+    {
+        return;
+    }
+    FCrossBlueprintScenario Scenario;
+    if (!BuildCrossBlueprintScenario(
+            Test, Scenario, Scenario.Foreign.SelfFunctionName.ToString()))
+    {
+        Transactions.Restore();
+        FString Ignored;
+        Scenario.Cleanup(Ignored);
+        return;
+    }
+    bool bForeignGone = false;
+    switch (Case)
+    {
+    case EStaleCase::RecompileUnchanged:
+        FKismetEditorUtilities::CompileBlueprint(Scenario.Foreign.Blueprint);
+        break;
+    case EStaleCase::FunctionRemoved:
+        FBlueprintEditorUtils::RemoveGraph(
+            Scenario.Foreign.Blueprint,
+            Scenario.Foreign.FunctionGraph,
+            EGraphRemoveFlags::Recompile);
+        Scenario.Foreign.FunctionGraph = nullptr;
+        break;
+    case EStaleCase::SignatureChanged:
+    {
+        TArray<UK2Node_FunctionEntry*> Entries;
+        Scenario.Foreign.FunctionGraph->GetNodesOfClass(Entries);
+        if (Test.TestEqual(TEXT("Foreign function has one entry Node"), Entries.Num(), 1))
+        {
+            FEdGraphPinType IntType;
+            IntType.PinCategory = UEdGraphSchema_K2::PC_Int;
+            Entries[0]->CreateUserDefinedPin(
+                FName(TEXT("NewInput")), IntType, EGPD_Output);
+            FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(
+                Scenario.Foreign.Blueprint);
+            FKismetEditorUtilities::CompileBlueprint(Scenario.Foreign.Blueprint);
+        }
+        break;
+    }
+    case EStaleCase::ForeignUnloaded:
+    {
+        Scenario.RetainForeign.Reset();
+        FString UnloadError;
+        bForeignGone = Scenario.Foreign.Cleanup(UnloadError);
+        CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+        if (!bForeignGone)
+        {
+            Test.AddInfo(FString::Printf(
+                TEXT("%s: foreign Blueprint stayed loaded (%s); case not exercised"),
+                Label, *UnloadError));
+            Transactions.Restore();
+            FString Ignored;
+            Scenario.Cleanup(Ignored);
+            return;
+        }
+        break;
+    }
+    }
+
+    Scenario.Target.Package->SetDirtyFlag(false);
+    const int32 SourceNodeCount = Scenario.Target.Graph->Nodes.Num();
+    const TSharedPtr<FJsonObject> DryRun = CrossBlueprintPatch(Scenario, true, 1);
+    const FString Diagnostics = RobustGraphDiagnosticsText(DryRun);
+    const bool bValid = RobustGraphResultBool(DryRun, TEXT("valid"));
+    Test.AddInfo(FString::Printf(TEXT("%s dry run valid=%d [%s]"), Label, bValid ? 1 : 0, *Diagnostics));
+    Test.TestEqual(
+        *FString::Printf(TEXT("%s: dry run leaves the Graph unchanged"), Label),
+        Scenario.Target.Graph->Nodes.Num(), SourceNodeCount);
+    Test.TestFalse(
+        *FString::Printf(TEXT("%s: dry run preserves target dirty state"), Label),
+        Scenario.Target.Package->IsDirty());
+
+    const bool bExpectValid = Case == EStaleCase::RecompileUnchanged;
+    if (bExpectValid)
+    {
+        Test.TestTrue(*FString::Printf(TEXT("%s: dry run is valid [%s]"), Label, *Diagnostics), bValid);
+    }
+    else if (Case == EStaleCase::FunctionRemoved || Case == EStaleCase::ForeignUnloaded)
+    {
+        // The Palette entry is gone, so the request never reaches the guard.
+        Test.TestFalse(
+            *FString::Printf(TEXT("%s: dry run is rejected [%s]"), Label, *Diagnostics),
+            bValid);
+        Test.TestTrue(
+            *FString::Printf(TEXT("%s: rejection is resolution.palette_not_found [%s]"), Label, *Diagnostics),
+            RobustGraphHasDiagnosticCode(DryRun, TEXT("resolution.palette_not_found")));
+    }
+    else if (!bValid)
+    {
+        Test.TestFalse(
+            *FString::Printf(TEXT("%s: rejection reports a diagnostic"), Label),
+            Diagnostics.IsEmpty());
+        if (RobustGraphHasDiagnosticCode(DryRun, TEXT("resolution.palette_not_spawnable")))
+        {
+            Test.TestTrue(
+                *FString::Printf(TEXT("%s: rejection tells the agent what to do [%s]"), Label, *Diagnostics),
+                Diagnostics.Contains(TEXT("Compile that Blueprint")));
+        }
+    }
+    if (bValid)
+    {
+        const TSharedPtr<FJsonObject> Applied = CrossBlueprintPatch(Scenario, false, 1);
+        Test.TestTrue(
+            *FString::Printf(TEXT("%s: valid dry run applies [%s]"), Label, *RobustGraphDiagnosticsText(Applied)),
+            RobustGraphResultBool(Applied, TEXT("applied")));
+        if (Case == EStaleCase::SignatureChanged)
+        {
+            FGuid NodeGuid;
+            const UK2Node_CallFunction* Call =
+                FGuid::Parse(RobustGraphResolvedRef(Applied, TEXT("ForeignCall0")), NodeGuid)
+                    ? Cast<UK2Node_CallFunction>(
+                        FRobustGraphFixture::FindNodeByGuid(Scenario.Target.Graph, NodeGuid))
+                    : nullptr;
+            Test.TestTrue(
+                *FString::Printf(TEXT("%s: created Node carries the new signature"), Label),
+                Call != nullptr && Call->FindPin(FName(TEXT("NewInput"))) != nullptr);
+        }
+        FKismetEditorUtilities::CompileBlueprint(Scenario.Target.Blueprint);
+        Test.TestTrue(
+            *FString::Printf(TEXT("%s: target compiles without error"), Label),
+            Scenario.Target.Blueprint->Status != BS_Error);
+    }
+    Transactions.Restore();
+    FString CleanupError;
+    Test.TestTrue(
+        *FString::Printf(TEXT("%s: scenario unloads (%s)"), Label, *CleanupError),
+        Scenario.Cleanup(CleanupError));
+}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphCrossBlueprintStaleActionTest,
+    "Loomle.Sal.Robustness.Graph.CrossBlueprintStaleAction",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphCrossBlueprintStaleActionTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(*this, TEXT("cross-Blueprint stale actions")))
+    {
+        return false;
+    }
+    RunCrossBlueprintStaleCase(*this, EStaleCase::RecompileUnchanged, TEXT("recompiled foreign"));
+    RunCrossBlueprintStaleCase(*this, EStaleCase::FunctionRemoved, TEXT("removed function"));
+    RunCrossBlueprintStaleCase(*this, EStaleCase::SignatureChanged, TEXT("changed signature"));
+    RunCrossBlueprintStaleCase(*this, EStaleCase::ForeignUnloaded, TEXT("unloaded foreign"));
+    return true;
+}
+
+namespace
+{
+// Exact #198 shape: Widget Blueprint function called from a typed Create Widget
+// ReturnValue Pin. K2Node_CreateWidget is private to UMGEditor, so the Node is
+// created by reflection and typed through its Class Pin default.
+void RunCrossBlueprintWidgetCase(
+    FAutomationTestBase& Test,
+    const bool bFunctionAddedAfterFirstCompile,
+    const TCHAR* Label)
+{
+    // Restored before cleanup so the isolated Undo buffer cannot keep the
+    // fixtures loaded.
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!Test.TestTrue(
+            *FString::Printf(TEXT("%s: isolates Undo history"), Label),
+            Transactions.Initialize()))
+    {
+        return;
+    }
+    const FString Token = FGuid::NewGuid().ToString(EGuidFormats::Digits);
+    const FString AssetName = FString::Printf(TEXT("WBP_CrossCall_%s"), *Token);
+    const FName FunctionName(TEXT("ConfigureShop"));
+    UPackage* WidgetPackage = CreatePackage(
+        *FString::Printf(TEXT("/Game/LoomleTests/RobustGraph_%s"), *Token));
+    UWidgetBlueprint* Widget = WidgetPackage != nullptr
+        ? Cast<UWidgetBlueprint>(FKismetEditorUtilities::CreateBlueprint(
+            UUserWidget::StaticClass(),
+            WidgetPackage,
+            FName(*AssetName),
+            BPTYPE_Normal,
+            UWidgetBlueprint::StaticClass(),
+            UWidgetBlueprintGeneratedClass::StaticClass(),
+            NAME_None))
+        : nullptr;
+    FRobustGraphFixture Target;
+    if (!Test.TestTrue(
+            *FString::Printf(TEXT("%s: widget and target fixtures are valid"), Label),
+            Widget != nullptr && Target.IsValid()))
+    {
+        return;
+    }
+    const auto AddConfigureShop = [&]()
+    {
+        UEdGraph* Graph = FBlueprintEditorUtils::CreateNewGraph(
+            Widget, FunctionName, UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+        FBlueprintEditorUtils::AddFunctionGraph(
+            Widget, Graph, true, static_cast<UClass*>(nullptr));
+    };
+    if (bFunctionAddedAfterFirstCompile)
+    {
+        FKismetEditorUtilities::CompileBlueprint(Widget);
+        AddConfigureShop();
+    }
+    else
+    {
+        AddConfigureShop();
+    }
+    FKismetEditorUtilities::CompileBlueprint(Widget);
+    TStrongObjectPtr<UBlueprint> RetainWidget(Widget);
+    TStrongObjectPtr<UBlueprint> RetainTarget(Target.Blueprint);
+
+    UClass* CreateWidgetNodeClass =
+        FindObject<UClass>(nullptr, TEXT("/Script/UMGEditor.K2Node_CreateWidget"));
+    UEdGraphNode* CreateWidget = Test.TestNotNull(
+                                     *FString::Printf(TEXT("%s: Create Widget Node class exists"), Label),
+                                     CreateWidgetNodeClass)
+        ? NewObject<UEdGraphNode>(Target.Graph, CreateWidgetNodeClass, NAME_None, RF_Transactional)
+        : nullptr;
+    UEdGraphPin* ReturnPin = nullptr;
+    if (CreateWidget != nullptr)
+    {
+        CreateWidget->CreateNewGuid();
+        Target.Graph->AddNode(CreateWidget, false, false);
+        CreateWidget->AllocateDefaultPins();
+        UEdGraphPin* ClassPin = CreateWidget->FindPin(TEXT("Class"));
+        if (Test.TestNotNull(*FString::Printf(TEXT("%s: Class Pin exists"), Label), ClassPin))
+        {
+            GetDefault<UEdGraphSchema_K2>()->TrySetDefaultObject(*ClassPin, Widget->GeneratedClass);
+        }
+        ReturnPin = CreateWidget->FindPin(UEdGraphSchema_K2::PN_ReturnValue);
+    }
+    FString Palette;
+    if (Test.TestNotNull(*FString::Printf(TEXT("%s: ReturnValue Pin exists"), Label), ReturnPin))
+    {
+        FBlueprintActionDatabase::Get().RefreshAssetActions(Widget);
+        FBlueprintActionDatabase::Get().RefreshAssetActions(Target.Blueprint);
+        Palette = RobustGraphFindPaletteId(
+            FSalGraphInterface::Query(
+                RobustGraphPaletteFromPin(FunctionName.ToString(), ReturnPin),
+                RobustGraphTarget(Target.Blueprint, Target.Graph)),
+            CrossBlueprintCallType);
+    }
+    if (Test.TestFalse(
+            *FString::Printf(TEXT("%s: Widget function is discoverable from ReturnValue"), Label),
+            Palette.IsEmpty()))
+    {
+        const auto Statements = [&Palette]()
+        {
+            return TArray<TSharedPtr<FJsonValue>>{
+                RobustGraphPublicPaletteBinding(TEXT("ShopCall"), Palette),
+                RobustGraphUnary(TEXT("add"), RobustGraphLocal(TEXT("ShopCall")))};
+        };
+        Target.Package->SetDirtyFlag(false);
+        const int32 SourceNodeCount = Target.Graph->Nodes.Num();
+        const TSharedPtr<FJsonObject> DryRun =
+            RobustGraphPublicPatch(Target.Blueprint, Target.Graph, true, Statements());
+        const bool bValid = RobustGraphResultBool(DryRun, TEXT("valid"));
+        Test.TestTrue(
+            *FString::Printf(TEXT("%s: dry run is valid [%s]"), Label, *RobustGraphDiagnosticsText(DryRun)),
+            bValid);
+        Test.TestEqual(
+            *FString::Printf(TEXT("%s: dry run leaves the Graph unchanged"), Label),
+            Target.Graph->Nodes.Num(), SourceNodeCount);
+        if (bValid)
+        {
+            const TSharedPtr<FJsonObject> Applied =
+                RobustGraphPublicPatch(Target.Blueprint, Target.Graph, false, Statements());
+            Test.TestTrue(
+                *FString::Printf(TEXT("%s: apply succeeds [%s]"), Label, *RobustGraphDiagnosticsText(Applied)),
+                RobustGraphResultBool(Applied, TEXT("applied")));
+            Test.TestEqual(
+                *FString::Printf(TEXT("%s: apply adds exactly one Node"), Label),
+                Target.Graph->Nodes.Num(), SourceNodeCount + 1);
+            FKismetEditorUtilities::CompileBlueprint(Target.Blueprint);
+            FKismetEditorUtilities::CompileBlueprint(Widget);
+            Test.TestTrue(
+                *FString::Printf(TEXT("%s: target compiles without error"), Label),
+                Target.Blueprint->Status != BS_Error);
+            Test.TestTrue(
+                *FString::Printf(TEXT("%s: widget compiles without error"), Label),
+                Widget->Status != BS_Error);
+        }
+    }
+    Transactions.Restore();
+    RetainWidget.Reset();
+    RetainTarget.Reset();
+    FBlueprintActionDatabase::Get().ClearAssetActions(Widget);
+    FString CleanupError;
+    Test.TestTrue(
+        *FString::Printf(TEXT("%s: widget unloads"), Label),
+        RobustGraphUnloadPackage(WidgetPackage, CleanupError));
+    CleanupError.Reset();
+    Test.TestTrue(
+        *FString::Printf(TEXT("%s: target unloads"), Label),
+        Target.Cleanup(CleanupError));
+}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphCrossBlueprintWidgetCallTest,
+    "Loomle.Sal.Robustness.Graph.CrossBlueprintWidgetCall",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphCrossBlueprintWidgetCallTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(*this, TEXT("cross-Blueprint widget call")))
+    {
+        return false;
+    }
+    RunCrossBlueprintWidgetCase(*this, false, TEXT("function existed at first compile"));
+    RunCrossBlueprintWidgetCase(*this, true, TEXT("function added after first compile"));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphCrossBlueprintInterfaceMessageTest,
+    "Loomle.Sal.Robustness.Graph.CrossBlueprintInterfaceMessage",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphCrossBlueprintInterfaceMessageTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(*this, TEXT("cross-Blueprint interface message")))
+    {
+        return false;
+    }
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(TEXT("Interface message isolates Undo history"), Transactions.Initialize()))
+    {
+        return false;
+    }
+    const FString Token = FGuid::NewGuid().ToString(EGuidFormats::Digits);
+    const FName MessageName(TEXT("RobustInterfaceMessage"));
+    UPackage* InterfacePackage = CreatePackage(
+        *FString::Printf(TEXT("/Game/LoomleTests/RobustGraph_%s"), *Token));
+    UBlueprint* Interface = InterfacePackage != nullptr
+        ? FKismetEditorUtilities::CreateBlueprint(
+            UInterface::StaticClass(),
+            InterfacePackage,
+            FName(*FString::Printf(TEXT("BPI_RobustInterface_%s"), *Token)),
+            BPTYPE_Interface,
+            UBlueprint::StaticClass(),
+            UBlueprintGeneratedClass::StaticClass(),
+            NAME_None)
+        : nullptr;
+    FCrossBlueprintScenario Scenario;
+    if (!TestTrue(
+            TEXT("Interface, foreign and target fixtures are valid"),
+            Interface != nullptr && Scenario.Foreign.IsValid() && Scenario.Target.IsValid()))
+    {
+        Transactions.Restore();
+        return false;
+    }
+    UEdGraph* MessageGraph = FBlueprintEditorUtils::CreateNewGraph(
+        Interface, MessageName, UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+    FBlueprintEditorUtils::AddFunctionGraph(
+        Interface, MessageGraph, true, static_cast<UClass*>(nullptr));
+    FKismetEditorUtilities::CompileBlueprint(Interface);
+    TStrongObjectPtr<UBlueprint> RetainInterface(Interface);
+    TestTrue(
+        TEXT("Foreign Blueprint implements the interface"),
+        FBlueprintEditorUtils::ImplementNewInterface(
+            Scenario.Foreign.Blueprint,
+            Interface->GeneratedClass->GetClassPathName()));
+    FKismetEditorUtilities::CompileBlueprint(Scenario.Foreign.Blueprint);
+
+    const TArray<FString> NodeClasses = {
+        TEXT("/Script/BlueprintGraph.K2Node_Message"),
+        FString(CrossBlueprintCallType)};
+    if (BuildCrossBlueprintScenario(*this, Scenario, MessageName.ToString(), NodeClasses))
+    {
+        AddInfo(FString::Printf(
+            TEXT("Interface message Palette Node class: %s"), *Scenario.PaletteNodeClass));
+        Scenario.Target.Package->SetDirtyFlag(false);
+        const int32 SourceNodeCount = Scenario.Target.Graph->Nodes.Num();
+        const TSharedPtr<FJsonObject> DryRun = CrossBlueprintPatch(Scenario, true, 1);
+        const bool bValid = RobustGraphResultBool(DryRun, TEXT("valid"));
+        TestTrue(
+            *FString::Printf(
+                TEXT("Interface message dry run is valid [%s]"),
+                *RobustGraphDiagnosticsText(DryRun)),
+            bValid);
+        TestEqual(TEXT("Dry run leaves the Graph unchanged"), Scenario.Target.Graph->Nodes.Num(), SourceNodeCount);
+        if (bValid)
+        {
+            const TSharedPtr<FJsonObject> Applied = CrossBlueprintPatch(Scenario, false, 1);
+            TestTrue(
+                *FString::Printf(
+                    TEXT("Interface message applies [%s]"),
+                    *RobustGraphDiagnosticsText(Applied)),
+                RobustGraphResultBool(Applied, TEXT("applied")));
+            TestEqual(TEXT("Apply adds exactly one Node"), Scenario.Target.Graph->Nodes.Num(), SourceNodeCount + 1);
+            FKismetEditorUtilities::CompileBlueprint(Scenario.Target.Blueprint);
+            FKismetEditorUtilities::CompileBlueprint(Scenario.Foreign.Blueprint);
+            TestTrue(TEXT("Target compiles without error"), Scenario.Target.Blueprint->Status != BS_Error);
+            TestTrue(TEXT("Foreign compiles without error"), Scenario.Foreign.Blueprint->Status != BS_Error);
+        }
+    }
+
+    Transactions.Restore();
+    RetainInterface.Reset();
+    FString CleanupError;
+    TestTrue(TEXT("Interface scenario unloads"), Scenario.Cleanup(CleanupError));
+    CleanupError.Reset();
+    FBlueprintActionDatabase::Get().ClearAssetActions(Interface);
+    TestTrue(TEXT("Interface unloads"), RobustGraphUnloadPackage(InterfacePackage, CleanupError));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphCrossBlueprintParentFunctionTest,
+    "Loomle.Sal.Robustness.Graph.CrossBlueprintParentFunction",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphCrossBlueprintParentFunctionTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(*this, TEXT("inherited Blueprint function")))
+    {
+        return false;
+    }
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(TEXT("Inherited function isolates Undo history"), Transactions.Initialize()))
+    {
+        return false;
+    }
+    FDryRunFunctionFixture Parent;
+    const FString Token = FGuid::NewGuid().ToString(EGuidFormats::Digits);
+    UPackage* ChildPackage = Parent.IsValid()
+        ? CreatePackage(*FString::Printf(TEXT("/Game/LoomleTests/RobustGraph_%s"), *Token))
+        : nullptr;
+    UBlueprint* Child = ChildPackage != nullptr
+        ? FKismetEditorUtilities::CreateBlueprint(
+            Parent.Blueprint->GeneratedClass,
+            ChildPackage,
+            FName(*FString::Printf(TEXT("BP_RobustChild_%s"), *Token)),
+            BPTYPE_Normal,
+            UBlueprint::StaticClass(),
+            UBlueprintGeneratedClass::StaticClass(),
+            NAME_None)
+        : nullptr;
+    if (!TestNotNull(TEXT("Child Blueprint of the parent Blueprint is created"), Child))
+    {
+        Transactions.Restore();
+        return false;
+    }
+    UEdGraph* ChildGraph = FBlueprintEditorUtils::FindEventGraph(Child);
+    FKismetEditorUtilities::CompileBlueprint(Child);
+    TStrongObjectPtr<UBlueprint> RetainChild(Child);
+    TStrongObjectPtr<UBlueprint> RetainParent(Parent.Blueprint);
+    FBlueprintActionDatabase::Get().RefreshAssetActions(Parent.Blueprint);
+    FBlueprintActionDatabase::Get().RefreshAssetActions(Child);
+
+    FSalQuery Query = RobustGraphQuery(TEXT("palette_entries"));
+    Query.Operation->SetStringField(TEXT("text"), Parent.SelfFunctionName.ToString());
+    Query.PageLimit = 50;
+    const FString Palette = RobustGraphFindPaletteId(
+        FSalGraphInterface::Query(Query, RobustGraphTarget(Child, ChildGraph)),
+        CrossBlueprintCallType);
+    if (TestFalse(TEXT("Inherited function is discoverable on the child"), Palette.IsEmpty()))
+    {
+        const auto Statements = [&Palette]()
+        {
+            return TArray<TSharedPtr<FJsonValue>>{
+                RobustGraphPublicPaletteBinding(TEXT("InheritedCall"), Palette),
+                RobustGraphUnary(TEXT("add"), RobustGraphLocal(TEXT("InheritedCall")))};
+        };
+        const int32 SourceNodeCount = ChildGraph->Nodes.Num();
+        const TSharedPtr<FJsonObject> DryRun =
+            RobustGraphPublicPatch(Child, ChildGraph, true, Statements());
+        TestTrue(
+            *FString::Printf(
+                TEXT("Inherited function dry run is valid [%s]"),
+                *RobustGraphDiagnosticsText(DryRun)),
+            RobustGraphResultBool(DryRun, TEXT("valid")));
+        if (RobustGraphResultBool(DryRun, TEXT("valid")))
+        {
+            const TSharedPtr<FJsonObject> Applied =
+                RobustGraphPublicPatch(Child, ChildGraph, false, Statements());
+            TestTrue(TEXT("Inherited function call applies"), RobustGraphResultBool(Applied, TEXT("applied")));
+            TestEqual(TEXT("Apply adds exactly one Node"), ChildGraph->Nodes.Num(), SourceNodeCount + 1);
+            FGuid NodeGuid;
+            const UK2Node_CallFunction* Call =
+                FGuid::Parse(RobustGraphResolvedRef(Applied, TEXT("InheritedCall")), NodeGuid)
+                    ? Cast<UK2Node_CallFunction>(
+                        FRobustGraphFixture::FindNodeByGuid(ChildGraph, NodeGuid))
+                    : nullptr;
+            if (TestNotNull(TEXT("Inherited call Node materializes"), Call))
+            {
+                TestTrue(
+                    TEXT("Inherited call is a self-context reference, as in the Blueprint editor"),
+                    Call->FunctionReference.IsSelfContext());
+            }
+            FKismetEditorUtilities::CompileBlueprint(Child);
+            TestTrue(TEXT("Child compiles without error"), Child->Status != BS_Error);
+        }
+    }
+
+    Transactions.Restore();
+    RetainChild.Reset();
+    RetainParent.Reset();
+    FBlueprintActionDatabase::Get().ClearAssetActions(Child);
+    FString CleanupError;
+    TestTrue(TEXT("Child Blueprint unloads"), RobustGraphUnloadPackage(ChildPackage, CleanupError));
+    CleanupError.Reset();
+    TestTrue(TEXT("Parent Blueprint unloads"), Parent.Cleanup(CleanupError));
     return true;
 }
 

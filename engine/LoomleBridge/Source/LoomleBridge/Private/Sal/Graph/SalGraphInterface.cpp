@@ -6931,6 +6931,53 @@ bool TargetClassIsChildOf(
         && TargetClass->IsChildOf(OwnerClass);
 }
 
+// A function owned by another Blueprint can be called from the target when that
+// Blueprint has a valid, current generated Class that still defines the function.
+// Palette actions carry the foreign skeleton Class as owner; UE normalizes it to
+// the authoritative Class when the Node is materialized
+// (FMemberReference::SetGivenSelfScope). See docs/planned/CROSS_BLUEPRINT_CALLS_DESIGN.md.
+bool ForeignBlueprintFunctionResolvable(
+    const UClass* OwnerClass,
+    const UBlueprint* TargetBlueprint,
+    const UFunction* Function,
+    FString& OutReason)
+{
+    OutReason.Reset();
+    const UBlueprint* ForeignBlueprint =
+        OwnerClass != nullptr
+            ? Cast<UBlueprint>(OwnerClass->ClassGeneratedBy)
+            : nullptr;
+    const UClass* ForeignGenerated =
+        ForeignBlueprint != nullptr
+            ? ForeignBlueprint->GeneratedClass.Get()
+            : nullptr;
+    if (ForeignBlueprint == nullptr
+        || ForeignBlueprint == TargetBlueprint
+        || Function == nullptr)
+    {
+        OutReason = TEXT("is not a separate Blueprint that defines this function");
+        return false;
+    }
+    if (ForeignGenerated == nullptr || !IsValid(ForeignGenerated))
+    {
+        OutReason = TEXT("has no valid generated class");
+        return false;
+    }
+    if (ForeignGenerated->HasAnyClassFlags(CLASS_NewerVersionExists))
+    {
+        OutReason = TEXT("has a newer class version");
+        return false;
+    }
+    if (ForeignGenerated->FindFunctionByName(Function->GetFName()) == nullptr)
+    {
+        OutReason = FString::Printf(
+            TEXT("no longer defines %s"),
+            *Function->GetName());
+        return false;
+    }
+    return true;
+}
+
 // Fail-closed guard for UE spawner invocation. UE's spawner machinery reaches
 // FMemberReference::SetGivenSelfScope through UK2Node_CallFunction::SetFromFunction
 // and dereferences the function's owner class and the Node's self scope; a stale
@@ -6983,13 +7030,23 @@ bool ValidatePaletteActionForTarget(
                 TEXT("Function Palette action carries an invalid or stale function.");
             return false;
         }
+        FString ForeignReason;
         if (!IsBlueprintOwnedClass(OwnerClass, Blueprint)
             && OwnerClass->ClassGeneratedBy != nullptr
-            && !TargetClassIsChildOf(OwnerClass, Blueprint))
+            && !TargetClassIsChildOf(OwnerClass, Blueprint)
+            && !ForeignBlueprintFunctionResolvable(
+                OwnerClass, Blueprint, Function, ForeignReason))
         {
-            OutMessage = FString::Printf(
-                TEXT("Function Palette action belongs to a different Blueprint (%s)."),
-                *OwnerClass->GetName());
+            const UBlueprint* ForeignBlueprint =
+                Cast<UBlueprint>(OwnerClass->ClassGeneratedBy);
+            OutMessage = ForeignBlueprint != nullptr
+                ? FString::Printf(
+                    TEXT("Function Palette action belongs to Blueprint %s, which %s. Compile that Blueprint and query the Palette again."),
+                    *ForeignBlueprint->GetName(),
+                    *ForeignReason)
+                : FString::Printf(
+                    TEXT("Function Palette action belongs to a different Blueprint (%s)."),
+                    *OwnerClass->GetName());
             return false;
         }
     }
@@ -8638,6 +8695,21 @@ bool FSalGraphInterface::LowerStableReference(
 
 // Patch implementation follows the query implementation so the same live
 // identity, Palette, Pin, and native property helpers are shared.
+
+#if WITH_DEV_AUTOMATION_TESTS
+bool FSalGraphInterface::ForeignBlueprintFunctionResolvableForTesting(
+    const UClass* OwnerClass,
+    const UBlueprint* TargetBlueprint,
+    const UFunction* Function,
+    FString& OutReason)
+{
+    return ForeignBlueprintFunctionResolvable(
+        OwnerClass,
+        TargetBlueprint,
+        Function,
+        OutReason);
+}
+#endif
 
 }
 
