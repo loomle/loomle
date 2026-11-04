@@ -48,6 +48,7 @@
 #include "K2Node_VariableGet.h"
 #include "K2Node_VariableSet.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
+#include "UObject/Interface.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -4677,6 +4678,7 @@ struct FCrossBlueprintScenario
     FRobustGraphFixture Target;
     UEdGraphPin* ObjectPin = nullptr;
     FString Palette;
+    FString PaletteNodeClass;
     TStrongObjectPtr<UBlueprint> RetainTarget;
     TStrongObjectPtr<UBlueprint> RetainForeign;
 
@@ -4702,7 +4704,8 @@ struct FCrossBlueprintScenario
 bool BuildCrossBlueprintScenario(
     FAutomationTestBase& Test,
     FCrossBlueprintScenario& Out,
-    const FString& FunctionSearchText)
+    const FString& FunctionSearchText,
+    const TArray<FString>& NodeClassPaths = {FString(CrossBlueprintCallType)})
 {
     if (!Test.TestTrue(
             TEXT("Cross-Blueprint fixtures are valid"),
@@ -4744,11 +4747,19 @@ bool BuildCrossBlueprintScenario(
     {
         return false;
     }
-    Out.Palette = RobustGraphFindPaletteId(
-        FSalGraphInterface::Query(
-            RobustGraphPaletteFromPin(FunctionSearchText, Out.ObjectPin),
-            RobustGraphTarget(Out.Target.Blueprint, Out.Target.Graph)),
-        CrossBlueprintCallType);
+    for (const FString& NodeClassPath : NodeClassPaths)
+    {
+        Out.Palette = RobustGraphFindPaletteId(
+            FSalGraphInterface::Query(
+                RobustGraphPaletteFromPin(FunctionSearchText, Out.ObjectPin),
+                RobustGraphTarget(Out.Target.Blueprint, Out.Target.Graph)),
+            NodeClassPath);
+        if (!Out.Palette.IsEmpty())
+        {
+            Out.PaletteNodeClass = NodeClassPath;
+            break;
+        }
+    }
     return Test.TestFalse(
         TEXT("Pin Palette exposes the foreign function"), Out.Palette.IsEmpty());
 }
@@ -5386,6 +5397,102 @@ bool FSalRobustGraphCrossBlueprintWidgetCallTest::RunTest(
     }
     RunCrossBlueprintWidgetCase(*this, false, TEXT("function existed at first compile"));
     RunCrossBlueprintWidgetCase(*this, true, TEXT("function added after first compile"));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphCrossBlueprintInterfaceMessageTest,
+    "Loomle.Sal.Robustness.Graph.CrossBlueprintInterfaceMessage",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphCrossBlueprintInterfaceMessageTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(*this, TEXT("cross-Blueprint interface message")))
+    {
+        return false;
+    }
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(TEXT("Interface message isolates Undo history"), Transactions.Initialize()))
+    {
+        return false;
+    }
+    const FString Token = FGuid::NewGuid().ToString(EGuidFormats::Digits);
+    const FName MessageName(TEXT("RobustInterfaceMessage"));
+    UPackage* InterfacePackage = CreatePackage(
+        *FString::Printf(TEXT("/Game/LoomleTests/RobustGraph_%s"), *Token));
+    UBlueprint* Interface = InterfacePackage != nullptr
+        ? FKismetEditorUtilities::CreateBlueprint(
+            UInterface::StaticClass(),
+            InterfacePackage,
+            FName(*FString::Printf(TEXT("BPI_RobustInterface_%s"), *Token)),
+            BPTYPE_Interface,
+            UBlueprint::StaticClass(),
+            UBlueprintGeneratedClass::StaticClass(),
+            NAME_None)
+        : nullptr;
+    FCrossBlueprintScenario Scenario;
+    if (!TestTrue(
+            TEXT("Interface, foreign and target fixtures are valid"),
+            Interface != nullptr && Scenario.Foreign.IsValid() && Scenario.Target.IsValid()))
+    {
+        Transactions.Restore();
+        return false;
+    }
+    UEdGraph* MessageGraph = FBlueprintEditorUtils::CreateNewGraph(
+        Interface, MessageName, UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+    FBlueprintEditorUtils::AddFunctionGraph(
+        Interface, MessageGraph, true, static_cast<UClass*>(nullptr));
+    FKismetEditorUtilities::CompileBlueprint(Interface);
+    TStrongObjectPtr<UBlueprint> RetainInterface(Interface);
+    TestTrue(
+        TEXT("Foreign Blueprint implements the interface"),
+        FBlueprintEditorUtils::ImplementNewInterface(
+            Scenario.Foreign.Blueprint,
+            Interface->GeneratedClass->GetClassPathName()));
+    FKismetEditorUtilities::CompileBlueprint(Scenario.Foreign.Blueprint);
+
+    const TArray<FString> NodeClasses = {
+        TEXT("/Script/BlueprintGraph.K2Node_Message"),
+        FString(CrossBlueprintCallType)};
+    if (BuildCrossBlueprintScenario(*this, Scenario, MessageName.ToString(), NodeClasses))
+    {
+        AddInfo(FString::Printf(
+            TEXT("Interface message Palette Node class: %s"), *Scenario.PaletteNodeClass));
+        Scenario.Target.Package->SetDirtyFlag(false);
+        const int32 SourceNodeCount = Scenario.Target.Graph->Nodes.Num();
+        const TSharedPtr<FJsonObject> DryRun = CrossBlueprintPatch(Scenario, true, 1);
+        const bool bValid = RobustGraphResultBool(DryRun, TEXT("valid"));
+        TestTrue(
+            *FString::Printf(
+                TEXT("Interface message dry run is valid [%s]"),
+                *RobustGraphDiagnosticsText(DryRun)),
+            bValid);
+        TestEqual(TEXT("Dry run leaves the Graph unchanged"), Scenario.Target.Graph->Nodes.Num(), SourceNodeCount);
+        if (bValid)
+        {
+            const TSharedPtr<FJsonObject> Applied = CrossBlueprintPatch(Scenario, false, 1);
+            TestTrue(
+                *FString::Printf(
+                    TEXT("Interface message applies [%s]"),
+                    *RobustGraphDiagnosticsText(Applied)),
+                RobustGraphResultBool(Applied, TEXT("applied")));
+            TestEqual(TEXT("Apply adds exactly one Node"), Scenario.Target.Graph->Nodes.Num(), SourceNodeCount + 1);
+            FKismetEditorUtilities::CompileBlueprint(Scenario.Target.Blueprint);
+            FKismetEditorUtilities::CompileBlueprint(Scenario.Foreign.Blueprint);
+            TestTrue(TEXT("Target compiles without error"), Scenario.Target.Blueprint->Status != BS_Error);
+            TestTrue(TEXT("Foreign compiles without error"), Scenario.Foreign.Blueprint->Status != BS_Error);
+        }
+    }
+
+    Transactions.Restore();
+    RetainInterface.Reset();
+    FString CleanupError;
+    TestTrue(TEXT("Interface scenario unloads"), Scenario.Cleanup(CleanupError));
+    CleanupError.Reset();
+    FBlueprintActionDatabase::Get().ClearAssetActions(Interface);
+    TestTrue(TEXT("Interface unloads"), RobustGraphUnloadPackage(InterfacePackage, CleanupError));
     return true;
 }
 
