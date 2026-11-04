@@ -6931,6 +6931,40 @@ bool TargetClassIsChildOf(
         && TargetClass->IsChildOf(OwnerClass);
 }
 
+// A function owned by another Blueprint can be called from the target when that
+// Blueprint has a valid, current generated Class that still defines the function.
+// Palette actions carry the foreign skeleton Class as owner; UE normalizes it to
+// the authoritative Class when the Node is materialized
+// (FMemberReference::SetGivenSelfScope). See docs/planned/CROSS_BLUEPRINT_CALLS_DESIGN.md.
+bool ForeignBlueprintFunctionResolvable(
+    const UClass* OwnerClass,
+    const UBlueprint* TargetBlueprint,
+    const UFunction* Function,
+    FString& OutReason)
+{
+    OutReason.Reset();
+    const UBlueprint* ForeignBlueprint =
+        OwnerClass != nullptr
+            ? Cast<UBlueprint>(OwnerClass->ClassGeneratedBy)
+            : nullptr;
+    const UClass* ForeignGenerated =
+        ForeignBlueprint != nullptr
+            ? ForeignBlueprint->GeneratedClass.Get()
+            : nullptr;
+    if (ForeignBlueprint == nullptr
+        || ForeignBlueprint == TargetBlueprint
+        || Function == nullptr
+        || ForeignGenerated == nullptr
+        || !IsValid(ForeignGenerated)
+        || ForeignGenerated->HasAnyClassFlags(CLASS_NewerVersionExists)
+        || ForeignGenerated->FindFunctionByName(Function->GetFName()) == nullptr)
+    {
+        OutReason = TEXT("has no usable generated class for this function");
+        return false;
+    }
+    return true;
+}
+
 // Fail-closed guard for UE spawner invocation. UE's spawner machinery reaches
 // FMemberReference::SetGivenSelfScope through UK2Node_CallFunction::SetFromFunction
 // and dereferences the function's owner class and the Node's self scope; a stale
@@ -6983,9 +7017,12 @@ bool ValidatePaletteActionForTarget(
                 TEXT("Function Palette action carries an invalid or stale function.");
             return false;
         }
+        FString ForeignReason;
         if (!IsBlueprintOwnedClass(OwnerClass, Blueprint)
             && OwnerClass->ClassGeneratedBy != nullptr
-            && !TargetClassIsChildOf(OwnerClass, Blueprint))
+            && !TargetClassIsChildOf(OwnerClass, Blueprint)
+            && !ForeignBlueprintFunctionResolvable(
+                OwnerClass, Blueprint, Function, ForeignReason))
         {
             OutMessage = FString::Printf(
                 TEXT("Function Palette action belongs to a different Blueprint (%s)."),
