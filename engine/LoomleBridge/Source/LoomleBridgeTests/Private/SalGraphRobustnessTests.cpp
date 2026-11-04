@@ -5094,10 +5094,20 @@ void RunCrossBlueprintStaleCase(
     const EStaleCase Case,
     const TCHAR* Label)
 {
+    // Restored before cleanup so the isolated Undo buffer cannot keep the
+    // fixtures loaded.
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!Test.TestTrue(
+            *FString::Printf(TEXT("%s: isolates Undo history"), Label),
+            Transactions.Initialize()))
+    {
+        return;
+    }
     FCrossBlueprintScenario Scenario;
     if (!BuildCrossBlueprintScenario(
             Test, Scenario, Scenario.Foreign.SelfFunctionName.ToString()))
     {
+        Transactions.Restore();
         FString Ignored;
         Scenario.Cleanup(Ignored);
         return;
@@ -5142,6 +5152,7 @@ void RunCrossBlueprintStaleCase(
             Test.AddInfo(FString::Printf(
                 TEXT("%s: foreign Blueprint stayed loaded (%s); case not exercised"),
                 Label, *UnloadError));
+            Transactions.Restore();
             FString Ignored;
             Scenario.Cleanup(Ignored);
             return;
@@ -5167,6 +5178,16 @@ void RunCrossBlueprintStaleCase(
     if (bExpectValid)
     {
         Test.TestTrue(*FString::Printf(TEXT("%s: dry run is valid [%s]"), Label, *Diagnostics), bValid);
+    }
+    else if (Case == EStaleCase::FunctionRemoved || Case == EStaleCase::ForeignUnloaded)
+    {
+        // The Palette entry is gone, so the request never reaches the guard.
+        Test.TestFalse(
+            *FString::Printf(TEXT("%s: dry run is rejected [%s]"), Label, *Diagnostics),
+            bValid);
+        Test.TestTrue(
+            *FString::Printf(TEXT("%s: rejection is resolution.palette_not_found [%s]"), Label, *Diagnostics),
+            RobustGraphHasDiagnosticCode(DryRun, TEXT("resolution.palette_not_found")));
     }
     else if (!bValid)
     {
@@ -5203,8 +5224,11 @@ void RunCrossBlueprintStaleCase(
             *FString::Printf(TEXT("%s: target compiles without error"), Label),
             Scenario.Target.Blueprint->Status != BS_Error);
     }
+    Transactions.Restore();
     FString CleanupError;
-    Scenario.Cleanup(CleanupError);
+    Test.TestTrue(
+        *FString::Printf(TEXT("%s: scenario unloads (%s)"), Label, *CleanupError),
+        Scenario.Cleanup(CleanupError));
 }
 }
 
@@ -5221,12 +5245,6 @@ bool FSalRobustGraphCrossBlueprintStaleActionTest::RunTest(
     {
         return false;
     }
-    Loomle::Tests::FScopedIsolatedTransactor Transactions;
-    if (!TestTrue(TEXT("Stale-action test isolates Undo history"), Transactions.Initialize()))
-    {
-        return false;
-    }
-    ON_SCOPE_EXIT { Transactions.Restore(); };
     RunCrossBlueprintStaleCase(*this, EStaleCase::RecompileUnchanged, TEXT("recompiled foreign"));
     RunCrossBlueprintStaleCase(*this, EStaleCase::FunctionRemoved, TEXT("removed function"));
     RunCrossBlueprintStaleCase(*this, EStaleCase::SignatureChanged, TEXT("changed signature"));
@@ -5493,6 +5511,107 @@ bool FSalRobustGraphCrossBlueprintInterfaceMessageTest::RunTest(
     CleanupError.Reset();
     FBlueprintActionDatabase::Get().ClearAssetActions(Interface);
     TestTrue(TEXT("Interface unloads"), RobustGraphUnloadPackage(InterfacePackage, CleanupError));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FSalRobustGraphCrossBlueprintParentFunctionTest,
+    "Loomle.Sal.Robustness.Graph.CrossBlueprintParentFunction",
+    EAutomationTestFlags::EditorContext
+        | EAutomationTestFlags::EngineFilter)
+
+bool FSalRobustGraphCrossBlueprintParentFunctionTest::RunTest(
+    const FString& Parameters)
+{
+    if (!RobustGraphRequireIdleEditor(*this, TEXT("inherited Blueprint function")))
+    {
+        return false;
+    }
+    Loomle::Tests::FScopedIsolatedTransactor Transactions;
+    if (!TestTrue(TEXT("Inherited function isolates Undo history"), Transactions.Initialize()))
+    {
+        return false;
+    }
+    FDryRunFunctionFixture Parent;
+    const FString Token = FGuid::NewGuid().ToString(EGuidFormats::Digits);
+    UPackage* ChildPackage = Parent.IsValid()
+        ? CreatePackage(*FString::Printf(TEXT("/Game/LoomleTests/RobustGraph_%s"), *Token))
+        : nullptr;
+    UBlueprint* Child = ChildPackage != nullptr
+        ? FKismetEditorUtilities::CreateBlueprint(
+            Parent.Blueprint->GeneratedClass,
+            ChildPackage,
+            FName(*FString::Printf(TEXT("BP_RobustChild_%s"), *Token)),
+            BPTYPE_Normal,
+            UBlueprint::StaticClass(),
+            UBlueprintGeneratedClass::StaticClass(),
+            NAME_None)
+        : nullptr;
+    if (!TestNotNull(TEXT("Child Blueprint of the parent Blueprint is created"), Child))
+    {
+        Transactions.Restore();
+        return false;
+    }
+    UEdGraph* ChildGraph = FBlueprintEditorUtils::FindEventGraph(Child);
+    FKismetEditorUtilities::CompileBlueprint(Child);
+    TStrongObjectPtr<UBlueprint> RetainChild(Child);
+    TStrongObjectPtr<UBlueprint> RetainParent(Parent.Blueprint);
+    FBlueprintActionDatabase::Get().RefreshAssetActions(Parent.Blueprint);
+    FBlueprintActionDatabase::Get().RefreshAssetActions(Child);
+
+    FSalQuery Query = RobustGraphQuery(TEXT("palette_entries"));
+    Query.Operation->SetStringField(TEXT("text"), Parent.SelfFunctionName.ToString());
+    Query.PageLimit = 50;
+    const FString Palette = RobustGraphFindPaletteId(
+        FSalGraphInterface::Query(Query, RobustGraphTarget(Child, ChildGraph)),
+        CrossBlueprintCallType);
+    if (TestFalse(TEXT("Inherited function is discoverable on the child"), Palette.IsEmpty()))
+    {
+        const auto Statements = [&Palette]()
+        {
+            return TArray<TSharedPtr<FJsonValue>>{
+                RobustGraphPublicPaletteBinding(TEXT("InheritedCall"), Palette),
+                RobustGraphUnary(TEXT("add"), RobustGraphLocal(TEXT("InheritedCall")))};
+        };
+        const int32 SourceNodeCount = ChildGraph->Nodes.Num();
+        const TSharedPtr<FJsonObject> DryRun =
+            RobustGraphPublicPatch(Child, ChildGraph, true, Statements());
+        TestTrue(
+            *FString::Printf(
+                TEXT("Inherited function dry run is valid [%s]"),
+                *RobustGraphDiagnosticsText(DryRun)),
+            RobustGraphResultBool(DryRun, TEXT("valid")));
+        if (RobustGraphResultBool(DryRun, TEXT("valid")))
+        {
+            const TSharedPtr<FJsonObject> Applied =
+                RobustGraphPublicPatch(Child, ChildGraph, false, Statements());
+            TestTrue(TEXT("Inherited function call applies"), RobustGraphResultBool(Applied, TEXT("applied")));
+            TestEqual(TEXT("Apply adds exactly one Node"), ChildGraph->Nodes.Num(), SourceNodeCount + 1);
+            FGuid NodeGuid;
+            const UK2Node_CallFunction* Call =
+                FGuid::Parse(RobustGraphResolvedRef(Applied, TEXT("InheritedCall")), NodeGuid)
+                    ? Cast<UK2Node_CallFunction>(
+                        FRobustGraphFixture::FindNodeByGuid(ChildGraph, NodeGuid))
+                    : nullptr;
+            if (TestNotNull(TEXT("Inherited call Node materializes"), Call))
+            {
+                TestTrue(
+                    TEXT("Inherited call is a self-context reference, as in the Blueprint editor"),
+                    Call->FunctionReference.IsSelfContext());
+            }
+            FKismetEditorUtilities::CompileBlueprint(Child);
+            TestTrue(TEXT("Child compiles without error"), Child->Status != BS_Error);
+        }
+    }
+
+    Transactions.Restore();
+    RetainChild.Reset();
+    RetainParent.Reset();
+    FBlueprintActionDatabase::Get().ClearAssetActions(Child);
+    FString CleanupError;
+    TestTrue(TEXT("Child Blueprint unloads"), RobustGraphUnloadPackage(ChildPackage, CleanupError));
+    CleanupError.Reset();
+    TestTrue(TEXT("Parent Blueprint unloads"), Parent.Cleanup(CleanupError));
     return true;
 }
 

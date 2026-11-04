@@ -2,9 +2,9 @@
 
 ## Status and baseline
 
-- Status: implemented on the fork branch and verified on UE 5.7.4 and UE 5.8.4
-  (Windows), 2026-11-04: 214 of 214 `Loomle` Automation tests pass on each
-  (207 before). Upstream submission is pending. Tests are in
+- Status: implemented on the fork branch and verified on Windows, 2026-11-04: 215 of 215 `Loomle` Automation tests pass on UE 5.7.4 (207 before); UE 5.8.4
+  passed 214 of 214 before the last test-only addition. Upstream submission is
+  pending. Tests are in
   `SalGraphRobustnessTests.cpp` (`Loomle.Sal.Robustness.Graph.CrossBlueprint*`);
   coverage is recorded in `docs/UE_AUTOMATION_COVERAGE.md`.
 - Baseline: Loomle 0.7.16 (`c1dae30`), Bridge protocol 6, UE 5.7.4 on Windows.

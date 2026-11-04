@@ -1362,7 +1362,13 @@ machinery reaches `FMemberReference::SetGivenSelfScope` through
 `UK2Node_CallFunction::SetFromFunction` and dereferences the function's owner
 class and the Node's self scope; a stale or foreign owner class crashes the
 Editor inside UE. Validation therefore requires the action's member owner to be
-either a native class or a class owned by the Target Blueprint, requires the
+a native class, a class owned by the Target Blueprint, or a class of another
+Blueprint that resolves for a function call (Issue #198): that Blueprint must
+have a valid, current generated class that still defines the function, because
+Palette actions carry the foreign skeleton class and UE normalizes it to the
+authoritative class when the Node is created. Foreign Blueprint variable
+actions are not admitted. The rule and its verification are recorded in
+`docs/planned/CROSS_BLUEPRINT_CALLS_DESIGN.md`. Validation also requires the
 Target Graph to be owned by the Target Blueprint, and requires a generated or
 skeleton class to resolve the Node's self scope. A binding that fails these
 checks reports `resolution.palette_not_spawnable`; an `add` or `insert` that

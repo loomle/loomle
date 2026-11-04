@@ -246,6 +246,8 @@ robustness run covers:
 - the exact Issue #198 shape: a Widget Blueprint function reached from the
   `ReturnValue` Pin of a `Create Widget` Node, both when the function existed at
   the first compile and when it was added afterwards;
+- a function defined in a parent Blueprint and called from its child Blueprint,
+  which stays a self-context reference as in the Blueprint editor;
 - a Blueprint Interface message reached through an implementing Blueprint,
   exposed as a `K2Node_Message` Palette action;
 - a foreign Blueprint recompiled between the Palette query and the Patch, a
@@ -260,10 +262,11 @@ robustness run covers:
 
 Foreign Blueprint variable Nodes stay rejected and remain covered by
 `ForeignVariablePreflightDiagnostic`. Forcing the resolution helper to refuse
-makes all seven new tests fail. The complete Windows UE 5.7.4 run and the
-complete UE 5.8.4 run (plugin built with `BuildPlugin`, minimal host project)
-each passed 214 of 214 tests (207 before this change) with no failure,
-assertion, or crash.
+makes the seven tests that existed at that point fail. The final Windows UE 5.7.4
+run passed 215 of 215 tests (207 before this change). The UE 5.8.4 run (plugin
+built with `BuildPlugin`, minimal host project) passed 214 of 214 on the commit
+before the inherited-function test was added; production code is unchanged
+since. No run showed a failure, assertion, or crash.
 
 ## Subsystem Palette Identity Audit (Issue #196)
 
