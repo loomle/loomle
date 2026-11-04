@@ -29,3 +29,7 @@ Current planned designs:
 - `PYTHON_FALLBACK_DESIGN.md`: confirmed high-privilege Unreal Editor Python
   `run`/`poll` fallback contract, explicit PIE/SIE workflow boundary, and the
   planned `sal.object()` projection extension.
+- `CROSS_BLUEPRINT_CALLS_DESIGN.md`: spawn resolution for Blueprint-defined
+  function and interface calls that target another Blueprint (`#198`); foreign
+  variables and the compile-after-refused-preflight crash are explicitly out of
+  scope.
